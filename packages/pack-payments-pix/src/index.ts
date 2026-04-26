@@ -10,10 +10,7 @@
  */
 
 import { staticPlanner, type PackV0, type PolicyBundle } from "@adjudicate/core";
-
 import {
-  PIX_CHARGE_CONFIRMED_SIGNAL,
-  PIX_CHARGE_DEFER_TIMEOUT_MS,
   pixTaintPolicy,
   type PixContext,
   type PixIntentKind,

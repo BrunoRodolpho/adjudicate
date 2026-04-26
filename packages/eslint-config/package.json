@@ -2,12 +2,15 @@
   "name": "@adjudicate/eslint-config",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
   "dependencies": {
-    "@eslint/eslintrc": "^3.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.57.0",
-    "@typescript-eslint/parser": "^8.57.0",
-    "eslint-plugin-import": "^2.29.0"
+    "@eslint/js": "^9.0.0",
+    "eslint-plugin-import": "^2.31.0",
+    "typescript-eslint": "^8.0.0"
   },
   "peerDependencies": {
     "eslint": "^9.0.0",

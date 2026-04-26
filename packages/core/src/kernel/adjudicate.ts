@@ -25,7 +25,6 @@ import {
   type Decision,
 } from "../decision.js";
 import {
-  hasUnknownEnvelopeVersion,
   INTENT_ENVELOPE_VERSION,
   type IntentEnvelope,
 } from "../envelope.js";

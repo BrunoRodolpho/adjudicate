@@ -26,7 +26,7 @@
   },
   "scripts": {
     "build": "tsc --outDir dist",
-    "lint": "tsc --noEmit",
+    "lint": "tsc --noEmit && eslint \"src/**/*.ts\"",
     "test": "vitest run",
     "test:invariants": "vitest run tests/kernel/invariants/"
   },

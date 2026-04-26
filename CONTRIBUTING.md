@@ -35,7 +35,7 @@ welcome.
 ## Setup
 
 ```bash
-git clone https://github.com/<TBD>/adjudicate.git
+git clone https://github.com/BrunoRodolpho/adjudicate.git
 cd adjudicate
 pnpm install
 pnpm test

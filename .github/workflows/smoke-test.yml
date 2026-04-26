@@ -1,0 +1,56 @@
+name: Smoke Test (installability)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to smoke-test (e.g. 0.1.0-experimental)"
+        required: true
+        default: "0.1.0-experimental"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Fresh-project install + import
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # Strip leading 'v' from the release tag if present
+            tag="${{ github.event.release.tag_name }}"
+            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install in a fresh empty project
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/adj-smoke && cd /tmp/adj-smoke
+          npm init -y
+          npm install \
+            "@adjudicate/core@${{ steps.ver.outputs.version }}" \
+            "@adjudicate/runtime@${{ steps.ver.outputs.version }}" \
+            "@adjudicate/audit@${{ steps.ver.outputs.version }}" \
+            "@adjudicate/audit-postgres@${{ steps.ver.outputs.version }}"
+
+      - name: Import smoke test
+        working-directory: /tmp/adj-smoke
+        run: |
+          node --input-type=module -e "
+          import { adjudicate } from '@adjudicate/core/kernel';
+          import { buildEnvelope } from '@adjudicate/core';
+          if (typeof adjudicate !== 'function') { console.error('adjudicate not a function'); process.exit(1); }
+          if (typeof buildEnvelope !== 'function') { console.error('buildEnvelope not a function'); process.exit(1); }
+          console.log('OK: adjudicate=' + typeof adjudicate + ' buildEnvelope=' + typeof buildEnvelope);
+          "

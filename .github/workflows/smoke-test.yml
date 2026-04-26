@@ -1,48 +1,102 @@
 name: Smoke Test (installability)
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to smoke-test (e.g. 0.1.0-experimental)"
-        required: true
-        default: "0.1.0-experimental"
+        description: "npm-registry version to smoke-test (leave blank for pnpm-pack mode)"
+        required: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   smoke:
     name: Fresh-project install + import
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
 
-      - name: Resolve version
-        id: ver
+      - name: Determine mode
+        id: mode
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+            echo "mode=published" >> "$GITHUB_OUTPUT"
+            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
+            echo "mode=published" >> "$GITHUB_OUTPUT"
             echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           else
-            # Strip leading 'v' from the release tag if present
-            tag="${{ github.event.release.tag_name }}"
-            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+            echo "mode=pnpm-pack" >> "$GITHUB_OUTPUT"
           fi
+          echo "Selected mode: $(cat $GITHUB_OUTPUT)"
 
-      - name: Install in a fresh empty project
+      # ---- pnpm-pack mode: build + pack tarballs from this checkout ----
+
+      - name: Install workspace dependencies
+        if: steps.mode.outputs.mode == 'pnpm-pack'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build kernel packages
+        if: steps.mode.outputs.mode == 'pnpm-pack'
+        run: pnpm build
+
+      - name: Pack kernel packages to tarballs
+        if: steps.mode.outputs.mode == 'pnpm-pack'
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/adj-tarballs
+          for pkg in core runtime audit audit-postgres; do
+            (cd "packages/$pkg" && pnpm pack --pack-destination /tmp/adj-tarballs)
+          done
+          ls -la /tmp/adj-tarballs
+
+      - name: Install tarballs into a fresh empty project
+        if: steps.mode.outputs.mode == 'pnpm-pack'
         run: |
           set -euxo pipefail
           mkdir -p /tmp/adj-smoke && cd /tmp/adj-smoke
-          npm init -y
+          npm init -y >/dev/null
           npm install \
-            "@adjudicate/core@${{ steps.ver.outputs.version }}" \
-            "@adjudicate/runtime@${{ steps.ver.outputs.version }}" \
-            "@adjudicate/audit@${{ steps.ver.outputs.version }}" \
-            "@adjudicate/audit-postgres@${{ steps.ver.outputs.version }}"
+            /tmp/adj-tarballs/adjudicate-core-*.tgz \
+            /tmp/adj-tarballs/adjudicate-runtime-*.tgz \
+            /tmp/adj-tarballs/adjudicate-audit-*.tgz \
+            /tmp/adj-tarballs/adjudicate-audit-postgres-*.tgz
+          ls node_modules/@adjudicate/
+
+      # ---- published mode: install from npm registry ----
+
+      - name: Install from npm registry
+        if: steps.mode.outputs.mode == 'published'
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/adj-smoke && cd /tmp/adj-smoke
+          npm init -y >/dev/null
+          npm install \
+            "@adjudicate/core@${{ steps.mode.outputs.version }}" \
+            "@adjudicate/runtime@${{ steps.mode.outputs.version }}" \
+            "@adjudicate/audit@${{ steps.mode.outputs.version }}" \
+            "@adjudicate/audit-postgres@${{ steps.mode.outputs.version }}"
+          ls node_modules/@adjudicate/
+
+      # ---- shared: import the public surface and assert types ----
 
       - name: Import smoke test
         working-directory: /tmp/adj-smoke

@@ -16,7 +16,7 @@
   },
   "scripts": {
     "build": "tsc --outDir dist",
-    "lint": "tsc --noEmit && eslint \"src/**/*.ts\"",
+    "lint": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {

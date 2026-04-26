@@ -29,7 +29,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint (typecheck + eslint)
+      - name: Build (workspace packages — types needed for typecheck/test)
+        run: pnpm build
+
+      - name: Lint (typecheck)
         run: pnpm lint
 
       - name: Test

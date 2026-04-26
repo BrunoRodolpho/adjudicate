@@ -7,7 +7,7 @@
  * ran, not only the one that made the final call.
  */
 
-import { basis, BASIS_CODES, type DecisionBasis } from "@adjudicate/intent-core";
+import { basis, BASIS_CODES, type DecisionBasis } from "../basis-codes.js";
 
 type PassCategory = "state" | "auth" | "taint" | "business";
 

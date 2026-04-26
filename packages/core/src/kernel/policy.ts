@@ -11,11 +11,9 @@
  * continue evaluating." A non-null Decision short-circuits.
  */
 
-import type {
-  Decision,
-  IntentEnvelope,
-  TaintPolicy,
-} from "@adjudicate/intent-core";
+import type { Decision } from "../decision.js";
+import type { IntentEnvelope } from "../envelope.js";
+import type { TaintPolicy } from "../taint.js";
 
 export type Guard<K extends string, P, S> = (
   envelope: IntentEnvelope<K, P>,

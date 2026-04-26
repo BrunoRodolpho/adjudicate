@@ -17,19 +17,19 @@
  * Each guard returning null contributes a "pass" basis to the final decision.
  */
 
+import { basis, BASIS_CODES, type DecisionBasis } from "../basis-codes.js";
+import { canPropose } from "../taint.js";
 import {
-  basis,
-  BASIS_CODES,
-  canPropose,
   decisionExecute,
   decisionRefuse,
+  type Decision,
+} from "../decision.js";
+import {
   hasUnknownEnvelopeVersion,
   INTENT_ENVELOPE_VERSION,
-  refuse,
-  type Decision,
-  type DecisionBasis,
   type IntentEnvelope,
-} from "@adjudicate/intent-core";
+} from "../envelope.js";
+import { refuse } from "../refusal.js";
 import type { PolicyBundle } from "./policy.js";
 import { makePassBasis } from "./basis.js";
 

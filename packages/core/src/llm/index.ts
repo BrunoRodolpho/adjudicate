@@ -1,4 +1,4 @@
-// @adjudicate/intent-llm — capability planner + prompt renderer + tool classification.
+// @adjudicate/core/llm — capability planner + prompt renderer + tool classification.
 
 export {
   staticPlanner,

@@ -15,7 +15,7 @@ import {
   buildEnvelope,
   INTENT_ENVELOPE_VERSION,
   type IntentEnvelope,
-} from "@adjudicate/intent-core";
+} from "@adjudicate/core";
 import { adjudicate } from "../../src/adjudicate.js";
 import type { PolicyBundle } from "../../src/policy.js";
 

@@ -17,7 +17,7 @@ import {
   type IntentEnvelope,
   type Taint,
   type TaintPolicy,
-} from "@adjudicate/intent-core";
+} from "@adjudicate/core";
 import { adjudicate } from "../../src/adjudicate.js";
 import type { PolicyBundle } from "../../src/policy.js";
 

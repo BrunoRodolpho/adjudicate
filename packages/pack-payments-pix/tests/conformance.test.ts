@@ -49,22 +49,44 @@ describe("paymentsPixPack — PackV0 conformance", () => {
     );
   });
 
-  test("planner exposes only LLM-proposable intents (no webhook intent)", () => {
-    const plan = paymentsPixPack.planner.plan(
+  test("planner exposes create when no charges; refund only when there's a confirmed one", () => {
+    const emptyState = paymentsPixPack.planner.plan(
       { charges: new Map() },
       { customerId: "c-1", merchantId: "m-1" },
     );
-    expect(plan.allowedIntents).toContain("pix.charge.create");
-    expect(plan.allowedIntents).toContain("pix.charge.refund");
-    expect(plan.allowedIntents).not.toContain("pix.charge.confirm");
+    expect(emptyState.allowedIntents).toContain("pix.charge.create");
+    expect(emptyState.allowedIntents).not.toContain("pix.charge.refund");
+    expect(emptyState.allowedIntents).not.toContain("pix.charge.confirm");
+
+    const withConfirmed = paymentsPixPack.planner.plan(
+      {
+        charges: new Map([
+          [
+            "cha-1",
+            {
+              id: "cha-1",
+              amountCentavos: 1000,
+              status: "confirmed",
+              createdAt: "2026-04-26T00:00:00.000Z",
+            },
+          ],
+        ]),
+      },
+      { customerId: "c-1", merchantId: "m-1" },
+    );
+    expect(withConfirmed.allowedIntents).toContain("pix.charge.create");
+    expect(withConfirmed.allowedIntents).toContain("pix.charge.refund");
+    // The webhook intent is NEVER LLM-proposable, regardless of state.
+    expect(withConfirmed.allowedIntents).not.toContain("pix.charge.confirm");
   });
 
-  test("declares basisCodes the (eventual) policy will emit", () => {
+  test("declares the refusal-code taxonomy the policy emits", () => {
     expect(paymentsPixPack.basisCodes.length).toBeGreaterThan(0);
-    // Spot-check a few that the next iteration's guards will produce.
-    expect(paymentsPixPack.basisCodes).toContain("pix.charge.refunded");
+    // Spot-check the codes the policy actually returns at runtime.
+    expect(paymentsPixPack.basisCodes).toContain("pix.charge.not_found");
+    expect(paymentsPixPack.basisCodes).toContain("pix.charge.amount_invalid");
     expect(paymentsPixPack.basisCodes).toContain(
-      "pix.charge.refund_clamped_to_original",
+      "pix.charge.already_refunded",
     );
   });
 });

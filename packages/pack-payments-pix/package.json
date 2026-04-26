@@ -1,0 +1,33 @@
+{
+  "name": "@adjudicate/pack-payments-pix",
+  "version": "0.1.0-experimental",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --outDir dist",
+    "lint": "tsc --noEmit && eslint \"src/**/*.ts\"",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@adjudicate/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@adjudicate/eslint-config": "workspace:*",
+    "@eslint/eslintrc": "^3.0.0",
+    "@vitest/coverage-v8": "^3.2.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

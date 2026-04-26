@@ -134,10 +134,16 @@ const decision = adjudicate(envelope, { ptoBalance: 10 }, policy);
 
 ## Status
 
-`v0.1.0` — pre-stable. The 5 headline interfaces (`IntentEnvelope`,
-`Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) are
-considered stable. The integration surface (subpath exports, peer deps,
-error shapes) may shift before `v1.0.0`.
+> **`v0.1.0-experimental` — kernel only. Code complete; npm publish pending `@adjudicate` org claim.**
+
+**What works today:**
+- Kernel + runtime + audit packages — installable from this repo, all tests green.
+- Both reference examples (`vacation-approval`, `commerce-reference`) exercise the full Decision algebra including DEFER + signal resume.
+- Property tests cover the kernel's load-bearing invariants (taint monotonicity, intentHash determinism, basis vocabulary purity).
+
+**What's coming:** Domain Packs (`@adjudicate/pack-payments-pix` first), channel adapters, an observability dashboard, and a governance layer. Tracked in [issues](https://github.com/BrunoRodolpho/adjudicate/issues).
+
+**Not for production yet.** The integration surface (subpath exports, peer deps, error shapes) may shift before `v1.0.0`. The 5 headline interfaces (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) are considered API-stable; everything else may shift.
 
 ## Documentation
 
@@ -156,6 +162,4 @@ coverage, or improve the docs are especially welcome.
 
 ## License
 
-[Apache-2.0](./LICENSE) — patent grant matters for an adversarial-security
-framework, and it matches LangChain / Mastra / Microsoft Agent Governance
-Toolkit.
+[MIT](./LICENSE)

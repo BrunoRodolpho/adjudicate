@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/core",
-  "version": "0.1.0",
+  "version": "0.1.0-experimental",
   "publishConfig": {
     "access": "public"
   },
@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.0.0",
-    "@ibatexas/eslint-config": "workspace:*",
+    "@adjudicate/eslint-config": "workspace:*",
     "@vitest/coverage-v8": "^3.2.0",
     "eslint": "^9.0.0",
     "fast-check": "^3.23.1",

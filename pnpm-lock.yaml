@@ -194,6 +194,9 @@ importers:
       '@adjudicate/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
+      '@adjudicate/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@eslint/eslintrc':
         specifier: ^3.0.0
         version: 3.3.5

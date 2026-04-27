@@ -52,6 +52,31 @@ export const refuseInvalidStateForConfirm = (
     `chargeId=${chargeId} status=${status}`,
   );
 
+export const refuseChargeExpired = (chargeId: string): Refusal =>
+  refuse(
+    "STATE",
+    "pix.charge.expired",
+    "This PIX charge has expired. Generate a new QR to continue.",
+    `chargeId=${chargeId}`,
+  );
+
+export const refuseChargeFailed = (chargeId: string): Refusal =>
+  refuse(
+    "STATE",
+    "pix.charge.failed",
+    "This PIX charge failed. Please try again.",
+    `chargeId=${chargeId}`,
+  );
+
+// ── Auth refusals ───────────────────────────────────────────────────────
+
+export const refuseConfirmRequiresWebhook = (): Refusal =>
+  refuse(
+    "AUTH",
+    "pix.charge.confirm_requires_webhook",
+    "PIX confirmation must come from the payment provider.",
+  );
+
 // ── Business refusals ───────────────────────────────────────────────────
 
 export const refuseInvalidAmount = (amount: unknown): Refusal =>
@@ -60,4 +85,12 @@ export const refuseInvalidAmount = (amount: unknown): Refusal =>
     "pix.charge.amount_invalid",
     "The charge amount must be a positive integer in centavos.",
     `amount=${String(amount)}`,
+  );
+
+export const refuseRateLimitExceeded = (count: number, cap: number): Refusal =>
+  refuse(
+    "BUSINESS_RULE",
+    "pix.charge.rate_limit_exceeded",
+    "Too many payment attempts. Wait a few minutes before retrying.",
+    `count=${count}, cap=${cap}`,
   );

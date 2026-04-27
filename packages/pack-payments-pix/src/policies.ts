@@ -30,8 +30,8 @@ import {
 } from "@adjudicate/core";
 import type { Guard, PolicyBundle } from "@adjudicate/core/kernel";
 import {
-  PIX_CHARGE_CONFIRMED_SIGNAL,
-  PIX_CHARGE_DEFER_TIMEOUT_MS,
+  PIX_CONFIRMATION_SIGNAL,
+  PIX_DEFAULT_DEFER_TIMEOUT_MS,
   pixTaintPolicy,
   type PixIntentKind,
   type PixState,
@@ -60,6 +60,30 @@ export const ESCALATE_REFUND_THRESHOLD_CENTAVOS = 100_000;
 export const CONFIRM_REFUND_THRESHOLD_CENTAVOS = 50_000;
 
 // ── State guards ────────────────────────────────────────────────────────
+
+/**
+ * ESCALATE: a confirm event landing on a charge already marked `failed`
+ * can't be auto-handled. A human reviews the provider event vs the local
+ * record before any further action. Runs BEFORE `validateConfirmTarget`
+ * so the not-pending status produces the operationally-correct outcome.
+ */
+const escalateFailedConfirm: PixGuard = (envelope, state) => {
+  if (envelope.kind !== "pix.charge.confirm") return null;
+  const { chargeId } = envelope.payload as { chargeId: string };
+  const charge = state.charges.get(chargeId);
+  if (!charge || charge.status !== "failed") return null;
+  return decisionEscalate(
+    "human",
+    `Confirm event arrived for charge ${chargeId} marked as failed; manual review required.`,
+    [
+      basis("state", BASIS_CODES.state.TERMINAL_STATE, {
+        reason: "confirm_on_failed_charge",
+        chargeId,
+        status: charge.status,
+      }),
+    ],
+  );
+};
 
 const validateConfirmTarget: PixGuard = (envelope, state) => {
   if (envelope.kind !== "pix.charge.confirm") return null;
@@ -209,12 +233,12 @@ const requestConfirmForMediumRefund: PixGuard = (envelope) => {
 const deferChargeCreate: PixGuard = (envelope) => {
   if (envelope.kind !== "pix.charge.create") return null;
   return decisionDefer(
-    PIX_CHARGE_CONFIRMED_SIGNAL,
-    PIX_CHARGE_DEFER_TIMEOUT_MS,
+    PIX_CONFIRMATION_SIGNAL,
+    PIX_DEFAULT_DEFER_TIMEOUT_MS,
     [
       basis("state", BASIS_CODES.state.TRANSITION_VALID, {
         reason: "awaiting_provider_confirmation",
-        waitFor: PIX_CHARGE_CONFIRMED_SIGNAL,
+        waitFor: PIX_CONFIRMATION_SIGNAL,
       }),
     ],
   );
@@ -259,7 +283,11 @@ export const pixPolicyBundle: PolicyBundle<
   unknown,
   PixState
 > = {
-  stateGuards: [validateConfirmTarget, validateRefundTarget],
+  stateGuards: [
+    escalateFailedConfirm,
+    validateConfirmTarget,
+    validateRefundTarget,
+  ],
   authGuards: [],
   taint: pixTaintPolicy,
   business: [

@@ -13,6 +13,9 @@ export default defineConfig({
       "@adjudicate/core": fileURLToPath(
         new URL("../core/src/index.ts", import.meta.url),
       ),
+      "@adjudicate/runtime": fileURLToPath(
+        new URL("../runtime/src/index.ts", import.meta.url),
+      ),
     },
   },
 });

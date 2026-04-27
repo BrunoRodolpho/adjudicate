@@ -13,8 +13,8 @@ import { buildEnvelope, type IntentEnvelope } from "@adjudicate/core";
 import {
   CONFIRM_REFUND_THRESHOLD_CENTAVOS,
   ESCALATE_REFUND_THRESHOLD_CENTAVOS,
-  PIX_CHARGE_CONFIRMED_SIGNAL,
-  PIX_CHARGE_DEFER_TIMEOUT_MS,
+  PIX_CONFIRMATION_SIGNAL,
+  PIX_DEFAULT_DEFER_TIMEOUT_MS,
   pixPolicyBundle,
   type PixCharge,
   type PixIntentKind,
@@ -244,8 +244,8 @@ describe("pack-payments-pix — six Decision outcomes", () => {
     );
     expect(decision.kind).toBe("DEFER");
     if (decision.kind !== "DEFER") return;
-    expect(decision.signal).toBe(PIX_CHARGE_CONFIRMED_SIGNAL);
-    expect(decision.timeoutMs).toBe(PIX_CHARGE_DEFER_TIMEOUT_MS);
+    expect(decision.signal).toBe(PIX_CONFIRMATION_SIGNAL);
+    expect(decision.timeoutMs).toBe(PIX_DEFAULT_DEFER_TIMEOUT_MS);
   });
 });
 
@@ -264,7 +264,7 @@ describe("pack-payments-pix — DEFER round-trip + taint security", () => {
     expect(createDecision.kind).toBe("DEFER");
 
     // (Adopter would: park the envelope keyed by intent hash, await the
-    //  PIX_CHARGE_CONFIRMED_SIGNAL via @adjudicate/runtime's
+    //  PIX_CONFIRMATION_SIGNAL via @adjudicate/runtime's
     //  resumeDeferredIntent, then synthesize a TRUSTED pix.charge.confirm
     //  intent from the webhook payload.)
 

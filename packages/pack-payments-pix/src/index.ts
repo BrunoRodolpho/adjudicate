@@ -2,10 +2,23 @@
  * @adjudicate/pack-payments-pix — lighthouse Pack for the adjudicate platform.
  *
  * Async PIX payment lifecycle that exercises all six Decision outcomes:
- * REWRITE (refund cap), DEFER (awaiting webhook), ESCALATE (large refund),
- * REQUEST_CONFIRMATION (medium refund), REFUSE (charge-not-found / not-
- * confirmed / already-refunded / amount-invalid), and EXECUTE (valid confirm
- * or small refund).
+ * REWRITE (refund cap), DEFER (awaiting webhook), ESCALATE (large refund OR
+ * confirm-on-failed), REQUEST_CONFIRMATION (medium refund), REFUSE (charge-
+ * not-found / not-confirmed / already-refunded / amount-invalid), and
+ * EXECUTE (valid confirm or small refund).
+ *
+ * Two adoption patterns:
+ *
+ *   1. Greenfield (canonical-Pack-intent): import `paymentsPixPack`,
+ *      dispatch envelopes against `paymentsPixPack.policy`. The Pack's
+ *      intent kinds (`pix.charge.{create,confirm,refund}`) are the wire
+ *      contract.
+ *
+ *   2. Existing intent kind (factory pattern): import
+ *      `createPixPendingDeferGuard`, compose into your own PolicyBundle
+ *      against your own intent kind. Canonical example: IbateXas's
+ *      `@ibatexas/llm-provider`'s `order-policy-bundle.ts` composes the
+ *      factory against `order.confirm`.
  *
  * Conformance: `paymentsPixPack satisfies PackV0<...>`. See README and
  * `docs/runbook.md` for adoption guidance.
@@ -19,8 +32,10 @@ import type { PixContext, PixIntentKind, PixState } from "./types.js";
 
 // Re-exports for adopters.
 export {
-  PIX_CHARGE_CONFIRMED_SIGNAL,
-  PIX_CHARGE_DEFER_TIMEOUT_MS,
+  PIX_CONFIRMATION_SIGNAL,
+  PIX_CONFIRMED_STATUSES,
+  PIX_DEFAULT_DEFER_TIMEOUT_MS,
+  PIX_DEFAULT_EXPIRY_SECONDS,
   pixTaintPolicy,
   type PixCharge,
   type PixChargeConfirmPayload,
@@ -34,10 +49,14 @@ export {
 
 export {
   refuseChargeAlreadyRefunded,
+  refuseChargeExpired,
+  refuseChargeFailed,
   refuseChargeNotConfirmed,
   refuseChargeNotFound,
+  refuseConfirmRequiresWebhook,
   refuseInvalidAmount,
   refuseInvalidStateForConfirm,
+  refuseRateLimitExceeded,
 } from "./refusals.js";
 
 export {
@@ -49,6 +68,11 @@ export {
 export { PIX_TOOLS, pixCapabilityPlanner } from "./capabilities.js";
 
 export { inMemoryPixHandlers } from "./handlers.js";
+
+export {
+  createPixPendingDeferGuard,
+  type PixPendingDeferGuardOptions,
+} from "./guards.js";
 
 /**
  * The Pack as a PackV0-conformant value. `satisfies` gives compile-time
@@ -76,6 +100,10 @@ export const paymentsPixPack = {
     "pix.charge.already_refunded",
     "pix.charge.invalid_state_for_confirm",
     "pix.charge.amount_invalid",
+    "pix.charge.expired",
+    "pix.charge.failed",
+    "pix.charge.rate_limit_exceeded",
+    "pix.charge.confirm_requires_webhook",
   ],
   handlers: inMemoryPixHandlers,
 } as const satisfies PackV0<PixIntentKind, unknown, PixState, PixContext>;

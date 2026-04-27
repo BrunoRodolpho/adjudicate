@@ -62,7 +62,8 @@ export type PixChargeStatus =
   | "pending"
   | "confirmed"
   | "refunded"
-  | "expired";
+  | "expired"
+  | "failed";
 
 export interface PixCharge {
   readonly id: string;
@@ -102,8 +103,37 @@ export const pixTaintPolicy: TaintPolicy = {
 
 // ── Domain constants ────────────────────────────────────────────────────
 
-/** Signal name the deferred `pix.charge.create` intent resumes on. */
-export const PIX_CHARGE_CONFIRMED_SIGNAL = "pix.charge.confirmed";
+/**
+ * Signal name the deferred `pix.charge.create` intent resumes on.
+ *
+ * Wire value `"payment.confirmed"` matches the production NATS subject
+ * IbateXas already publishes from its Stripe webhook subscriber. Future
+ * v1.0.0 may rename to `"pix.charge.confirmed"` to align with the intent
+ * kind namespace; that would be a documented breaking change with a
+ * migration note in CHANGELOG.
+ */
+export const PIX_CONFIRMATION_SIGNAL = "payment.confirmed";
 
-/** Default deadline for a pending charge before it expires. */
-export const PIX_CHARGE_DEFER_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+/**
+ * Default deadline for a pending charge before adopters give up on the
+ * webhook signal. Passed to `decisionDefer(timeoutMs)`. Adopters using
+ * the `createPixPendingDeferGuard` factory may override per call.
+ */
+export const PIX_DEFAULT_DEFER_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+
+/**
+ * Pack-vocabulary set of statuses that count as "settled" for resume-path
+ * detection inside the Pack's policy guards. Distinct from any wire-level
+ * status set an adopter maintains for its provider's vocabulary (e.g.
+ * IbateXas's `{paid, captured, confirmed}` Stripe set).
+ */
+export const PIX_CONFIRMED_STATUSES: ReadonlySet<PixChargeStatus> = new Set([
+  "confirmed",
+]);
+
+/**
+ * Default validity window passed to PSPs that accept it. Adopters who
+ * want a different default can wrap `pix.charge.create` payloads in a
+ * pre-bundle guard that clamps `expiresInSeconds` before adjudication.
+ */
+export const PIX_DEFAULT_EXPIRY_SECONDS = 60 * 60;

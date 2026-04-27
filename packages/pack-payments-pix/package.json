@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@adjudicate/eslint-config": "workspace:*",
+    "@adjudicate/runtime": "workspace:*",
     "@eslint/eslintrc": "^3.0.0",
     "@vitest/coverage-v8": "^3.2.0",
     "eslint": "^9.0.0",

@@ -26,8 +26,8 @@ PIX is Brazil's instant-payment system. It's *async by design* — a customer cr
 | `REFUSE` | Charge not found · charge not confirmed · already refunded · invalid amount · UNTRUSTED webhook attempt. |
 | `REWRITE` | Refund > original charge amount → clamped to original. |
 | `REQUEST_CONFIRMATION` | Refund ≥ R$ 500 (default `CONFIRM_REFUND_THRESHOLD_CENTAVOS`). |
-| `ESCALATE` | Refund ≥ R$ 1,000 (default `ESCALATE_REFUND_THRESHOLD_CENTAVOS`) → routes to `"supervisor"`. |
-| `DEFER` | `pix.charge.create` parks awaiting `pix.charge.confirmed` signal (15-min timeout). |
+| `ESCALATE` | Refund ≥ R$ 1,000 (default `ESCALATE_REFUND_THRESHOLD_CENTAVOS`) → routes to `"supervisor"`; OR a confirm event landing on a charge already marked `failed` → routes to `"human"` for manual review. |
+| `DEFER` | `pix.charge.create` parks awaiting `payment.confirmed` signal (15-min timeout). |
 
 Read [`src/policies.ts`](./src/policies.ts) for the guard-by-guard contract.
 
@@ -53,10 +53,51 @@ const envelope = buildEnvelope({
 
 const decision = adjudicate(envelope, state, paymentsPixPack.policy);
 // decision.kind === "DEFER"
-// decision.signal === "pix.charge.confirmed"
+// decision.signal === "payment.confirmed"
 ```
 
-The full DEFER round-trip (park → webhook → resume) lives in [`@adjudicate/runtime`](../runtime/README.md)'s `resumeDeferredIntent`. This Pack only declares the DEFER outcome; persistence is the adopter's choice (Redis / Postgres / etc.).
+The full DEFER round-trip (park → webhook → resume) lives in [`@adjudicate/runtime`](../runtime/README.md)'s `resumeDeferredIntent`. This Pack only declares the DEFER outcome; persistence is the adopter's choice (Redis / Postgres / etc.). See [`tests/defer-round-trip.test.ts`](./tests/defer-round-trip.test.ts) for the integration-level contract.
+
+## Adoption patterns
+
+This Pack supports two distinct adoption shapes. Pick whichever maps onto your existing intent vocabulary:
+
+### 1. Greenfield (canonical Pack-intent)
+
+Your application's wire vocabulary uses `pix.charge.{create,confirm,refund}` directly. Dispatch envelopes against `paymentsPixPack.policy`. Webhook adapters build TRUSTED `pix.charge.confirm` envelopes and call [`resumeDeferredIntent`](../runtime/README.md) when the provider settles. This is the cleanest path for new applications.
+
+### 2. Existing intent kind (factory pattern)
+
+Your application already proposes higher-level intents (e.g. `order.confirm` with `paymentMethod=pix`) and you don't want to rewrite the LLM prompt to emit `pix.charge.confirm` directly. Compose `createPixPendingDeferGuard` into your own `PolicyBundle`:
+
+```ts
+import { createPixPendingDeferGuard } from "@adjudicate/pack-payments-pix";
+import type { PolicyBundle, Guard } from "@adjudicate/core/kernel";
+
+interface OrderState {
+  readonly ctx: {
+    readonly paymentMethod: string | null;
+    readonly paymentStatus: string | null;
+  };
+}
+
+const orderPixDefer: Guard<string, unknown, OrderState> =
+  createPixPendingDeferGuard<OrderState>({
+    readPaymentMethod: (s) => s.ctx.paymentMethod,
+    readPaymentStatus: (s) => s.ctx.paymentStatus,
+    matchesIntent: (kind) => kind === "order.confirm",
+  });
+
+const orderPolicyBundle: PolicyBundle<string, unknown, OrderState> = {
+  stateGuards: [orderPixDefer /* ...other guards... */],
+  authGuards: [],
+  taint: { minimumFor: () => "UNTRUSTED" },
+  business: [],
+  default: "REFUSE",
+};
+```
+
+The factory's `signal`, `timeoutMs`, `confirmedStatuses`, and `pixMethodLabel` are all overridable per call. Canonical example: IbateXas's `@ibatexas/llm-provider` composes the factory against `order.confirm` in `packages/llm-provider/src/order-policy-bundle.ts`. See [`tests/adopter-guard.test.ts`](./tests/adopter-guard.test.ts) for the contract.
 
 ## Composition into your `PackV0` consumer
 

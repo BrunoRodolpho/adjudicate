@@ -19,3 +19,10 @@ export {
   isReadOnly,
   type ToolClassification,
 } from "./tool-classifier.js";
+
+export {
+  assertPlanReadOnly,
+  assertPlanSubsetOfPack,
+  PlanConformanceError,
+  safePlan,
+} from "./planner-conformance.js";

@@ -67,6 +67,9 @@ Watch in PostHog (Stage 4 chart includes both `_diverged_kind` and `_diverged_re
 | `audit_kernel_shadow_diverged_rewrite` | **Zero**, no exceptions | Any occurrence pages S1 |
 | `intent.ledger_op outcome=duplicate` | Matches webhook-replay rate (expected) | Spike could mean broker storm |
 | `intent.ledger_op outcome=error` | Zero | Any occurrence: investigate Redis health |
+| `replay.mismatch.kind=DECISION_KIND` | **Zero** within the 14-day soak | Any occurrence pages S1 — policy outcome drifted |
+| `replay.mismatch.kind=BASIS_DRIFT` | Zero unless a basis-vocabulary upgrade is in flight | Investigate within 24h; check the `basisDelta.missing/extra` payload to see whether a Pack patch renamed or re-categorised a basis |
+| `replay.mismatch.kind=REFUSAL_CODE_DRIFT` | Zero unless a refusal-code rename is in flight | Track for Phase 6 governance dashboard; not page-worthy on its own but every occurrence must have a corresponding ADR |
 
 Real-time dashboards during business hours; alert-rules duty during off-hours.
 

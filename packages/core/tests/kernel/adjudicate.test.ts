@@ -28,7 +28,7 @@ function baseEnvelope(overrides?: Partial<IntentEnvelope<Kind, Payload>>): Inten
     payload: { toolName: "add_item" },
     actor: { principal: "llm", sessionId: "s-1" },
     taint: "UNTRUSTED",
-    createdAt: "2026-04-23T12:00:00.000Z",
+    nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
   });
   return { ...env, ...overrides } as IntentEnvelope<Kind, Payload>;
 }
@@ -64,25 +64,27 @@ describe("adjudicate — default path (all guards pass)", () => {
   it("accumulates one pass basis per category on EXECUTE", () => {
     const decision = adjudicate(baseEnvelope(), { step: "pre_order" }, bundle());
     if (decision.kind !== "EXECUTE") throw new Error("expected EXECUTE");
-    // schema + state + auth + taint + business = 5 pass bases
+    // schema + state + taint + auth + business = 5 pass bases
+    // T8 reorder: taint runs before auth so UNTRUSTED inputs short-circuit
+    // before any auth side effect.
     expect(decision.basis).toHaveLength(5);
     expect(decision.basis.map((b) => b.category)).toEqual([
       "schema",
       "state",
-      "auth",
       "taint",
+      "auth",
       "business",
     ]);
   });
 });
 
-describe("adjudicate — short-circuit order is state → auth → taint → business", () => {
+describe("adjudicate — short-circuit order is state → taint → auth → business (T8)", () => {
   const fail = (cat: "state" | "auth" | "business"): Guard<Kind, Payload, State> => () =>
     decisionRefuse(refuse("STATE", `${cat}_fail`, "nope"), [
       basis(cat, BASIS_CODES[cat].RULE_VIOLATED ?? BASIS_CODES.state.TRANSITION_ILLEGAL),
     ]);
 
-  it("state failure short-circuits before auth", () => {
+  it("state failure short-circuits before taint and auth", () => {
     const decision = adjudicate(
       baseEnvelope(),
       { step: "terminal" },
@@ -96,7 +98,21 @@ describe("adjudicate — short-circuit order is state → auth → taint → bus
     expect(decision.refusal.code).toBe("state_fail");
   });
 
-  it("auth failure short-circuits before taint (when state passes)", () => {
+  it("taint failure short-circuits before auth (T8 reorder)", () => {
+    // UNTRUSTED envelope on a SYSTEM-only kind — taint refuses before
+    // the auth guard runs (fail("auth") would run pre-T8).
+    const env = baseEnvelope({ kind: "payment.send" as Kind });
+    const decision = adjudicate(
+      env,
+      { step: "pre_order" },
+      bundle({ authGuards: [fail("auth")] }),
+    );
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.code).toBe("taint_level_insufficient");
+  });
+
+  it("auth failure short-circuits before business (when state and taint pass)", () => {
     const decision = adjudicate(
       baseEnvelope(),
       { step: "pre_order" },
@@ -132,7 +148,7 @@ describe("adjudicate — taint gate", () => {
 
 describe("adjudicate — schema gate", () => {
   it("refuses envelopes with an unknown version (last line of defense)", () => {
-    const env = { ...baseEnvelope(), version: 999 as 1 };
+    const env = { ...baseEnvelope(), version: 999 as 2 };
     const decision = adjudicate(env, { step: "pre_order" }, bundle());
     expect(decision.kind).toBe("REFUSE");
     if (decision.kind !== "REFUSE") return;
@@ -157,9 +173,9 @@ describe("adjudicate — audit trail preservation", () => {
       }),
     );
     if (decision.kind !== "REFUSE") throw new Error("expected REFUSE");
-    // schema, state, auth, taint all passed; then the business short-circuit basis
+    // schema, state, taint, auth all passed; then the business short-circuit basis (T8 order)
     const categories = decision.basis.map((b) => b.category);
-    expect(categories).toEqual(["schema", "state", "auth", "taint", "business"]);
+    expect(categories).toEqual(["schema", "state", "taint", "auth", "business"]);
     // last basis is the failure signal
     expect(decision.basis[decision.basis.length - 1]!.code).toBe("quantity_capped");
   });

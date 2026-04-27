@@ -1,5 +1,5 @@
 /**
- * adjudicate() — the pure deterministic heart of IBX-IGE.
+ * adjudicate() — the pure deterministic heart of the framework.
  *
  * Takes a proposed IntentEnvelope, the current state snapshot, and a
  * PolicyBundle. Returns a single Decision. No LLM calls. No side effects. No
@@ -7,12 +7,20 @@
  * depends on this.
  *
  * Evaluation order (strict — do not reorder):
- *   1. Schema version — unknown versions are SECURITY refusals
- *   2. stateGuards   — legality of the transition the intent proposes
- *   3. authGuards    — caller identity and scope
- *   4. taint gate    — provenance check via canPropose()
- *   5. business      — domain-specific rules
- *   6. policy.default
+ *   1. Kill switch    — operator-engaged global override (engages before schema)
+ *   2. Schema version — unknown versions are SECURITY refusals
+ *   3. stateGuards    — legality of the transition the intent proposes
+ *   4. taint gate     — provenance check via canPropose() (T8: moved ahead of auth)
+ *   5. authGuards     — caller identity and scope
+ *   6. business       — domain-specific rules
+ *   7. policy.default
+ *
+ * **T8 reorder:** the taint gate runs BEFORE auth guards. Auth guards
+ * with side effects (logging principals, querying permission services)
+ * previously executed on UNTRUSTED inputs; now UNTRUSTED short-circuits
+ * before any auth side effect. The refusal-code distribution in audit
+ * history shifts as a result — taint refusals on UNTRUSTED inputs that
+ * would also have failed auth now surface the taint refusal instead.
  *
  * Each guard returning null contributes a "pass" basis to the final decision.
  */
@@ -29,6 +37,7 @@ import {
   type IntentEnvelope,
 } from "../envelope.js";
 import { refuse } from "../refusal.js";
+import { getKillSwitchState, isKilled } from "./enforce-config.js";
 import type { PolicyBundle } from "./policy.js";
 import { makePassBasis } from "./basis.js";
 
@@ -37,6 +46,28 @@ export function adjudicate<K extends string, P, S>(
   state: S,
   policy: PolicyBundle<K, P, S>,
 ): Decision {
+  // 0. Kill switch — operator-engaged global override. Engages BEFORE the
+  //    schema-version check so a malformed envelope still gets refused with
+  //    a clear "system is in maintenance" code rather than the generic
+  //    schema_version_unsupported.
+  if (isKilled()) {
+    const kill = getKillSwitchState();
+    return decisionRefuse(
+      refuse(
+        "SECURITY",
+        "kill_switch_active",
+        "Sistema temporariamente indisponível.",
+        `Kill switch active: ${kill.reason} (toggled at ${kill.toggledAt})`,
+      ),
+      [
+        basis("kill", BASIS_CODES.kill.ACTIVE, {
+          reason: kill.reason,
+          toggledAt: kill.toggledAt,
+        }),
+      ],
+    );
+  }
+
   const accumulated: DecisionBasis[] = [];
 
   // 1. Schema version gate — we accept only the known version. Callers that
@@ -67,16 +98,11 @@ export function adjudicate<K extends string, P, S>(
   }
   accumulated.push(makePassBasis("state"));
 
-  // 3. Auth guards
-  for (const guard of policy.authGuards) {
-    const d = guard(envelope, state);
-    if (d !== null) return enrichBasis(d, accumulated);
-  }
-  accumulated.push(makePassBasis("auth"));
-
-  // 4. Taint gate — declarative, driven by policy.taint.
-  //    canPropose() is the single call — do not walk payload fields by inspection.
-  //    When v1.1 ships field-level taint this call gains precision transparently.
+  // 3. Taint gate (T8 reorder: now BEFORE auth, so UNTRUSTED inputs
+  //    short-circuit before any auth-guard side effect runs).
+  //    Declarative, driven by policy.taint. `canPropose()` is the single
+  //    call — do not walk payload fields by inspection. Field-level taint
+  //    (v1.1) gains precision transparently through this call.
   if (!canPropose(envelope.taint, envelope.kind, policy.taint)) {
     return decisionRefuse(
       refuse(
@@ -95,6 +121,13 @@ export function adjudicate<K extends string, P, S>(
     );
   }
   accumulated.push(makePassBasis("taint"));
+
+  // 4. Auth guards (T8 reorder: now AFTER taint).
+  for (const guard of policy.authGuards) {
+    const d = guard(envelope, state);
+    if (d !== null) return enrichBasis(d, accumulated);
+  }
+  accumulated.push(makePassBasis("auth"));
 
   // 5. Business rules
   for (const guard of policy.business) {

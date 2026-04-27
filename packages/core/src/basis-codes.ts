@@ -16,7 +16,9 @@ export type BasisCategory =
   | "ledger"
   | "schema"
   | "business"
-  | "validation";
+  | "validation"
+  | "kill"
+  | "deadline";
 
 export const BASIS_CODES = {
   state: {
@@ -54,6 +56,21 @@ export const BASIS_CODES = {
     FORBIDDEN_PHRASE_ABSENT: "forbidden_phrase_absent",
     HOMOGLYPH_NORMALIZED: "homoglyph_normalized",
     UNICODE_NORMALIZED: "unicode_normalized",
+  },
+  /**
+   * Kill-switch — emitted when `setKillSwitch(true, ...)` is active. Blocks
+   * every intent regardless of taint or policy default. Toggling the switch
+   * is itself an audit-emitting operator action.
+   */
+  kill: {
+    ACTIVE: "active",
+  },
+  /**
+   * Deadline — emitted by `adjudicateWithDeadline` when wall-clock time
+   * exceeded the supplied budget before adjudication completed.
+   */
+  deadline: {
+    EXCEEDED: "exceeded",
   },
 } as const;
 

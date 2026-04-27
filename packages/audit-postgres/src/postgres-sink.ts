@@ -43,6 +43,24 @@ export interface IntentAuditRow {
   readonly recorded_at: string; // ISO-8601
   readonly duration_ms: number;
   readonly partition_month: string; // "2026-04" — for partition routing
+  /**
+   * Audit record schema version (1 or 2). Carried alongside the row so the
+   * replay reader can branch without parsing JSON. v1 rows that predate this
+   * column may be NULL — the reader treats NULL as v1.
+   */
+  readonly record_version: 1 | 2;
+  /**
+   * v2+ optional plan snapshot, pre-serialized JSON. NULL when the audit
+   * record carries no plan field. Migration `002-add-plan-jsonb.sql` adds
+   * the underlying column.
+   */
+  readonly plan_jsonb: string | null;
+  /**
+   * T8: envelope nonce for v2+ records. NULL for pre-T8 v1 rows; the
+   * `legacyV1ToV2` replay reader synthesizes nonce from createdAt for
+   * those. Migration `003-add-nonce.sql` adds the underlying column.
+   */
+  readonly nonce: string | null;
 }
 
 export interface PostgresSinkOptions {
@@ -74,6 +92,9 @@ export function createPostgresSink(opts: PostgresSinkOptions): AuditSink {
  * Map an AuditRecord to the flat IntentAuditRow shape. Keeps the mapping
  * pure and exported so adopters can write their own backfill scripts that
  * produce identical rows from raw event streams.
+ *
+ * v2+ records with `plan` populate `plan_jsonb`; v1 records (or v2 without
+ * plan) leave it NULL.
  */
 export function recordToRow(record: AuditRecord): IntentAuditRow {
   const partition = partitionMonthOf(record.at);
@@ -95,6 +116,14 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
     recorded_at: record.at,
     duration_ms: record.durationMs,
     partition_month: partition,
+    record_version: record.version,
+    plan_jsonb: record.plan ? JSON.stringify(record.plan) : null,
+    // T8: extract nonce from the envelope (v2+). v1 rows had no nonce
+    // field; mappers reading historical rows see NULL here.
+    nonce:
+      typeof (record.envelope as { nonce?: unknown }).nonce === "string"
+        ? (record.envelope as { nonce: string }).nonce
+        : null,
   };
 }
 

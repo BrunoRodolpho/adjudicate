@@ -71,6 +71,7 @@ const clampToCatalogMax: CommerceGuard = (envelope, state) => {
     payload: { ...payload, quantity: entry.maxPerOrder },
     actor: envelope.actor,
     taint: envelope.taint,
+    nonce: envelope.nonce,
     createdAt: envelope.createdAt,
   });
   return decisionRewrite(

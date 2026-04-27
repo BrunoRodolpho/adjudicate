@@ -22,7 +22,7 @@ function record(overrides: { decision?: "EXECUTE" | "REFUSE" } = {}) {
     payload: { sku: "X", qty: 1 },
     actor: { principal: "llm", sessionId: "s-1" },
     taint: "TRUSTED",
-    createdAt: "2026-04-23T12:00:00.000Z",
+    nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
   });
   const dec =
     overrides.decision === "REFUSE"
@@ -144,5 +144,46 @@ describe("rowToRecord — round-trip with recordToRow", () => {
     if (recovered.decision.kind !== "REFUSE") return;
     expect(recovered.decision.refusal.kind).toBe("SECURITY");
     expect(recovered.decision.refusal.code).toBe("x");
+  });
+
+  it("round-trips a v2 record carrying a plan snapshot", () => {
+    const env = buildEnvelope({
+      kind: "order.submit",
+      payload: { sku: "X" },
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "TRUSTED",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
+    });
+    const original = buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([
+        basis("state", BASIS_CODES.state.TRANSITION_VALID),
+      ]),
+      durationMs: 7,
+      at: "2026-04-23T12:00:01.000Z",
+      plan: {
+        visibleReadTools: ["search", "view_cart"],
+        allowedIntents: ["order.submit"],
+        forbiddenConcepts: ["free shipping"],
+      },
+    });
+    const row = recordToRow(original);
+    expect(row.record_version).toBe(2);
+    expect(row.plan_jsonb).not.toBeNull();
+    const recovered = rowToRecord(row);
+    expect(recovered.version).toBe(2);
+    expect(recovered.plan).toBeDefined();
+    expect(recovered.plan!.visibleReadTools).toEqual(["search", "view_cart"]);
+    expect(recovered.plan!.allowedIntents).toEqual(["order.submit"]);
+    expect(recovered.plan!.planFingerprint).toBe(original.plan!.planFingerprint);
+  });
+
+  it("treats record_version=1 with NULL plan_jsonb as a v1 record (back-compat)", () => {
+    // Simulate a row written by a pre-v2 backfill: record_version=1, plan_jsonb=null.
+    const original = record();
+    const row = { ...recordToRow(original), record_version: 1 as const, plan_jsonb: null };
+    const recovered = rowToRecord(row);
+    expect(recovered.version).toBe(1);
+    expect(recovered.plan).toBeUndefined();
   });
 });

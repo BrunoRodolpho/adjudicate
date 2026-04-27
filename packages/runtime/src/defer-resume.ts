@@ -54,6 +54,27 @@ export interface DeferRedis {
     options: { NX: true; EX: number },
   ): Promise<string | null>
   del(key: string): Promise<unknown>
+  /**
+   * Atomic INCR returning the new value. T5 (top-priority I): used for
+   * the per-`intentHash` resume cycle counter so a misbehaving signal
+   * source cannot oscillate park → resume → park → resume indefinitely.
+   * Optional for back-compat; absence skips the cycle cap.
+   */
+  incr?(key: string): Promise<number>
+  /**
+   * Optional. When present, `resumeDeferredIntent` decrements the
+   * per-session parked-envelope counter on a successful resume so the
+   * `parkDeferredIntent` quota tracks live state. Implementations that
+   * don't expose `decr` simply skip this — the counter's TTL provides
+   * the safety net.
+   */
+  decr?(key: string): Promise<number>
+  /**
+   * Optional. T5: set TTL on a key. When present alongside `incr`, the
+   * cycle counter gets a TTL matching the resume-token retention so it
+   * does not grow unbounded.
+   */
+  expire?(key: string, seconds: number): Promise<unknown>
 }
 
 export interface DeferLogger {
@@ -68,7 +89,22 @@ export interface ResumeDeferredIntentArgs {
   readonly redis: DeferRedis
   readonly rk: (raw: string) => string
   readonly log?: DeferLogger
+  /**
+   * T5 (top-priority I): hard cap on resume cycles per `intentHash`.
+   * A pending intent that resumes, re-adjudicates to DEFER, parks
+   * again, resumes again, etc., is bounded only by the per-session
+   * concurrent-park quota — not by total cycles. Default 3. Set to a
+   * higher number for long-running async flows (e.g., kyc verifications
+   * with retry-on-timeout) or to 0 to disable.
+   *
+   * Requires `redis.incr` to be wired; absent that, the cap is silently
+   * skipped (back-compat with adopters whose Redis client does not
+   * expose `incr`).
+   */
+  readonly maxResumeCycles?: number
 }
+
+export const DEFAULT_MAX_RESUME_CYCLES = 3
 
 export async function resumeDeferredIntent(
   args: ResumeDeferredIntentArgs,
@@ -93,6 +129,31 @@ export async function resumeDeferredIntent(
     return { resumed: false, reason: "signal_mismatch" }
   }
   const intentHash = parked.envelope.intentHash
+
+  // T5 (top-priority I): per-intentHash resume cycle cap. Caps DEFER →
+  // resume → re-adjudicate → DEFER oscillation against a misbehaving
+  // signal source. The counter shares the resume-token TTL so it
+  // garbage-collects naturally.
+  const cap = args.maxResumeCycles ?? DEFAULT_MAX_RESUME_CYCLES
+  if (cap > 0 && typeof redis.incr === "function") {
+    const cycleKey = rk(`defer:cycle:${intentHash}`)
+    const cycles = await redis.incr(cycleKey)
+    if (typeof redis.expire === "function") {
+      await redis.expire(cycleKey, DEFER_PENDING_TTL_GRACE_SECONDS).catch(() => {})
+    }
+    if (cycles > cap) {
+      log?.warn?.(
+        { sessionId, intentHash, signal, cycles, cap },
+        "[defer-resolver] cycle cap exceeded",
+      )
+      return {
+        resumed: false,
+        reason: "cycle_cap_exceeded",
+        intentHash,
+      }
+    }
+  }
+
   const resumeKey = rk(`defer:resumed:${deferResumeHash(intentHash, signal)}`)
   const acquired = await redis.set(
     resumeKey,
@@ -116,5 +177,11 @@ export async function resumeDeferredIntent(
     }
   }
   await redis.del(pendingKey).catch(() => {})
+  // DECR the per-session parked-envelope counter so the parkDeferredIntent
+  // quota tracks live state. Best-effort — the counter TTL covers the case
+  // where a resume happens after the counter has already expired.
+  if (typeof redis.decr === "function") {
+    await redis.decr(rk(`defer:count:${sessionId}`)).catch(() => {})
+  }
   return { resumed: true, intentHash, parked }
 }

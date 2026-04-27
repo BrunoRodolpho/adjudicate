@@ -105,7 +105,7 @@ describe("intent-metrics — sink dispatch", () => {
       payload: {},
       actor: { principal: "llm", sessionId: "s" },
       taint: "UNTRUSTED", // forces taint refusal
-      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     })
     adjudicateWithShadow({
       envelope: env,

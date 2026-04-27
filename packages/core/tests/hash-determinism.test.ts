@@ -53,14 +53,14 @@ describe("buildEnvelope — intentHash determinism", () => {
       payload: { toolName: "add_item", input: { sku: "XYZ" } },
       actor: { principal: "llm", sessionId: "s-1" },
       taint: "UNTRUSTED",
-      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     });
     const b = buildEnvelope({
       kind: "order.tool.propose",
       payload: { toolName: "add_item", input: { sku: "XYZ" } },
       actor: { principal: "llm", sessionId: "s-1" },
       taint: "UNTRUSTED",
-      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     });
     expect(a.intentHash).toBe(b.intentHash);
   });
@@ -71,14 +71,14 @@ describe("buildEnvelope — intentHash determinism", () => {
       payload: { toolName: "add_item", input: { sku: "XYZ", qty: 2 } },
       actor: { principal: "llm", sessionId: "s-1" },
       taint: "UNTRUSTED",
-      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     });
     const b = buildEnvelope({
       kind: "order.tool.propose",
       payload: { input: { qty: 2, sku: "XYZ" }, toolName: "add_item" },
       actor: { principal: "llm", sessionId: "s-1" },
       taint: "UNTRUSTED",
-      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     });
     expect(a.intentHash).toBe(b.intentHash);
   });
@@ -89,14 +89,14 @@ describe("buildEnvelope — intentHash determinism", () => {
       payload: { toolName: "add_item", input: { sku: "A" } },
       actor: { principal: "llm", sessionId: "s-1" },
       taint: "UNTRUSTED",
-      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     });
     const b = buildEnvelope({
       kind: "order.tool.propose",
       payload: { toolName: "add_item", input: { sku: "B" } },
       actor: { principal: "llm", sessionId: "s-1" },
       taint: "UNTRUSTED",
-      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     });
     expect(a.intentHash).not.toBe(b.intentHash);
   });

@@ -18,6 +18,16 @@ const RANK: Readonly<Record<Taint, number>> = {
   UNTRUSTED: 1,
 };
 
+/**
+ * Public read-side helper — exposes the trust rank of a Taint value.
+ * Used by `withBasisAudit` to detect REWRITE taint regression
+ * (rewritten.taint having higher rank than the envelope's taint).
+ * Not the merge primitive — `mergeTaint` is the lattice meet.
+ */
+export function taintRank(t: Taint): number {
+  return RANK[t];
+}
+
 /** Lattice meet: lowest trust wins. Monotonic: never raises trust. */
 export function mergeTaint(a: Taint, b: Taint): Taint {
   return RANK[a] <= RANK[b] ? a : b;

@@ -16,7 +16,7 @@ function record() {
     payload: {},
     actor: { principal: "llm", sessionId: "s" },
     taint: "TRUSTED",
-    createdAt: "2026-04-23T12:00:00.000Z",
+    nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
   });
   return buildAuditRecord({
     envelope: env,
@@ -95,5 +95,46 @@ describe("NatsSink — burst-failure detection (P0-g)", () => {
     }
     // 10th failure throws NatsSinkError
     await expect(sink.emit(record())).rejects.toThrow(NatsSinkError);
+  });
+});
+
+describe("NatsSink — T3 half-open close (no 9-failure blind spot)", () => {
+  it("after threshold trip, every failed emit throws NatsSinkError immediately", async () => {
+    const publisher: NatsPublisher = {
+      async publish() {
+        throw new Error("offline");
+      },
+    };
+    const sink = createNatsSink({ publisher, failureThreshold: 3 });
+    // Trip the breaker.
+    await expect(sink.emit(record())).rejects.toThrow("offline");
+    await expect(sink.emit(record())).rejects.toThrow("offline");
+    await expect(sink.emit(record())).rejects.toThrow(NatsSinkError);
+    // Pre-T3: counter reset after trip; next 2 failures swallow into inner
+    // error. T3 half-open: every subsequent failure throws NatsSinkError.
+    await expect(sink.emit(record())).rejects.toThrow(NatsSinkError);
+    await expect(sink.emit(record())).rejects.toThrow(NatsSinkError);
+  });
+
+  it("a successful emit while half-open closes the breaker", async () => {
+    let attempts = 0;
+    const publisher: NatsPublisher = {
+      async publish() {
+        attempts++;
+        // First 3 fail (trip), 4th succeeds (close), 5th fails (start counting again).
+        if (attempts <= 3) throw new Error("offline");
+        if (attempts === 4) return; // success closes
+        throw new Error("offline-again");
+      },
+    };
+    const sink = createNatsSink({ publisher, failureThreshold: 3 });
+    await expect(sink.emit(record())).rejects.toThrow();
+    await expect(sink.emit(record())).rejects.toThrow();
+    await expect(sink.emit(record())).rejects.toThrow(NatsSinkError);
+    // Half-open + success → closed.
+    await expect(sink.emit(record())).resolves.toBeUndefined();
+    // Counter is back to 0; next failure is the first of a new cycle.
+    await expect(sink.emit(record())).rejects.toThrow("offline-again");
+    await expect(sink.emit(record())).rejects.toThrow("offline-again");
   });
 });

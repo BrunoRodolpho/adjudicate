@@ -8,7 +8,12 @@
  * This is NOT a durable audit sink. Use AuditSink for that.
  */
 
-import type { Ledger, LedgerHit, LedgerRecordInput } from "./ledger.js";
+import type {
+  Ledger,
+  LedgerHit,
+  LedgerRecordInput,
+  LedgerRecordOutcome,
+} from "./ledger.js";
 
 /**
  * Minimal Redis-like interface. Works with redis@4+ and any client that
@@ -65,19 +70,25 @@ export function createRedisLedger(opts: CreateRedisLedgerOptions): Ledger {
       }
     },
 
-    async recordExecution(entry: LedgerRecordInput) {
+    async recordExecution(
+      entry: LedgerRecordInput,
+    ): Promise<LedgerRecordOutcome> {
       const payload: LedgerHit = {
         resourceVersion: entry.resourceVersion,
         at: new Date().toISOString(),
         sessionId: entry.sessionId,
         kind: entry.kind,
       };
-      // SET NX — first writer wins. If the key exists we silently drop the
-      // write; the original record remains authoritative.
-      await opts.client.set(keyFor(entry.intentHash), JSON.stringify(payload), {
-        NX: true,
-        EX: ttl,
-      });
+      // SET NX — first writer wins. Redis returns "OK" (or similar truthy)
+      // when the write happened, null when NX rejected because the key
+      // already had a value. The kernel's adjudicateAndAudit consults this
+      // tag to flip a racing EXECUTE into REPLAY_SUPPRESSED.
+      const written = await opts.client.set(
+        keyFor(entry.intentHash),
+        JSON.stringify(payload),
+        { NX: true, EX: ttl },
+      );
+      return written === null ? "exists" : "acquired";
     },
   };
 }

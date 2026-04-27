@@ -7,7 +7,8 @@ on:
 permissions:
   contents: write       # changesets bot updates the Version PR
   pull-requests: write  # changesets bot opens the Version PR
-  id-token: write       # required for npm provenance via OIDC
+  id-token: write       # required for npm provenance via OIDC and Sigstore attestation
+  attestations: write   # required for actions/attest-sbom to store attestations
 
 concurrency:
   group: release-${{ github.ref }}
@@ -37,6 +38,7 @@ jobs:
         run: pnpm build
 
       - name: Create release PR or publish
+        id: changesets
         uses: changesets/action@v1
         with:
           version: pnpm changeset version
@@ -46,3 +48,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # SBOM + attestation gated on `published == true` so they only run when
+      # packages actually hit npm — not when the changesets action just opens
+      # the Version PR.
+      - name: Generate SBOM (Syft / SPDX)
+        if: steps.changesets.outputs.published == 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: sbom.spdx.json
+          upload-artifact: true
+
+      - name: Attest SBOM (Sigstore-signed)
+        if: steps.changesets.outputs.published == 'true'
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: 'packages/*/dist/**'
+          sbom-path: sbom.spdx.json

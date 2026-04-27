@@ -15,6 +15,7 @@
 
 import {
   filterReadOnly,
+  safePlan,
   type CapabilityPlanner,
   type Plan,
   type ToolClassification,
@@ -26,7 +27,7 @@ export const PIX_TOOLS: ToolClassification = {
   MUTATING: new Set(["create_pix_charge", "refund_pix_charge"]),
 };
 
-export const pixCapabilityPlanner: CapabilityPlanner<PixState, PixContext> = {
+const rawPixCapabilityPlanner: CapabilityPlanner<PixState, PixContext> = {
   plan(state): Plan {
     const hasConfirmedCharge = Array.from(state.charges.values()).some(
       (c) => c.status === "confirmed",
@@ -48,3 +49,13 @@ export const pixCapabilityPlanner: CapabilityPlanner<PixState, PixContext> = {
     };
   },
 };
+
+/**
+ * The Pack's exported planner is wrapped in `safePlan` — every plan()
+ * invocation is asserted against `PIX_TOOLS` so a future regression that
+ * exposes a MUTATING tool to the LLM throws PlanConformanceError loudly
+ * before the LLM sees the leaked tool. This is the recommended pattern
+ * for every Pack.
+ */
+export const pixCapabilityPlanner: CapabilityPlanner<PixState, PixContext> =
+  safePlan(rawPixCapabilityPlanner, PIX_TOOLS);

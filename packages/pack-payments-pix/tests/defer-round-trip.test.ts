@@ -66,7 +66,7 @@ describe("DEFER round-trip via @adjudicate/runtime", () => {
       },
       actor: { principal: "llm", sessionId: "s-1" },
       taint: "UNTRUSTED",
-      createdAt: DET_TIME,
+      nonce: "n-test", createdAt: DET_TIME,
     });
     const deferDecision = adjudicate(
       createEnvelope,
@@ -122,7 +122,7 @@ describe("DEFER round-trip via @adjudicate/runtime", () => {
       id: "ch_round",
       amountCentavos: 4500,
       status: "pending",
-      createdAt: DET_TIME,
+      nonce: "n-test", createdAt: DET_TIME,
     };
     const stateAfterCreate: PixState = {
       charges: new Map([[pendingCharge.id, pendingCharge]]),
@@ -136,7 +136,7 @@ describe("DEFER round-trip via @adjudicate/runtime", () => {
       },
       actor: { principal: "system", sessionId: "s-1" },
       taint: "TRUSTED",
-      createdAt: DET_TIME,
+      nonce: "n-test", createdAt: DET_TIME,
     });
     const decision = adjudicate(
       confirmEnvelope,

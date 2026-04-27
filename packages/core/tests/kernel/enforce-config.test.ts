@@ -1,9 +1,16 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   _resetEnforceConfig,
   isEnforced,
   isShadowed,
+  validateEnforceConfig,
 } from "../../src/kernel/enforce-config.js"
+import {
+  _resetMetricsSink,
+  setMetricsSink,
+  type MetricsSink,
+  type SinkFailureEvent,
+} from "../../src/kernel/metrics.js"
 
 describe("intent-enforce-config", () => {
   afterEach(() => {
@@ -55,5 +62,84 @@ describe("intent-enforce-config", () => {
     expect(
       isEnforced("order.submit", { IBX_KERNEL_ENFORCE: "order.submit" }),
     ).toBe(true)
+  })
+})
+
+describe("validateEnforceConfig (T7 #17)", () => {
+  afterEach(() => {
+    _resetMetricsSink()
+  })
+
+  it("returns no unknowns when every token is in the known set", () => {
+    const warn = vi.fn()
+    const result = validateEnforceConfig(
+      new Set(["a", "b", "c"]),
+      { IBX_KERNEL_SHADOW: "a,b", IBX_KERNEL_ENFORCE: "c" },
+      warn,
+    )
+    expect(result.unknownShadow).toEqual([])
+    expect(result.unknownEnforce).toEqual([])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it("flags unknown shadow tokens with warn + recordSinkFailure", () => {
+    const failures: SinkFailureEvent[] = []
+    const sink: MetricsSink = {
+      recordLedgerOp() {},
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure(e) {
+        failures.push(e)
+      },
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    }
+    setMetricsSink(sink)
+    const warn = vi.fn()
+    const result = validateEnforceConfig(
+      new Set(["order.submit"]),
+      { IBX_KERNEL_SHADOW: "order.submit,oder.submmit" },
+      warn,
+    )
+    expect(result.unknownShadow).toEqual(["oder.submmit"])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(failures).toHaveLength(1)
+    expect(failures[0]!.errorClass).toBe("enforce_config_typo")
+    expect(failures[0]!.subject).toContain("oder.submmit")
+  })
+
+  it("flags unknown enforce tokens", () => {
+    const warn = vi.fn()
+    const result = validateEnforceConfig(
+      new Set(["order.submit"]),
+      { IBX_KERNEL_ENFORCE: "ordr.submit" },
+      warn,
+    )
+    expect(result.unknownEnforce).toEqual(["ordr.submit"])
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it("honours wildcard `*` (no token check)", () => {
+    const warn = vi.fn()
+    const result = validateEnforceConfig(
+      new Set(["order.submit"]),
+      { IBX_KERNEL_SHADOW: "*", IBX_KERNEL_ENFORCE: "*" },
+      warn,
+    )
+    expect(result.unknownShadow).toEqual([])
+    expect(result.unknownEnforce).toEqual([])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it("flags both shadow and enforce typos in one call", () => {
+    const warn = vi.fn()
+    const result = validateEnforceConfig(
+      new Set(["a"]),
+      { IBX_KERNEL_SHADOW: "a,bad1", IBX_KERNEL_ENFORCE: "a,bad2" },
+      warn,
+    )
+    expect(result.unknownShadow).toEqual(["bad1"])
+    expect(result.unknownEnforce).toEqual(["bad2"])
+    expect(warn).toHaveBeenCalledTimes(2)
   })
 })

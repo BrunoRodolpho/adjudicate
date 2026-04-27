@@ -24,7 +24,7 @@ function env(kind: ClinicIntentKind, payload: Record<string, unknown> = {}) {
     payload,
     actor: { principal: "llm", sessionId: "s-clinic-1" },
     taint: "UNTRUSTED",
-    createdAt: "2026-04-23T12:00:00.000Z",
+    nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
   });
 }
 

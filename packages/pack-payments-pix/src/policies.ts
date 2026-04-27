@@ -182,6 +182,7 @@ const clampRefundToOriginal: PixGuard = (envelope, state) => {
     payload: { ...payload, refundCentavos: charge.amountCentavos },
     actor: envelope.actor,
     taint: envelope.taint,
+    nonce: envelope.nonce,
     createdAt: envelope.createdAt,
   });
   return decisionRewrite(

@@ -8,7 +8,14 @@ import {
 } from "@adjudicate/core";
 import { createConsoleSink } from "../src/sink-console.js";
 import { createNatsSink, type NatsPublisher } from "../src/sink-nats.js";
-import { multiSink } from "../src/sink.js";
+import { AuditSinkError, multiSink, multiSinkLossy } from "../src/sink.js";
+import {
+  _resetMetricsSink,
+  setMetricsSink,
+  type MetricsSink,
+  type SinkFailureEvent,
+} from "@adjudicate/core/kernel";
+import { afterEach } from "vitest";
 
 function record() {
   const env = buildEnvelope({
@@ -16,7 +23,7 @@ function record() {
     payload: { toolName: "add_item" },
     actor: { principal: "llm", sessionId: "s-1" },
     taint: "UNTRUSTED",
-    createdAt: "2026-04-23T12:00:00.000Z",
+    nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
   });
   return buildAuditRecord({
     envelope: env,
@@ -73,7 +80,11 @@ describe("NatsSink", () => {
   });
 });
 
-describe("multiSink", () => {
+describe("multiSink (T3 default = strict)", () => {
+  afterEach(() => {
+    _resetMetricsSink();
+  });
+
   it("fans out to all sinks", async () => {
     const a = vi.fn(async () => {});
     const b = vi.fn(async () => {});
@@ -83,13 +94,80 @@ describe("multiSink", () => {
     expect(b).toHaveBeenCalledTimes(1);
   });
 
-  it("does not throw when one sink rejects", async () => {
+  it("THROWS AuditSinkError when one sink rejects (post-T3 flip)", async () => {
     const good = vi.fn(async () => {});
     const bad = vi.fn(async () => {
       throw new Error("nats down");
     });
     const sink = multiSink({ emit: good }, { emit: bad });
+    await expect(sink.emit(record())).rejects.toThrow(AuditSinkError);
+    expect(good).toHaveBeenCalledTimes(1);
+    expect(bad).toHaveBeenCalledTimes(1); // both still attempted
+  });
+
+  it("calls recordSinkFailure for each rejection (sink-of-sinks observability)", async () => {
+    const failures: SinkFailureEvent[] = [];
+    const metrics: MetricsSink = {
+      recordLedgerOp() {},
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure(e) {
+        failures.push(e);
+      },
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    };
+    setMetricsSink(metrics);
+    const sink = multiSink(
+      { emit: vi.fn(async () => {}) },
+      {
+        emit: vi.fn(async () => {
+          throw new Error("nats down");
+        }),
+      },
+    );
+    await expect(sink.emit(record())).rejects.toThrow(AuditSinkError);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.subject).toBe("multiSink[1]");
+    expect(failures[0]!.errorClass).toBe("Error");
+  });
+});
+
+describe("multiSinkLossy (explicit fail-open)", () => {
+  afterEach(() => {
+    _resetMetricsSink();
+  });
+
+  it("does NOT throw when one sink rejects (pre-T3 multiSink behaviour)", async () => {
+    const good = vi.fn(async () => {});
+    const bad = vi.fn(async () => {
+      throw new Error("nats down");
+    });
+    const sink = multiSinkLossy({ emit: good }, { emit: bad });
     await expect(sink.emit(record())).resolves.toBeUndefined();
     expect(good).toHaveBeenCalledTimes(1);
+  });
+
+  it("still records sink failures via recordSinkFailure for observability", async () => {
+    const failures: SinkFailureEvent[] = [];
+    const metrics: MetricsSink = {
+      recordLedgerOp() {},
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure(e) {
+        failures.push(e);
+      },
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    };
+    setMetricsSink(metrics);
+    const sink = multiSinkLossy({
+      emit: vi.fn(async () => {
+        throw new Error("nats down");
+      }),
+    });
+    await sink.emit(record());
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.subject).toBe("multiSinkLossy[0]");
   });
 });

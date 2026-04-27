@@ -67,7 +67,7 @@ describe("paymentsPixPack — PackV0 conformance", () => {
               id: "cha-1",
               amountCentavos: 1000,
               status: "confirmed",
-              createdAt: "2026-04-26T00:00:00.000Z",
+              nonce: "n-test", createdAt: "2026-04-26T00:00:00.000Z",
             },
           ],
         ]),

@@ -104,6 +104,21 @@ export interface PackV0<
    * PackV0.
    */
   readonly handlers?: Readonly<Record<Kind, PackHandler<Payload, State>>>;
+
+  /**
+   * Optional: DEFER signal vocabulary (T4). When declared, every DEFER
+   * Decision emitted by the Pack's policy must carry a `signal` from
+   * this list — `withBasisAudit` records `basis_code_drift` for unknown
+   * signals. Cross-pack signal collision (issue #38) can be detected at
+   * boot if two packs declare overlapping signals; the framework leaves
+   * that detection to a future Phase-2 registry.
+   *
+   * Adopters publishing to a shared NATS topic typically prefix their
+   * signals with the pack id (e.g., `"pack-payments-pix:payment.confirmed"`)
+   * to avoid collisions. The lighthouse Pack's signal is documented as
+   * `"payment.confirmed"` per ADR-002 of pack-payments-pix.
+   */
+  readonly signals?: ReadonlyArray<string>;
 }
 
 /**

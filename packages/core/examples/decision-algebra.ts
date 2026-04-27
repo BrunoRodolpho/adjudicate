@@ -21,7 +21,7 @@ const envelope = buildEnvelope({
   payload: { toolName: "add_item", input: { sku: "COSTELA", quantity: 1 } },
   actor: { principal: "llm", sessionId: "s-1" },
   taint: "UNTRUSTED",
-  createdAt: "2026-04-23T12:00:00.000Z",
+  nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
 });
 
 console.log("EXECUTE:");

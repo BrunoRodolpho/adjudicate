@@ -12,7 +12,7 @@ describe("IntentEnvelope — version gating", () => {
     payload: { toolName: "add_item", input: { sku: "X" } },
     actor: { principal: "llm" as const, sessionId: "s-1" },
     taint: "UNTRUSTED" as const,
-    createdAt: "2026-04-23T12:00:00.000Z",
+    nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
   };
 
   it("buildEnvelope stamps the current version", () => {
@@ -39,7 +39,7 @@ describe("IntentEnvelope — version gating", () => {
       version: 999,
       kind: "order.tool.propose",
       payload: {},
-      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
       actor: { principal: "llm", sessionId: "s-1" },
       taint: "UNTRUSTED",
       intentHash: "deadbeef".repeat(8),
@@ -55,7 +55,8 @@ describe("IntentEnvelope — version gating", () => {
 
   it("hasUnknownEnvelopeVersion identifies version-shaped objects with wrong version", () => {
     expect(hasUnknownEnvelopeVersion({ version: 999 })).toBe(true);
-    expect(hasUnknownEnvelopeVersion({ version: 2 })).toBe(true);
+    expect(hasUnknownEnvelopeVersion({ version: 1 })).toBe(true); // v1 envelopes are now legacy
+    expect(hasUnknownEnvelopeVersion({ version: 3 })).toBe(true); // future versions are unknown today
   });
 
   it("hasUnknownEnvelopeVersion returns false for current version", () => {

@@ -14,6 +14,7 @@
 export {
   deferResumeHash,
   resumeDeferredIntent,
+  DEFAULT_MAX_RESUME_CYCLES,
   DEFER_PENDING_TTL_GRACE_SECONDS,
   type DeferRedis,
   type DeferLogger,
@@ -21,5 +22,18 @@ export {
   type ParkedEnvelope,
   type ResumeDeferredIntentArgs,
 } from "./defer-resume.js"
+
+export {
+  DEFAULT_DEFER_QUOTA_PER_SESSION,
+  decrementDeferCounter,
+  deferCounterKey,
+  deferParkKey,
+  parkDeferredIntent,
+  type CounterRedis,
+  type ParkDeferredIntentArgs,
+  type ParkDeferredIntentResult,
+  type ParkLogger,
+  type ParkRedis,
+} from "./defer-park.js"
 
 export { DEADLINE_HIT, deadlinePromise } from "./with-deadlines.js"

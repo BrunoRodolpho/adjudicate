@@ -78,6 +78,7 @@ const clampDuration: VacationGuard = (envelope) => {
     payload: { ...payload, durationDays: VACATION_POLICY.maxConsecutiveDays },
     actor: envelope.actor,
     taint: envelope.taint,
+    nonce: envelope.nonce,
     createdAt: envelope.createdAt,
   });
   return decisionRewrite(

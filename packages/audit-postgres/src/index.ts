@@ -15,3 +15,5 @@ export {
   type AuditQuery,
   type AuditQueryWindow,
 } from "./replay.js";
+
+export { legacyV1ToV2 } from "./legacy-v1-compat.js";

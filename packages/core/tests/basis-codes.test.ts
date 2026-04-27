@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { BASIS_CODES, basis, isKnownBasisCode } from "../src/basis-codes.js";
 
 describe("BASIS_CODES — vocabulary-controlled", () => {
-  it("has all seven categories", () => {
+  it("has the documented categories", () => {
     expect(Object.keys(BASIS_CODES).sort()).toEqual(
       [
         "auth",
         "business",
+        "deadline",
+        "kill",
         "ledger",
         "schema",
         "state",

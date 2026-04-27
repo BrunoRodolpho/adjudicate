@@ -65,3 +65,161 @@ export function _resetEnforceConfig(): void {
   _enforce = null
   _envSnapshot = null
 }
+
+// ── T7 (#17): typo guard for IBX_KERNEL_SHADOW / IBX_KERNEL_ENFORCE. ──
+
+import { recordSinkFailure } from "./metrics.js"
+
+export interface EnforceConfigValidation {
+  /** Tokens in IBX_KERNEL_SHADOW that are absent from `knownIntents`. */
+  readonly unknownShadow: readonly string[]
+  /** Tokens in IBX_KERNEL_ENFORCE that are absent from `knownIntents`. */
+  readonly unknownEnforce: readonly string[]
+}
+
+/**
+ * Validate that every token in `IBX_KERNEL_SHADOW` and
+ * `IBX_KERNEL_ENFORCE` is present in `knownIntents` (typically the union
+ * of every installed Pack's `intents`). Unrecognized tokens silently
+ * leave their intent on the legacy path — exactly the cutover hazard
+ * the staged rollout is trying to prevent. T7 surfaces the typo as a
+ * one-time `console.warn` plus a `recordSinkFailure({ errorClass:
+ * "enforce_config_typo" })` so an operator dashboards the misconfig.
+ *
+ * Wildcard `*` is honoured (no token check).
+ *
+ * Adopters call this once at boot, after `installPack` and before
+ * traffic. Returns the parsed sets for further inspection.
+ */
+export function validateEnforceConfig(
+  knownIntents: ReadonlySet<string>,
+  env: NodeJS.ProcessEnv = process.env,
+  warn: (msg: string) => void = (m) => console.warn(m),
+): EnforceConfigValidation {
+  const shadow = parseList(env["IBX_KERNEL_SHADOW"])
+  const enforce = parseList(env["IBX_KERNEL_ENFORCE"])
+
+  const unknownShadow: string[] = shadow.wildcard
+    ? []
+    : Array.from(shadow.kinds).filter((k) => !knownIntents.has(k))
+  const unknownEnforce: string[] = enforce.wildcard
+    ? []
+    : Array.from(enforce.kinds).filter((k) => !knownIntents.has(k))
+
+  if (unknownShadow.length > 0) {
+    warn(
+      `[adjudicate] IBX_KERNEL_SHADOW contains unrecognized intents: ${unknownShadow.join(", ")}. ` +
+        `These tokens will silently leave their intent on the legacy path.`,
+    )
+    recordSinkFailure({
+      sink: "console",
+      subject: `enforce-config:shadow:${unknownShadow.join(",")}`,
+      errorClass: "enforce_config_typo",
+      consecutiveFailures: 1,
+    })
+  }
+  if (unknownEnforce.length > 0) {
+    warn(
+      `[adjudicate] IBX_KERNEL_ENFORCE contains unrecognized intents: ${unknownEnforce.join(", ")}. ` +
+        `These tokens will silently leave their intent on the legacy path.`,
+    )
+    recordSinkFailure({
+      sink: "console",
+      subject: `enforce-config:enforce:${unknownEnforce.join(",")}`,
+      errorClass: "enforce_config_typo",
+      consecutiveFailures: 1,
+    })
+  }
+
+  return { unknownShadow, unknownEnforce }
+}
+
+// ── Kill switch ─────────────────────────────────────────────────────────────
+//
+// Runtime-toggleable global override. When active, `adjudicate()` short-
+// circuits BEFORE any other gate (including the schema-version check) to
+// SECURITY refusal `kill_switch_active`. Used during incidents — operators
+// flip the switch via `setKillSwitch(true, "reason")` and authority is
+// revoked across every intent kind regardless of `IBX_KERNEL_ENFORCE`
+// membership.
+//
+// Env-var pre-seed: `IBX_KILL_SWITCH=1` (or `true`/`yes`/`on`) starts the
+// kernel with the switch already engaged. Runtime API has precedence over
+// the env value once it's been called.
+
+interface KillSwitchState {
+  readonly active: boolean
+  readonly reason: string
+  readonly toggledAt: string // ISO-8601
+}
+
+let _killSwitch: KillSwitchState = {
+  active: false,
+  reason: "",
+  toggledAt: "1970-01-01T00:00:00.000Z",
+}
+let _killSwitchSeededFromEnv = false
+
+function killSwitchEnvActive(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env["IBX_KILL_SWITCH"]
+  if (raw === undefined) return false
+  const v = raw.toLowerCase().trim()
+  return v === "1" || v === "true" || v === "yes" || v === "on"
+}
+
+function ensureKillSwitchSeeded(env: NodeJS.ProcessEnv = process.env): void {
+  if (_killSwitchSeededFromEnv) return
+  _killSwitchSeededFromEnv = true
+  if (killSwitchEnvActive(env)) {
+    _killSwitch = {
+      active: true,
+      reason: "env: IBX_KILL_SWITCH",
+      toggledAt: new Date().toISOString(),
+    }
+  }
+}
+
+/**
+ * Toggle the kill switch. Subsequent `adjudicate()` calls return SECURITY
+ * refusals with code `kill_switch_active`. Setting `active = false` releases
+ * the switch — adjudication resumes for all intent kinds.
+ *
+ * The toggle itself is an operator action — adopters who wire `auditKillSwitchToggle()`
+ * (see `getKillSwitchAuditEvent`) can persist it to their AuditSink.
+ */
+export function setKillSwitch(active: boolean, reason: string): void {
+  _killSwitchSeededFromEnv = true // prevent env from re-overriding after manual toggle
+  _killSwitch = {
+    active,
+    reason,
+    toggledAt: new Date().toISOString(),
+  }
+}
+
+/**
+ * Is the kill switch currently active?
+ */
+export function isKilled(env: NodeJS.ProcessEnv = process.env): boolean {
+  ensureKillSwitchSeeded(env)
+  return _killSwitch.active
+}
+
+/**
+ * Read the current kill-switch state (active flag, reason, toggle timestamp).
+ * Used by adopters that want to surface the reason in user-facing messages,
+ * or to emit a synthetic AuditRecord on toggle.
+ */
+export function getKillSwitchState(env: NodeJS.ProcessEnv = process.env): KillSwitchState {
+  ensureKillSwitchSeeded(env)
+  return _killSwitch
+}
+
+/** @internal — reset for tests. */
+export function _resetKillSwitch(): void {
+  _killSwitch = {
+    active: false,
+    reason: "",
+    toggledAt: "1970-01-01T00:00:00.000Z",
+  }
+  _killSwitchSeededFromEnv = false
+}

@@ -35,6 +35,24 @@ export interface MetricsSink {
   recordSinkFailure(event: SinkFailureEvent): void
   /** Shadow-mode divergence (one of the four DivergenceClass values). */
   recordShadowDivergence(event: ShadowDivergenceEvent): void
+  /**
+   * Optional. Resource-limit events (parked-envelope quota exceeded, future
+   * back-pressure events). Optional so adopters with hand-written
+   * MetricsSink implementations don't need to update for back-compat — the
+   * helper `recordResourceLimit` no-ops when the method is absent.
+   */
+  recordResourceLimit?(event: ResourceLimitEvent): void
+}
+
+export interface ResourceLimitEvent {
+  /** "defer_quota" today; future kinds add to this union. */
+  readonly resource: "defer_quota"
+  /** Subject namespace, typically a session id. */
+  readonly subject: string
+  /** Max allowed within the window. */
+  readonly limit: number
+  /** Observed value that triggered the event. */
+  readonly observed: number
 }
 
 export interface LedgerOpEvent {
@@ -76,9 +94,11 @@ export interface ShadowDivergenceEvent {
 // ── Default no-op sink ───────────────────────────────────────────────────────
 
 let _sink: MetricsSink = noopSink()
+let _explicitlySet = false
 
 export function setMetricsSink(sink: MetricsSink): void {
   _sink = sink
+  _explicitlySet = true
   // Also wire the shadow telemetry sink so all four divergence classes are
   // routed through the same pipeline as the rest of the metrics.
   setShadowTelemetrySink({
@@ -109,9 +129,18 @@ export function setMetricsSink(sink: MetricsSink): void {
   } satisfies ShadowTelemetrySink)
 }
 
+/**
+ * Has a MetricsSink been explicitly installed via setMetricsSink?
+ * Used by `installPack` to decide whether to install a default console sink.
+ */
+export function hasMetricsSink(): boolean {
+  return _explicitlySet
+}
+
 /** @internal — for tests. */
 export function _resetMetricsSink(): void {
   _sink = noopSink()
+  _explicitlySet = false
 }
 
 function noopSink(): MetricsSink {
@@ -121,6 +150,7 @@ function noopSink(): MetricsSink {
     recordRefusal() {},
     recordSinkFailure() {},
     recordShadowDivergence() {},
+    recordResourceLimit() {},
   }
 }
 
@@ -140,6 +170,15 @@ export function recordRefusal(event: RefusalEvent): void {
 
 export function recordSinkFailure(event: SinkFailureEvent): void {
   _sink.recordSinkFailure(event)
+}
+
+/**
+ * Resource-limit hook. No-ops gracefully when the installed MetricsSink does
+ * not implement `recordResourceLimit`. New code should always call this
+ * helper rather than the method directly.
+ */
+export function recordResourceLimit(event: ResourceLimitEvent): void {
+  _sink.recordResourceLimit?.(event)
 }
 
 // ── Ready-made console+log sink for development ────────────────────────────
@@ -189,6 +228,9 @@ export function createConsoleMetricsSink(): MetricsSink {
           adjudicate: event.adjudicate.kind,
         }),
       )
+    },
+    recordResourceLimit(event) {
+      console.warn("[ibx-metrics] resource_limit", JSON.stringify(event))
     },
   }
 }

@@ -1,6 +1,11 @@
 // @adjudicate/audit — execution ledger + durable audit sinks + replay.
 
-export { type Ledger, type LedgerHit, type LedgerRecordInput } from "./ledger.js";
+export {
+  type Ledger,
+  type LedgerHit,
+  type LedgerRecordInput,
+  type LedgerRecordOutcome,
+} from "./ledger.js";
 export {
   createRedisLedger,
   type CreateRedisLedgerOptions,
@@ -8,7 +13,22 @@ export {
 } from "./ledger-redis.js";
 export { createMemoryLedger } from "./ledger-memory.js";
 
-export { type AuditSink, multiSink } from "./sink.js";
+export {
+  type AuditSink,
+  AuditSinkError,
+  bufferedSink,
+  type BufferedSinkOptions,
+  multiSink,
+  multiSinkLossy,
+  multiSinkStrict,
+} from "./sink.js";
+export {
+  createInMemorySpillStorage,
+  persistentBufferedSink,
+  type PersistentBufferedSinkOptions,
+  type PersistentBufferedSpillReason,
+  type PersistentSpillStorage,
+} from "./persistent-buffered-sink.js";
 export {
   createConsoleSink,
   type ConsoleSinkOptions,
@@ -19,6 +39,19 @@ export {
   type NatsSinkOptions,
 } from "./sink-nats.js";
 
-export { replay, type Adjudicator, type ReplayReport } from "./replay.js";
+export {
+  classify,
+  replay,
+  type Adjudicator,
+  type ReplayBasisDelta,
+  type ReplayMismatch,
+  type ReplayMismatchKind,
+  type ReplayReport,
+} from "./replay.js";
 
 export { isLedgerEnabled, isLedgerEnforced } from "./feature-flag.js";
+export {
+  startDistributedKillSwitch,
+  type DistributedKillSwitchHandle,
+  type DistributedKillSwitchOptions,
+} from "./distributed-kill-switch.js";

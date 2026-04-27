@@ -48,7 +48,7 @@ function envelope(payload: Record<string, unknown> = {}) {
     payload,
     actor: { principal: "llm", sessionId: "s-1" },
     taint: "UNTRUSTED",
-    createdAt: "2026-04-26T12:00:00.000Z",
+    nonce: "n-test", createdAt: "2026-04-26T12:00:00.000Z",
   });
 }
 

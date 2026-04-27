@@ -6,12 +6,21 @@
  * adopter passes a wrapper around its `publishNatsEvent()`. Framework-
  * agnostic: any pub/sub system that accepts (subject, payload) works.
  *
- * P0-g: burst-failure detection. Audit is fail-open on the hot path, but a
- * sustained NATS outage means we silently buffer audit records in memory,
- * which becomes invisible data loss. After `failureThreshold` consecutive
- * publish failures the sink transitions to a "tripped" state and throws
- * `NatsSinkError` from `emit()` so the caller's error path fires loudly.
- * One successful publish resets the counter.
+ * **Circuit breaker** (P0-g + T3 half-open close):
+ *
+ *   - **closed** (normal): each emit attempts publish; success resets the
+ *     consecutive-failure counter; failure increments it. On reaching
+ *     `failureThreshold`, transition to **open** and throw `NatsSinkError`.
+ *   - **open**: the breaker has tripped. The next emit attempt transitions
+ *     to **half-open** and tries publish. Success → **closed** (counter
+ *     resets); failure → throw `NatsSinkError` immediately and stay open.
+ *   - **half-open**: a single in-flight test. Either success (close) or
+ *     failure (re-open with one strike).
+ *
+ * Pre-T3 the post-trip behaviour reset the counter to 0 and required N more
+ * consecutive failures before the next throw — a 9-failure blind spot under
+ * sustained outage that masked invisible audit loss. The half-open transition
+ * eliminates that window: every emit during a sustained outage now throws.
  */
 
 import type { AuditRecord } from "@adjudicate/core";
@@ -58,36 +67,60 @@ export class NatsSinkError extends Error {
 
 const DEFAULT_FAILURE_THRESHOLD = 10;
 
+type BreakerState = "closed" | "open" | "half-open";
+
 export function createNatsSink(opts: NatsSinkOptions): AuditSink {
   const subject = opts.subject ?? "audit.intent.decision.v1";
   const threshold = opts.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
   let consecutiveFailures = 0;
+  let state: BreakerState = "closed";
+
+  function fail(error: Error): void {
+    consecutiveFailures++;
+    opts.onFailure?.({
+      subject,
+      errorClass: error.name,
+      consecutiveFailures,
+    });
+  }
 
   return {
     async emit(record: AuditRecord) {
+      // ── Open circuit: transition to half-open and let one through ──────
+      if (state === "open") {
+        state = "half-open";
+      }
+
       try {
         await opts.publisher.publish(subject, record);
-        // Success — reset the counter
-        consecutiveFailures = 0;
       } catch (err) {
-        consecutiveFailures++;
         const error = err instanceof Error ? err : new Error(String(err));
-        opts.onFailure?.({
-          subject,
-          errorClass: error.name,
-          consecutiveFailures,
-        });
+
+        // Half-open path: a single test failed. Re-open and throw NatsSinkError
+        // immediately so every emit during sustained outage is loud.
+        if (state === "half-open") {
+          fail(error);
+          state = "open";
+          const failuresSnapshot = consecutiveFailures;
+          throw new NatsSinkError(subject, failuresSnapshot, error);
+        }
+
+        // Closed path: count up; trip when threshold reached.
+        fail(error);
         if (consecutiveFailures >= threshold) {
-          // Reset counter so the next attempt isn't preemptively tripped if
-          // the publisher recovers; the throw signals the burst.
+          state = "open";
           const failuresAtTrip = consecutiveFailures;
-          consecutiveFailures = 0;
           throw new NatsSinkError(subject, failuresAtTrip, error);
         }
-        // Below threshold — log via callback (already done) and continue.
-        // Throw so multiSink's Promise.allSettled records the failure.
+        // Below threshold — surface the original error so multiSink's
+        // Promise.allSettled records the failure.
         throw error;
       }
+
+      // ── Success ──────────────────────────────────────────────────────
+      // Whether closed or half-open, a success resets the breaker to closed.
+      consecutiveFailures = 0;
+      state = "closed";
     },
   };
 }

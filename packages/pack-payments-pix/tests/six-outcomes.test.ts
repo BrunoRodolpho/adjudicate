@@ -33,7 +33,7 @@ function envelope(
     payload,
     actor: { principal: "llm", sessionId: "s-1" },
     taint,
-    createdAt: DET_TIME,
+    nonce: "n-test", createdAt: DET_TIME,
   });
 }
 
@@ -45,7 +45,7 @@ function fixtures(): ReadonlyMap<string, PixCharge> {
         id: "cha-pending",
         amountCentavos: 30_000,
         status: "pending",
-        createdAt: DET_TIME,
+        nonce: "n-test", createdAt: DET_TIME,
       },
     ],
     [
@@ -54,7 +54,7 @@ function fixtures(): ReadonlyMap<string, PixCharge> {
         id: "cha-confirmed-low",
         amountCentavos: 30_000,
         status: "confirmed",
-        createdAt: DET_TIME,
+        nonce: "n-test", createdAt: DET_TIME,
         confirmedAt: DET_TIME,
       },
     ],
@@ -64,7 +64,7 @@ function fixtures(): ReadonlyMap<string, PixCharge> {
         id: "cha-confirmed-mid",
         amountCentavos: 75_000,
         status: "confirmed",
-        createdAt: DET_TIME,
+        nonce: "n-test", createdAt: DET_TIME,
         confirmedAt: DET_TIME,
       },
     ],
@@ -74,7 +74,7 @@ function fixtures(): ReadonlyMap<string, PixCharge> {
         id: "cha-confirmed-high",
         amountCentavos: 200_000,
         status: "confirmed",
-        createdAt: DET_TIME,
+        nonce: "n-test", createdAt: DET_TIME,
         confirmedAt: DET_TIME,
       },
     ],
@@ -84,7 +84,7 @@ function fixtures(): ReadonlyMap<string, PixCharge> {
         id: "cha-refunded",
         amountCentavos: 30_000,
         status: "refunded",
-        createdAt: DET_TIME,
+        nonce: "n-test", createdAt: DET_TIME,
         confirmedAt: DET_TIME,
         refundedAt: DET_TIME,
         refundedCentavos: 30_000,

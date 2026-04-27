@@ -30,7 +30,7 @@ function env(taint: Taint): IntentEnvelope<string, { x: number }> {
     payload: { x: 1 },
     actor: { principal: "llm", sessionId: "s" },
     taint,
-    createdAt: "2026-04-23T12:00:00.000Z",
+    nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
   });
 }
 

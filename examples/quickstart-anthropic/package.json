@@ -1,0 +1,21 @@
+{
+  "name": "@example/quickstart-anthropic",
+  "version": "0.1.0-experimental",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc --outDir dist"
+  },
+  "dependencies": {
+    "@adjudicate/anthropic": "workspace:*",
+    "@adjudicate/core": "workspace:*",
+    "@adjudicate/pack-payments-pix": "workspace:*",
+    "@adjudicate/runtime": "workspace:*",
+    "@anthropic-ai/sdk": "^0.30.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0"
+  }
+}

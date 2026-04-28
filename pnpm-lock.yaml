@@ -123,6 +123,9 @@ importers:
       '@adjudicate/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
+      '@adjudicate/pack-payments-pix':
+        specifier: workspace:*
+        version: link:../pack-payments-pix
       '@anthropic-ai/sdk':
         specifier: ^0.30.0
         version: 0.30.1

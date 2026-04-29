@@ -22,8 +22,17 @@
   "dependencies": {
     "@adjudicate/core": "workspace:*"
   },
+  "peerDependencies": {
+    "@adjudicate/admin-sdk": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@adjudicate/admin-sdk": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@eslint/eslintrc": "^3.0.0",
+    "@adjudicate/admin-sdk": "workspace:*",
     "@adjudicate/eslint-config": "workspace:*",
     "@vitest/coverage-v8": "^3.2.0",
     "eslint": "^9.0.0",

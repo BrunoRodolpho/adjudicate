@@ -55,3 +55,15 @@ export {
   type DistributedKillSwitchHandle,
   type DistributedKillSwitchOptions,
 } from "./distributed-kill-switch.js";
+
+// ─── SDK-shape Redis emergency store (Phase 1.5d) ───────────────────────────
+// Implements `@adjudicate/admin-sdk`'s EmergencyStateStore against the same
+// Redis key format the kernel's `startDistributedKillSwitch` already polls.
+// `@adjudicate/admin-sdk` is an OPTIONAL peer dependency — adopters who only
+// use this package for kernel-runtime concerns don't pay for the SDK.
+
+export {
+  createRedisEmergencyStateStore,
+  type CreateRedisEmergencyStateStoreOptions,
+  type EmergencyHistoryLog,
+} from "./redis-emergency-store.js";

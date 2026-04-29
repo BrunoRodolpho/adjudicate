@@ -1,0 +1,42 @@
+{
+  "name": "@adjudicate/cli",
+  "version": "0.1.0-experimental",
+  "description": "adjudicate framework CLI — Pack lifecycle commands (init, lint, doctor) for policy authors.",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "adjudicate": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc --outDir dist",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "adjudicate": "tsx src/bin.ts"
+  },
+  "dependencies": {
+    "@adjudicate/core": "workspace:*",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

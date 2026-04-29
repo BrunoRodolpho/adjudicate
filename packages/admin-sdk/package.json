@@ -1,0 +1,46 @@
+{
+  "name": "@adjudicate/admin-sdk",
+  "version": "0.1.0-experimental",
+  "description": "Admin Query Interface (AQI) for adjudicate — Zod-validated read-only audit query handlers + tRPC router. Adopter-deployed; framework-shipped contract.",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./trpc": {
+      "types": "./dist/trpc/index.d.ts",
+      "import": "./dist/trpc/index.js",
+      "default": "./dist/trpc/index.js"
+    },
+    "./adapters/next": {
+      "types": "./dist/adapters/next.d.ts",
+      "import": "./dist/adapters/next.js",
+      "default": "./dist/adapters/next.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --outDir dist",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@adjudicate/audit": "workspace:*",
+    "@trpc/server": "^11.0.0",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "@adjudicate/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@adjudicate/core": "workspace:*",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

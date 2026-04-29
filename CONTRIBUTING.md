@@ -66,6 +66,24 @@ pnpm build
 - Keep commits single-purpose. The repo's history is readable and we'd
   like to keep it that way.
 
+## Schema drift policy
+
+`@adjudicate/core` defines the canonical TypeScript types for
+`IntentEnvelope`, `Decision`, `AuditRecord`, etc. `@adjudicate/admin-sdk`
+ships matching Zod schemas for runtime validation at the wire boundary.
+
+If you edit a type in `packages/core/src/{decision,envelope,audit,refusal,basis-codes,taint}.ts`:
+
+1. Update the matching schema in `packages/admin-sdk/src/schemas/`.
+2. The build-time `_coreToSchema` / `_schemaToCore` guards in each schema
+   file fail to compile if you forget step 1.
+3. The `schemas-roundtrip.test.ts` test fails by Decision-kind name if
+   step 1 is incomplete.
+
+`pnpm -r test` runs both gates as part of normal verification — a kernel
+change that breaks the SDK fails the workspace build, not just one
+package's tests.
+
 ## Architecture conversations
 
 Open a draft PR with the design first; an empty README in the new

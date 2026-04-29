@@ -14,20 +14,20 @@ import type {
 } from "@adjudicate/core";
 import type { IntentAuditRow } from "./postgres-sink.js";
 
-export interface AuditQueryWindow {
+export interface AuditQueryFnWindow {
   readonly fromIso: string;
   readonly toIso: string;
   readonly intentKind?: string;
   readonly limit?: number;
 }
 
-export interface AuditQuery {
+export interface AuditQueryFn {
   /**
    * Return rows whose `recorded_at` falls within [fromIso, toIso). Optional
    * filter by `intentKind`. Limit caps the result set; adopters may stream
    * via repeated calls if needed.
    */
-  fetchRows(window: AuditQueryWindow): Promise<readonly IntentAuditRow[]>;
+  fetchRows(window: AuditQueryFnWindow): Promise<readonly IntentAuditRow[]>;
 }
 
 /**
@@ -74,8 +74,8 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
  * `replay()` from @adjudicate/audit.
  */
 export async function readAuditWindow(
-  query: AuditQuery,
-  window: AuditQueryWindow,
+  query: AuditQueryFn,
+  window: AuditQueryFnWindow,
 ): Promise<AuditRecord[]> {
   const rows = await query.fetchRows(window);
   return rows.map(rowToRecord);

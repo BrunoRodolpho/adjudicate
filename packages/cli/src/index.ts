@@ -17,6 +17,11 @@ export {
 export { runDoctor } from "./commands/doctor.js";
 
 export {
+  runSimulate,
+  type SimulateOptions,
+} from "./commands/simulate.js";
+
+export {
   detectWorkspace,
   type WorkspaceContext,
   type WorkspaceMode,
@@ -28,3 +33,35 @@ export {
   type RenderTemplateOptions,
   type TemplateVars,
 } from "./lib/template.js";
+
+export {
+  loadScenario,
+  loadIntentAndState,
+  ScenarioParseError,
+  type Scenario,
+  type IntentInput,
+} from "./lib/scenario.js";
+
+export {
+  loadPackFromModule,
+  findPackExport,
+  isLikelyPack,
+} from "./lib/pack-loader.js";
+
+export {
+  render as renderSimulation,
+  type SimulationOutput,
+  type SimulationFormat,
+} from "./lib/simulate-renderer.js";
+
+export {
+  listScenarios,
+  runDiff,
+  renderDiffText,
+  renderDiffJson,
+  computeExitCode,
+  type DiffReport,
+  type DiffSummary,
+  type ScenarioResult,
+  type ScenarioStatus,
+} from "./lib/simulate-diff.js";

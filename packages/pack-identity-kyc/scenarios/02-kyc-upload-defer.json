@@ -1,0 +1,25 @@
+{
+  "intent": {
+    "kind": "kyc.document.upload",
+    "payload": {
+      "sessionId": "kyc-sess-2",
+      "documentType": "PASSPORT",
+      "documentRef": "doc-upload-7c3a"
+    },
+    "actor": { "principal": "user", "sessionId": "kyc-sess-2" },
+    "taint": "UNTRUSTED",
+    "nonce": "scenario-02-kyc-upload-defer"
+  },
+  "state": {
+    "sessions": {
+      "kyc-sess-2": {
+        "id": "kyc-sess-2",
+        "userId": "user-42",
+        "status": "DOCS_REQUIRED",
+        "documents": [],
+        "createdAt": "2026-04-29T11:00:00.000Z"
+      }
+    }
+  },
+  "expected": { "kind": "DEFER" }
+}

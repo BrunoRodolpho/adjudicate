@@ -1,7 +1,14 @@
 // @adjudicate/core/kernel — adjudicate, PolicyBundle, combinators
 //                          + shadow-mode rollout, metrics, enforce-config.
 
-export { adjudicate } from "./adjudicate.js";
+export {
+  adjudicate,
+  adjudicateWithTrace,
+  nameGuard,
+  type AdjudicationTraceEntry,
+  type AdjudicationTracePhase,
+  type AdjudicationTraceResult,
+} from "./adjudicate.js";
 export {
   adjudicateAndAudit,
   type AdjudicateAndAuditClock,

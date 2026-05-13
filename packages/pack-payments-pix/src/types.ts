@@ -22,7 +22,7 @@
  *                            confirmed, REWRITES if refund > original.
  */
 
-import type { TaintPolicy } from "@adjudicate/core";
+import { createSystemTaintPolicy } from "@adjudicate/primitives";
 
 export type PixIntentKind =
   | "pix.charge.create"
@@ -94,12 +94,15 @@ export interface PixContext {
  * may propose them on the customer's behalf, but the kernel's policy
  * decides whether to execute. The webhook intent (`confirm`) requires
  * TRUSTED — only the provider's authenticated webhook should produce it.
+ *
+ * Encoded via `createSystemTaintPolicy` (Layer-2 primitive) so the
+ * "system-only kind" pattern carries its name into the source, and the
+ * allowlist is the one-line audit surface for "what kinds can the LLM
+ * not propose?"
  */
-export const pixTaintPolicy: TaintPolicy = {
-  minimumFor(kind) {
-    return kind === "pix.charge.confirm" ? "TRUSTED" : "UNTRUSTED";
-  },
-};
+export const pixTaintPolicy = createSystemTaintPolicy({
+  systemOnlyKinds: ["pix.charge.confirm"],
+});
 
 // ── Domain constants ────────────────────────────────────────────────────
 

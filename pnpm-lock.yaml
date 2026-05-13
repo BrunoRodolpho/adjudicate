@@ -331,6 +331,9 @@ importers:
       commander:
         specifier: ^12.1.0
         version: 12.1.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       tsx:
         specifier: ^4.19.0
@@ -397,6 +400,9 @@ importers:
         specifier: workspace:*
         version: link:../primitives
     devDependencies:
+      '@adjudicate/cli':
+        specifier: workspace:*
+        version: link:../cli
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
@@ -413,6 +419,9 @@ importers:
         specifier: workspace:*
         version: link:../primitives
     devDependencies:
+      '@adjudicate/cli':
+        specifier: workspace:*
+        version: link:../cli
       '@adjudicate/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config

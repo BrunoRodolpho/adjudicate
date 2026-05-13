@@ -1,0 +1,25 @@
+{
+  "intent": {
+    "kind": "kyc.vendor.callback",
+    "payload": {
+      "sessionId": "kyc-sess-3",
+      "score": 96,
+      "amlStatus": "CLEAR"
+    },
+    "actor": { "principal": "system", "sessionId": "vendor-webhook" },
+    "taint": "TRUSTED",
+    "nonce": "scenario-03-vendor-execute-high-score"
+  },
+  "state": {
+    "sessions": {
+      "kyc-sess-3": {
+        "id": "kyc-sess-3",
+        "userId": "user-42",
+        "status": "VENDOR_PENDING",
+        "documents": [],
+        "createdAt": "2026-04-29T11:00:00.000Z"
+      }
+    }
+  },
+  "expected": { "kind": "EXECUTE" }
+}

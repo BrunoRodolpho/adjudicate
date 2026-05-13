@@ -1,0 +1,17 @@
+{
+  "intent": {
+    "kind": "pix.charge.refund",
+    "payload": {
+      "chargeId": "c-does-not-exist",
+      "refundCentavos": 5000,
+      "reason": "customer_request"
+    },
+    "actor": { "principal": "llm", "sessionId": "sess-refuse" },
+    "taint": "UNTRUSTED",
+    "nonce": "scenario-06-refund-refuse-not-found"
+  },
+  "state": {
+    "charges": {}
+  },
+  "expected": { "kind": "REFUSE" }
+}

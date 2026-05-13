@@ -1,0 +1,25 @@
+{
+  "intent": {
+    "kind": "pix.charge.refund",
+    "payload": {
+      "chargeId": "c-confirmed-100k",
+      "refundCentavos": 1000,
+      "reason": "customer_request"
+    },
+    "actor": { "principal": "llm", "sessionId": "sess-execute" },
+    "taint": "UNTRUSTED",
+    "nonce": "scenario-01-refund-execute"
+  },
+  "state": {
+    "charges": {
+      "c-confirmed-100k": {
+        "id": "c-confirmed-100k",
+        "amountCentavos": 100000,
+        "status": "confirmed",
+        "createdAt": "2026-04-29T11:00:00.000Z",
+        "confirmedAt": "2026-04-29T11:05:00.000Z"
+      }
+    }
+  },
+  "expected": { "kind": "EXECUTE" }
+}

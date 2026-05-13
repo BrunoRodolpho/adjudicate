@@ -28,7 +28,48 @@ import type { PackV0 } from "@adjudicate/core";
 import { pixCapabilityPlanner } from "./capabilities.js";
 import { inMemoryPixHandlers } from "./handlers.js";
 import { pixPolicyBundle } from "./policies.js";
-import type { PixContext, PixIntentKind, PixState } from "./types.js";
+import type {
+  PixCharge,
+  PixContext,
+  PixIntentKind,
+  PixState,
+} from "./types.js";
+
+/**
+ * Reconstitute a `PixState` from a JSON-serializable representation.
+ *
+ * The runtime state uses `Map<string, PixCharge>` for `charges`, which
+ * doesn't survive `JSON.stringify`. Tools that read state from JSON
+ * (scenario fixtures for `adjudicate simulate`, audit replay payloads,
+ * future Console scenario builder) call this to convert
+ * `{ charges: { [id]: PixCharge } }` back into the Map shape the
+ * policy's guards expect.
+ *
+ * Permissive on input: silently tolerates already-rehydrated states
+ * (idempotent), and treats absent/malformed fields as empty maps.
+ * That's appropriate for a scenario boundary — the policy's guards
+ * are the authoritative validators of the rehydrated state.
+ */
+export function rehydratePixState(raw: unknown): PixState {
+  if (
+    typeof raw === "object" &&
+    raw !== null &&
+    "charges" in raw
+  ) {
+    const charges = (raw as { charges: unknown }).charges;
+    if (charges instanceof Map) {
+      return { charges: charges as ReadonlyMap<string, PixCharge> };
+    }
+    if (typeof charges === "object" && charges !== null) {
+      return {
+        charges: new Map(
+          Object.entries(charges as Record<string, PixCharge>),
+        ),
+      };
+    }
+  }
+  return { charges: new Map() };
+}
 
 // Re-exports for adopters.
 export {
@@ -106,4 +147,10 @@ export const paymentsPixPack = {
     "pix.charge.confirm_requires_webhook",
   ],
   handlers: inMemoryPixHandlers,
+  /**
+   * Scenario-state rehydrator. CLI `simulate` and other JSON-driven
+   * tools call this to convert plain-object state into the runtime
+   * Map shape. See `rehydratePixState` for semantics.
+   */
+  rehydrateState: rehydratePixState,
 } as const satisfies PackV0<PixIntentKind, unknown, PixState, PixContext>;

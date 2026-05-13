@@ -1,0 +1,17 @@
+{
+  "intent": {
+    "kind": "pix.charge.create",
+    "payload": {
+      "amountCentavos": 50000,
+      "payerDocument": "12345678901",
+      "description": "Test charge"
+    },
+    "actor": { "principal": "llm", "sessionId": "sess-defer" },
+    "taint": "UNTRUSTED",
+    "nonce": "scenario-05-charge-create-defer"
+  },
+  "state": {
+    "charges": {}
+  },
+  "expected": { "kind": "DEFER" }
+}

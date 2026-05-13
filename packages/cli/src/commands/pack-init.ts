@@ -93,7 +93,10 @@ export async function runPackInit(
       console.log(chalk.dim("  pnpm install"));
     }
     console.log(
-      chalk.dim("  pnpm test       # runs the conformance test against the scaffolded Pack"),
+      chalk.dim("  pnpm test           # runs the conformance test against the scaffolded Pack"),
+    );
+    console.log(
+      chalk.dim("  pnpm build && pnpm test:scenarios   # runs ./scenarios/*.json against the policy"),
     );
     console.log(
       chalk.dim("  adjudicate pack lint   # validates against the kernel"),

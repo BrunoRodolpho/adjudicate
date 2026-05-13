@@ -5,7 +5,36 @@ import type {
   IdentityKycIntentKind,
   IdentityKycPayload,
   IdentityKycState,
+  KycSession,
 } from "./types.js";
+
+/**
+ * Reconstitute an `IdentityKycState` from a JSON-serializable
+ * representation. The runtime `sessions` is `Map<string, KycSession>`
+ * which `JSON.stringify` flattens to a plain object; this converts
+ * back. Idempotent on already-rehydrated states. Tolerates an absent
+ * or malformed `sessions` field by returning an empty map.
+ */
+export function rehydrateKycState(raw: unknown): IdentityKycState {
+  if (
+    typeof raw === "object" &&
+    raw !== null &&
+    "sessions" in raw
+  ) {
+    const sessions = (raw as { sessions: unknown }).sessions;
+    if (sessions instanceof Map) {
+      return { sessions: sessions as ReadonlyMap<string, KycSession> };
+    }
+    if (typeof sessions === "object" && sessions !== null) {
+      return {
+        sessions: new Map(
+          Object.entries(sessions as Record<string, KycSession>),
+        ),
+      };
+    }
+  }
+  return { sessions: new Map() };
+}
 
 /**
  * pack-identity-kyc — adjudicate Pack #3.
@@ -53,6 +82,12 @@ export const IdentityKycPack = {
     "kyc.documents.uploaded",
     "kyc.vendor.completed",
   ],
+  /**
+   * Scenario-state rehydrator. CLI `simulate` and other JSON-driven
+   * tools call this to convert plain-object state into the runtime
+   * Map shape. See `rehydrateKycState` for semantics.
+   */
+  rehydrateState: rehydrateKycState,
 } as const satisfies PackV0<
   IdentityKycIntentKind,
   IdentityKycPayload,

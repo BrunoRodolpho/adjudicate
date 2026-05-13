@@ -15,12 +15,19 @@
   "scripts": {
     "build": "tsc --outDir dist",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:scenarios": "adjudicate simulate --pack ./dist/index.js --scenarios ./scenarios"
   },
+  "files": [
+    "dist",
+    "scenarios",
+    "README.md"
+  ],
   "dependencies": {
     "@adjudicate/core": "workspace:*"
   },
   "devDependencies": {
+    "@adjudicate/cli": "workspace:*",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   }

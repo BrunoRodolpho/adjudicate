@@ -1,0 +1,25 @@
+{
+  "intent": {
+    "kind": "kyc.vendor.callback",
+    "payload": {
+      "sessionId": "kyc-sess-6",
+      "score": 99,
+      "amlStatus": "CLEAR"
+    },
+    "actor": { "principal": "llm", "sessionId": "sess-attack" },
+    "taint": "UNTRUSTED",
+    "nonce": "scenario-06-vendor-taint-refuse"
+  },
+  "state": {
+    "sessions": {
+      "kyc-sess-6": {
+        "id": "kyc-sess-6",
+        "userId": "user-42",
+        "status": "VENDOR_PENDING",
+        "documents": [],
+        "createdAt": "2026-04-29T11:00:00.000Z"
+      }
+    }
+  },
+  "expected": { "kind": "REFUSE" }
+}

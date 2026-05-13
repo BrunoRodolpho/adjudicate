@@ -1,0 +1,25 @@
+{
+  "intent": {
+    "kind": "pix.charge.refund",
+    "payload": {
+      "chargeId": "c-confirmed-200k",
+      "refundCentavos": 150000,
+      "reason": "customer_request"
+    },
+    "actor": { "principal": "llm", "sessionId": "sess-escalate" },
+    "taint": "UNTRUSTED",
+    "nonce": "scenario-03-refund-escalate"
+  },
+  "state": {
+    "charges": {
+      "c-confirmed-200k": {
+        "id": "c-confirmed-200k",
+        "amountCentavos": 200000,
+        "status": "confirmed",
+        "createdAt": "2026-04-29T11:00:00.000Z",
+        "confirmedAt": "2026-04-29T11:05:00.000Z"
+      }
+    }
+  },
+  "expected": { "kind": "ESCALATE" }
+}

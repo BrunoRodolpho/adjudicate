@@ -27,7 +27,7 @@ import {
   decisionRequestConfirmation,
   decisionRewrite,
 } from "@adjudicate/core";
-import type { Guard, PolicyBundle } from "@adjudicate/core/kernel";
+import { nameGuard, type Guard, type PolicyBundle } from "@adjudicate/core/kernel";
 import {
   createStateDeferGuard,
   createThresholdGuard,
@@ -210,52 +210,54 @@ const clampRefundToOriginal: PixGuard = (envelope, state) => {
  * Ordered AFTER `clampRefundToOriginal` so the threshold compares against
  * the (possibly-clamped) requested amount, not the original payload.
  */
-const escalateLargeRefunds = createThresholdGuard<PixIntentKind, unknown, PixState>({
-  matches: (env) => env.kind === "pix.charge.refund",
-  extract: (env) =>
-    (env.payload as { refundCentavos: number }).refundCentavos,
-  threshold: ESCALATE_REFUND_THRESHOLD_CENTAVOS,
-  comparator: ">=",
-  onCross: (requested, threshold) =>
-    decisionEscalate(
-      "supervisor",
-      `Refund of ${requested} centavos exceeds the supervisor threshold.`,
-      [
-        basis("business", BASIS_CODES.business.RULE_SATISFIED, {
-          rule: "supervisor_threshold_reached",
-          threshold,
-          requested,
-        }),
-      ],
-    ),
-});
+const escalateLargeRefunds = nameGuard(
+  "escalateLargeRefunds",
+  createThresholdGuard<PixIntentKind, unknown, PixState>({
+    matches: (env) => env.kind === "pix.charge.refund",
+    extract: (env) =>
+      (env.payload as { refundCentavos: number }).refundCentavos,
+    threshold: ESCALATE_REFUND_THRESHOLD_CENTAVOS,
+    comparator: ">=",
+    onCross: (requested, threshold) =>
+      decisionEscalate(
+        "supervisor",
+        `Refund of ${requested} centavos exceeds the supervisor threshold.`,
+        [
+          basis("business", BASIS_CODES.business.RULE_SATISFIED, {
+            rule: "supervisor_threshold_reached",
+            threshold,
+            requested,
+          }),
+        ],
+      ),
+  }),
+);
 
 /**
  * Refunds at or above `CONFIRM_REFUND_THRESHOLD_CENTAVOS` (but below the
  * supervisor escalation threshold) prompt the user to confirm.
  */
-const requestConfirmForMediumRefund = createThresholdGuard<
-  PixIntentKind,
-  unknown,
-  PixState
->({
-  matches: (env) => env.kind === "pix.charge.refund",
-  extract: (env) =>
-    (env.payload as { refundCentavos: number }).refundCentavos,
-  threshold: CONFIRM_REFUND_THRESHOLD_CENTAVOS,
-  comparator: ">=",
-  onCross: (requested, threshold) =>
-    decisionRequestConfirmation(
-      `You're about to refund R$ ${(requested / 100).toFixed(2)}. Confirm?`,
-      [
-        basis("business", BASIS_CODES.business.RULE_SATISFIED, {
-          rule: "confirm_threshold_reached",
-          threshold,
-          requested,
-        }),
-      ],
-    ),
-});
+const requestConfirmForMediumRefund = nameGuard(
+  "requestConfirmForMediumRefund",
+  createThresholdGuard<PixIntentKind, unknown, PixState>({
+    matches: (env) => env.kind === "pix.charge.refund",
+    extract: (env) =>
+      (env.payload as { refundCentavos: number }).refundCentavos,
+    threshold: CONFIRM_REFUND_THRESHOLD_CENTAVOS,
+    comparator: ">=",
+    onCross: (requested, threshold) =>
+      decisionRequestConfirmation(
+        `You're about to refund R$ ${(requested / 100).toFixed(2)}. Confirm?`,
+        [
+          basis("business", BASIS_CODES.business.RULE_SATISFIED, {
+            rule: "confirm_threshold_reached",
+            threshold,
+            requested,
+          }),
+        ],
+      ),
+  }),
+);
 
 /**
  * `pix.charge.create` parks until the provider's webhook fires the
@@ -263,17 +265,20 @@ const requestConfirmForMediumRefund = createThresholdGuard<
  * the wire mechanics (signal name + timeout) so the Pack only declares
  * which intent kind triggers and what basis the audit trail records.
  */
-const deferChargeCreate = createStateDeferGuard<PixIntentKind, unknown, PixState>({
-  matches: (env) => env.kind === "pix.charge.create",
-  signal: PIX_CONFIRMATION_SIGNAL,
-  timeoutMs: PIX_DEFAULT_DEFER_TIMEOUT_MS,
-  basis: [
-    basis("state", BASIS_CODES.state.TRANSITION_VALID, {
-      reason: "awaiting_provider_confirmation",
-      waitFor: PIX_CONFIRMATION_SIGNAL,
-    }),
-  ],
-});
+const deferChargeCreate = nameGuard(
+  "deferChargeCreate",
+  createStateDeferGuard<PixIntentKind, unknown, PixState>({
+    matches: (env) => env.kind === "pix.charge.create",
+    signal: PIX_CONFIRMATION_SIGNAL,
+    timeoutMs: PIX_DEFAULT_DEFER_TIMEOUT_MS,
+    basis: [
+      basis("state", BASIS_CODES.state.TRANSITION_VALID, {
+        reason: "awaiting_provider_confirmation",
+        waitFor: PIX_CONFIRMATION_SIGNAL,
+      }),
+    ],
+  }),
+);
 
 // Positive EXECUTE guards — required because policy.default is REFUSE.
 

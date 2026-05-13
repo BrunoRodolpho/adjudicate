@@ -7,6 +7,7 @@ import {
   type Guard,
   type PolicyBundle,
 } from "@adjudicate/core";
+import { nameGuard } from "@adjudicate/core/kernel";
 import {
   filterReadOnly,
   safePlan,
@@ -128,21 +129,24 @@ const taint = createSystemTaintPolicy({
  * `kyc.documents.uploaded` signal fires (typically from the adopter's
  * upload-handler webhook).
  */
-const requireDocumentUpload = createStateDeferGuard<
-  IdentityKycIntentKind,
-  IdentityKycPayload,
-  IdentityKycState
->({
-  matches: (env) => env.kind === "kyc.start",
-  signal: KYC_DOCUMENTS_UPLOADED_SIGNAL,
-  timeoutMs: KYC_DOCUMENT_UPLOAD_TIMEOUT_MS,
-  basis: [
-    basis("state", "transition_valid", {
-      reason: "documents_required",
-      transition: "INIT→DOCS_REQUIRED",
-    }),
-  ],
-});
+const requireDocumentUpload = nameGuard(
+  "requireDocumentUpload",
+  createStateDeferGuard<
+    IdentityKycIntentKind,
+    IdentityKycPayload,
+    IdentityKycState
+  >({
+    matches: (env) => env.kind === "kyc.start",
+    signal: KYC_DOCUMENTS_UPLOADED_SIGNAL,
+    timeoutMs: KYC_DOCUMENT_UPLOAD_TIMEOUT_MS,
+    basis: [
+      basis("state", "transition_valid", {
+        reason: "documents_required",
+        transition: "INIT→DOCS_REQUIRED",
+      }),
+    ],
+  }),
+);
 
 /**
  * kyc.document.upload — always DEFERs while the verification provider
@@ -150,21 +154,24 @@ const requireDocumentUpload = createStateDeferGuard<
  * `kyc.vendor.completed` signal fires (from the vendor's webhook
  * handler).
  */
-const waitForVerification = createStateDeferGuard<
-  IdentityKycIntentKind,
-  IdentityKycPayload,
-  IdentityKycState
->({
-  matches: (env) => env.kind === "kyc.document.upload",
-  signal: KYC_VENDOR_COMPLETED_SIGNAL,
-  timeoutMs: KYC_VENDOR_TIMEOUT_MS,
-  basis: [
-    basis("state", "transition_valid", {
-      reason: "vendor_verification_pending",
-      transition: "DOCS_REQUIRED→VENDOR_PENDING",
-    }),
-  ],
-});
+const waitForVerification = nameGuard(
+  "waitForVerification",
+  createStateDeferGuard<
+    IdentityKycIntentKind,
+    IdentityKycPayload,
+    IdentityKycState
+  >({
+    matches: (env) => env.kind === "kyc.document.upload",
+    signal: KYC_VENDOR_COMPLETED_SIGNAL,
+    timeoutMs: KYC_VENDOR_TIMEOUT_MS,
+    basis: [
+      basis("state", "transition_valid", {
+        reason: "vendor_verification_pending",
+        transition: "DOCS_REQUIRED→VENDOR_PENDING",
+      }),
+    ],
+  }),
+);
 
 /**
  * kyc.vendor.callback with `amlStatus: "FLAGGED"` ESCALATEs to a human
@@ -215,58 +222,64 @@ const escalateOnAmlFlag: Guard<
  * security-by-obscurity for the score threshold. The detailed score
  * appears in `refusal.detail` for operators reviewing the audit log.
  */
-const refuseLowScore = createThresholdGuard<
-  IdentityKycIntentKind,
-  IdentityKycPayload,
-  IdentityKycState
->({
-  matches: (env) => env.kind === "kyc.vendor.callback",
-  extract: (env) => (env.payload as KycVendorCallbackPayload).score,
-  threshold: KYC_REFUSE_THRESHOLD,
-  comparator: "<",
-  onCross: (score, threshold) =>
-    decisionRefuse(
-      refuse(
-        "BUSINESS_RULE",
-        "kyc.verification_score_too_low",
-        "We couldn't verify your identity. Please contact support.",
-        `score=${score}/100, threshold=${threshold}`,
+const refuseLowScore = nameGuard(
+  "refuseLowScore",
+  createThresholdGuard<
+    IdentityKycIntentKind,
+    IdentityKycPayload,
+    IdentityKycState
+  >({
+    matches: (env) => env.kind === "kyc.vendor.callback",
+    extract: (env) => (env.payload as KycVendorCallbackPayload).score,
+    threshold: KYC_REFUSE_THRESHOLD,
+    comparator: "<",
+    onCross: (score, threshold) =>
+      decisionRefuse(
+        refuse(
+          "BUSINESS_RULE",
+          "kyc.verification_score_too_low",
+          "We couldn't verify your identity. Please contact support.",
+          `score=${score}/100, threshold=${threshold}`,
+        ),
+        [
+          basis("business", "rule_violated", {
+            rule: "verification_score",
+            score,
+            threshold,
+          }),
+        ],
       ),
-      [
-        basis("business", "rule_violated", {
-          rule: "verification_score",
-          score,
-          threshold,
-        }),
-      ],
-    ),
-});
+  }),
+);
 
 /**
  * kyc.vendor.callback with `score ≥ KYC_EXECUTE_THRESHOLD` (and CLEAR
  * aml — guaranteed by earlier ordering) EXECUTEs the verification. The
  * session advances from VENDOR_PENDING to VERIFIED.
  */
-const executeOnHighScore = createThresholdGuard<
-  IdentityKycIntentKind,
-  IdentityKycPayload,
-  IdentityKycState
->({
-  matches: (env) => env.kind === "kyc.vendor.callback",
-  extract: (env) => (env.payload as KycVendorCallbackPayload).score,
-  threshold: KYC_EXECUTE_THRESHOLD,
-  comparator: ">=",
-  onCross: (score) =>
-    decisionExecute([
-      basis("business", "rule_satisfied", {
-        rule: "verification_score",
-        score,
-      }),
-      basis("state", "transition_valid", {
-        transition: "VENDOR_PENDING→VERIFIED",
-      }),
-    ]),
-});
+const executeOnHighScore = nameGuard(
+  "executeOnHighScore",
+  createThresholdGuard<
+    IdentityKycIntentKind,
+    IdentityKycPayload,
+    IdentityKycState
+  >({
+    matches: (env) => env.kind === "kyc.vendor.callback",
+    extract: (env) => (env.payload as KycVendorCallbackPayload).score,
+    threshold: KYC_EXECUTE_THRESHOLD,
+    comparator: ">=",
+    onCross: (score) =>
+      decisionExecute([
+        basis("business", "rule_satisfied", {
+          rule: "verification_score",
+          score,
+        }),
+        basis("state", "transition_valid", {
+          transition: "VENDOR_PENDING→VERIFIED",
+        }),
+      ]),
+  }),
+);
 
 // ─── PolicyBundle ──────────────────────────────────────────────────────────
 

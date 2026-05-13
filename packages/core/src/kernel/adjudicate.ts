@@ -23,6 +23,15 @@
  * would also have failed auth now surface the taint refusal instead.
  *
  * Each guard returning null contributes a "pass" basis to the final decision.
+ *
+ * # Trace variant
+ *
+ * `adjudicateWithTrace()` returns the same Decision plus an evaluation
+ * trace — which guards ran, which one matched. Both functions delegate
+ * to `_adjudicateImpl`, so trace fidelity is structurally guaranteed:
+ * the trace describes the exact path `adjudicate()` would have taken.
+ * The hot path (`adjudicate()` itself) passes `undefined` for `traceOut`
+ * and pays zero allocation cost.
  */
 
 import { basis, BASIS_CODES, type DecisionBasis } from "../basis-codes.js";
@@ -41,16 +50,123 @@ import { getKillSwitchState, isKilled } from "./enforce-config.js";
 import type { PolicyBundle } from "./policy.js";
 import { makePassBasis } from "./basis.js";
 
+// ─── Trace record contract ─────────────────────────────────────────────────
+
+export type AdjudicationTracePhase =
+  | "kill"
+  | "schema"
+  | "state"
+  | "taint"
+  | "auth"
+  | "business"
+  | "default";
+
+/**
+ * A single step in the kernel's evaluation of an envelope.
+ *
+ * Semantics:
+ *   - One entry per evaluated step. Steps that didn't run (because an
+ *     earlier match short-circuited) are absent from the trace.
+ *   - Single-step phases (`kill`, `schema`, `taint`, `default`) emit one
+ *     entry. Array phases (`state`, `auth`, `business`) emit one entry
+ *     per guard actually invoked.
+ *   - `outcome === "match"` exactly identifies the step that produced
+ *     the final Decision. The trace always ends with the match.
+ *   - `guardName` is best-effort from `Function.name`. Factory-built
+ *     guards (e.g., returned from `createThresholdGuard`) are anonymous;
+ *     for those, `guardName` is omitted and consumers fall back to
+ *     `phase[index]`.
+ */
+export interface AdjudicationTraceEntry {
+  readonly phase: AdjudicationTracePhase;
+  /** 0-based position within array phases. Omitted for single-step phases. */
+  readonly index?: number;
+  /** Non-empty `Function.name` of the guard. Omitted for anonymous closures and non-guard phases. */
+  readonly guardName?: string;
+  /** "pass" — step yielded no decision; evaluation continued. "match" — step produced the final decision. */
+  readonly outcome: "pass" | "match";
+}
+
+export interface AdjudicationTraceResult {
+  readonly decision: Decision;
+  readonly trace: ReadonlyArray<AdjudicationTraceEntry>;
+}
+
+// ─── Public entry points ───────────────────────────────────────────────────
+
 export function adjudicate<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,
   state: S,
   policy: PolicyBundle<K, P, S>,
+): Decision {
+  return _adjudicateImpl(envelope, state, policy, undefined);
+}
+
+/**
+ * Attach a stable display name to a guard so it appears in trace output
+ * (`AdjudicationTraceEntry.guardName`).
+ *
+ * Guards declared as named consts (e.g., `const validateAmount: Guard<...> = ...`)
+ * already carry a useful `Function.name` automatically — `nameGuard` is for
+ * the case factory-built guards lose: `createThresholdGuard({...})` returns
+ * an anonymous closure with `name === ""`. Wrap it:
+ *
+ *     const escalateLargeRefunds = nameGuard(
+ *       "escalateLargeRefunds",
+ *       createThresholdGuard({ ... }),
+ *     );
+ *
+ * Idempotent: re-naming an already-named guard overwrites. Mutates the
+ * passed function in place (via `Object.defineProperty`) and returns it,
+ * so the type identity is preserved — `nameGuard(name, g)` is a
+ * pass-through with a side effect on `.name`.
+ */
+export function nameGuard<F extends (...args: never[]) => unknown>(
+  name: string,
+  guard: F,
+): F {
+  Object.defineProperty(guard, "name", {
+    value: name,
+    configurable: true,
+    writable: false,
+  });
+  return guard;
+}
+
+/**
+ * Tracing variant: same Decision as `adjudicate()`, plus the per-step
+ * evaluation trace. Useful for simulation tooling (CLI `simulate`),
+ * Operator Console replay rendering, and future static-verification
+ * over closed-enum guard spaces.
+ *
+ * Trace fidelity: this function and `adjudicate()` share their body —
+ * the only difference is that `adjudicate()` passes `undefined` for
+ * `traceOut`. There is no second implementation that could drift.
+ */
+export function adjudicateWithTrace<K extends string, P, S>(
+  envelope: IntentEnvelope<K, P>,
+  state: S,
+  policy: PolicyBundle<K, P, S>,
+): AdjudicationTraceResult {
+  const trace: AdjudicationTraceEntry[] = [];
+  const decision = _adjudicateImpl(envelope, state, policy, trace);
+  return { decision, trace };
+}
+
+// ─── Shared implementation ─────────────────────────────────────────────────
+
+function _adjudicateImpl<K extends string, P, S>(
+  envelope: IntentEnvelope<K, P>,
+  state: S,
+  policy: PolicyBundle<K, P, S>,
+  traceOut: AdjudicationTraceEntry[] | undefined,
 ): Decision {
   // 0. Kill switch — operator-engaged global override. Engages BEFORE the
   //    schema-version check so a malformed envelope still gets refused with
   //    a clear "system is in maintenance" code rather than the generic
   //    schema_version_unsupported.
   if (isKilled()) {
+    if (traceOut) traceOut.push({ phase: "kill", outcome: "match" });
     const kill = getKillSwitchState();
     return decisionRefuse(
       refuse(
@@ -67,6 +183,7 @@ export function adjudicate<K extends string, P, S>(
       ],
     );
   }
+  if (traceOut) traceOut.push({ phase: "kill", outcome: "pass" });
 
   const accumulated: DecisionBasis[] = [];
 
@@ -74,6 +191,7 @@ export function adjudicate<K extends string, P, S>(
   //    receive decoded JSON use hasUnknownEnvelopeVersion() upstream; this
   //    check is the last line of defense inside the kernel.
   if (envelope.version !== INTENT_ENVELOPE_VERSION) {
+    if (traceOut) traceOut.push({ phase: "schema", outcome: "match" });
     return decisionRefuse(
       refuse(
         "SECURITY",
@@ -89,12 +207,18 @@ export function adjudicate<K extends string, P, S>(
       ],
     );
   }
+  if (traceOut) traceOut.push({ phase: "schema", outcome: "pass" });
   accumulated.push(basis("schema", BASIS_CODES.schema.VERSION_SUPPORTED));
 
   // 2. State guards
-  for (const guard of policy.stateGuards) {
+  for (let i = 0; i < policy.stateGuards.length; i++) {
+    const guard = policy.stateGuards[i]!;
     const d = guard(envelope, state);
-    if (d !== null) return enrichBasis(d, accumulated);
+    if (d !== null) {
+      if (traceOut) traceOut.push(traceEntry("state", i, guard, "match"));
+      return enrichBasis(d, accumulated);
+    }
+    if (traceOut) traceOut.push(traceEntry("state", i, guard, "pass"));
   }
   accumulated.push(makePassBasis("state"));
 
@@ -104,6 +228,7 @@ export function adjudicate<K extends string, P, S>(
   //    call — do not walk payload fields by inspection. Field-level taint
   //    (v1.1) gains precision transparently through this call.
   if (!canPropose(envelope.taint, envelope.kind, policy.taint)) {
+    if (traceOut) traceOut.push({ phase: "taint", outcome: "match" });
     return decisionRefuse(
       refuse(
         "SECURITY",
@@ -120,23 +245,35 @@ export function adjudicate<K extends string, P, S>(
       ],
     );
   }
+  if (traceOut) traceOut.push({ phase: "taint", outcome: "pass" });
   accumulated.push(makePassBasis("taint"));
 
   // 4. Auth guards (T8 reorder: now AFTER taint).
-  for (const guard of policy.authGuards) {
+  for (let i = 0; i < policy.authGuards.length; i++) {
+    const guard = policy.authGuards[i]!;
     const d = guard(envelope, state);
-    if (d !== null) return enrichBasis(d, accumulated);
+    if (d !== null) {
+      if (traceOut) traceOut.push(traceEntry("auth", i, guard, "match"));
+      return enrichBasis(d, accumulated);
+    }
+    if (traceOut) traceOut.push(traceEntry("auth", i, guard, "pass"));
   }
   accumulated.push(makePassBasis("auth"));
 
   // 5. Business rules
-  for (const guard of policy.business) {
+  for (let i = 0; i < policy.business.length; i++) {
+    const guard = policy.business[i]!;
     const d = guard(envelope, state);
-    if (d !== null) return enrichBasis(d, accumulated);
+    if (d !== null) {
+      if (traceOut) traceOut.push(traceEntry("business", i, guard, "match"));
+      return enrichBasis(d, accumulated);
+    }
+    if (traceOut) traceOut.push(traceEntry("business", i, guard, "pass"));
   }
   accumulated.push(makePassBasis("business"));
 
   // 6. Policy default
+  if (traceOut) traceOut.push({ phase: "default", outcome: "match" });
   if (policy.default === "EXECUTE") {
     return decisionExecute(accumulated);
   }
@@ -148,6 +285,22 @@ export function adjudicate<K extends string, P, S>(
     ),
     accumulated,
   );
+}
+
+function traceEntry(
+  phase: "state" | "auth" | "business",
+  index: number,
+  guard: unknown,
+  outcome: "pass" | "match",
+): AdjudicationTraceEntry {
+  const name =
+    typeof guard === "function" &&
+    typeof (guard as { name?: unknown }).name === "string"
+      ? (guard as { name: string }).name
+      : "";
+  return name.length > 0
+    ? { phase, index, guardName: name, outcome }
+    : { phase, index, outcome };
 }
 
 /**

@@ -119,6 +119,25 @@ export interface PackV0<
    * `"payment.confirmed"` per ADR-002 of pack-payments-pix.
    */
   readonly signals?: ReadonlyArray<string>;
+
+  /**
+   * Optional: reconstitute the Pack's runtime `State` from a serializable
+   * representation (typically `JSON.parse` output). Tools that source state
+   * from JSON fixtures (`adjudicate simulate` scenario files, future
+   * Console scenario builder, audit-replay payload restoration) call this
+   * before passing state to the kernel.
+   *
+   * Required for Packs whose state contains shapes that don't survive
+   * `JSON.stringify` round-tripping — `Map`, `Set`, `Date`, typed arrays.
+   * Omitting it is correct for Packs whose state is already plain JSON
+   * (records, arrays, primitives).
+   *
+   * Convention: be permissive on input. Treat absent/malformed fields as
+   * empty containers, and treat already-rehydrated inputs (state passed
+   * directly from production) as a pass-through. The policy's guards are
+   * the authoritative validators of the rehydrated state.
+   */
+  readonly rehydrateState?: (raw: unknown) => State;
 }
 
 /**

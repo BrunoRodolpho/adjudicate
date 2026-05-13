@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import chalk from "chalk";
 import { assertPackConformance } from "@adjudicate/core";
+import { loadPackFromModule } from "../lib/pack-loader.js";
 
 export interface PackLintOptions {
   readonly cwd?: string;
@@ -14,24 +15,6 @@ async function fileExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/**
- * Heuristic Pack-export discovery. Prefers a default export; falls
- * back to the first exported value with the structural shape of a
- * Pack (intents + policy + contract).
- */
-function findPackExport(mod: Record<string, unknown>): unknown {
-  if (mod.default && isLikelyPack(mod.default)) return mod.default;
-  for (const value of Object.values(mod)) {
-    if (isLikelyPack(value)) return value;
-  }
-  return undefined;
-}
-
-function isLikelyPack(v: unknown): boolean {
-  if (typeof v !== "object" || v === null) return false;
-  return "intents" in v && "policy" in v && "contract" in v;
 }
 
 /**
@@ -62,12 +45,9 @@ export async function runPackLint(
     process.exit(1);
   }
 
-  let mod: Record<string, unknown>;
+  let pack: unknown;
   try {
-    // file:// URL for cross-platform import; .ts loaded via the active
-    // tsx loader (when running via `pnpm adjudicate`) or compiled
-    // dist (when running the published bin).
-    mod = (await import(`file://${indexPath}`)) as Record<string, unknown>;
+    pack = await loadPackFromModule(indexPath, cwd);
   } catch (err) {
     const e = err instanceof Error ? err : new Error(String(err));
     console.error(
@@ -82,7 +62,6 @@ export async function runPackLint(
     process.exit(1);
   }
 
-  const pack = findPackExport(mod);
   if (!pack) {
     console.error(
       chalk.red("✗"),

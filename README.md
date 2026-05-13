@@ -13,11 +13,15 @@ Modern AI agents call tools. Most agent frameworks ship the tool call straight t
 
 | Package | What it gives you |
 |---|---|
-| [`@adjudicate/core`](./packages/core) | Types (`IntentEnvelope`, `Decision`, `Refusal`, `AuditRecord`), the deterministic kernel (`adjudicate`, `PolicyBundle`, combinators) at the `/kernel` subpath, and the LLM-side surface (`CapabilityPlanner`, `ToolClassification`, `PromptRenderer`) at `/llm`. |
+| [`@adjudicate/core`](./packages/core) | Types (`IntentEnvelope`, `Decision`, `Refusal`, `AuditRecord`), the deterministic kernel (`adjudicate`, `adjudicateWithTrace`, `PolicyBundle`, combinators) at the `/kernel` subpath, and the LLM-side surface (`CapabilityPlanner`, `ToolClassification`, `PromptRenderer`) at `/llm`. |
+| [`@adjudicate/primitives`](./packages/primitives) | Layer-2 risk primitives — `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy`. Reusable guard factories the domain Packs compose. |
 | [`@adjudicate/runtime`](./packages/runtime) | Replay-safe park + resume for deferred intents (`parkDeferredIntent`, `resumeDeferredIntent`, `deferResumeHash`) plus deadline helpers (`deadlinePromise`). |
 | [`@adjudicate/audit`](./packages/audit) | Two-track persistence: hot-path replay `Ledger` (Memory/Redis) and cold-path durable `AuditSink` (Console/NATS); replay harness for offline determinism checks. |
 | [`@adjudicate/audit-postgres`](./packages/audit-postgres) | Reference Postgres `AuditSink` + replay reader. Schema in `migrations/`. |
+| [`@adjudicate/admin-sdk`](./packages/admin-sdk) | Zod-validated read-only AQI + tRPC router for the Operator Console — audit query, emergency kill switch, replay verification. |
+| [`@adjudicate/cli`](./packages/cli) | Pack lifecycle CLI — `pack init` to scaffold, `pack lint` against kernel conformance, `simulate` to run scenarios and gate on decision regressions. |
 | [`@adjudicate/pack-payments-pix`](./packages/pack-payments-pix) | First domain Pack — Brazil's PIX payment lifecycle. Exercises every Decision outcome including the async DEFER → webhook → resume cycle. |
+| [`@adjudicate/pack-identity-kyc`](./packages/pack-identity-kyc) | Second domain Pack — KYC identity verification. Multi-stage async lifecycle (start → upload → vendor callback), AML escalation, system-only-kind taint defense. |
 | [`@adjudicate/anthropic`](./packages/anthropic) | Reference Anthropic Messages-API integration. `createAdjudicatedAgent` wires the kernel into Claude's tool-use loop with all six Decisions translated to tool_result protocol. |
 
 ## Examples
@@ -161,11 +165,9 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
 
 | Layer | Status | What's there |
 |---|---|---|
-| **L1 — Kernel** | shipped | `adjudicate()`, `PolicyBundle`, taint lattice, audit emission, replay safety. The 5 headline interfaces (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) are API-stable. |
-| **L2 — Policy primitives** | emerging | `createPixPendingDeferGuard` is the first guard factory; the full library extracts after Pack #2 / Pack #3 land — Rule of Three. |
-| **L3 — Domain Packs** | partial | `@adjudicate/pack-payments-pix` is the lighthouse; `vacation-approval` and `commerce-reference` are reference examples (handwritten guards, not yet Pack-shaped). |
-
-**Heads-up on rework**: the user message of the framework will sharpen further when L2 lands. The 5 stable interfaces don't change; surface area that *will* shift is documented in [`@adjudicate/anthropic`'s README](./packages/anthropic/README.md#l2-rework-callouts) so adopters know what to expect.
+| **L1 — Kernel** | shipped | `adjudicate()`, `adjudicateWithTrace()`, `PolicyBundle`, taint lattice, audit emission, replay safety. The 5 headline interfaces (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) are API-stable. |
+| **L2 — Risk primitives** | shipped | [`@adjudicate/primitives`](./packages/primitives) — `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy`. Extracted at 2 Packs (deliberate override of the Rule-of-Three after the threshold and defer patterns reappeared identically across PIX and KYC). |
+| **L3 — Domain Packs** | partial | `@adjudicate/pack-payments-pix` is the lighthouse; `@adjudicate/pack-identity-kyc` adds the async-lifecycle + AML + taint-defense surface. `vacation-approval` and `commerce-reference` examples remain (handwritten guards, not Pack-shaped). |
 
 **What's coming**: additional domain Packs (chosen to surface different shapes — HR approvals, sync-money, deploys), channel adapters, an observability dashboard, and a governance layer. Tracked in [issues](https://github.com/BrunoRodolpho/adjudicate/issues).
 
@@ -182,6 +184,9 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
 - **Per-package READMEs** — reference docs once concepts click. Start in
   [`packages/core/README.md`](./packages/core/README.md) and
   [`packages/anthropic/README.md`](./packages/anthropic/README.md).
+- **Test your policy** — [`docs/guides/testing-your-policy.md`](./docs/guides/testing-your-policy.md):
+  authoring declarative scenario fixtures, running them via
+  `adjudicate simulate`, and wiring them into CI as a decision-regression gate.
 - **ADR #9** — [`docs/architecture/decisions.md`](./docs/architecture/decisions.md)
   documents the 8-layer defense and the load-bearing invariants.
 - **Staged rollout playbook** — [`docs/ops/runbooks/`](./docs/ops/runbooks/) —

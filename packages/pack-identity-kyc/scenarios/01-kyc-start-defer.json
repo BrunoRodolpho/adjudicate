@@ -1,0 +1,16 @@
+{
+  "intent": {
+    "kind": "kyc.start",
+    "payload": {
+      "sessionId": "kyc-sess-1",
+      "userId": "user-42"
+    },
+    "actor": { "principal": "user", "sessionId": "kyc-sess-1" },
+    "taint": "UNTRUSTED",
+    "nonce": "scenario-01-kyc-start-defer"
+  },
+  "state": {
+    "sessions": {}
+  },
+  "expected": { "kind": "DEFER" }
+}

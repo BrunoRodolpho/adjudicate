@@ -20,6 +20,7 @@ import type {
   SupervisorModifiers,
   ToolSchema,
 } from "@adjudicate/core/llm";
+import { intentKindToApiName } from "./bridge.js";
 
 export interface AnthropicPromptRendererOptions {
   /** Identifies the Pack the agent serves; included in the system prompt for traceability. */
@@ -67,7 +68,20 @@ export function createAnthropicPromptRenderer<S, C = unknown>(
         ...plan.visibleReadTools,
         ...plan.allowedIntents,
       ]);
-      const toolSchemas = allSchemas.filter((s) => visibleNames.has(s.name));
+      // Filter to schemas the planner advertised, then translate dotted
+      // intent-kind names (e.g. `pix.charge.create`) to Anthropic-API
+      // form (`pix_charge_create`) so the API accepts them — Anthropic's
+      // tool-name pattern is `^[a-zA-Z0-9_-]{1,128}$` and rejects dots.
+      // The bridge's `classifyIncomingToolUse` reverses the translation
+      // when the model echoes the name back on `tool_use`. See
+      // `bridge.ts:intentKindToApiName` for the canonical translation.
+      const toolSchemas = allSchemas
+        .filter((s) => visibleNames.has(s.name))
+        .map((s) =>
+          s.name === intentKindToApiName(s.name)
+            ? s
+            : { ...s, name: intentKindToApiName(s.name) },
+        );
 
       const segments: string[] = [];
       if (options.basePrompt) segments.push(options.basePrompt);

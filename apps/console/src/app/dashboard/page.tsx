@@ -17,16 +17,17 @@ import {
   isoSince,
   type DashboardRange,
 } from "@/components/dashboard/RangePicker";
+import { AccuracyPanel } from "@/components/dashboard/AccuracyPanel";
+import { TopRefusals } from "@/components/dashboard/TopRefusals";
 
 /**
  * Dashboard — Console v0.2 outcome-distribution surface.
  *
  * Renders a stacked area chart of `Decision.kind` counts over the selected
  * window. Backs by the `governance.outcomeDistribution` tRPC procedure.
- * Decision-state colours match the rest of the console.
- *
- * "Top refusal reasons" is a future ticket: it needs a basis-code aggregator
- * on the AuditStore, not in scope for this push.
+ * Decision-state colours match the rest of the console. Below the chart:
+ * the SA2-Rec-6 decision-accuracy panel (powered by retrospective outcomes)
+ * plus the top-refusal-reasons table aggregated from `audit.query`.
  */
 export default function DashboardPage() {
   const [range, setRange] = useState<DashboardRange>("24h");
@@ -99,6 +100,15 @@ export default function DashboardPage() {
           );
         })}
       </section>
+
+      <section className="flex flex-col gap-2">
+        <header className="text-[10px] uppercase tracking-section text-faint">
+          Decision accuracy
+        </header>
+        <AccuracyPanel since={since} />
+      </section>
+
+      <TopRefusals since={since} />
     </div>
   );
 }

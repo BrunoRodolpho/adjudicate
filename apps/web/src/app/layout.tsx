@@ -7,6 +7,13 @@ export const metadata: Metadata = {
   title: "adjudicate · deterministic policy kernel for LLM-mediated actions",
   description:
     "Replay-safe adjudication, ordered policy enforcement, and forensic auditability for AI agent workflows.",
+  icons: { icon: "/favicon.svg" },
+  openGraph: {
+    title: "adjudicate · deterministic policy kernel for LLM-mediated actions",
+    description:
+      "Six structured decisions. Replay-safe ledger. Forensic AuditRecord. The kernel between the LLM and your side-effect.",
+    type: "website",
+  },
 };
 
 /**

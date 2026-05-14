@@ -394,6 +394,9 @@ export async function adjudicateAndAudit<K extends string, P, S>(
 
   // ── 6. Audit emission ──────────────────────────────────────────────
   const supersedes = deps.supersedes ?? confirmationSupersedes;
+  const kernelIdentity = ctx?.kernelIdentity
+    ? { id: ctx.kernelIdentity.id, version: ctx.kernelIdentity.version }
+    : undefined;
   const record = buildAuditRecord({
     envelope,
     decision,
@@ -401,6 +404,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     at: clock.nowIso(),
     ...(planSnapshot ? { plan: planSnapshot } : {}),
     ...(supersedes !== undefined ? { supersedes } : {}),
+    ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
   });
   await deps.sink.emit(record);
 

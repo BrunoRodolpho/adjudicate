@@ -8,6 +8,7 @@ import { GuardMetadataGraph } from "@/sections/GuardMetadataGraph";
 import { PacksSection } from "@/sections/PacksSection";
 import { ConsolePreview } from "@/sections/ConsolePreview";
 import { GetStarted } from "@/sections/GetStarted";
+import { LatestPosts } from "@/sections/LatestPosts";
 import { FinalCTA, Footer } from "@/sections/FinalCTA";
 
 export default function HomePage() {
@@ -23,6 +24,7 @@ export default function HomePage() {
       <PacksSection />
       <ConsolePreview />
       <GetStarted />
+      <LatestPosts />
       <FinalCTA />
       <Footer />
     </main>

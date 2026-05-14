@@ -103,6 +103,8 @@ function bundleArb(
   }));
 }
 
+const RUNS = { numRuns: 1000 } as const;
+
 describe("Decision-fuzz: kernel invariants under arbitrary inputs", () => {
   it("Property 1 — determinism: same envelope + state + bundle → same Decision", () => {
     fc.assert(
@@ -112,6 +114,7 @@ describe("Decision-fuzz: kernel invariants under arbitrary inputs", () => {
         expect(d1.kind).toBe(d2.kind);
         expect(d1.basis.length).toBe(d2.basis.length);
       }),
+      RUNS,
     );
   });
 
@@ -128,10 +131,37 @@ describe("Decision-fuzz: kernel invariants under arbitrary inputs", () => {
         });
         expect(env.intentHash).toBe(expected);
       }),
+      RUNS,
     );
   });
 
-  it("Property 3 — fail-closed default: a bundle with no matching guards returns its `default`, never null", () => {
+  it("Property 3 — ordered semantics: re-ordering guards WITHIN a phase may change outcome; phase order is fixed by the kernel", () => {
+    // The phase order (state → taint → auth → business) is enforced by
+    // `_adjudicateImpl`, not by the PolicyBundle field order. So swapping
+    // `stateGuards` and `business` arrays through bundle construction has
+    // no effect — both still run in the canonical phase order. This
+    // property pins that contract: any reshuffle of the *bundle's field
+    // order* via the spread operator produces the same Decision.
+    fc.assert(
+      fc.property(envelopeArb(), bundleArb(), (env, bundle) => {
+        const reshuffled: PolicyBundle<string, unknown, unknown> = {
+          // explicit re-spread in a different listing order
+          business: bundle.business,
+          taint: bundle.taint,
+          authGuards: bundle.authGuards,
+          default: bundle.default,
+          stateGuards: bundle.stateGuards,
+        };
+        const d1 = adjudicate(env, {}, bundle);
+        const d2 = adjudicate(env, {}, reshuffled);
+        expect(d1.kind).toBe(d2.kind);
+        expect(d1.basis.length).toBe(d2.basis.length);
+      }),
+      RUNS,
+    );
+  });
+
+  it("Property 4 — fail-closed default: a bundle with no matching guards returns its `default`, never null", () => {
     fc.assert(
       fc.property(
         envelopeArb(),
@@ -151,15 +181,17 @@ describe("Decision-fuzz: kernel invariants under arbitrary inputs", () => {
           expect(d.kind).toBe(dflt);
         },
       ),
+      RUNS,
     );
   });
 
-  it("Property 4 — basis non-empty: every Decision carries at least one basis entry", () => {
+  it("Property 5 — basis non-empty: every Decision carries at least one basis entry", () => {
     fc.assert(
       fc.property(envelopeArb(), bundleArb(), (env, bundle) => {
         const d = adjudicate(env, {}, bundle);
         expect(d.basis.length).toBeGreaterThanOrEqual(1);
       }),
+      RUNS,
     );
   });
 });

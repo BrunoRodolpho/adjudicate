@@ -104,6 +104,13 @@ export interface AuditRecord {
    * to the originating record.
    */
   readonly supersedes?: Supersession;
+  /**
+   * Optional, v3+. Identifier + version of the kernel that produced the
+   * decision. Plumbed through `RuntimeContext.kernelIdentity` when the
+   * adopter configures one. Attestation bytes are reserved for v0.2 — the
+   * audit row only carries the public `(id, version)` pair.
+   */
+  readonly kernelIdentity?: { readonly id: string; readonly version: string };
 }
 
 export interface BuildAuditInput {
@@ -123,6 +130,12 @@ export interface BuildAuditInput {
    * carries the same value under `supersedes`.
    */
   readonly supersedes?: Supersession;
+  /**
+   * Optional `(id, version)` of the kernel build producing the decision
+   * (v3+). When supplied, the resulting AuditRecord carries the same shape
+   * under `kernelIdentity`. Attestation bytes are reserved for v0.2.
+   */
+  readonly kernelIdentity?: { readonly id: string; readonly version: string };
 }
 
 export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
@@ -150,6 +163,9 @@ export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
     durationMs: input.durationMs,
     ...(plan !== undefined ? { plan } : {}),
     ...(input.supersedes !== undefined ? { supersedes: input.supersedes } : {}),
+    ...(input.kernelIdentity !== undefined
+      ? { kernelIdentity: input.kernelIdentity }
+      : {}),
   };
 }
 

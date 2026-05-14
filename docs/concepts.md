@@ -81,7 +81,7 @@ Every rulebook (`PolicyBundle<K, P, S>`) has the same five slots, regardless of 
    │  1. Intent kinds        — the "verbs"           │
    │  2. State shape         — what guards read      │
    │  3. Taint policy        — per-kind trust floor  │
-   │  4. Guards              — state→auth→taint→biz  │
+   │  4. Guards              — state→taint→auth→biz  │
    │  5. Default outcome     — REFUSE or EXECUTE     │
    └─────────────────────────────────────────────────┘
 ```
@@ -106,12 +106,12 @@ type Guard<K, P, S> = (
 **Execution order is fixed by the kernel** — adopters can't reorder it:
 
 ```
-   envelope ─▶ stateGuards[] ─▶ authGuards[] ─▶ taint ─▶ business[] ─▶ default
-                  │                  │             │           │            │
+   envelope ─▶ stateGuards[] ─▶ taint ─▶ authGuards[] ─▶ business[] ─▶ default
+                  │                │           │              │            │
                   └─ first non-null Decision short-circuits the rest ──────┘
 ```
 
-This is intentional. State checks before auth checks before trust checks before business rules. It means the same guard order applies in every Pack, and audit replays are deterministic.
+This is intentional. State checks before trust (taint) checks before auth checks before business rules. The taint gate runs **before** auth so UNTRUSTED inputs short-circuit before any auth-guard side effect (logging, identity-service queries, rate-limiter decrements) — see ADR-104. The same guard order applies in every Pack, and audit replays are deterministic.
 
 ---
 
@@ -309,7 +309,7 @@ Until then, leaf Packs handwrite their guards. **Duplication is acceptable and i
 
 ### Invariant to preserve through any refactor
 
-The kernel's fixed guard ordering (`state → auth → taint → business`) is a **load-bearing soundness property**: "auth always checked before business rules." If a future ADR moves to declarative phase metadata for ergonomics, `phase` must remain a **closed enum the kernel enforces**:
+The kernel's fixed guard ordering (`state → taint → auth → business`) is a **load-bearing soundness property**: "taint always checked before any auth-guard side effect, and auth always checked before business rules." (Pre-T8 the order was `state → auth → taint → business`; ADR-104 moved taint ahead of auth so UNTRUSTED inputs cannot side-effect any auth guard before being rejected.) If a future ADR moves to declarative phase metadata for ergonomics, `phase` must remain a **closed enum the kernel enforces**:
 
 ```ts
 type GuardPhase = "preconditions" | "trust" | "risk" | "business";

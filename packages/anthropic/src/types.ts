@@ -15,10 +15,12 @@ import type {
   AuditSink,
   Decision,
   IntentEnvelope,
+  Ledger,
   Taint,
 } from "@adjudicate/core";
 import type { PackV0 } from "@adjudicate/core";
 import type { PromptRenderer } from "@adjudicate/core/llm";
+import type { RuntimeContext } from "@adjudicate/core/kernel";
 import type { DeferRedis, ParkRedis } from "./persistence.js";
 import type { ConfirmationStore } from "./persistence.js";
 
@@ -80,8 +82,41 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C> {
   readonly deferStore: DeferRedis & ParkRedis;
   /** Persistence for REQUEST_CONFIRMATION pauses. In-memory shim provided. */
   readonly confirmationStore: ConfirmationStore;
-  /** Optional AuditSink — emits one record per Decision. */
+  /**
+   * AuditSink — emits one record per Decision through `adjudicateAndAudit`.
+   * Defaults to `noopAuditSink()` when absent (records are built and
+   * discarded; metrics + learning still flow). Production adopters compose
+   * `multiSink` / `bufferedSink` from `@adjudicate/audit` to wire durable
+   * sinks (Console / NATS / Postgres).
+   */
   readonly auditSink?: AuditSink;
+  /**
+   * Execution Ledger — REQUIRED. Every adjudication consults the ledger to
+   * suppress double-execution of the same `intentHash`; the kernel flips
+   * EXECUTE to REPLAY_SUPPRESSED when the SET-NX claim returns "exists".
+   *
+   * For tests and local development, import `createMemoryLedger` from this
+   * package (re-exported from `@adjudicate/audit`):
+   *
+   *     ledger: createMemoryLedger()
+   *
+   * `createMemoryLedger()` provides replay suppression only within a single
+   * process lifetime and MUST NOT be used for distributed or persistent
+   * production deployments. Production adopters wire `createRedisLedger`
+   * (or any backing store with SET-NX, EX, INCR, DECR) from
+   * `@adjudicate/audit`.
+   */
+  readonly ledger: Ledger;
+  /**
+   * Optional tenant RuntimeContext. When supplied, metrics and learning
+   * events route through the context's slots (per-tenant kill switches,
+   * sinks, enforce configs, env-var prefixes); when omitted, they go to
+   * the module-level default singletons. Both the tenant kill switch and
+   * the process-wide kill switch are consulted — both gates apply.
+   *
+   * @experimental — surface may shift before v1.0.0.
+   */
+  readonly runtimeContext?: RuntimeContext;
   /** Hard cap on assistant↔tool ping-pong per .send() call. Defaults to 8. */
   readonly maxIterations?: number;
   /** Adopter-owned executor. Required. */

@@ -27,11 +27,11 @@ import type {
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages";
 import {
-  adjudicate,
-  buildAuditRecord,
+  noopAuditSink,
   type Decision,
   type IntentEnvelope,
 } from "@adjudicate/core";
+import { adjudicateAndAudit } from "@adjudicate/core/kernel";
 import { resumeDeferredIntent } from "@adjudicate/runtime";
 import {
   buildEnvelopeFromToolUse,
@@ -242,28 +242,23 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
         });
         events.push({ kind: "intent_proposed", envelope });
 
-        const decision = adjudicate(
+        const { decision } = await adjudicateAndAudit(
           envelope as IntentEnvelope<K, P>,
           state,
           options.pack.policy,
+          {
+            sink: options.auditSink ?? noopAuditSink(),
+            ledger: options.ledger,
+            context: options.runtimeContext,
+            plan: () => ({
+              visibleReadTools: plan.visibleReadTools,
+              allowedIntents: plan.allowedIntents,
+              forbiddenConcepts: plan.forbiddenConcepts,
+            }),
+          },
         );
         lastDecision = decision;
         events.push({ kind: "decision", decision, envelope });
-
-        if (options.auditSink) {
-          await options.auditSink.emit(
-            buildAuditRecord({
-              envelope,
-              decision,
-              durationMs: 0,
-              plan: {
-                visibleReadTools: plan.visibleReadTools,
-                allowedIntents: plan.allowedIntents,
-                forbiddenConcepts: plan.forbiddenConcepts,
-              },
-            }),
-          );
-        }
 
         const single = await processSingleDecision({
           decision,
@@ -409,7 +404,22 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
         taint: "TRUSTED",
         intentHash: result.parked.envelope.intentHash,
       };
-      const decision = adjudicate(envelope, args.state, options.pack.policy);
+      const resumePlan = options.pack.planner.plan(args.state, args.context);
+      const { decision } = await adjudicateAndAudit(
+        envelope,
+        args.state,
+        options.pack.policy,
+        {
+          sink: options.auditSink ?? noopAuditSink(),
+          ledger: options.ledger,
+          context: options.runtimeContext,
+          plan: () => ({
+            visibleReadTools: resumePlan.visibleReadTools,
+            allowedIntents: resumePlan.allowedIntents,
+            forbiddenConcepts: resumePlan.forbiddenConcepts,
+          }),
+        },
+      );
 
       const seedEvents: AgentEvent[] = [
         { kind: "intent_proposed", envelope },
@@ -427,7 +437,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
         decision,
         envelope,
         toolUseId: fauxToolUseId,
-        plan: options.pack.planner.plan(args.state, args.context),
+        plan: resumePlan,
       };
       return runLoop(
         args.sessionId,
@@ -465,7 +475,22 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
         };
       }
       const envelope = pending.envelope as IntentEnvelope<K, P>;
-      const decision = adjudicate(envelope, args.state, options.pack.policy);
+      const confirmPlan = options.pack.planner.plan(args.state, args.context);
+      const { decision } = await adjudicateAndAudit(
+        envelope,
+        args.state,
+        options.pack.policy,
+        {
+          sink: options.auditSink ?? noopAuditSink(),
+          ledger: options.ledger,
+          context: options.runtimeContext,
+          plan: () => ({
+            visibleReadTools: confirmPlan.visibleReadTools,
+            allowedIntents: confirmPlan.allowedIntents,
+            forbiddenConcepts: confirmPlan.forbiddenConcepts,
+          }),
+        },
+      );
       const seedEvents: AgentEvent[] = [
         { kind: "intent_proposed", envelope },
         { kind: "decision", decision, envelope },
@@ -474,7 +499,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
         decision,
         envelope,
         toolUseId: pending.toolUseId,
-        plan: options.pack.planner.plan(args.state, args.context),
+        plan: confirmPlan,
       };
       return runLoop(
         pending.sessionId,

@@ -186,4 +186,73 @@ describe("rowToRecord — round-trip with recordToRow", () => {
     expect(recovered.version).toBe(1);
     expect(recovered.plan).toBeUndefined();
   });
+
+  it("round-trips a record produced by adjudicateAndAudit (P0-2 forward-compat smoke test)", async () => {
+    /*
+     * Post-P0-2 the Anthropic adapter emits AuditRecords through
+     * `adjudicateAndAudit` instead of building them by hand. This smoke
+     * test pins the property: records produced by the kernel-side
+     * emission path round-trip through Postgres serialization with
+     * byte-equality on the load-bearing fields. Without this, a future
+     * kernel change that adds a field could silently break audit-postgres
+     * before P1-2 (supersession) bumps AUDIT_RECORD_VERSION.
+     */
+    const { adjudicateAndAudit } = await import("@adjudicate/core/kernel");
+    const { buildEnvelope } = await import("@adjudicate/core");
+    type AuditRecord = import("@adjudicate/core").AuditRecord;
+    type AuditSink = import("@adjudicate/core").AuditSink;
+
+    const env = buildEnvelope({
+      kind: "order.submit",
+      payload: { sku: "X", qty: 1 },
+      actor: { principal: "llm", sessionId: "s-roundtrip" },
+      taint: "UNTRUSTED",
+      nonce: "n-roundtrip-test",
+      createdAt: "2026-05-13T12:00:00.000Z",
+    });
+
+    const captured: AuditRecord[] = [];
+    const captureSink: AuditSink = {
+      async emit(r) {
+        captured.push(r);
+      },
+    };
+
+    const policy = {
+      stateGuards: [],
+      authGuards: [],
+      taint: { minimumFor: () => "UNTRUSTED" as const },
+      business: [],
+      default: "EXECUTE" as const,
+    };
+
+    await adjudicateAndAudit(env, {}, policy, {
+      sink: captureSink,
+      plan: () => ({
+        visibleReadTools: ["search"],
+        allowedIntents: ["order.submit"],
+        forbiddenConcepts: [],
+      }),
+    });
+
+    expect(captured).toHaveLength(1);
+    const original = captured[0]!;
+
+    const row = recordToRow(original);
+    const recovered = rowToRecord(row);
+
+    expect(recovered.intentHash).toBe(original.intentHash);
+    expect(recovered.envelope.kind).toBe(original.envelope.kind);
+    expect(recovered.envelope.taint).toBe(original.envelope.taint);
+    expect(recovered.envelope.nonce).toBe(original.envelope.nonce);
+    expect(recovered.envelope.actor.principal).toBe(original.envelope.actor.principal);
+    expect(recovered.envelope.actor.sessionId).toBe(original.envelope.actor.sessionId);
+    expect(recovered.decision.kind).toBe(original.decision.kind);
+    expect(recovered.decision.basis.length).toBe(original.decision.basis.length);
+    expect(recovered.version).toBe(original.version);
+    expect(recovered.plan).toBeDefined();
+    expect(recovered.plan!.visibleReadTools).toEqual(["search"]);
+    expect(recovered.plan!.allowedIntents).toEqual(["order.submit"]);
+    expect(recovered.plan!.planFingerprint).toBe(original.plan!.planFingerprint);
+  });
 });

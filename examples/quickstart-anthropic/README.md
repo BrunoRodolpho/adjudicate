@@ -39,6 +39,7 @@ After all turns run, the script prints a summary and exits non-zero if any of th
 - **Real provider integration** — the executor wraps `inMemoryPixHandlers`. Replace with your PIX provider client (Mercado Pago, Stripe Brazil, etc.) for production.
 - **Real webhook subscription** — Turn 1 transitions to a primed state in-process to keep the demo to a single execution; production wires `agent.resume()` to a real webhook handler.
 - **Persistent storage** — uses `createInMemoryDeferStore` and `createInMemoryConfirmationStore`. Production wires Redis (or any KV with NX/EX/INCR/DECR semantics).
+- **Persistent Execution Ledger** — uses `createMemoryLedger()`. This provides replay suppression only within a single process lifetime and **MUST NOT** be used for distributed or persistent production deployments. Production adopters wire `createRedisLedger` (or any backing store with SET-NX, EX, INCR, DECR) from [`@adjudicate/audit`](../../packages/audit). Without a persistent ledger, two duplicate webhook deliveries arriving at different processes would both EXECUTE.
 
 ## Where to go next
 

@@ -109,7 +109,7 @@ pnpm --filter @example/quickstart-anthropic dev
    ║   ┌────────────────────────────────────────────────────────────────────┐ ║
    ║   │           adjudicate(envelope, state, policy)                       │ ║
    ║   │             @adjudicate/core/kernel                                 │ ║
-   ║   │     ordered guards: state → auth → taint → business                 │ ║
+   ║   │     ordered guards: state → taint → auth → business                 │ ║
    ║   └────────────────────────────────────────────────────────────────────┘ ║
    ║                                  │                                        ║
    ║              ┌───────┬───────────┼───────────┬────────────┐               ║

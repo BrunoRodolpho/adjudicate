@@ -58,3 +58,15 @@ export {
   AnthropicAdapterError,
   AnthropicAdapterErrorCode,
 } from "./errors.js";
+
+/**
+ * In-memory Execution Ledger — re-export from `@adjudicate/audit` for
+ * zero-import-friction in tests, the quickstart, and local development.
+ *
+ * `createMemoryLedger()` provides replay suppression only within a single
+ * process lifetime and MUST NOT be used for distributed or persistent
+ * production deployments. Production adopters wire `createRedisLedger`
+ * (or any backing store with SET-NX, EX, INCR, DECR) from
+ * `@adjudicate/audit`.
+ */
+export { createMemoryLedger } from "@adjudicate/audit";

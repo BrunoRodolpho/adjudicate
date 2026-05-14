@@ -50,3 +50,10 @@ export type {
   PostgresGovernanceWriter,
   PostgresReader,
 } from "./pg-reader.js";
+
+export {
+  UPSERT_GUARD_STAT_SQL,
+  createPostgresGuardFireStatsStore,
+  type CreatePostgresGuardFireStatsStoreDeps,
+  type GuardStatsWriter,
+} from "./guard-stats-store.js";

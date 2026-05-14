@@ -3,6 +3,8 @@ import { z } from "zod";
 import { classify } from "@adjudicate/audit";
 import type {
   GuardFireStats,
+  InMemoryOutcomeSink,
+  OutcomeSink,
   PolicyBundleDescriptor,
 } from "@adjudicate/core";
 import { AuditRecordSchema } from "../schemas/audit.js";
@@ -26,6 +28,16 @@ import {
   GuardFireStatsResultSchema,
 } from "../schemas/guard-stats.js";
 import { PolicyBundleDescriptorSchema } from "../schemas/policy-descriptor.js";
+import {
+  DecisionAccuracyQuerySchema,
+  DecisionAccuracyResultSchema,
+  RetrospectiveOutcomeSchema,
+} from "../schemas/outcome-reconciliation.js";
+import {
+  createDecisionAccuracyHandler,
+  createRecordOutcomeHandler,
+  type OutcomeLookup,
+} from "../handlers/outcome-reconciliation.js";
 import { ReplayResultSchema } from "../schemas/replay.js";
 import { createAuditQueryHandler } from "../handlers/audit-query.js";
 import { createEmergencyHandler } from "../handlers/emergency.js";
@@ -78,6 +90,14 @@ export interface AdminContext {
    * `governance.describePolicy` then throws PRECONDITION_FAILED.
    */
   readonly policyDescriptor?: PolicyBundleDescriptor;
+  /**
+   * Optional retrospective-outcome sink. When supplied, the
+   * `governance.recordOutcome` mutation forwards to it. The
+   * `governance.decisionAccuracy` query additionally requires
+   * `outcomeLookup` so it can join audit records with observations.
+   */
+  readonly outcomeSink?: OutcomeSink;
+  readonly outcomeLookup?: InMemoryOutcomeSink | OutcomeLookup;
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -238,6 +258,56 @@ const governanceRouter = t.router({
       return ctx.policyDescriptor as unknown as z.infer<
         typeof PolicyBundleDescriptorSchema
       >;
+    }),
+
+  /**
+   * Record a retrospective outcome — the upstream observation that the
+   * decision's action actually succeeded / failed / was withdrawn. Joins
+   * back to the AuditRecord by `intentHash`. Mutating procedure — requires
+   * the actor header.
+   */
+  recordOutcome: t.procedure
+    .input(RetrospectiveOutcomeSchema)
+    .mutation(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message:
+            "x-adjudicate-actor-id header required for mutating procedures",
+        });
+      }
+      if (!ctx.outcomeSink) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Outcome sink not configured. Wire an OutcomeSink into the route handler context.",
+        });
+      }
+      const handler = createRecordOutcomeHandler({ sink: ctx.outcomeSink });
+      return handler(input);
+    }),
+
+  /**
+   * Aggregate decision-accuracy stats: how many EXECUTE records in the
+   * window have a matching observation, and how many of those reported
+   * success vs failure vs withdrawn.
+   */
+  decisionAccuracy: t.procedure
+    .input(DecisionAccuracyQuerySchema)
+    .output(DecisionAccuracyResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.outcomeLookup) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Outcome lookup not configured. Wire an InMemoryOutcomeSink (or other OutcomeLookup) into the route handler context.",
+        });
+      }
+      const handler = createDecisionAccuracyHandler({
+        auditStore: ctx.store,
+        outcomeLookup: ctx.outcomeLookup,
+      });
+      return handler(input);
     }),
 });
 

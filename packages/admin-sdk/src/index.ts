@@ -94,6 +94,16 @@ export {
   type PolicyBundleDescriptorParsed,
 } from "./schemas/policy-descriptor.js";
 
+export {
+  DecisionAccuracyQuerySchema,
+  DecisionAccuracyResultSchema,
+  ObservedOutcomeSchema,
+  RetrospectiveOutcomeSchema,
+  type DecisionAccuracyQuery,
+  type DecisionAccuracyResult,
+  type RetrospectiveOutcomeParsed,
+} from "./schemas/outcome-reconciliation.js";
+
 // ─── Handlers ───────────────────────────────────────────────────────────────
 export {
   createAuditQueryHandler,

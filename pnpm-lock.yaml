@@ -50,6 +50,9 @@ importers:
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@adjudicate/pack-deployments-approval':
+        specifier: workspace:*
+        version: link:../../packages/pack-deployments-approval
       '@adjudicate/pack-identity-kyc':
         specifier: workspace:*
         version: link:../../packages/pack-identity-kyc
@@ -396,6 +399,31 @@ importers:
       typescript-eslint:
         specifier: ^8.0.0
         version: 8.59.0(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
+
+  packages/pack-deployments-approval:
+    dependencies:
+      '@adjudicate/core':
+        specifier: workspace:*
+        version: link:../core
+      '@adjudicate/primitives':
+        specifier: workspace:*
+        version: link:../primitives
+    devDependencies:
+      '@adjudicate/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@vitest/coverage-v8':
+        specifier: ^3.2.0
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0))
+      eslint:
+        specifier: ^9.0.0
+        version: 9.39.4(jiti@1.21.7)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(tsx@4.21.0)
 
   packages/pack-identity-kyc:
     dependencies:

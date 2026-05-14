@@ -1,4 +1,5 @@
 import type { ConsolePackAdapter } from "./adapter";
+import { deploymentsAdapter } from "./definitions/deployments";
 import { kycAdapter } from "./definitions/kyc";
 import { pixAdapter } from "./definitions/pix";
 import { PackMetadataRegistry, type PackMetadata } from "./metadata";
@@ -19,7 +20,11 @@ import { PackMetadataRegistry, type PackMetadata } from "./metadata";
  * silently.
  */
 
-const ADAPTERS: ReadonlyArray<ConsolePackAdapter> = [pixAdapter, kycAdapter];
+const ADAPTERS: ReadonlyArray<ConsolePackAdapter> = [
+  pixAdapter,
+  kycAdapter,
+  deploymentsAdapter,
+];
 
 function assertRegistryAlignment(): void {
   const metadata = PackMetadataRegistry.all();

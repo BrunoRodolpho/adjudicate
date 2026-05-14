@@ -1,0 +1,39 @@
+{
+  "name": "@adjudicate/web",
+  "version": "0.1.0-experimental",
+  "private": true,
+  "type": "module",
+  "description": "Marketing homepage + interactive playground for the adjudicate framework.",
+  "scripts": {
+    "dev": "next dev --port 5181",
+    "build": "next build",
+    "start": "next start --port 5181",
+    "lint": "tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "@adjudicate/admin-sdk": "workspace:*",
+    "@adjudicate/audit": "workspace:*",
+    "@adjudicate/core": "workspace:*",
+    "@adjudicate/pack-deployments-approval": "workspace:*",
+    "@adjudicate/pack-identity-kyc": "workspace:*",
+    "@adjudicate/pack-payments-pix": "workspace:*",
+    "@adjudicate/primitives": "workspace:*",
+    "@tanstack/react-query": "^5.59.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.11.10",
+    "lucide-react": "^0.451.0",
+    "next": "^15.0.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.9.0"
+  }
+}

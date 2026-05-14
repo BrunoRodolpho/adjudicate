@@ -7,9 +7,9 @@ import { IntentEnvelopeSchema } from "./envelope.js";
 /**
  * Wire-side schemas for `AuditPlanSnapshot` and `AuditRecord`.
  *
- * `version` is `1 | 2` — readers MUST branch on it before accessing
- * v2-only fields (`plan`). The kernel emits v2 today; v1-shaped records
- * still validate against this schema with `plan` undefined.
+ * `version` is `1 | 2 | 3` — readers MUST branch on it before accessing
+ * v2-only fields (`plan`) or v3-only fields (`supersedes`). The kernel
+ * emits v3 today; v1/v2-shaped records still validate.
  */
 
 export const AuditPlanSnapshotSchema = z.object({
@@ -25,8 +25,23 @@ export const AuditPlanSnapshotSchema = z.object({
   planFingerprint: z.string(),
 });
 
+/** v3 — predecessor link for confirmation_resolved / defer_resumed / rewrite_executed / replay. */
+export const SupersessionReasonSchema = z.enum([
+  "confirmation_resolved",
+  "defer_resumed",
+  "rewrite_executed",
+  "replay",
+]);
+
+export const SupersessionSchema = z.object({
+  predecessorIntentHash: z.string(),
+  predecessorAt: z.string(),
+  reason: SupersessionReasonSchema,
+  token: z.string().optional(),
+});
+
 export const AuditRecordSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   intentHash: z.string(),
   envelope: IntentEnvelopeSchema,
   decision: DecisionSchema,
@@ -36,6 +51,7 @@ export const AuditRecordSchema = z.object({
   at: z.string(),
   durationMs: z.number(),
   plan: AuditPlanSnapshotSchema.optional(),
+  supersedes: SupersessionSchema.optional(),
 });
 
 // ─── Build-time drift guards ────────────────────────────────────────────────

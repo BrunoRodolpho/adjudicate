@@ -120,6 +120,13 @@ describe("confirmationReceipt override (fix for confirm() loop)", () => {
     // Exactly one audit record (no double-emission).
     expect(records).toHaveLength(1);
     expect(records[0]!.decision.kind).toBe("EXECUTE");
+    // v3 — the post-confirmation EXECUTE record links back to the original
+    // REQUEST_CONFIRMATION via `supersedes`.
+    expect(records[0]!.supersedes).toEqual({
+      predecessorIntentHash: env.intentHash,
+      predecessorAt: "2026-05-13T12:00:01.000Z",
+      reason: "confirmation_resolved",
+    });
   });
 
   it("REQUEST_CONFIRMATION + receipt for a DIFFERENT hash → no override", async () => {

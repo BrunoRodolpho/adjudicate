@@ -146,7 +146,7 @@ describe("rowToRecord — round-trip with recordToRow", () => {
     expect(recovered.decision.refusal.code).toBe("x");
   });
 
-  it("round-trips a v2 record carrying a plan snapshot", () => {
+  it("round-trips a v3 record carrying a plan snapshot", () => {
     const env = buildEnvelope({
       kind: "order.submit",
       payload: { sku: "X" },
@@ -168,14 +168,61 @@ describe("rowToRecord — round-trip with recordToRow", () => {
       },
     });
     const row = recordToRow(original);
-    expect(row.record_version).toBe(2);
+    expect(row.record_version).toBe(3);
     expect(row.plan_jsonb).not.toBeNull();
     const recovered = rowToRecord(row);
-    expect(recovered.version).toBe(2);
+    expect(recovered.version).toBe(3);
     expect(recovered.plan).toBeDefined();
     expect(recovered.plan!.visibleReadTools).toEqual(["search", "view_cart"]);
     expect(recovered.plan!.allowedIntents).toEqual(["order.submit"]);
     expect(recovered.plan!.planFingerprint).toBe(original.plan!.planFingerprint);
+  });
+
+  it("round-trips a v3 record carrying a supersedes link", () => {
+    const env = buildEnvelope({
+      kind: "order.submit",
+      payload: { sku: "X" },
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "TRUSTED",
+      nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
+    });
+    const original = buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([
+        basis("state", BASIS_CODES.state.TRANSITION_VALID),
+      ]),
+      durationMs: 4,
+      at: "2026-04-23T12:00:01.000Z",
+      supersedes: {
+        predecessorIntentHash: "a".repeat(64),
+        predecessorAt: "2026-04-23T11:59:00.000Z",
+        reason: "confirmation_resolved",
+        token: "cr-tok-1",
+      },
+    });
+    const row = recordToRow(original);
+    expect(row.record_version).toBe(3);
+    expect(row.supersedes_jsonb).not.toBeNull();
+    const recovered = rowToRecord(row);
+    expect(recovered.version).toBe(3);
+    expect(recovered.supersedes).toEqual({
+      predecessorIntentHash: "a".repeat(64),
+      predecessorAt: "2026-04-23T11:59:00.000Z",
+      reason: "confirmation_resolved",
+      token: "cr-tok-1",
+    });
+  });
+
+  it("treats a v2 row (record_version=2, NULL supersedes_jsonb) as a v2 record without supersedes", () => {
+    const original = record();
+    const row = {
+      ...recordToRow(original),
+      record_version: 2 as const,
+      supersedes_jsonb: null,
+    };
+    const recovered = rowToRecord(row);
+    expect(recovered.version).toBe(2);
+    expect(recovered.supersedes).toBeUndefined();
   });
 
   it("treats record_version=1 with NULL plan_jsonb as a v1 record (back-compat)", () => {

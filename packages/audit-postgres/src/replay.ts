@@ -11,6 +11,7 @@ import type {
   AuditRecordVersion,
   Decision,
   IntentEnvelope,
+  Supersession,
 } from "@adjudicate/core";
 import type { IntentAuditRow } from "./postgres-sink.js";
 
@@ -51,10 +52,15 @@ export interface AuditQueryFn {
 export function rowToRecord(row: IntentAuditRow): AuditRecord {
   const envelope = JSON.parse(row.envelope_jsonb) as IntentEnvelope;
   const decision = JSON.parse(row.decision_jsonb) as Decision;
-  const version: AuditRecordVersion = row.record_version === 2 ? 2 : 1;
+  const version: AuditRecordVersion =
+    row.record_version === 3 ? 3 : row.record_version === 2 ? 2 : 1;
   const plan: AuditPlanSnapshot | undefined =
-    version === 2 && row.plan_jsonb
+    version >= 2 && row.plan_jsonb
       ? (JSON.parse(row.plan_jsonb) as AuditPlanSnapshot)
+      : undefined;
+  const supersedes: Supersession | undefined =
+    version >= 3 && row.supersedes_jsonb
+      ? (JSON.parse(row.supersedes_jsonb) as Supersession)
       : undefined;
   return {
     version,
@@ -66,6 +72,7 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
     at: row.recorded_at,
     durationMs: row.duration_ms,
     ...(plan !== undefined ? { plan } : {}),
+    ...(supersedes !== undefined ? { supersedes } : {}),
   };
 }
 

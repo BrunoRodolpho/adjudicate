@@ -44,11 +44,11 @@ export interface IntentAuditRow {
   readonly duration_ms: number;
   readonly partition_month: string; // "2026-04" — for partition routing
   /**
-   * Audit record schema version (1 or 2). Carried alongside the row so the
+   * Audit record schema version (1, 2, or 3). Carried alongside the row so the
    * replay reader can branch without parsing JSON. v1 rows that predate this
    * column may be NULL — the reader treats NULL as v1.
    */
-  readonly record_version: 1 | 2;
+  readonly record_version: 1 | 2 | 3;
   /**
    * v2+ optional plan snapshot, pre-serialized JSON. NULL when the audit
    * record carries no plan field. Migration `002-add-plan-jsonb.sql` adds
@@ -61,6 +61,12 @@ export interface IntentAuditRow {
    * those. Migration `003-add-nonce.sql` adds the underlying column.
    */
   readonly nonce: string | null;
+  /**
+   * v3+ optional supersession link, pre-serialized JSON. NULL when the
+   * audit record carries no supersedes field. Migration
+   * `005-add-supersedes.sql` adds the underlying column.
+   */
+  readonly supersedes_jsonb: string | null;
 }
 
 export interface PostgresSinkOptions {
@@ -124,6 +130,9 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
       typeof (record.envelope as { nonce?: unknown }).nonce === "string"
         ? (record.envelope as { nonce: string }).nonce
         : null,
+    supersedes_jsonb: record.supersedes
+      ? JSON.stringify(record.supersedes)
+      : null,
   };
 }
 

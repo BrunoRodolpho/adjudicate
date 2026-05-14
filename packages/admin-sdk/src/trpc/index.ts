@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { classify } from "@adjudicate/audit";
+import type { GuardFireStats } from "@adjudicate/core";
 import { AuditRecordSchema } from "../schemas/audit.js";
 import {
   EmergencyHistoryQuerySchema,
@@ -13,9 +14,22 @@ import {
   AuditQuerySchema,
   AuditQueryResultSchema,
 } from "../schemas/query.js";
+import {
+  OutcomeDistributionQuerySchema,
+  OutcomeDistributionResultSchema,
+} from "../schemas/outcome-distribution.js";
+import {
+  GuardFireStatsQuerySchema,
+  GuardFireStatsResultSchema,
+} from "../schemas/guard-stats.js";
 import { ReplayResultSchema } from "../schemas/replay.js";
 import { createAuditQueryHandler } from "../handlers/audit-query.js";
 import { createEmergencyHandler } from "../handlers/emergency.js";
+import {
+  createOutcomeDistributionHandler,
+  type OutcomeDistributionStore,
+} from "../handlers/outcome-distribution.js";
+import { createGuardFireStatsHandler } from "../handlers/guard-stats.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -33,7 +47,7 @@ import type { ReplayInvoker } from "../store/replay-invoker.js";
  */
 
 export interface AdminContext {
-  readonly store: AuditStore;
+  readonly store: AuditStore | (AuditStore & OutcomeDistributionStore);
   readonly emergencyStore: EmergencyStateStore;
   /**
    * Resolved by the adopter's `createContext` from request headers via
@@ -47,6 +61,12 @@ export interface AdminContext {
    * feature-detection is via the error code.
    */
   readonly replayer?: ReplayInvoker;
+  /**
+   * Optional guard-fire stats accumulator (typically `RuntimeContext.learning`
+   * wired to a `GuardFireStats` instance). When omitted, `governance.guardFireStats`
+   * throws PRECONDITION_FAILED so the surface is feature-detectable at runtime.
+   */
+  readonly guardFireStats?: GuardFireStats;
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -149,10 +169,47 @@ const replayRouter = t.router({
     }),
 });
 
+const governanceRouter = t.router({
+  /**
+   * Time-bucketed distribution of `Decision.kind` over a window. Drives the
+   * console's outcome-distribution dashboard.
+   */
+  outcomeDistribution: t.procedure
+    .input(OutcomeDistributionQuerySchema)
+    .output(OutcomeDistributionResultSchema)
+    .query(async ({ input, ctx }) => {
+      const handler = createOutcomeDistributionHandler({ store: ctx.store });
+      return handler(input);
+    }),
+
+  /**
+   * Per-guard fire counts in a rolling window. Drives the console's
+   * governance visualiser. Throws PRECONDITION_FAILED when no
+   * GuardFireStats is wired into context.
+   */
+  guardFireStats: t.procedure
+    .input(GuardFireStatsQuerySchema)
+    .output(GuardFireStatsResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.guardFireStats) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Guard-fire stats not configured. Wire a GuardFireStats instance into the route handler context.",
+        });
+      }
+      const handler = createGuardFireStatsHandler({
+        stats: ctx.guardFireStats,
+      });
+      return handler(input);
+    }),
+});
+
 export const adminRouter = t.router({
   audit: auditRouter,
   emergency: emergencyRouter,
   replay: replayRouter,
+  governance: governanceRouter,
 });
 
 export type AdminRouter = typeof adminRouter;

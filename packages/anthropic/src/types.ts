@@ -191,7 +191,10 @@ export type AgentEvent =
       payload: ToolResultBlockParam;
     };
 
-export interface AdjudicatedAgent<K extends string, P, S, C> {
+// K and P are carried for inference parity with `createAdjudicatedAgent<K, P, S, C>`
+// even though the agent's surface only references S and C. eslint can't see
+// the inference-only use, so the names are prefixed with `_` to suppress.
+export interface AdjudicatedAgent<_K extends string, _P, S, C> {
   /** One user message + (state, context) snapshot → resolved turn. */
   send(input: AdjudicatedAgentSendInput<S, C>): Promise<AgentTurnResult>;
   /** Resume a parked DEFER (typically from an adopter's webhook handler). */

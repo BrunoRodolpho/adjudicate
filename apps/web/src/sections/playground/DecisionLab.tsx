@@ -5,6 +5,7 @@ import type { AuditRecord, Decision } from "@adjudicate/core";
 import { DECISIONS_ORDER, DECISIONS } from "@/content/decisions";
 import { DecisionBadge } from "@/components/motion/DecisionBadge";
 import { CodeBlock } from "@/components/ui/CodeBlock";
+import { useAuditLog } from "./audit-log-context";
 
 interface PlaygroundResponse {
   decision: Decision;
@@ -14,6 +15,7 @@ interface PlaygroundResponse {
 }
 
 export function DecisionLab() {
+  const { push } = useAuditLog();
   const [intentKind, setIntentKind] = useState<string>(
     DECISIONS.EXECUTE.playgroundPreset.intentKind,
   );
@@ -57,6 +59,12 @@ export function DecisionLab() {
         setError(data.error);
       } else {
         setResult(data);
+        push({
+          intentKind: data.record.envelope.kind,
+          decision: data.decision,
+          at: data.record.at,
+          packName: data.packName,
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");

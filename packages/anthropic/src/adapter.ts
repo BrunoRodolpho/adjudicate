@@ -17,7 +17,6 @@
  *   same assistant turn are surfaced as `not_processed_due_to_pause`.
  */
 
-import type Anthropic from "@anthropic-ai/sdk";
 import type {
   ContentBlock,
   Message,

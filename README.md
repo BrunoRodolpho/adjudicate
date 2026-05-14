@@ -22,7 +22,15 @@ Modern AI agents call tools. Most agent frameworks ship the tool call straight t
 | [`@adjudicate/cli`](./packages/cli) | Pack lifecycle CLI — `pack init` to scaffold, `pack lint` against kernel conformance, `simulate` to run scenarios and gate on decision regressions. |
 | [`@adjudicate/pack-payments-pix`](./packages/pack-payments-pix) | First domain Pack — Brazil's PIX payment lifecycle. Exercises every Decision outcome including the async DEFER → webhook → resume cycle. |
 | [`@adjudicate/pack-identity-kyc`](./packages/pack-identity-kyc) | Second domain Pack — KYC identity verification. Multi-stage async lifecycle (start → upload → vendor callback), AML escalation, system-only-kind taint defense. |
+| [`@adjudicate/pack-deployments-approval`](./packages/pack-deployments-approval) | Third domain Pack — software deployment gates. ESCALATE on production deploys without prior approval, REQUEST_CONFIRMATION before destructive rollback, REWRITE clamp on production ramp%. |
 | [`@adjudicate/anthropic`](./packages/anthropic) | Reference Anthropic Messages-API integration. `createAdjudicatedAgent` wires the kernel into Claude's tool-use loop with all six Decisions translated to tool_result protocol. |
+
+## Apps
+
+| App | What it gives you |
+|---|---|
+| [`apps/console`](./apps/console) | Operator Console (port 5180). Audit Explorer, decision detail with supersession + why-not panels, /dashboard (outcome distribution), /governance (policy structure + guard-fire stats), and /control (kill switch). |
+| [`apps/web`](./apps/web) | Marketing homepage + live playground (port 5181). Adjudicate any intent through the real kernel via `/api/playground/adjudicate`; flow simulators for PIX, KYC, and Deployments; GuardMetadata force-graph; embedded operator-console preview. |
 
 ## Examples
 

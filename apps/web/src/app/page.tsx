@@ -4,6 +4,7 @@ import { DecisionsGrid } from "@/sections/DecisionsGrid";
 import { PrimitivesDiagram } from "@/sections/PrimitivesDiagram";
 import { WedgeTable } from "@/sections/WedgeTable";
 import { Playground } from "@/sections/Playground";
+import { GuardMetadataGraph } from "@/sections/GuardMetadataGraph";
 import { PacksSection } from "@/sections/PacksSection";
 import { ConsolePreview } from "@/sections/ConsolePreview";
 import { GetStarted } from "@/sections/GetStarted";
@@ -18,6 +19,7 @@ export default function HomePage() {
       <PrimitivesDiagram />
       <WedgeTable />
       <Playground />
+      <GuardMetadataGraph />
       <PacksSection />
       <ConsolePreview />
       <GetStarted />

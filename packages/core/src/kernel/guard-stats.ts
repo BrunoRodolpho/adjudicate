@@ -122,7 +122,7 @@ export class GuardFireStats implements LearningSink {
     return Array.from(this.memo.values())
       .filter((b) => b.day >= sinceDay)
       .filter((b) => (q.packId ? b.packId === q.packId : true))
-      .map(({ packId, ...rest }) => rest)
+      .map(({ packId: _packId, ...rest }) => rest)
   }
 
   /**

@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Decision } from "@adjudicate/core";
 import { DecisionBadge } from "@/components/motion/DecisionBadge";
 import { CodeBlock } from "@/components/ui/CodeBlock";
+import { useAuditLog } from "./audit-log-context";
 
 export interface FlowStep {
   readonly title: string;
@@ -29,6 +30,7 @@ export function FlowSteps({
   const [active, setActive] = useState<number | null>(null);
   const [results, setResults] = useState<Record<number, Decision>>({});
   const [errors, setErrors] = useState<Record<number, string>>({});
+  const { push } = useAuditLog();
 
   async function runStep(idx: number) {
     setActive(idx);
@@ -49,6 +51,12 @@ export function FlowSteps({
       };
       if (data.decision) {
         setResults((r) => ({ ...r, [idx]: data.decision! }));
+        push({
+          intentKind: steps[idx]!.intentKind,
+          decision: data.decision,
+          at: new Date().toISOString(),
+          packName,
+        });
       } else {
         setErrors((e) => ({ ...e, [idx]: data.error ?? "Unknown error" }));
       }

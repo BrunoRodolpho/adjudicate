@@ -16,7 +16,7 @@ import type {
   GuardFireStatsStore,
   GuardPhase,
 } from "@adjudicate/core";
-import type { PostgresReader, PostgresGovernanceWriter } from "./pg-reader.js";
+import type { PostgresReader } from "./pg-reader.js";
 
 interface GuardStatsRow {
   guard_name: string;

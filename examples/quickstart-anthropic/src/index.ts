@@ -20,6 +20,7 @@ import {
   createAnthropicPromptRenderer,
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
+  createMemoryLedger,
   type AgentEvent,
   type AgentTurnResult,
 } from "@adjudicate/anthropic";
@@ -137,6 +138,12 @@ async function main(): Promise<void> {
     }),
     deferStore: createInMemoryDeferStore(),
     confirmationStore: createInMemoryConfirmationStore(),
+    // createMemoryLedger() provides replay suppression only within a single
+    // process lifetime and MUST NOT be used for distributed or persistent
+    // production deployments. Production adopters wire `createRedisLedger`
+    // (or any backing store with SET-NX, EX, INCR, DECR) from
+    // `@adjudicate/audit`.
+    ledger: createMemoryLedger(),
     executor: createPixExecutor(),
   });
 

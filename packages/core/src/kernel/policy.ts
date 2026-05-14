@@ -5,7 +5,12 @@
  * The kernel remains state-agnostic; the bundle carries every domain rule.
  *
  * Guards run in four categories, evaluated in this fixed order:
- *   state → auth → taint → business
+ *   state → taint → auth → business
+ *
+ * (Per ADR-104 — the T8 reorder placed taint ahead of auth so UNTRUSTED
+ * inputs short-circuit before any auth-guard side effect runs. The
+ * code-enforced order in `_adjudicateImpl` is the source of truth; this
+ * doc and any others must match it.)
  *
  * Each guard returns `Decision | null`. `null` means "this guard has no opinion —
  * continue evaluating." A non-null Decision short-circuits.

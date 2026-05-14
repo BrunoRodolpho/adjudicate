@@ -75,7 +75,9 @@ export interface PackV0<
   /**
    * PolicyBundle that adjudicates the Pack's intents — the core authority
    * for what's allowed when. Per the kernel's evaluation order:
-   * `state → auth → taint → business`.
+   * `state → taint → auth → business` (ADR-104; the T8 reorder placed taint
+   * ahead of auth so UNTRUSTED inputs short-circuit before any auth-guard
+   * side effect runs).
    */
   readonly policy: PolicyBundle<Kind, Payload, State>;
 

@@ -23,6 +23,7 @@
     "@anthropic-ai/sdk": ">=0.30.0"
   },
   "dependencies": {
+    "@adjudicate/audit": "workspace:*",
     "@adjudicate/core": "workspace:*",
     "@adjudicate/runtime": "workspace:*"
   },

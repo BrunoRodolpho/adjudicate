@@ -123,7 +123,7 @@ its output directly.
 The adapter never:
 - bypasses `adjudicate()` from `@adjudicate/core/kernel`
 - raises taint upward (LLM-derived envelopes are always `UNTRUSTED`)
-- alters the kernel's fixed guard ordering (state → auth → taint → business)
+- alters the kernel's fixed guard ordering (state → taint → auth → business — ADR-104)
 
 These are load-bearing soundness invariants — see
 [`docs/concepts.md §9`](../../docs/concepts.md#9-architectural-direction-intended-evolution).

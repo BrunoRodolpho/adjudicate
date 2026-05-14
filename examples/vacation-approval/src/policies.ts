@@ -13,7 +13,7 @@
  * When every guard returns null on a `vacation.request` from a manager, the
  * default branch fires and the kernel returns EXECUTE.
  *
- * Guards run in the kernel-fixed order: state -> auth -> taint -> business.
+ * Guards run in the kernel-fixed order: state -> taint -> auth -> business.
  */
 
 import {

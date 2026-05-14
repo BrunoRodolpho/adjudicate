@@ -32,7 +32,7 @@ Every outcome is asserted in [`tests/all-six-outcomes.test.ts`](./tests/all-six-
                      ▼
        ┌────────────────────────────┐
        │  adjudicate(env, state, p) │  ./kernel
-       │  state → auth → taint → biz│
+       │  state → taint → auth → biz│
        └─────────────┬──────────────┘
                      │
        ┌─────────────┴──────────────┬──────────────┐

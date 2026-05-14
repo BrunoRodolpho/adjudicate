@@ -229,6 +229,9 @@ importers:
 
   packages/anthropic:
     dependencies:
+      '@adjudicate/audit':
+        specifier: workspace:*
+        version: link:../audit
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../core

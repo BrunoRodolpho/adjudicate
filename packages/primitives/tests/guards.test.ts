@@ -7,6 +7,7 @@ import {
   decisionRefuse,
   refuse,
 } from "@adjudicate/core";
+import { readGuardMetadata } from "@adjudicate/core/kernel";
 import {
   createStateDeferGuard,
   createThresholdGuard,
@@ -161,5 +162,70 @@ describe("createStateDeferGuard", () => {
     expect(guard(refundEnvelope(1), { confirmed: false })?.kind).toBe(
       "DEFER",
     );
+  });
+});
+
+describe("L2 factories auto-attach GuardMetadata.description (ADR-105)", () => {
+  it("createThresholdGuard attaches description.kind === 'threshold' with threshold + comparator", () => {
+    const guard = createThresholdGuard<string, RefundPayload, unknown>({
+      matches: (env) => env.kind === "test.refund",
+      extract: (env) => env.payload.amountCentavos,
+      threshold: 5_000,
+      comparator: ">",
+      onCross: () => decisionExecute([]),
+    });
+    const meta = readGuardMetadata(guard);
+    expect(meta?.description?.kind).toBe("threshold");
+    if (meta?.description?.kind === "threshold") {
+      expect(meta.description.threshold).toBe(5_000);
+      expect(meta.description.comparator).toBe(">");
+      // emits is intentionally undefined — factory does not introspect onCross.
+      expect(meta.description.emits).toBeUndefined();
+    }
+  });
+
+  it("createThresholdGuard defaults comparator to '>=' in the description", () => {
+    const guard = createThresholdGuard<string, RefundPayload, unknown>({
+      matches: () => true,
+      extract: (env) => env.payload.amountCentavos,
+      threshold: 100,
+      onCross: () => decisionExecute([]),
+    });
+    const meta = readGuardMetadata(guard);
+    if (meta?.description?.kind === "threshold") {
+      expect(meta.description.comparator).toBe(">=");
+    } else {
+      throw new Error("expected threshold metadata");
+    }
+  });
+
+  it("createStateDeferGuard attaches description.kind === 'state_defer' with signal + timeoutMs", () => {
+    const guard = createStateDeferGuard<string, RefundPayload, unknown>({
+      matches: () => true,
+      signal: "payment.confirmed",
+      timeoutMs: 15 * 60 * 1000,
+      basis: [],
+    });
+    const meta = readGuardMetadata(guard);
+    expect(meta?.description?.kind).toBe("state_defer");
+    if (meta?.description?.kind === "state_defer") {
+      expect(meta.description.signal).toBe("payment.confirmed");
+      expect(meta.description.timeoutMs).toBe(15 * 60 * 1000);
+    }
+  });
+
+  it("metadata persists across guard invocation (not consumed by call)", () => {
+    const guard = createThresholdGuard<string, RefundPayload, unknown>({
+      matches: () => true,
+      extract: (env) => env.payload.amountCentavos,
+      threshold: 100,
+      onCross: () => decisionExecute([]),
+    });
+    // Invoke the guard a few times; metadata should remain readable.
+    for (let i = 0; i < 5; i++) {
+      guard(refundEnvelope(200), null);
+    }
+    const meta = readGuardMetadata(guard);
+    expect(meta?.description?.kind).toBe("threshold");
   });
 });

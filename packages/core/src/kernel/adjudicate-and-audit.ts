@@ -42,9 +42,13 @@ import {
 } from "../ledger.js";
 import { refuse } from "../refusal.js";
 import { type AuditSink } from "../sink.js";
-import { adjudicate } from "./adjudicate.js";
+import {
+  adjudicateWithTrace,
+  type AdjudicationTraceEntry,
+} from "./adjudicate.js";
 import {
   flattenBasis,
+  matchedGuardIdFromTrace,
   recordOutcome,
 } from "./learning.js";
 import {
@@ -223,11 +227,18 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   }
 
   let decision: Decision;
+  let trace: ReadonlyArray<AdjudicationTraceEntry> = [];
   if (ledgerHit) {
     decision = replaySuppressedRefusal(envelope.intentHash, ledgerHit);
   } else {
     // ── 2. Sync deterministic kernel ────────────────────────────────
-    decision = adjudicate(envelope, state, policy);
+    // Use the tracing variant so the matched-guard identity flows into
+    // LearningEvent.guardId (ADR-105). Trace fidelity is structurally
+    // guaranteed — adjudicate() and adjudicateWithTrace() share an
+    // implementation; the trace describes the same path.
+    const traced = adjudicateWithTrace(envelope, state, policy);
+    decision = traced.decision;
+    trace = traced.trace;
 
     // ── 3. EXECUTE-race fix: claim the ledger key ───────────────────
     if (decision.kind === "EXECUTE" && deps.ledger) {
@@ -283,6 +294,11 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // Telemetry must never block — catch sink failures here so the audit
   // emit below is the only path that propagates errors.
   const planSnapshot = deps.plan?.();
+  // ADR-105: derive guardId from the matched trace entry (metadata.name ??
+  // guard.name). When the Decision came from the policy default or a
+  // non-guard phase (kill/schema/taint), trace contains no match entry and
+  // guardId is omitted.
+  const guardId = matchedGuardIdFromTrace(trace);
   try {
     emitOutcome({
       intentKind: envelope.kind,
@@ -291,6 +307,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       taint: envelope.taint,
       durationMs,
       intentHash: envelope.intentHash,
+      ...(guardId !== undefined ? { guardId } : {}),
       ...(planSnapshot
         ? {
             planFingerprint: planFingerprintOf(planSnapshot),

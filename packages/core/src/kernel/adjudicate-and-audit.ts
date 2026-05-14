@@ -31,6 +31,7 @@
 import { basis, BASIS_CODES } from "../basis-codes.js";
 import { buildAuditRecord, type AuditPlanSnapshot, type AuditRecord } from "../audit.js";
 import {
+  decisionExecute,
   decisionRefuse,
   type Decision,
 } from "../decision.js";
@@ -121,6 +122,29 @@ export interface AdjudicateAndAuditDeps {
    * emission live on the same path.
    */
   readonly rateLimitRollback?: () => Promise<void>;
+  /**
+   * Receipt that the user already affirmatively confirmed this envelope
+   * via a prior REQUEST_CONFIRMATION cycle. When supplied AND the
+   * receipt's `intentHash` matches `envelope.intentHash` AND the kernel
+   * returns `REQUEST_CONFIRMATION`, the kernel substitutes `EXECUTE`
+   * with an appended `confirmation:received` basis recording the
+   * override. State guards, taint guards, and auth guards are still
+   * evaluated in full — only the threshold-style "ask the user first"
+   * step is satisfied. Other Decisions (REFUSE/REWRITE/ESCALATE/DEFER)
+   * are returned unchanged: a state change between request and
+   * confirmation that flipped the answer is correctly surfaced.
+   *
+   * Callers (typically the adapter's `confirm()` flow after taking the
+   * single-use confirmation token) own the integrity of the receipt —
+   * the kernel trusts that the receipt represents an actual user
+   * affirmation. Adopters wiring this directly should ensure the
+   * receipt cannot be forged from untrusted inputs.
+   */
+  readonly confirmationReceipt?: {
+    readonly intentHash: string;
+    /** ISO-8601 wall-clock of the user's confirmation. */
+    readonly at: string;
+  };
 }
 
 export interface AdjudicateAndAuditResult {
@@ -239,6 +263,26 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     const traced = adjudicateWithTrace(envelope, state, policy);
     decision = traced.decision;
     trace = traced.trace;
+
+    // ── 2a. Confirmation-receipt override ────────────────────────────
+    // When the caller asserts that the user confirmed THIS envelope and
+    // the kernel returned REQUEST_CONFIRMATION, substitute EXECUTE with
+    // an appended confirmation:received basis. State/taint/auth guards
+    // already ran; only the threshold-style "ask first" step is
+    // satisfied by the receipt. Other Decisions flow through unchanged.
+    if (
+      decision.kind === "REQUEST_CONFIRMATION" &&
+      deps.confirmationReceipt !== undefined &&
+      deps.confirmationReceipt.intentHash === envelope.intentHash
+    ) {
+      decision = decisionExecute([
+        ...decision.basis,
+        basis("confirmation", BASIS_CODES.confirmation.RECEIVED, {
+          confirmedAt: deps.confirmationReceipt.at,
+          originalPrompt: decision.prompt,
+        }),
+      ]);
+    }
 
     // ── 3. EXECUTE-race fix: claim the ledger key ───────────────────
     if (decision.kind === "EXECUTE" && deps.ledger) {

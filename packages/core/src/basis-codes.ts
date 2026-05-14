@@ -18,7 +18,8 @@ export type BasisCategory =
   | "business"
   | "validation"
   | "kill"
-  | "deadline";
+  | "deadline"
+  | "confirmation";
 
 export const BASIS_CODES = {
   state: {
@@ -71,6 +72,17 @@ export const BASIS_CODES = {
    */
   deadline: {
     EXCEEDED: "exceeded",
+  },
+  /**
+   * Confirmation lifecycle — emitted by `adjudicateAndAudit` when an
+   * `AdjudicateAndAuditDeps.confirmationReceipt` is supplied for an
+   * envelope that would otherwise have produced REQUEST_CONFIRMATION.
+   * The kernel substitutes EXECUTE with this basis appended so audit
+   * records preserve the "kernel asked → user confirmed → now allowed"
+   * causality in a single record.
+   */
+  confirmation: {
+    RECEIVED: "received",
   },
 } as const;
 

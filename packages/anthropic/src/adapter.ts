@@ -476,6 +476,12 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
       }
       const envelope = pending.envelope as IntentEnvelope<K, P>;
       const confirmPlan = options.pack.planner.plan(args.state, args.context);
+      // Pass `confirmationReceipt` so the kernel substitutes EXECUTE for
+      // the REQUEST_CONFIRMATION the threshold guard would otherwise
+      // re-emit. State/taint/auth/business guards still run in full —
+      // a state change that turned a REQUEST_CONFIRMATION into REFUSE
+      // (e.g., charge already refunded by another path) is correctly
+      // surfaced to the user instead of silently bypassed.
       const { decision } = await adjudicateAndAudit(
         envelope,
         args.state,
@@ -489,6 +495,10 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
             allowedIntents: confirmPlan.allowedIntents,
             forbiddenConcepts: confirmPlan.forbiddenConcepts,
           }),
+          confirmationReceipt: {
+            intentHash: envelope.intentHash,
+            at: new Date().toISOString(),
+          },
         },
       );
       const seedEvents: AgentEvent[] = [

@@ -7,6 +7,7 @@ describe("BASIS_CODES — vocabulary-controlled", () => {
       [
         "auth",
         "business",
+        "confirmation",
         "deadline",
         "kill",
         "ledger",

@@ -34,6 +34,14 @@ export type AuditRecordVersion = 1 | 2;
 export interface AuditPlanSnapshot {
   readonly visibleReadTools: ReadonlyArray<string>;
   readonly allowedIntents: ReadonlyArray<string>;
+  /**
+   * Mirror of `Plan.forbiddenConcepts` — recorded in the audit row but
+   * NOT included in `planFingerprint`.
+   *
+   * @deprecated v0.1.x — see `Plan.forbiddenConcepts`. Scheduled for
+   * removal at v1.0. Existing audit rows continue to be readable; the
+   * field is kept on this snapshot for back-compat with stored records.
+   */
   readonly forbiddenConcepts: ReadonlyArray<string>;
   /**
    * sha256 of canonical({ visibleReadTools, allowedIntents }). Used by the

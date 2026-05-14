@@ -74,6 +74,12 @@ export function createAnthropicPromptRenderer<S, C = unknown>(
       segments.push(DEFAULT_ADJUDICATED_SYSTEM_PROMPT);
       segments.push(`Pack: ${options.packId}`);
 
+      // `Plan.forbiddenConcepts` is @deprecated in @adjudicate/core
+      // (v0.1.x, scheduled for v1.0 removal) — advisory only, not
+      // enforced by the kernel. The renderer continues to inject the
+      // phrases for back-compat with adopters who populate the field;
+      // new adopters should run post-hoc content moderation outside
+      // the framework rather than relying on this prompt-level hint.
       if (plan.forbiddenConcepts.length > 0) {
         segments.push("");
         segments.push("MUST NOT discuss, suggest, or attempt:");

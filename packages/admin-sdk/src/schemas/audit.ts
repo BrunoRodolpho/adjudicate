@@ -15,6 +15,11 @@ import { IntentEnvelopeSchema } from "./envelope.js";
 export const AuditPlanSnapshotSchema = z.object({
   visibleReadTools: z.array(z.string()).readonly(),
   allowedIntents: z.array(z.string()).readonly(),
+  /**
+   * @deprecated v0.1.x — mirror of `Plan.forbiddenConcepts`, advisory
+   * only and not enforced by the kernel. Retained on the wire schema for
+   * back-compat with stored audit rows. Scheduled for removal at v1.0.
+   */
   forbiddenConcepts: z.array(z.string()).readonly(),
   /** sha256(canonical({visibleReadTools, allowedIntents})). Dedup key. */
   planFingerprint: z.string(),

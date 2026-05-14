@@ -155,6 +155,7 @@ Two stores travel with each agent:
 | `AgentEvent.kind === "intent_proposed"` fires before adjudication | A new `intent_normalized` event may slot between proposed and decision | Current ordering documented; no rename |
 | Tool name = intent kind for proposable intents | If kinds without dots are introduced, a sentinel prefix may be needed | Not yet implemented; default empty when added |
 | Hard-coded English system-prompt copy | i18n + per-Pack overrides + supervisor modifiers | `basePrompt` already exposed; `DEFAULT_ADJUDICATED_SYSTEM_PROMPT` exported for append-not-replace |
+| `Plan.forbiddenConcepts` injected into the system prompt | Field is `@deprecated` in `@adjudicate/core` v0.1.x and **scheduled for removal at v1.0** — advisory only, not enforced by the kernel; the asymmetry was misleading on a security boundary | Renderer continues to honor populated values for back-compat through v0.x; new adopters should run post-hoc content moderation outside the framework |
 
 This adapter ships **knowingly ahead of L2**. Adopters benefit from a
 runnable Anthropic integration today; the cost is migrating across the

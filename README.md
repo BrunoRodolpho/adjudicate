@@ -189,6 +189,11 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
   `adjudicate simulate`, and wiring them into CI as a decision-regression gate.
 - **ADR #9** — [`docs/architecture/decisions.md`](./docs/architecture/decisions.md)
   documents the 8-layer defense and the load-bearing invariants.
+- **Wire format & hash spec** — [`docs/specs/intent-envelope-v2.schema.json`](./docs/specs/intent-envelope-v2.schema.json)
+  (JSON Schema 2020-12 for `IntentEnvelope` v2) and
+  [`docs/specs/canonical-json-hash.md`](./docs/specs/canonical-json-hash.md)
+  (RFC 8785 / JCS canonicalization producing `intentHash`, with golden
+  vectors and a Python cross-runtime check).
 - **Staged rollout playbook** — [`docs/ops/runbooks/`](./docs/ops/runbooks/) —
   4-stage shadow → enforce ramp for adopters migrating from a legacy
   decision path.

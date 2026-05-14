@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BrunoRodolpho/adjudicate/docs/specs/intent-envelope-v2.schema.json",
+  "title": "IntentEnvelope v2",
+  "description": "The canonical mutation-proposal envelope adjudicated by @adjudicate/core. Every state-mutating action in an adjudicate-based system crosses the kernel as one of these. The `intentHash` field is content-addressed over (version, kind, payload, nonce, actor, taint) — see canonical-json-hash.md for the normative algorithm. v1 envelopes are REFUSED at runtime with code `schema_version_unsupported`; the only supported version is 2.",
+  "type": "object",
+  "required": [
+    "version",
+    "kind",
+    "payload",
+    "createdAt",
+    "nonce",
+    "actor",
+    "taint",
+    "intentHash"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Envelope schema version. Only 2 is currently accepted; v1 envelopes are REFUSED with `schema_version_unsupported` at the kernel's first guard.",
+      "const": 2
+    },
+    "kind": {
+      "description": "Domain-defined intent kind (the verb). Pack-specific; e.g. `pix.charge.refund`, `vacation.approve`. The kernel does not validate this string; the Pack's PolicyBundle dispatches on it.",
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {
+      "description": "Pack-defined payload shape. Opaque to the kernel; passed through to guards. MUST be JSON-serializable. Keys with `undefined` values are filtered before hashing per the canonicalization spec; `null` is preserved."
+    },
+    "createdAt": {
+      "description": "ISO-8601 wall-clock timestamp. **Metadata only** — NOT part of the `intentHash` recipe. Adopters can vary `createdAt` freely on retry without affecting dedup. (Pre-T8 the hash included `createdAt`, which silently broke ledger dedup on retry; v2 separates them.)",
+      "type": "string",
+      "format": "date-time"
+    },
+    "nonce": {
+      "description": "Adopter-supplied idempotency key. **Load-bearing**: feeds `intentHash`. First attempts pass `crypto.randomUUID()`; retries pass the SAME `nonce` as the original attempt so the ledger can dedupe.",
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "description": "Identity of the proposer. The kernel uses `principal` to route auth guards; `sessionId` correlates audit and replay streams.",
+      "type": "object",
+      "required": ["principal", "sessionId"],
+      "additionalProperties": false,
+      "properties": {
+        "principal": {
+          "description": "Who is proposing the mutation. Closed enum.",
+          "type": "string",
+          "enum": ["llm", "user", "system"]
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "taint": {
+      "description": "Provenance / trust floor of the envelope. Closed enum forming a lattice: SYSTEM > TRUSTED > UNTRUSTED. The kernel's TaintPolicy gates which intent kinds may execute at each level. LLM-derived envelopes MUST be UNTRUSTED (the framework's load-bearing invariant); webhook-only kinds typically require TRUSTED.",
+      "type": "string",
+      "enum": ["SYSTEM", "TRUSTED", "UNTRUSTED"]
+    },
+    "intentHash": {
+      "description": "Lowercase hex SHA-256 over the canonical JSON of the hash-input subset `{version, kind, payload, nonce, actor, taint}` — note the absence of `createdAt` and `intentHash` itself. See `canonical-json-hash.md` for the normative algorithm and golden vectors. Cross-runtime compatibility (Rust/Go/Python re-implementations) depends on this value being byte-stable across implementations.",
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

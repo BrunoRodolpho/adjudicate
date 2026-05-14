@@ -14,7 +14,7 @@ import type { Decision } from "../decision.js"
 import type { DecisionBasis } from "../basis-codes.js"
 import type { IntentEnvelope } from "../envelope.js"
 import type { Taint } from "../taint.js"
-import { adjudicate } from "./adjudicate.js"
+import { adjudicateWithTrace, type AdjudicationTraceEntry } from "./adjudicate.js"
 import type { PolicyBundle } from "./policy.js"
 
 export interface LearningEvent {
@@ -29,6 +29,29 @@ export interface LearningEvent {
   readonly durationMs: number
   /** Cross-reference to the AuditRecord and the kernel ledger. */
   readonly intentHash: string
+  /**
+   * Stable identifier of the guard that produced the Decision (the matched
+   * guard, not the policy default). Derivation rule (ADR-105):
+   *   guardId = metadata.name ?? guard.name
+   *
+   * `metadata.name` is populated when a guard was wrapped with `nameGuard`
+   * or `withMetadata`. `guard.name` is JavaScript's `Function.name` —
+   * non-empty for named function declarations and named consts, empty for
+   * anonymous closures (e.g., a bare `createThresholdGuard(...)` without
+   * `nameGuard`).
+   *
+   * Omitted when:
+   *   - The Decision came from a non-guard phase (taint gate, kill switch,
+   *     schema gate, policy default).
+   *   - The matched guard is anonymous and carries no metadata.
+   *
+   * Names are presentation; IDs are identity. The field is named `guardId`
+   * (not `guardName`) because analyzers, deprecation workflows, and rename
+   * tooling will eventually require stable identifiers — Pack authors who
+   * want stable IDs can override `metadata.name` with a slug rather than
+   * a display name.
+   */
+  readonly guardId?: string
   /**
    * Optional sha256 of the planner's `(visibleReadTools, allowedIntents)`
    * tuple at decision time, populated by adopters who pass `plan` to
@@ -95,11 +118,29 @@ export function createConsoleLearningSink(): LearningSink {
           taint: event.taint,
           durationMs: event.durationMs,
           intentHash: event.intentHash.slice(0, 8),
+          guardId: event.guardId,
           planFingerprint: event.planFingerprint?.slice(0, 8),
         }),
       )
     },
   }
+}
+
+/**
+ * Extract the matched-guard identity from an AdjudicationTrace, applying
+ * the ADR-105 derivation rule. Returns `undefined` when no guard matched
+ * (e.g., the policy default fired, or the kernel kill switch / schema gate
+ * short-circuited the run).
+ */
+export function matchedGuardIdFromTrace(
+  trace: ReadonlyArray<AdjudicationTraceEntry>,
+): string | undefined {
+  const matched = trace.find(
+    (e) =>
+      e.outcome === "match" &&
+      (e.phase === "state" || e.phase === "auth" || e.phase === "business"),
+  )
+  return matched?.guardName
 }
 
 /**
@@ -139,8 +180,9 @@ export function adjudicateAndLearn<K extends string, P, S>(
   const now = options.now ?? Date.now
   const clockIso = options.clockIso ?? (() => new Date().toISOString())
   const start = now()
-  const decision = adjudicate(envelope, state, policy)
+  const { decision, trace } = adjudicateWithTrace(envelope, state, policy)
   const durationMs = now() - start
+  const guardId = matchedGuardIdFromTrace(trace)
   try {
     recordOutcome({
       intentKind: envelope.kind,
@@ -149,6 +191,7 @@ export function adjudicateAndLearn<K extends string, P, S>(
       taint: envelope.taint,
       durationMs,
       intentHash: envelope.intentHash,
+      ...(guardId !== undefined ? { guardId } : {}),
       ...(options.planFingerprint !== undefined
         ? { planFingerprint: options.planFingerprint }
         : {}),

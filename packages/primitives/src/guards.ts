@@ -32,7 +32,7 @@ import type {
   DecisionBasis,
   IntentEnvelope,
 } from "@adjudicate/core";
-import type { Guard } from "@adjudicate/core/kernel";
+import { withMetadata, type Guard } from "@adjudicate/core/kernel";
 
 // ─── createThresholdGuard ──────────────────────────────────────────────────
 
@@ -101,14 +101,25 @@ const COMPARATORS: Record<
 export function createThresholdGuard<K extends string, P, S>(
   options: ThresholdGuardOptions<K, P, S>,
 ): Guard<K, P, S> {
-  const compare = COMPARATORS[options.comparator ?? ">="];
-  return (envelope, state) => {
+  const comparator = options.comparator ?? ">=";
+  const compare = COMPARATORS[comparator];
+  const guard: Guard<K, P, S> = (envelope, state) => {
     if (!options.matches(envelope, state)) return null;
     const value = options.extract(envelope, state);
     if (value === null || value === undefined) return null;
     if (!compare(value, options.threshold)) return null;
     return options.onCross(value, options.threshold, envelope, state);
   };
+  // Attach structured metadata describing the guard's shape (ADR-105).
+  // `emits` is omitted — the factory does not introspect `onCross`. Pack
+  // authors who need it can wrap with `withMetadata` themselves.
+  return withMetadata(guard, {
+    description: {
+      kind: "threshold",
+      threshold: options.threshold,
+      comparator,
+    },
+  });
 }
 
 // ─── createStateDeferGuard ─────────────────────────────────────────────────
@@ -144,7 +155,7 @@ export interface StateDeferGuardOptions<K extends string, P, S> {
 export function createStateDeferGuard<K extends string, P, S>(
   options: StateDeferGuardOptions<K, P, S>,
 ): Guard<K, P, S> {
-  return (envelope, state) => {
+  const guard: Guard<K, P, S> = (envelope, state) => {
     if (!options.matches(envelope, state)) return null;
     const basis =
       typeof options.basis === "function"
@@ -152,4 +163,14 @@ export function createStateDeferGuard<K extends string, P, S>(
         : options.basis;
     return decisionDefer(options.signal, options.timeoutMs, basis);
   };
+  // Attach structured metadata (ADR-105). Signal + timeoutMs are static
+  // factory inputs so capture is trivial; analyzers can answer "which
+  // signals does this Pack park on?" by inspection.
+  return withMetadata(guard, {
+    description: {
+      kind: "state_defer",
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    },
+  });
 }

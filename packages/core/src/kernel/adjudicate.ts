@@ -47,7 +47,7 @@ import {
 } from "../envelope.js";
 import { refuse } from "../refusal.js";
 import { getKillSwitchState, isKilled } from "./enforce-config.js";
-import type { PolicyBundle } from "./policy.js";
+import { readGuardMetadata, withMetadata, type PolicyBundle } from "./policy.js";
 import { makePassBasis } from "./basis.js";
 
 // ─── Trace record contract ─────────────────────────────────────────────────
@@ -104,7 +104,8 @@ export function adjudicate<K extends string, P, S>(
 
 /**
  * Attach a stable display name to a guard so it appears in trace output
- * (`AdjudicationTraceEntry.guardName`).
+ * (`AdjudicationTraceEntry.guardName`) and learning-event identity
+ * (`LearningEvent.guardId`).
  *
  * Guards declared as named consts (e.g., `const validateAmount: Guard<...> = ...`)
  * already carry a useful `Function.name` automatically — `nameGuard` is for
@@ -116,21 +117,27 @@ export function adjudicate<K extends string, P, S>(
  *       createThresholdGuard({ ... }),
  *     );
  *
- * Idempotent: re-naming an already-named guard overwrites. Mutates the
- * passed function in place (via `Object.defineProperty`) and returns it,
- * so the type identity is preserved — `nameGuard(name, g)` is a
- * pass-through with a side effect on `.name`.
+ * Implementation: `nameGuard(name, g)` is a thin facade over
+ * `withMetadata(g, { name })` — see `policy.ts` for the metadata surface.
+ * No `description` is attached: `nameGuard` is the canonical lightweight-
+ * wrapper case the optional-description rule was designed to support, and
+ * forcing `{ kind: "opaque" }` would import the fake-precision pattern
+ * ADR-105 explicitly rejects. Analyzers seeing a guard with `name` but no
+ * `description` treat it identically to `{ kind: "opaque" }`.
+ *
+ * Identity-preserving: returns the same function object. Stack traces,
+ * referential equality, and registry semantics are preserved.
+ *
+ * Idempotent across identical names — `withMetadata` is per-field write-once
+ * with idempotent reattachment of the same value. Calling `nameGuard("a", g)`
+ * then `nameGuard("b", g)` throws on the second call (different values
+ * for the `name` field).
  */
 export function nameGuard<F extends (...args: never[]) => unknown>(
   name: string,
   guard: F,
 ): F {
-  Object.defineProperty(guard, "name", {
-    value: name,
-    configurable: true,
-    writable: false,
-  });
-  return guard;
+  return withMetadata(guard, { name });
 }
 
 /**
@@ -293,11 +300,20 @@ function traceEntry(
   guard: unknown,
   outcome: "pass" | "match",
 ): AdjudicationTraceEntry {
-  const name =
-    typeof guard === "function" &&
-    typeof (guard as { name?: unknown }).name === "string"
-      ? (guard as { name: string }).name
+  // Per ADR-105: `metadata.name ?? guard.name`. Guards wrapped with
+  // `nameGuard` / `withMetadata({ name })` get the explicit metadata name;
+  // adopter-authored named consts fall back to `Function.name`; anonymous
+  // closures still resolve to `""` and the field is omitted.
+  const fn =
+    typeof guard === "function"
+      ? (guard as (...args: never[]) => unknown)
+      : null;
+  const metaName = fn ? readGuardMetadata(fn)?.name : undefined;
+  const fnName =
+    fn && typeof (fn as { name?: unknown }).name === "string"
+      ? (fn as { name: string }).name
       : "";
+  const name = metaName ?? fnName;
   return name.length > 0
     ? { phase, index, guardName: name, outcome }
     : { phase, index, outcome };

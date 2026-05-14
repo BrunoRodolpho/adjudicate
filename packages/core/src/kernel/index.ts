@@ -24,6 +24,7 @@ export {
   createConsoleLearningSink,
   flattenBasis,
   hasLearningSink,
+  matchedGuardIdFromTrace,
   recordOutcome,
   setLearningSink,
   _resetLearningSink,
@@ -32,7 +33,15 @@ export {
   type LearningSink,
 } from "./learning.js";
 export { allOf, constant, firstMatch } from "./combinators.js";
-export type { Guard, PolicyBundle } from "./policy.js";
+export {
+  GuardMetadataSymbol,
+  readGuardMetadata,
+  withMetadata,
+  type Guard,
+  type GuardDescription,
+  type GuardMetadata,
+  type PolicyBundle,
+} from "./policy.js";
 
 // Migrated from @ibatexas/llm-provider during consolidation — these are
 // framework-generic kernel-adjacent concerns.

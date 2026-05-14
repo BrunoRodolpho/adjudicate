@@ -59,6 +59,24 @@ export interface SystemTaintPolicyOptions {
  *
  * — but lifted to a primitive so the pattern's name (system-only kinds)
  * appears in the Pack's source rather than its mechanics.
+ *
+ * **No `GuardMetadata` attached.** ADR-105's metadata surface
+ * (`withMetadata`, `readGuardMetadata`, `GuardDescription`) is keyed off
+ * a symbol slot on `Guard<K,P,S>` function objects — `nameGuard` and
+ * the L2 guard factories (`createThresholdGuard`, `createStateDeferGuard`)
+ * use it. `createSystemTaintPolicy` returns a `TaintPolicy` (a plain
+ * object with one method), not a `Guard`, so the symbol-keyed slot
+ * does not apply structurally. The kernel's taint gate is one
+ * fixed-position step in the evaluation order (state → **taint** →
+ * auth → business per ADR-104) rather than one of an array of
+ * adopter-supplied guards; the matched-guard identity that flows into
+ * `LearningEvent.guardId` is meaningless for the taint phase. Per
+ * ADR-105 rule 7, absence of metadata is a permanent valid state for
+ * any non-Guard surface — analyzers MUST treat the taint phase as
+ * structurally opaque on the metadata axis. The `system_taint` variant
+ * in `GuardDescription` exists for future use by Pack-author-defined
+ * guards that wrap a system-only-kind check inline (e.g., as part of
+ * a state guard); it is not produced by this factory.
  */
 export function createSystemTaintPolicy(
   options: SystemTaintPolicyOptions,

@@ -6,6 +6,13 @@
  * order. This is the replay key consumed by the Execution Ledger.
  *
  * Uses node:crypto (no external dep). Works in any Node 22+ environment.
+ *
+ * **Normative spec**: `docs/specs/canonical-json-hash.md` (RFC 8785 / JCS).
+ * Golden vectors live in `packages/core/tests/hash-golden-vectors.test.ts`
+ * and MUST also pass against any external (Rust/Go/Python) re-implementation
+ * claiming byte-compatibility. The implementation here is *conformant*; the
+ * spec is *authoritative* — divergence indicates a bug in the implementation,
+ * not the spec.
  */
 
 import { createHash } from "node:crypto";

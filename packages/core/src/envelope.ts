@@ -20,6 +20,12 @@
  * `legacyV1ToV2` in `@adjudicate/audit-postgres`, which synthesizes a
  * nonce from the v1 `createdAt` so historical replay reproduces the
  * same intentHash without the foot-gun.
+ *
+ * **Wire format**: the JSON Schema (Draft 2020-12) for v2 envelopes lives
+ * at `docs/specs/intent-envelope-v2.schema.json`. The canonical-JSON SHA-256
+ * algorithm that produces `intentHash` is normatively specified at
+ * `docs/specs/canonical-json-hash.md` — external (Rust/Go/Python)
+ * implementations that conform to the spec produce byte-identical hashes.
  */
 
 import { sha256Canonical } from "./hash.js";

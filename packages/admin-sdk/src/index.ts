@@ -17,7 +17,12 @@ export { RefusalKindSchema, RefusalSchema } from "./schemas/refusal.js";
 
 export { DecisionKindSchema, DecisionSchema } from "./schemas/decision.js";
 
-export { AuditPlanSnapshotSchema, AuditRecordSchema } from "./schemas/audit.js";
+export {
+  AuditPlanSnapshotSchema,
+  AuditRecordSchema,
+  SupersessionReasonSchema,
+  SupersessionSchema,
+} from "./schemas/audit.js";
 
 export {
   AuditQuerySchema,
@@ -58,6 +63,47 @@ export {
   createInMemoryEmergencyStateStore,
 } from "./store/emergency-store.js";
 
+// ─── Governance schemas + types ─────────────────────────────────────────────
+export {
+  OutcomeBucketSchema,
+  OutcomeDistributionQuerySchema,
+  OutcomeDistributionResultSchema,
+  type OutcomeBucket,
+  type OutcomeDistributionQuery,
+  type OutcomeDistributionResult,
+} from "./schemas/outcome-distribution.js";
+
+export {
+  GuardFireBucketSchema,
+  GuardFireStatsQuerySchema,
+  GuardFireStatsResultSchema,
+  GuardPhaseSchema,
+  type GuardFireBucket as GuardFireBucketParsed,
+  type GuardFireStatsQuery as GuardFireStatsQueryParsed,
+  type GuardFireStatsResult,
+  type GuardPhase as GuardPhaseParsed,
+} from "./schemas/guard-stats.js";
+
+export {
+  GuardDescriptionSchema,
+  GuardDescriptorSchema,
+  GuardMetadataSchema,
+  PolicyBundleDescriptorSchema,
+  PolicyPhaseDescriptorSchema,
+  PolicyPhaseSchema,
+  type PolicyBundleDescriptorParsed,
+} from "./schemas/policy-descriptor.js";
+
+export {
+  DecisionAccuracyQuerySchema,
+  DecisionAccuracyResultSchema,
+  ObservedOutcomeSchema,
+  RetrospectiveOutcomeSchema,
+  type DecisionAccuracyQuery,
+  type DecisionAccuracyResult,
+  type RetrospectiveOutcomeParsed,
+} from "./schemas/outcome-reconciliation.js";
+
 // ─── Handlers ───────────────────────────────────────────────────────────────
 export {
   createAuditQueryHandler,
@@ -68,6 +114,17 @@ export {
   createEmergencyHandler,
   type CreateEmergencyHandlerDeps,
 } from "./handlers/emergency.js";
+
+export {
+  createOutcomeDistributionHandler,
+  type CreateOutcomeDistributionHandlerDeps,
+  type OutcomeDistributionStore,
+} from "./handlers/outcome-distribution.js";
+
+export {
+  createGuardFireStatsHandler,
+  type CreateGuardFireStatsHandlerDeps,
+} from "./handlers/guard-stats.js";
 
 // ─── Auth utility ───────────────────────────────────────────────────────────
 export { extractActor } from "./auth/extract-actor.js";

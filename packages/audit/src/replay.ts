@@ -20,35 +20,27 @@
  * Consumers pass in an adjudicator that has closed over the correct policy
  * for each record's intent kind. The replay does NOT re-run side effects —
  * it only re-adjudicates.
+ *
+ * The `classify` function + `ReplayMismatch*` types live in
+ * `@adjudicate/core/replay-classify` (operating on pure core types). They
+ * are re-exported here so the existing public surface (`import { classify
+ * } from "@adjudicate/audit"`) keeps working.
  */
 
-import type { AuditRecord, Decision, DecisionBasis } from "@adjudicate/core";
+import type { AuditRecord, Decision } from "@adjudicate/core";
+import { classify } from "@adjudicate/core";
 
-export type ReplayMismatchKind =
-  | "DECISION_KIND"
-  | "BASIS_DRIFT"
-  | "REFUSAL_CODE_DRIFT";
-
-export interface ReplayBasisDelta {
-  /** Codes present in `expected.basis` but absent from `actual.basis`. */
-  readonly missing: readonly string[];
-  /** Codes present in `actual.basis` but absent from `expected.basis`. */
-  readonly extra: readonly string[];
-}
-
-export interface ReplayMismatch {
-  readonly intentHash: string;
-  readonly kind: ReplayMismatchKind;
-  readonly expected: Decision;
-  readonly actual: Decision;
-  /** Populated when `kind === "BASIS_DRIFT"`. */
-  readonly basisDelta?: ReplayBasisDelta;
-}
+export {
+  classify,
+  type ReplayBasisDelta,
+  type ReplayMismatch,
+  type ReplayMismatchKind,
+} from "@adjudicate/core";
 
 export interface ReplayReport {
   readonly total: number;
   readonly matched: number;
-  readonly mismatches: readonly ReplayMismatch[];
+  readonly mismatches: readonly import("@adjudicate/core").ReplayMismatch[];
 }
 
 export type Adjudicator = (record: AuditRecord) => Decision;
@@ -66,7 +58,7 @@ export function replay(
   records: readonly AuditRecord[],
   adjudicator: Adjudicator,
 ): ReplayReport {
-  const mismatches: ReplayMismatch[] = [];
+  const mismatches: import("@adjudicate/core").ReplayMismatch[] = [];
   let matched = 0;
 
   for (const record of records) {
@@ -81,67 +73,4 @@ export function replay(
   }
 
   return { total: records.length, matched, mismatches };
-}
-
-/**
- * Pure classifier — null when the two Decisions match, otherwise a
- * structured `ReplayMismatch`. Exported so adopters can write their own
- * cross-record audits without re-implementing the rule.
- */
-export function classify(
-  intentHash: string,
-  expected: Decision,
-  actual: Decision,
-): ReplayMismatch | null {
-  if (expected.kind !== actual.kind) {
-    return { intentHash, kind: "DECISION_KIND", expected, actual };
-  }
-
-  const expectedFlat = flattenBasis(expected.basis);
-  const actualFlat = flattenBasis(actual.basis);
-  const delta = symmetricDifference(expectedFlat, actualFlat);
-
-  if (delta.missing.length > 0 || delta.extra.length > 0) {
-    return {
-      intentHash,
-      kind: "BASIS_DRIFT",
-      expected,
-      actual,
-      basisDelta: delta,
-    };
-  }
-
-  if (
-    expected.kind === "REFUSE" &&
-    actual.kind === "REFUSE" &&
-    expected.refusal.code !== actual.refusal.code
-  ) {
-    return { intentHash, kind: "REFUSAL_CODE_DRIFT", expected, actual };
-  }
-
-  return null;
-}
-
-function flattenBasis(basis: readonly DecisionBasis[]): string[] {
-  return basis.map((b) => `${b.category}:${b.code}`);
-}
-
-function symmetricDifference(
-  a: readonly string[],
-  b: readonly string[],
-): ReplayBasisDelta {
-  const aSet = new Set(a);
-  const bSet = new Set(b);
-  const missing: string[] = [];
-  const extra: string[] = [];
-  for (const x of aSet) {
-    if (!bSet.has(x)) missing.push(x);
-  }
-  for (const x of bSet) {
-    if (!aSet.has(x)) extra.push(x);
-  }
-  // Sort for determinism in test assertions and audit-report stability.
-  missing.sort();
-  extra.sort();
-  return { missing, extra };
 }

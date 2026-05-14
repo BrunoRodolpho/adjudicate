@@ -44,6 +44,16 @@ const PACK_METADATA: ReadonlyArray<PackMetadata> = [
     displayName: "Identity KYC",
     intents: ["kyc.start", "kyc.document.upload", "kyc.vendor.callback"],
   },
+  {
+    id: "pack-deployments-approval",
+    version: "0.1.0-experimental",
+    displayName: "Deployments Approval",
+    intents: [
+      "deployment.approval.request",
+      "deployment.rollback.execute",
+      "deployment.approval.resolve",
+    ],
+  },
 ];
 
 function match(intentKind: string): PackMetadata | null {

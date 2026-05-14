@@ -2,7 +2,7 @@ import { z } from "zod";
 import type {
   ReplayMismatch,
   ReplayMismatchKind,
-} from "@adjudicate/audit";
+} from "@adjudicate/core";
 import { AuditRecordSchema } from "./audit.js";
 import { DecisionSchema } from "./decision.js";
 

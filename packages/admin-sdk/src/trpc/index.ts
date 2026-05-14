@@ -1,6 +1,12 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { classify } from "@adjudicate/audit";
+import { classify } from "@adjudicate/core";
+import type {
+  GuardFireStats,
+  InMemoryOutcomeSink,
+  OutcomeSink,
+  PolicyBundleDescriptor,
+} from "@adjudicate/core";
 import { AuditRecordSchema } from "../schemas/audit.js";
 import {
   EmergencyHistoryQuerySchema,
@@ -13,9 +19,33 @@ import {
   AuditQuerySchema,
   AuditQueryResultSchema,
 } from "../schemas/query.js";
+import {
+  OutcomeDistributionQuerySchema,
+  OutcomeDistributionResultSchema,
+} from "../schemas/outcome-distribution.js";
+import {
+  GuardFireStatsQuerySchema,
+  GuardFireStatsResultSchema,
+} from "../schemas/guard-stats.js";
+import { PolicyBundleDescriptorSchema } from "../schemas/policy-descriptor.js";
+import {
+  DecisionAccuracyQuerySchema,
+  DecisionAccuracyResultSchema,
+  RetrospectiveOutcomeSchema,
+} from "../schemas/outcome-reconciliation.js";
+import {
+  createDecisionAccuracyHandler,
+  createRecordOutcomeHandler,
+  type OutcomeLookup,
+} from "../handlers/outcome-reconciliation.js";
 import { ReplayResultSchema } from "../schemas/replay.js";
 import { createAuditQueryHandler } from "../handlers/audit-query.js";
 import { createEmergencyHandler } from "../handlers/emergency.js";
+import {
+  createOutcomeDistributionHandler,
+  type OutcomeDistributionStore,
+} from "../handlers/outcome-distribution.js";
+import { createGuardFireStatsHandler } from "../handlers/guard-stats.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -33,7 +63,7 @@ import type { ReplayInvoker } from "../store/replay-invoker.js";
  */
 
 export interface AdminContext {
-  readonly store: AuditStore;
+  readonly store: AuditStore | (AuditStore & OutcomeDistributionStore);
   readonly emergencyStore: EmergencyStateStore;
   /**
    * Resolved by the adopter's `createContext` from request headers via
@@ -47,6 +77,27 @@ export interface AdminContext {
    * feature-detection is via the error code.
    */
   readonly replayer?: ReplayInvoker;
+  /**
+   * Optional guard-fire stats accumulator (typically `RuntimeContext.learning`
+   * wired to a `GuardFireStats` instance). When omitted, `governance.guardFireStats`
+   * throws PRECONDITION_FAILED so the surface is feature-detectable at runtime.
+   */
+  readonly guardFireStats?: GuardFireStats;
+  /**
+   * Optional snapshot of the active policy bundle descriptor. The route
+   * handler computes it from the installed Pack(s) at startup via
+   * `describePolicyBundle(bundle)`. Omitted when no Pack is wired —
+   * `governance.describePolicy` then throws PRECONDITION_FAILED.
+   */
+  readonly policyDescriptor?: PolicyBundleDescriptor;
+  /**
+   * Optional retrospective-outcome sink. When supplied, the
+   * `governance.recordOutcome` mutation forwards to it. The
+   * `governance.decisionAccuracy` query additionally requires
+   * `outcomeLookup` so it can join audit records with observations.
+   */
+  readonly outcomeSink?: OutcomeSink;
+  readonly outcomeLookup?: InMemoryOutcomeSink | OutcomeLookup;
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -149,10 +200,122 @@ const replayRouter = t.router({
     }),
 });
 
+const governanceRouter = t.router({
+  /**
+   * Time-bucketed distribution of `Decision.kind` over a window. Drives the
+   * console's outcome-distribution dashboard.
+   */
+  outcomeDistribution: t.procedure
+    .input(OutcomeDistributionQuerySchema)
+    .output(OutcomeDistributionResultSchema)
+    .query(async ({ input, ctx }) => {
+      const handler = createOutcomeDistributionHandler({ store: ctx.store });
+      return handler(input);
+    }),
+
+  /**
+   * Per-guard fire counts in a rolling window. Drives the console's
+   * governance visualiser. Throws PRECONDITION_FAILED when no
+   * GuardFireStats is wired into context.
+   */
+  guardFireStats: t.procedure
+    .input(GuardFireStatsQuerySchema)
+    .output(GuardFireStatsResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.guardFireStats) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Guard-fire stats not configured. Wire a GuardFireStats instance into the route handler context.",
+        });
+      }
+      const handler = createGuardFireStatsHandler({
+        stats: ctx.guardFireStats,
+      });
+      return handler(input);
+    }),
+
+  /**
+   * Snapshot of the installed policy bundle's structure (phases + guard
+   * metadata). Drives the console's governance visualiser. Computed from
+   * `describePolicyBundle(bundle)` at route-handler startup; threaded
+   * through context so the procedure stays a pure read.
+   */
+  describePolicy: t.procedure
+    .output(PolicyBundleDescriptorSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.policyDescriptor) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Policy descriptor not configured. Wire a PolicyBundleDescriptor into the route handler context (typically via describePolicyBundle(pack.policy)).",
+        });
+      }
+      // The schema intentionally widens GuardDescription to a passthrough
+      // object so unknown ADR-105 variants flow through. The structural
+      // mismatch (closed core union vs permissive wire object) means TS
+      // needs the cast at the seam.
+      return ctx.policyDescriptor as unknown as z.infer<
+        typeof PolicyBundleDescriptorSchema
+      >;
+    }),
+
+  /**
+   * Record a retrospective outcome — the upstream observation that the
+   * decision's action actually succeeded / failed / was withdrawn. Joins
+   * back to the AuditRecord by `intentHash`. Mutating procedure — requires
+   * the actor header.
+   */
+  recordOutcome: t.procedure
+    .input(RetrospectiveOutcomeSchema)
+    .mutation(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message:
+            "x-adjudicate-actor-id header required for mutating procedures",
+        });
+      }
+      if (!ctx.outcomeSink) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Outcome sink not configured. Wire an OutcomeSink into the route handler context.",
+        });
+      }
+      const handler = createRecordOutcomeHandler({ sink: ctx.outcomeSink });
+      return handler(input);
+    }),
+
+  /**
+   * Aggregate decision-accuracy stats: how many EXECUTE records in the
+   * window have a matching observation, and how many of those reported
+   * success vs failure vs withdrawn.
+   */
+  decisionAccuracy: t.procedure
+    .input(DecisionAccuracyQuerySchema)
+    .output(DecisionAccuracyResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.outcomeLookup) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Outcome lookup not configured. Wire an InMemoryOutcomeSink (or other OutcomeLookup) into the route handler context.",
+        });
+      }
+      const handler = createDecisionAccuracyHandler({
+        auditStore: ctx.store,
+        outcomeLookup: ctx.outcomeLookup,
+      });
+      return handler(input);
+    }),
+});
+
 export const adminRouter = t.router({
   audit: auditRouter,
   emergency: emergencyRouter,
   replay: replayRouter,
+  governance: governanceRouter,
 });
 
 export type AdminRouter = typeof adminRouter;

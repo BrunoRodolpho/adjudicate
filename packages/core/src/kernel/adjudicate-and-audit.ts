@@ -29,7 +29,12 @@
  */
 
 import { basis, BASIS_CODES } from "../basis-codes.js";
-import { buildAuditRecord, type AuditPlanSnapshot, type AuditRecord } from "../audit.js";
+import {
+  buildAuditRecord,
+  type AuditPlanSnapshot,
+  type AuditRecord,
+  type Supersession,
+} from "../audit.js";
 import {
   decisionExecute,
   decisionRefuse,
@@ -50,6 +55,7 @@ import {
 import {
   flattenBasis,
   matchedGuardIdFromTrace,
+  matchedGuardPhaseFromTrace,
   recordOutcome,
 } from "./learning.js";
 import {
@@ -145,6 +151,14 @@ export interface AdjudicateAndAuditDeps {
     /** ISO-8601 wall-clock of the user's confirmation. */
     readonly at: string;
   };
+  /**
+   * Optional explicit supersession link (AuditRecord v3). When supplied,
+   * the produced AuditRecord carries this value under `supersedes`. Use this
+   * to attach `defer_resumed`, `rewrite_executed`, or `replay` links — for
+   * `confirmation_resolved`, the kernel auto-derives `supersedes` from
+   * `confirmationReceipt` when this field is not set.
+   */
+  readonly supersedes?: Supersession;
 }
 
 export interface AdjudicateAndAuditResult {
@@ -232,6 +246,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       decision,
       durationMs,
       at: clock.nowIso(),
+      ...(deps.supersedes !== undefined ? { supersedes: deps.supersedes } : {}),
     });
     await deps.sink.emit(record);
     return { decision, record, ledgerHit: null };
@@ -252,6 +267,10 @@ export async function adjudicateAndAudit<K extends string, P, S>(
 
   let decision: Decision;
   let trace: ReadonlyArray<AdjudicationTraceEntry> = [];
+  // Auto-derived supersedes for the confirmation-receipt path. The explicit
+  // `deps.supersedes` (set by adapters for defer_resumed / rewrite_executed /
+  // replay) always wins over this auto-derivation.
+  let confirmationSupersedes: Supersession | undefined;
   if (ledgerHit) {
     decision = replaySuppressedRefusal(envelope.intentHash, ledgerHit);
   } else {
@@ -282,6 +301,14 @@ export async function adjudicateAndAudit<K extends string, P, S>(
           originalPrompt: decision.prompt,
         }),
       ]);
+      // Auto-derive supersedes for confirmation_resolved when the caller
+      // did not pass one explicitly. This links the post-confirmation
+      // EXECUTE record back to the original REQUEST_CONFIRMATION audit row.
+      confirmationSupersedes = {
+        predecessorIntentHash: deps.confirmationReceipt.intentHash,
+        predecessorAt: deps.confirmationReceipt.at,
+        reason: "confirmation_resolved" as const,
+      };
     }
 
     // ── 3. EXECUTE-race fix: claim the ledger key ───────────────────
@@ -343,6 +370,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // non-guard phase (kill/schema/taint), trace contains no match entry and
   // guardId is omitted.
   const guardId = matchedGuardIdFromTrace(trace);
+  const guardPhase = matchedGuardPhaseFromTrace(trace);
   try {
     emitOutcome({
       intentKind: envelope.kind,
@@ -351,7 +379,8 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       taint: envelope.taint,
       durationMs,
       intentHash: envelope.intentHash,
-      ...(guardId !== undefined ? { guardId } : {}),
+      ...(guardId !== undefined ? { guardId, guardName: guardId } : {}),
+      ...(guardPhase !== undefined ? { guardPhase } : {}),
       ...(planSnapshot
         ? {
             planFingerprint: planFingerprintOf(planSnapshot),
@@ -364,12 +393,18 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   }
 
   // ── 6. Audit emission ──────────────────────────────────────────────
+  const supersedes = deps.supersedes ?? confirmationSupersedes;
+  const kernelIdentity = ctx?.kernelIdentity
+    ? { id: ctx.kernelIdentity.id, version: ctx.kernelIdentity.version }
+    : undefined;
   const record = buildAuditRecord({
     envelope,
     decision,
     durationMs,
     at: clock.nowIso(),
     ...(planSnapshot ? { plan: planSnapshot } : {}),
+    ...(supersedes !== undefined ? { supersedes } : {}),
+    ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
   });
   await deps.sink.emit(record);
 

@@ -11,6 +11,9 @@
  *   v2 — adds optional `plan` snapshot capturing the CapabilityPlanner output
  *        at the time of the decision. `plan` is optional so v1-shaped records
  *        still validate against the v2 type and load via every reader.
+ *   v3 — adds optional `supersedes` linking this record to a predecessor
+ *        (REQUEST_CONFIRMATION resolved, DEFER resumed, REWRITE executed, or
+ *        replayed). Optional so v1/v2-shaped records remain valid.
  *
  * Readers MUST branch on `record.version` when they need fields beyond v1.
  */
@@ -20,8 +23,39 @@ import { buildEnvelope, type IntentEnvelope } from "./envelope.js";
 import type { Decision } from "./decision.js";
 import type { DecisionBasis } from "./basis-codes.js";
 
-export const AUDIT_RECORD_VERSION = 2 as const;
-export type AuditRecordVersion = 1 | 2;
+export const AUDIT_RECORD_VERSION = 3 as const;
+export type AuditRecordVersion = 1 | 2 | 3;
+
+/**
+ * Why the current AuditRecord supersedes its predecessor.
+ *
+ *   - `confirmation_resolved` — predecessor was a REQUEST_CONFIRMATION; the
+ *     LLM (or operator) supplied a confirmation receipt and the kernel
+ *     re-adjudicated.
+ *   - `defer_resumed` — predecessor was a DEFER; an external signal arrived
+ *     and the kernel resumed.
+ *   - `rewrite_executed` — predecessor was a REWRITE; the rewritten envelope
+ *     was then adjudicated to an EXECUTE.
+ *   - `replay` — re-adjudication from an audit row (replay harness or
+ *     migration). The predecessor is the stored record.
+ */
+export type SupersessionReason =
+  | "confirmation_resolved"
+  | "defer_resumed"
+  | "rewrite_executed"
+  | "replay";
+
+export interface Supersession {
+  readonly predecessorIntentHash: string;
+  readonly predecessorAt: string;
+  readonly reason: SupersessionReason;
+  /**
+   * Optional opaque token carried by the supersession step. For
+   * `confirmation_resolved` this is the confirmation receipt token; for
+   * `defer_resumed` it is the resume token; left undefined otherwise.
+   */
+  readonly token?: string;
+}
 
 /**
  * Snapshot of the CapabilityPlanner output that produced this decision. Used
@@ -63,6 +97,20 @@ export interface AuditRecord {
   readonly durationMs: number;
   /** Optional, v2+. Present iff the adopter passed plan to buildAuditRecord. */
   readonly plan?: AuditPlanSnapshot;
+  /**
+   * Optional, v3+. Present when this record continues a prior adjudication
+   * (confirmation resolved, defer resumed, rewrite executed, or replay). The
+   * link is by `predecessorIntentHash` — the audit reader can follow it back
+   * to the originating record.
+   */
+  readonly supersedes?: Supersession;
+  /**
+   * Optional, v3+. Identifier + version of the kernel that produced the
+   * decision. Plumbed through `RuntimeContext.kernelIdentity` when the
+   * adopter configures one. Attestation bytes are reserved for v0.2 — the
+   * audit row only carries the public `(id, version)` pair.
+   */
+  readonly kernelIdentity?: { readonly id: string; readonly version: string };
 }
 
 export interface BuildAuditInput {
@@ -77,6 +125,17 @@ export interface BuildAuditInput {
    * sensitive fields). `forbiddenConcepts` is recorded but not hashed.
    */
   readonly plan?: Omit<AuditPlanSnapshot, "planFingerprint">;
+  /**
+   * Optional predecessor link (v3+). When present, the resulting AuditRecord
+   * carries the same value under `supersedes`.
+   */
+  readonly supersedes?: Supersession;
+  /**
+   * Optional `(id, version)` of the kernel build producing the decision
+   * (v3+). When supplied, the resulting AuditRecord carries the same shape
+   * under `kernelIdentity`. Attestation bytes are reserved for v0.2.
+   */
+  readonly kernelIdentity?: { readonly id: string; readonly version: string };
 }
 
 export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
@@ -103,6 +162,10 @@ export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
     at: input.at ?? new Date().toISOString(),
     durationMs: input.durationMs,
     ...(plan !== undefined ? { plan } : {}),
+    ...(input.supersedes !== undefined ? { supersedes: input.supersedes } : {}),
+    ...(input.kernelIdentity !== undefined
+      ? { kernelIdentity: input.kernelIdentity }
+      : {}),
   };
 }
 

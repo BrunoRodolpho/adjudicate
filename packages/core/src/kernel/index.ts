@@ -42,6 +42,36 @@ export {
   type GuardMetadata,
   type PolicyBundle,
 } from "./policy.js";
+export {
+  describePolicyBundle,
+  type GuardDescriptor,
+  type PolicyBundleDescriptor,
+  type PolicyPhase,
+  type PolicyPhaseDescriptor,
+} from "./describe.js";
+export {
+  GuardFireStats,
+  type GuardFireBucket,
+  type GuardFireStatsOptions,
+  type GuardFireStatsQuery,
+  type GuardFireStatsStore,
+  type GuardPhase,
+} from "./guard-stats.js";
+export { matchedGuardPhaseFromTrace } from "./learning.js";
+export {
+  InMemoryOutcomeSink,
+  hasOutcomeSink,
+  recordRetrospectiveOutcome,
+  setOutcomeSink,
+  _resetOutcomeSink,
+  type ObservedOutcome,
+  type OutcomeSink,
+  type RetrospectiveOutcome,
+} from "./outcomes.js";
+export {
+  createKernelIdentity,
+  type KernelIdentity,
+} from "./identity.js";
 
 // Migrated from @ibatexas/llm-provider during consolidation — these are
 // framework-generic kernel-adjacent concerns.

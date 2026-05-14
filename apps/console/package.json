@@ -15,6 +15,7 @@
     "@adjudicate/audit": "workspace:*",
     "@adjudicate/audit-postgres": "workspace:*",
     "@adjudicate/core": "workspace:*",
+    "@adjudicate/pack-deployments-approval": "workspace:*",
     "@adjudicate/pack-identity-kyc": "workspace:*",
     "@adjudicate/pack-payments-pix": "workspace:*",
     "@tanstack/react-query": "^5.59.0",

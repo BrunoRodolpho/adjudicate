@@ -53,6 +53,19 @@ export interface LearningEvent {
    */
   readonly guardId?: string
   /**
+   * Display-friendly mirror of `guardId` — populated by the same trace-match
+   * derivation. Provided as a separate field so analytics consumers can
+   * distinguish "stable identifier" from "display label" once future tooling
+   * splits the two (e.g., a Pack author renaming a guard while keeping its
+   * audit-stable ID). At v0 the two are equal whenever `guardId` is defined.
+   */
+  readonly guardName?: string
+  /**
+   * Which of the four phases matched. Omitted when the Decision came from a
+   * non-guard phase (kill / schema / policy default).
+   */
+  readonly guardPhase?: "state" | "taint" | "auth" | "business"
+  /**
    * Optional sha256 of the planner's `(visibleReadTools, allowedIntents)`
    * tuple at decision time, populated by adopters who pass `plan` to
    * `buildAuditRecord`. Allows analytics to dedupe identical plans
@@ -144,6 +157,29 @@ export function matchedGuardIdFromTrace(
 }
 
 /**
+ * Extract the policy phase that produced the Decision from an
+ * AdjudicationTrace. Returns one of "state" | "taint" | "auth" | "business"
+ * for guard-driven matches, or `undefined` when the Decision came from a
+ * non-guard phase (kill / schema / default).
+ */
+export function matchedGuardPhaseFromTrace(
+  trace: ReadonlyArray<AdjudicationTraceEntry>,
+): "state" | "taint" | "auth" | "business" | undefined {
+  const matched = trace.find(
+    (e) =>
+      e.outcome === "match" &&
+      (e.phase === "state" ||
+        e.phase === "taint" ||
+        e.phase === "auth" ||
+        e.phase === "business"),
+  )
+  if (!matched) return undefined
+  // Narrow the phase union — the find predicate above already excluded
+  // kill/schema/default but TS doesn't track that.
+  return matched.phase as "state" | "taint" | "auth" | "business"
+}
+
+/**
  * Flatten a DecisionBasis array into "category:code" strings — the canonical
  * shape used in `LearningEvent.basisCodes` and the Postgres audit sink.
  */
@@ -183,6 +219,7 @@ export function adjudicateAndLearn<K extends string, P, S>(
   const { decision, trace } = adjudicateWithTrace(envelope, state, policy)
   const durationMs = now() - start
   const guardId = matchedGuardIdFromTrace(trace)
+  const guardPhase = matchedGuardPhaseFromTrace(trace)
   try {
     recordOutcome({
       intentKind: envelope.kind,
@@ -191,7 +228,8 @@ export function adjudicateAndLearn<K extends string, P, S>(
       taint: envelope.taint,
       durationMs,
       intentHash: envelope.intentHash,
-      ...(guardId !== undefined ? { guardId } : {}),
+      ...(guardId !== undefined ? { guardId, guardName: guardId } : {}),
+      ...(guardPhase !== undefined ? { guardPhase } : {}),
       ...(options.planFingerprint !== undefined
         ? { planFingerprint: options.planFingerprint }
         : {}),

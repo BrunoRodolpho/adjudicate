@@ -46,6 +46,8 @@ import type {
   SinkFailureEvent,
 } from "./metrics.js";
 import type { LearningSink } from "./learning.js";
+import type { KernelIdentity } from "./identity.js";
+import type { OutcomeSink } from "./outcomes.js";
 import type {
   LegacyDecisionResult,
   ShadowTelemetrySink,
@@ -212,6 +214,17 @@ export interface RuntimeContext {
   readonly learning: LearningSinkSlot;
   readonly shadowTelemetry: ShadowTelemetrySinkSlot;
   readonly enforceConfig: EnforceConfig;
+  /**
+   * Optional kernel identity (SA6 §3.5 seam). When supplied, audit emissions
+   * carry `{ id, version }` so operators can correlate decisions to the
+   * kernel build that produced them. Attestation bytes are reserved for v0.2.
+   */
+  readonly kernelIdentity?: KernelIdentity;
+  /**
+   * Optional retrospective-outcome sink. The admin SDK's
+   * `governance.recordOutcome` mutation routes through this when configured.
+   */
+  readonly outcomeSink?: OutcomeSink;
 }
 
 export interface MetricsSinkSlot {

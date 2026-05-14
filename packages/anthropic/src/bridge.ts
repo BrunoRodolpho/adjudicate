@@ -2,10 +2,13 @@
  * Bridge module — the boundary between Anthropic `tool_use` blocks and
  * adjudicate's `IntentEnvelope`s.
  *
- * Convention: tool name = intent kind for proposable intents (e.g.
- * `pix.charge.create`). READ tool names use the planner's snake_case
- * convention. The dotted form for intent kinds guarantees no collision —
- * Anthropic accepts dotted tool names.
+ * Convention: intent-kind tool name (e.g. `pix.charge.create`) is
+ * translated to an Anthropic-API-compatible form by replacing `.` with
+ * `_` (Anthropic's tool-name pattern is `^[a-zA-Z0-9_-]{1,128}$` —
+ * dots are rejected). The renderer applies the translation outbound;
+ * `classifyIncomingToolUse` accepts either the translated form (live
+ * API path) or the raw dotted form (mocked-test path) so test
+ * harnesses that bypass the renderer continue to work.
  *
  * Taint is ALWAYS `"UNTRUSTED"` for envelopes derived from LLM tool_use
  * blocks. There is no path from this module that raises taint upward;
@@ -14,6 +17,22 @@
 
 import { buildEnvelope, type IntentEnvelope, type Taint } from "@adjudicate/core";
 import type { Plan } from "@adjudicate/core/llm";
+
+/**
+ * Translate an intent-kind / READ-tool name to its Anthropic-API form.
+ * Replaces `.` with `_` so names like `pix.charge.create` become
+ * `pix_charge_create`, which matches Anthropic's tool-name pattern
+ * `^[a-zA-Z0-9_-]{1,128}$`. No-op for names that already contain only
+ * API-allowed characters.
+ *
+ * Reversibility caveat: an intent kind `a.b` and a READ tool `a_b` both
+ * translate to `a_b` and become indistinguishable on the wire. Adopters
+ * who hit this collision should rename one of them; a future Pack-
+ * conformance check (P2) will surface the collision at install time.
+ */
+export function intentKindToApiName(name: string): string {
+  return name.replaceAll(".", "_");
+}
 
 export type ToolUseClassification =
   | { readonly kind: "read"; readonly name: string; readonly input: unknown }
@@ -30,18 +49,33 @@ export type ToolUseClassification =
  *
  * Out-of-plan tool_uses translate to `is_error: true` tool_results so the
  * loop never silently fails — the LLM gets a recoverable signal.
+ *
+ * The match is forgiving: the planner exposes the raw (dotted) intent
+ * kind, the renderer ships the translated (underscored) form to
+ * Anthropic, and the model echoes back the translated form on
+ * `tool_use`. We compare both raw and translated against each
+ * candidate so mocked-test paths (which skip the renderer translation)
+ * and live-API paths (which round-trip through translation) both work.
  */
 export function classifyIncomingToolUse(
   toolUse: { readonly name: string; readonly input: unknown },
   plan: Plan,
 ): ToolUseClassification {
-  if (plan.visibleReadTools.includes(toolUse.name)) {
-    return { kind: "read", name: toolUse.name, input: toolUse.input };
+  const matchesName = (candidate: string): boolean =>
+    candidate === toolUse.name ||
+    intentKindToApiName(candidate) === toolUse.name;
+
+  const readMatch = plan.visibleReadTools.find(matchesName);
+  if (readMatch !== undefined) {
+    // Surface the planner's original (dotted, if any) name so adopter
+    // executors look it up by the same key the planner advertised.
+    return { kind: "read", name: readMatch, input: toolUse.input };
   }
-  if (plan.allowedIntents.includes(toolUse.name)) {
+  const intentMatch = plan.allowedIntents.find(matchesName);
+  if (intentMatch !== undefined) {
     return {
       kind: "intent",
-      intentKind: toolUse.name,
+      intentKind: intentMatch,
       payload: toolUse.input,
     };
   }

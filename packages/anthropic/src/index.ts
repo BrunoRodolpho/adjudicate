@@ -43,8 +43,9 @@ export type {
 } from "./persistence.js";
 
 export {
-  classifyIncomingToolUse,
   buildEnvelopeFromToolUse,
+  classifyIncomingToolUse,
+  intentKindToApiName,
 } from "./bridge.js";
 export type { ToolUseClassification } from "./bridge.js";
 

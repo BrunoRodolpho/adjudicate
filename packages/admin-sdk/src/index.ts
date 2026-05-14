@@ -84,6 +84,16 @@ export {
   type GuardPhase as GuardPhaseParsed,
 } from "./schemas/guard-stats.js";
 
+export {
+  GuardDescriptionSchema,
+  GuardDescriptorSchema,
+  GuardMetadataSchema,
+  PolicyBundleDescriptorSchema,
+  PolicyPhaseDescriptorSchema,
+  PolicyPhaseSchema,
+  type PolicyBundleDescriptorParsed,
+} from "./schemas/policy-descriptor.js";
+
 // ─── Handlers ───────────────────────────────────────────────────────────────
 export {
   createAuditQueryHandler,

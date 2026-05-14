@@ -1,6 +1,6 @@
 "use client";
 
-import { ListFilter, ShieldAlert, X } from "lucide-react";
+import { Activity, ListFilter, Network, ShieldAlert, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Taint } from "@adjudicate/core";
@@ -18,6 +18,8 @@ interface NavItem {
 
 const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "Audit Explorer", icon: ListFilter },
+  { href: "/dashboard", label: "Dashboard", icon: Activity },
+  { href: "/governance", label: "Governance", icon: Network },
   { href: "/control", label: "Control", icon: ShieldAlert },
 ] as const;
 

@@ -9,6 +9,8 @@ import { PlanSnapshotPanel } from "./PlanSnapshotPanel";
 import { PolicyResolutionList } from "./PolicyResolutionList";
 import { RefusalCard } from "./RefusalCard";
 import { Section } from "./Section";
+import { SupersessionChain } from "./SupersessionChain";
+import { WhyNotPanel } from "./WhyNotPanel";
 
 /**
  * DecisionTrace — flagship component of the Audit Explorer.
@@ -25,6 +27,10 @@ export function DecisionTrace({ record }: { record: AuditRecord }) {
     <article className="overflow-hidden rounded-sm border border-edge bg-panel/40">
       <DecisionTraceHeader record={record} />
 
+      {record.supersedes ? (
+        <SupersessionChain supersedes={record.supersedes} />
+      ) : null}
+
       <div className="flex items-center justify-end gap-2 border-b border-edge bg-canvas/40 px-3 py-1.5">
         <ReplayButton
           intentHash={record.intentHash}
@@ -39,6 +45,10 @@ export function DecisionTrace({ record }: { record: AuditRecord }) {
 
       <Section title="Policy Resolution" defaultOpen>
         <PolicyResolutionList record={record} />
+      </Section>
+
+      <Section title="Why this decision" defaultOpen>
+        <WhyNotPanel record={record} />
       </Section>
 
       <Section title={`Decision · ${record.decision.kind}`} defaultOpen>

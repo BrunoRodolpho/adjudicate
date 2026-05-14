@@ -1,7 +1,10 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { classify } from "@adjudicate/audit";
-import type { GuardFireStats } from "@adjudicate/core";
+import type {
+  GuardFireStats,
+  PolicyBundleDescriptor,
+} from "@adjudicate/core";
 import { AuditRecordSchema } from "../schemas/audit.js";
 import {
   EmergencyHistoryQuerySchema,
@@ -22,6 +25,7 @@ import {
   GuardFireStatsQuerySchema,
   GuardFireStatsResultSchema,
 } from "../schemas/guard-stats.js";
+import { PolicyBundleDescriptorSchema } from "../schemas/policy-descriptor.js";
 import { ReplayResultSchema } from "../schemas/replay.js";
 import { createAuditQueryHandler } from "../handlers/audit-query.js";
 import { createEmergencyHandler } from "../handlers/emergency.js";
@@ -67,6 +71,13 @@ export interface AdminContext {
    * throws PRECONDITION_FAILED so the surface is feature-detectable at runtime.
    */
   readonly guardFireStats?: GuardFireStats;
+  /**
+   * Optional snapshot of the active policy bundle descriptor. The route
+   * handler computes it from the installed Pack(s) at startup via
+   * `describePolicyBundle(bundle)`. Omitted when no Pack is wired —
+   * `governance.describePolicy` then throws PRECONDITION_FAILED.
+   */
+  readonly policyDescriptor?: PolicyBundleDescriptor;
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -202,6 +213,31 @@ const governanceRouter = t.router({
         stats: ctx.guardFireStats,
       });
       return handler(input);
+    }),
+
+  /**
+   * Snapshot of the installed policy bundle's structure (phases + guard
+   * metadata). Drives the console's governance visualiser. Computed from
+   * `describePolicyBundle(bundle)` at route-handler startup; threaded
+   * through context so the procedure stays a pure read.
+   */
+  describePolicy: t.procedure
+    .output(PolicyBundleDescriptorSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.policyDescriptor) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Policy descriptor not configured. Wire a PolicyBundleDescriptor into the route handler context (typically via describePolicyBundle(pack.policy)).",
+        });
+      }
+      // The schema intentionally widens GuardDescription to a passthrough
+      // object so unknown ADR-105 variants flow through. The structural
+      // mismatch (closed core union vs permissive wire object) means TS
+      // needs the cast at the seam.
+      return ctx.policyDescriptor as unknown as z.infer<
+        typeof PolicyBundleDescriptorSchema
+      >;
     }),
 });
 

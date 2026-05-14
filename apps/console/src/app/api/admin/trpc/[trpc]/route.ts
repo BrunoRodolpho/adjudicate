@@ -12,6 +12,12 @@ import {
   createPostgresAuditStore,
   createPostgresGovernanceLog,
 } from "@adjudicate/audit-postgres";
+import {
+  describePolicyBundle,
+  GuardFireStats,
+  type PolicyBundle,
+  type PolicyBundleDescriptor,
+} from "@adjudicate/core";
 import { ALL_MOCKS } from "@/lib/mocks";
 import { createDurableEmergencyStore } from "@/lib/durable-emergency-store";
 import {
@@ -21,6 +27,7 @@ import {
 } from "@/lib/postgres-pool";
 import { createLazyRedisLedgerAdapter } from "@/lib/redis-client";
 import { createReferenceReplayInvoker } from "@/lib/replay-invoker";
+import { PackRegistry } from "@/lib/packs/registry";
 
 /**
  * tRPC route — mounts the @adjudicate/admin-sdk admin router under
@@ -98,6 +105,28 @@ const { auditStore, emergencyStore } = createStores();
 // `apps/console/src/lib/replay-invoker.ts` for production replay.
 const replayer = createReferenceReplayInvoker();
 
+// Process-singleton GuardFireStats — survives every request in this Node
+// instance. Resets on cold-start (which is fine for v0.1's in-memory
+// accumulator; persistent backing arrives in Phase 1.5C).
+const guardFireStats = new GuardFireStats({
+  resolvePackId: (intentKind) => PackRegistry.match(intentKind)?.pack.id,
+});
+
+// Snapshot the first installed Pack's policy. The console runs a small
+// fixed set of Packs; if multiple are installed, the descriptor for the
+// first is what `governance.describePolicy` returns. Multi-Pack composition
+// is a future ticket (Phase 1.5+ — derivePack).
+const firstPack = PackRegistry.all()[0]?.pack;
+// `InstalledPackInfo.policy` is typed `unknown` so heterogeneous Packs can
+// coexist in the adapter list; the kernel reads it through the same opaque
+// channel. For the descriptor we widen back to the generic PolicyBundle
+// signature — describePolicyBundle is variance-safe (reads only structure).
+const policyDescriptor: PolicyBundleDescriptor | undefined = firstPack
+  ? describePolicyBundle(
+      firstPack.policy as PolicyBundle<string, unknown, unknown>,
+    )
+  : undefined;
+
 export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
@@ -106,5 +135,7 @@ export const { GET, POST } = toNextRouteHandler({
     emergencyStore,
     actor: extractActor(req),
     replayer,
+    guardFireStats,
+    ...(policyDescriptor ? { policyDescriptor } : {}),
   }),
 });

@@ -280,9 +280,6 @@ importers:
 
   packages/admin-sdk:
     dependencies:
-      '@adjudicate/audit':
-        specifier: workspace:*
-        version: link:../audit
       '@trpc/server':
         specifier: ^11.0.0
         version: 11.17.0(typescript@5.9.3)

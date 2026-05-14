@@ -16,6 +16,7 @@ export * from "./ledger.js";
 export * from "./sink.js";
 export * from "./pack.js";
 export * from "./explain.js";
+export * from "./replay-classify.js";
 export {
   KERNEL_REFUSAL_CODES,
   PackConformanceError,

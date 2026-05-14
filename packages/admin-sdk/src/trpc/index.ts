@@ -1,6 +1,6 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { classify } from "@adjudicate/audit";
+import { classify } from "@adjudicate/core";
 import type {
   GuardFireStats,
   InMemoryOutcomeSink,

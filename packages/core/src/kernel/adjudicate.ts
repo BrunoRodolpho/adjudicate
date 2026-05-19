@@ -220,7 +220,13 @@ function _adjudicateImpl<K extends string, P, S>(
   // 2. State guards
   for (let i = 0; i < policy.stateGuards.length; i++) {
     const guard = policy.stateGuards[i]!;
-    const d = guard(envelope, state);
+    let d: Decision | null;
+    try {
+      d = guard(envelope, state);
+    } catch (err) {
+      if (traceOut) traceOut.push(traceEntry("state", i, guard, "match"));
+      return guardPanicRefusal("state", i, guard, err, accumulated);
+    }
     if (d !== null) {
       if (traceOut) traceOut.push(traceEntry("state", i, guard, "match"));
       return enrichBasis(d, accumulated);
@@ -234,7 +240,16 @@ function _adjudicateImpl<K extends string, P, S>(
   //    Declarative, driven by policy.taint. `canPropose()` is the single
   //    call — do not walk payload fields by inspection. Field-level taint
   //    (v1.1) gains precision transparently through this call.
-  if (!canPropose(envelope.taint, envelope.kind, policy.taint)) {
+  let taintAllowed: boolean;
+  try {
+    taintAllowed = canPropose(envelope.taint, envelope.kind, policy.taint);
+  } catch (err) {
+    // policy.taint.minimumFor() threw. Treat as guard panic in the taint
+    // phase — fail-closed with kernel.GUARD_PANIC.
+    if (traceOut) traceOut.push({ phase: "taint", outcome: "match" });
+    return guardPanicRefusal("taint", null, null, err, accumulated);
+  }
+  if (!taintAllowed) {
     if (traceOut) traceOut.push({ phase: "taint", outcome: "match" });
     return decisionRefuse(
       refuse(
@@ -258,7 +273,13 @@ function _adjudicateImpl<K extends string, P, S>(
   // 4. Auth guards (T8 reorder: now AFTER taint).
   for (let i = 0; i < policy.authGuards.length; i++) {
     const guard = policy.authGuards[i]!;
-    const d = guard(envelope, state);
+    let d: Decision | null;
+    try {
+      d = guard(envelope, state);
+    } catch (err) {
+      if (traceOut) traceOut.push(traceEntry("auth", i, guard, "match"));
+      return guardPanicRefusal("auth", i, guard, err, accumulated);
+    }
     if (d !== null) {
       if (traceOut) traceOut.push(traceEntry("auth", i, guard, "match"));
       return enrichBasis(d, accumulated);
@@ -270,7 +291,13 @@ function _adjudicateImpl<K extends string, P, S>(
   // 5. Business rules
   for (let i = 0; i < policy.business.length; i++) {
     const guard = policy.business[i]!;
-    const d = guard(envelope, state);
+    let d: Decision | null;
+    try {
+      d = guard(envelope, state);
+    } catch (err) {
+      if (traceOut) traceOut.push(traceEntry("business", i, guard, "match"));
+      return guardPanicRefusal("business", i, guard, err, accumulated);
+    }
     if (d !== null) {
       if (traceOut) traceOut.push(traceEntry("business", i, guard, "match"));
       return enrichBasis(d, accumulated);
@@ -291,6 +318,64 @@ function _adjudicateImpl<K extends string, P, S>(
       "Essa ação não é permitida neste momento.",
     ),
     accumulated,
+  );
+}
+
+/**
+ * Guard-panic refusal — emitted when a guard (or the taint policy) throws.
+ *
+ * Per ADR-106: kernel determinism + fail-closed posture means a thrown guard
+ * does NOT propagate to the adopter. Instead the kernel converts it to a
+ * SECURITY REFUSE with the `kernel.GUARD_PANIC` basis, preserving the audit
+ * trail (the phase + matched-guard identity travel in `basis.detail`).
+ *
+ * Deterministic-by-content: the basis carries `Error.message` (stable for
+ * stable input) plus the matched-guard name. The kernel itself adds nothing
+ * nondeterministic — no timestamps, no random IDs.
+ *
+ * `guardIndex` and `guard` are null for the taint-gate path, since
+ * `canPropose` is not a guard array entry.
+ */
+function guardPanicRefusal(
+  phase: "state" | "taint" | "auth" | "business",
+  guardIndex: number | null,
+  guard: unknown,
+  err: unknown,
+  accumulated: DecisionBasis[],
+): Decision {
+  const message =
+    err instanceof Error ? err.message : String(err);
+  const errorName = err instanceof Error ? err.name : "Error";
+  let guardName: string | undefined;
+  if (guard !== null && typeof guard === "function") {
+    const fn = guard as (...args: never[]) => unknown;
+    const metaName = readGuardMetadata(fn)?.name;
+    const fnName =
+      typeof (fn as { name?: unknown }).name === "string"
+        ? (fn as { name: string }).name
+        : "";
+    const resolved = metaName ?? fnName;
+    if (resolved.length > 0) guardName = resolved;
+  }
+  return decisionRefuse(
+    refuse(
+      "SECURITY",
+      "guard_panic",
+      "Sistema temporariamente indisponível.",
+      `Guard panic in ${phase} phase${
+        guardIndex !== null ? `[${guardIndex}]` : ""
+      }${guardName ? ` (${guardName})` : ""}: ${errorName}: ${message}`,
+    ),
+    [
+      ...accumulated,
+      basis("kernel", BASIS_CODES.kernel.GUARD_PANIC, {
+        phase,
+        ...(guardIndex !== null ? { index: guardIndex } : {}),
+        ...(guardName ? { guardName } : {}),
+        errorName,
+        message,
+      }),
+    ],
   );
 }
 

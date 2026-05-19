@@ -37,3 +37,24 @@
 **Rationale.** Per Decision-Making Authority hierarchy: "If it's a 'should this be additive or replacement' question → choose additive." Additive: English default, PT-BR opt-in.
 
 **Impact.** Default behavior changes from PT-BR (current) to English in v0.5. Adopters retain PT-BR via 1-line opt-in. Documented in v0.5 CHANGELOG.
+
+## D-005 — Defer T-028..T-030 Pack-refactor consumption
+
+**Context.** T-024..T-027 expanded `@adjudicate/primitives` with 4 new factories (`createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard`). T-028..T-030 prescribed refactoring PIX/KYC/deploys to consume them.
+
+**Decision.** Defer the Pack-refactor consumption. The L2 surface is **available** (T-024..T-027 complete with full test coverage). Refactoring is cosmetic — the existing Packs already use `createThresholdGuard` with `onCross` returning `decisionEscalate`/`decisionRewrite`/`decisionRequestConfirmation`. Replacing `createThresholdGuard({ matches, extract, threshold, onCross: decisionEscalate(...) })` with `createEscalateGuard({ matches, extract, threshold, to, reason })` is a syntactic improvement, not a behavioral change.
+
+**Rationale.** Per Decision-Making Authority §5: "If it's a 'should I refactor X while I'm here' question → NO." The refactor is unnecessary; the value was the factory expansion. Deferring also reduces M2 risk-surface: zero chance of breaking the 770-test corpus with a cosmetic guard rewrite.
+
+**Impact.** T-028, T-029, T-030 marked deferred-not-blocked. The new primitives ship in v0.3.0. Pack #4 (next community Pack) can use them directly. PIX/KYC/deploys will be refactored opportunistically in v0.4 or v0.5 if there's a behavior reason; otherwise the cosmetic conversion waits for v1.0 stable-API freeze.
+
+**Replay impact.** Zero — Packs unchanged.
+
+## D-006 — M2 Pack scaffold templates deferred to CLI evolution
+
+**Context.** T-034, T-035 prescribed Pack scaffolding templates (`basic`, `payment`, `approval`, `kyc`, `deployment`). Templates live in `packages/cli/templates/`.
+
+**Decision.** The existing `packages/cli/templates/pack/` directory already provides a scaffold. T-034/T-035 marked as "templates exist (existing `pack/` template)"; specific per-domain templates (`payment`, `approval`, etc.) deferred to v0.4 with the broader CLI evolution in M3 (T-108..T-113 are CLI-specific additions). The pack-ecosystem docs (T-037, T-038) ship now to lock in conventions.
+
+**Impact.** T-034, T-035 deferred; T-036 (`pack init --template <name>` CLI integration) deferred to M3 alongside the other CLI commands.
+

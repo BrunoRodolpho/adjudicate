@@ -48,7 +48,7 @@ export interface IntentAuditRow {
    * replay reader can branch without parsing JSON. v1 rows that predate this
    * column may be NULL — the reader treats NULL as v1.
    */
-  readonly record_version: 1 | 2 | 3;
+  readonly record_version: 1 | 2 | 3 | 4;
   /**
    * v2+ optional plan snapshot, pre-serialized JSON. NULL when the audit
    * record carries no plan field. Migration `002-add-plan-jsonb.sql` adds

@@ -41,7 +41,7 @@ export const SupersessionSchema = z.object({
 });
 
 export const AuditRecordSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   intentHash: z.string(),
   envelope: IntentEnvelopeSchema,
   decision: DecisionSchema,
@@ -52,6 +52,20 @@ export const AuditRecordSchema = z.object({
   durationMs: z.number(),
   plan: AuditPlanSnapshotSchema.optional(),
   supersedes: SupersessionSchema.optional(),
+  kernelIdentity: z
+    .object({ id: z.string(), version: z.string() })
+    .optional(),
+  // v4+ additive fields
+  policyVersion: z.string().optional(),
+  kernelVersion: z.string().optional(),
+  auditHash: z.string().optional(),
+  signature: z
+    .object({
+      keyId: z.string(),
+      alg: z.string(),
+      value: z.string(),
+    })
+    .optional(),
 });
 
 // ─── Build-time drift guards ────────────────────────────────────────────────

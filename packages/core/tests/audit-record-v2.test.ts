@@ -33,19 +33,19 @@ function decisionFixture() {
 
 describe("AUDIT_RECORD_VERSION", () => {
   it("is 3", () => {
-    expect(AUDIT_RECORD_VERSION).toBe(3);
+    expect(AUDIT_RECORD_VERSION).toBe(4);
   });
 });
 
 describe("buildAuditRecord without plan (v1-shaped)", () => {
-  it("produces a record with version=3 but no plan field", () => {
+  it("produces a record with version=4 but no plan field", () => {
     const r = buildAuditRecord({
       envelope: envFixture(),
       decision: decisionFixture(),
       durationMs: 5,
       at: "2026-04-23T12:00:01.000Z",
     });
-    expect(r.version).toBe(3);
+    expect(r.version).toBe(4);
     expect(r.plan).toBeUndefined();
     // Spec: every existing v1 field is unchanged.
     expect(r.intentHash).toBe(envFixture().intentHash);

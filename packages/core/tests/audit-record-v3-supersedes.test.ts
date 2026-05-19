@@ -32,9 +32,9 @@ function decisionFixture() {
   return decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]);
 }
 
-describe("AUDIT_RECORD_VERSION is 3", () => {
-  it("the live version literal is 3", () => {
-    expect(AUDIT_RECORD_VERSION).toBe(3);
+describe("AUDIT_RECORD_VERSION is 4", () => {
+  it("the live version literal is 4", () => {
+    expect(AUDIT_RECORD_VERSION).toBe(4);
   });
 });
 
@@ -61,19 +61,19 @@ describe("AuditRecord supersedes (v3)", () => {
         at: "2026-04-23T12:00:01.000Z",
         supersedes: supersession,
       });
-      expect(r.version).toBe(3);
+      expect(r.version).toBe(4);
       expect(r.supersedes).toEqual(supersession);
     });
   }
 
-  it("omits supersedes when not supplied (back-compat: v2-shaped record under v3)", () => {
+  it("omits supersedes when not supplied (back-compat: v3-shaped record under v4)", () => {
     const r = buildAuditRecord({
       envelope: envFixture(),
       decision: decisionFixture(),
       durationMs: 1,
       at: "2026-04-23T12:00:01.000Z",
     });
-    expect(r.version).toBe(3);
+    expect(r.version).toBe(4);
     expect(r.supersedes).toBeUndefined();
   });
 

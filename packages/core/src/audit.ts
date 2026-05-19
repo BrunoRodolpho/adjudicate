@@ -23,8 +23,8 @@ import { buildEnvelope, type IntentEnvelope } from "./envelope.js";
 import type { Decision } from "./decision.js";
 import type { DecisionBasis } from "./basis-codes.js";
 
-export const AUDIT_RECORD_VERSION = 3 as const;
-export type AuditRecordVersion = 1 | 2 | 3;
+export const AUDIT_RECORD_VERSION = 4 as const;
+export type AuditRecordVersion = 1 | 2 | 3 | 4;
 
 /**
  * Why the current AuditRecord supersedes its predecessor.
@@ -111,6 +111,36 @@ export interface AuditRecord {
    * audit row only carries the public `(id, version)` pair.
    */
   readonly kernelIdentity?: { readonly id: string; readonly version: string };
+  /**
+   * Optional, v4+. Pack's semantic version at the time of adjudication.
+   * Plumbed from Pack.version on the policy the kernel was given.
+   * Replay-against-historical-policy uses this to resolve the correct
+   * Pack module via `PackRegistry.resolve(packId, policyVersion)`.
+   */
+  readonly policyVersion?: string;
+  /**
+   * Optional, v4+. Adjudicate kernel version that produced this record.
+   * Distinct from `kernelIdentity.version` which identifies the kernel
+   * BUILD; this identifies the @adjudicate/core package version.
+   */
+  readonly kernelVersion?: string;
+  /**
+   * Optional, v4+. `sha256Canonical(canonical(record \ { auditHash,
+   * signature }))`. Binds envelope + decision + basis + supersession
+   * into one tamper-evident token. Verifiers re-derive and compare.
+   */
+  readonly auditHash?: string;
+  /**
+   * Optional, v4+. Cryptographic signature over `auditHash`. Pluggable
+   * AuditSigner injects KMS/HSM signing in production; OSS adopters
+   * leave the field absent (auditHash alone gives tamper detection;
+   * the signature adds non-repudiation).
+   */
+  readonly signature?: {
+    readonly keyId: string;
+    readonly alg: string;
+    readonly value: string;
+  };
 }
 
 export interface BuildAuditInput {
@@ -131,6 +161,15 @@ export interface BuildAuditInput {
    */
   readonly supersedes?: Supersession;
   /**
+   * Optional Pack version (v4+). Adopters wire from Pack.version (PackV1).
+   */
+  readonly policyVersion?: string;
+  /**
+   * Optional kernel version (v4+). Typically the @adjudicate/core package
+   * version that produced the decision.
+   */
+  readonly kernelVersion?: string;
+  /**
    * Optional `(id, version)` of the kernel build producing the decision
    * (v3+). When supplied, the resulting AuditRecord carries the same shape
    * under `kernelIdentity`. Attestation bytes are reserved for v0.2.
@@ -150,7 +189,7 @@ export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
         }),
       }
     : undefined;
-  return {
+  const baseRecord: Omit<AuditRecord, "auditHash"> = {
     version: AUDIT_RECORD_VERSION,
     intentHash: input.envelope.intentHash,
     envelope: input.envelope,
@@ -166,7 +205,58 @@ export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
     ...(input.kernelIdentity !== undefined
       ? { kernelIdentity: input.kernelIdentity }
       : {}),
+    ...(input.policyVersion !== undefined
+      ? { policyVersion: input.policyVersion }
+      : {}),
+    ...(input.kernelVersion !== undefined
+      ? { kernelVersion: input.kernelVersion }
+      : {}),
   };
+  // v4 auditHash: sha256 over canonical(record \ { auditHash, signature }).
+  // Binds envelope + decision + basis + supersession into one tamper-evident
+  // token. Verifiers re-derive and compare via `verifyAuditRecord`.
+  const auditHash = sha256Canonical(baseRecord);
+  return { ...baseRecord, auditHash };
+}
+
+/**
+ * Verify an AuditRecord's tamper-evident hash.
+ *
+ * Re-derives `sha256Canonical(record \ { auditHash, signature })` and
+ * compares to the stored `auditHash`. Returns:
+ *   - `{ verified: true }` — hash matches; record is intact
+ *   - `{ verified: false, reason: "tampered", derived, stored }` — hash
+ *      mismatch; the stored record was modified after build
+ *   - `{ verified: null, reason: "missing_hash" }` — pre-v4 record;
+ *      verification not applicable
+ *
+ * Pure function. No I/O. Verifies tamper-evidence only — non-repudiation
+ * (signature verification) is a separate concern via a pluggable verifier.
+ */
+export type AuditRecordVerification =
+  | { readonly verified: true }
+  | {
+      readonly verified: false;
+      readonly reason: "tampered";
+      readonly derived: string;
+      readonly stored: string;
+    }
+  | { readonly verified: null; readonly reason: "missing_hash" };
+
+export function verifyAuditRecord(
+  record: AuditRecord,
+): AuditRecordVerification {
+  if (record.auditHash === undefined) {
+    return { verified: null, reason: "missing_hash" };
+  }
+  // Strip the auditHash + signature fields from the record before
+  // re-deriving (the hash was computed over the record sans these fields).
+  const { auditHash: stored, signature: _signature, ...rest } = record;
+  const derived = sha256Canonical(rest);
+  if (derived !== stored) {
+    return { verified: false, reason: "tampered", derived, stored };
+  }
+  return { verified: true };
 }
 
 /**

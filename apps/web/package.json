@@ -8,7 +8,21 @@
     "dev": "next dev --port 5181",
     "build": "next build",
     "start": "next start --port 5181",
-    "lint": "tsc -p . --noEmit"
+    "lint": "tsc -p . --noEmit",
+    "video:preview": "remotion preview video/index.ts",
+    "video:render": "remotion render video/index.ts HowItWorksHero public/how-it-works.webm --codec=vp9 --enforce-audio-track=false",
+    "video:render-mp4": "remotion render video/index.ts HowItWorksHero public/how-it-works.mp4 --codec=h264 --enforce-audio-track=false",
+    "video:poster": "remotion still video/index.ts HowItWorksHero public/how-it-works-poster.jpg --frame=180 --image-format=jpeg --jpeg-quality=80",
+    "video:render-all": "pnpm run video:render && pnpm run video:render-mp4 && pnpm run video:poster",
+    "hero:render": "remotion render video/index.ts HeroKernelLoop public/hero-kernel.webm --codec=vp9 --crf=36 --enforce-audio-track=false",
+    "hero:render-mp4": "remotion render video/index.ts HeroKernelLoop public/hero-kernel.mp4 --codec=h264 --crf=26 --enforce-audio-track=false",
+    "hero:poster": "remotion still video/index.ts HeroKernelLoop public/hero-kernel-poster.jpg --frame=296 --image-format=jpeg --jpeg-quality=82",
+    "hero:render-all": "pnpm run hero:render && pnpm run hero:render-mp4 && pnpm run hero:poster",
+    "og:render-homepage": "remotion still video/og-index.ts HomepageOG public/og-homepage.png --frame=0 --image-format=png",
+    "og:render-architecture": "remotion still video/og-index.ts ArchitectureOG public/og-architecture.png --frame=0 --image-format=png",
+    "og:render-comparisons": "remotion still video/og-index.ts ComparisonsOG public/og-comparisons.png --frame=0 --image-format=png",
+    "og:render-introspection": "remotion still video/og-index.ts IntrospectionOG public/og-introspection.png --frame=0 --image-format=png",
+    "og:render-all": "pnpm run og:render-homepage && pnpm run og:render-architecture && pnpm run og:render-comparisons && pnpm run og:render-introspection"
   },
   "dependencies": {
     "@adjudicate/admin-sdk": "workspace:*",
@@ -28,11 +42,14 @@
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
+    "@remotion/bundler": "^4.0.461",
+    "@remotion/cli": "^4.0.461",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.47",
+    "remotion": "^4.0.461",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.9.0"
   }

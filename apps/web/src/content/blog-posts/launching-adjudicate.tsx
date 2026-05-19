@@ -12,14 +12,18 @@ type Decision =
 export function LaunchingAdjudicate() {
   return (
     <article className="prose-body flex flex-col gap-5">
+      <p className="text-lg italic text-ink">
+        Adjudicate is a decision kernel for AI actions. It decides whether
+        AI actions should execute, change, wait, escalate, or stop.
+      </p>
       <p>
         Modern AI agents call tools. Most agent frameworks ship the tool call
         straight to your database, payment provider, or email API the moment
-        the model decides to invoke it. We think that's the wrong default. The
+        the model decides to invoke it. We think that&apos;s the wrong default. The
         LLM is a probabilistic prompt-to-tool-call layer; the system on the
         other end is deterministic, transactional, and accountable. Putting
-        them in direct contact gives you the worst of both: the model's
-        confidence with the system's blast radius.
+        them in direct contact gives you the worst of both: the model&apos;s
+        confidence with the system&apos;s blast radius.
       </p>
       <p>
         Adjudicate is the policy-and-audit kernel between the two. It accepts

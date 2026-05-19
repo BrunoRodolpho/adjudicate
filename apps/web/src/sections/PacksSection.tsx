@@ -16,9 +16,9 @@ export function PacksSection() {
           {PACKS.map((p) => (
             <div
               key={p.id}
-              className={`flex flex-col gap-3 rounded-xl border p-5 ${
+              className={`flex flex-col gap-3 rounded-xl border p-5 transition-all duration-200 ${
                 p.status === "shipped"
-                  ? "border-edge bg-surface shadow-sm"
+                  ? "border-edge bg-surface shadow-sm hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg"
                   : "border-dashed border-edge bg-canvas opacity-70"
               }`}
             >

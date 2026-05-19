@@ -1,8 +1,11 @@
 # adjudicate
 
-> **Policy-as-code for AI agents.**
+> **A decision kernel for AI actions — a control layer between AI intent and system execution.**
+>
+> *LLMs generate possibilities. Production systems require decisions.*
+> It decides whether AI actions should execute, change, wait, escalate, or stop.
 
-Modern AI agents call tools. Most agent frameworks ship the tool call straight to your database, payment provider, or email API the moment the model decides to invoke it. **adjudicate** inserts a deterministic policy kernel between the model and the side-effect: the LLM proposes a structured intent, the kernel adjudicates it against a typed `PolicyBundle` and current state, and only six outcomes are possible — execute, refuse, defer, escalate, ask for confirmation, or rewrite to a sanitized variant. Where OPA and Cedar return yes/no on a single proposed action, adjudicate returns six — including two (`DEFER` and `REWRITE`) that policy engines can't express. The result: every state mutation is policy-checked, replay-safe, and audit-grade. The model has zero authority to mutate state.
+Modern AI agents call tools. Most agent frameworks ship the tool call straight to your database, payment provider, or email API the moment the model decides to invoke it. **adjudicate** inserts a deterministic decision kernel between the model and the side-effect: the LLM proposes a structured intent, the kernel adjudicates it against a typed `PolicyBundle` and current state, and only six outcomes are possible — execute, refuse, defer, escalate, ask for confirmation, or rewrite to a sanitized variant. Where OPA and Cedar return yes/no on a single proposed action, adjudicate returns six — including two (`DEFER` and `REWRITE`) that policy engines can't express. The result: every state mutation is policy-checked, replay-safe, and audit-grade. The model has zero authority to mutate state.
 
 > **New here?** Start with [**Concepts**](./docs/concepts.md) — the plain-English
 > tour of the kernel, rulebooks, and the six Decision outcomes. The rest of this

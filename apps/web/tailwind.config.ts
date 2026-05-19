@@ -46,7 +46,10 @@ const config: Config = {
         // Decision tokens — same six as the console.
         execute: "#10B981",       // emerald-500
         refuse: "#EF4444",        // red-500
-        rewrite: "#F97316",       // orange-500
+        rewrite: {
+          DEFAULT: "#F97316",     // orange-500
+          strong: "#C2410C",      // orange-700 — AA contrast for body-weight on white
+        },
         defer: "#F59E0B",         // amber-500
         escalate: "#8B5CF6",      // violet-500
         confirm: "#0EA5E9",       // sky-500

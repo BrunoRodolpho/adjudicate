@@ -8,6 +8,18 @@ import {
 import { useRouter } from "next/navigation";
 import type { AuditRecord } from "@adjudicate/core";
 import { auditColumns } from "./columns";
+import { cn } from "@/lib/cn";
+
+interface Props {
+  readonly records: readonly AuditRecord[];
+  /**
+   * Optional set of `intentHash` values to highlight. The live-tail hook
+   * passes the hashes that arrived in the most recent poll; the row gets
+   * a 1.5s fade so the operator can spot the new arrival. When omitted,
+   * the table renders with no highlight.
+   */
+  readonly highlightHashes?: ReadonlySet<string>;
+}
 
 /**
  * Audit table — TanStack Table + plain HTML rows.
@@ -19,8 +31,13 @@ import { auditColumns } from "./columns";
  *
  * Click anywhere on a row → navigate to the detail route. The header is
  * sticky so long lists keep their column labels in view.
+ *
+ * When `highlightHashes` is provided, rows whose `intentHash` is in the
+ * set briefly render with an emerald-tinted background. T-080's live tail
+ * passes the set; outside live mode the table renders identically to
+ * Phase 1.
  */
-export function AuditTable({ records }: { records: readonly AuditRecord[] }) {
+export function AuditTable({ records, highlightHashes }: Props) {
   const router = useRouter();
   const table = useReactTable({
     data: records as AuditRecord[],
@@ -58,21 +75,30 @@ export function AuditTable({ records }: { records: readonly AuditRecord[] }) {
               </td>
             </tr>
           ) : (
-            table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                onClick={() =>
-                  router.push(`/decisions/${row.original.intentHash}`)
-                }
-                className="cursor-pointer border-b border-edge transition-colors hover:bg-edge/30"
-              >
-                {row.getVisibleCells().map((c) => (
-                  <td key={c.id} className="px-2 py-1.5 align-top">
-                    {flexRender(c.column.columnDef.cell, c.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))
+            table.getRowModel().rows.map((row) => {
+              const highlighted = Boolean(
+                highlightHashes?.has(row.original.intentHash),
+              );
+              return (
+                <tr
+                  key={row.id}
+                  onClick={() =>
+                    router.push(`/decisions/${row.original.intentHash}`)
+                  }
+                  className={cn(
+                    "cursor-pointer border-b border-edge transition-colors hover:bg-edge/30",
+                    highlighted &&
+                      "animate-[fadeBg_1500ms_ease-out] bg-emerald-500/10",
+                  )}
+                >
+                  {row.getVisibleCells().map((c) => (
+                    <td key={c.id} className="px-2 py-1.5 align-top">
+                      {flexRender(c.column.columnDef.cell, c.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>

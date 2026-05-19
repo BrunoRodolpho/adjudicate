@@ -461,6 +461,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@adjudicate/primitives':
+        specifier: workspace:*
+        version: link:../primitives
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
@@ -470,6 +473,10 @@ importers:
       vitest:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(terser@5.47.1)(tsx@4.21.0)
+    optionalDependencies:
+      redis:
+        specifier: ^4.7.0
+        version: 4.7.1
 
   packages/conformance:
     devDependencies:

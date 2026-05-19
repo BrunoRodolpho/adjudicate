@@ -4,6 +4,7 @@ import { Activity, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { LiveTailToggle } from "./LiveTailToggle";
 import { EmergencyStatusBadge } from "@/components/control/EmergencyStatusBadge";
 import { cn } from "@/lib/cn";
 import { getClientGatewayMode, modeLabel } from "@/lib/runtime-mode";
@@ -65,6 +66,7 @@ export function TopBar() {
             className="w-72 bg-transparent text-ink placeholder:text-faint focus:outline-none"
           />
         </form>
+        <LiveTailToggle />
         <EmergencyStatusBadge />
         <span
           className={cn(

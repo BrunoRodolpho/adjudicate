@@ -10,7 +10,7 @@ import { PolicyResolutionList } from "./PolicyResolutionList";
 import { RefusalCard } from "./RefusalCard";
 import { Section } from "./Section";
 import { SupersessionChain } from "./SupersessionChain";
-import { WhyNotPanel } from "./WhyNotPanel";
+import { WhyDecisionPanel } from "./WhyDecisionPanel";
 
 /**
  * DecisionTrace — flagship component of the Audit Explorer.
@@ -48,7 +48,7 @@ export function DecisionTrace({ record }: { record: AuditRecord }) {
       </Section>
 
       <Section title="Why this decision" defaultOpen>
-        <WhyNotPanel record={record} />
+        <WhyDecisionPanel record={record} />
       </Section>
 
       <Section title={`Decision · ${record.decision.kind}`} defaultOpen>

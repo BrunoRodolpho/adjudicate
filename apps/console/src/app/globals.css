@@ -48,3 +48,15 @@
     color: rgb(244 244 245);
   }
 }
+
+/* T-080 live-tail row highlight. Starts at the bg utility's color, fades
+   to transparent. The Tailwind `animate-[fadeBg_…]` token in AuditTable
+   references this keyframe by name. */
+@keyframes fadeBg {
+  0% {
+    background-color: rgb(16 185 129 / 0.18);
+  }
+  100% {
+    background-color: rgb(16 185 129 / 0);
+  }
+}

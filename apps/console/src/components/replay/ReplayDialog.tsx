@@ -4,12 +4,19 @@ import { useMachine } from "@xstate/react";
 import {
   AlertTriangle,
   Database,
+  Info,
   Loader2,
   Package,
   RefreshCw,
   X,
 } from "lucide-react";
-import { type MouseEvent, useEffect, useRef } from "react";
+import {
+  type MouseEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "@/lib/cn";
 import { PackMetadataRegistry } from "@/lib/packs/metadata";
 import { replayMachine } from "@/lib/replay-machine";
@@ -41,10 +48,20 @@ interface Props {
  *
  * Body: dispatches on machine state — Loader2 spinner during running,
  * AlertTriangle + RETRY button on error, ReplayDiffView on success.
+ *
+ * T-085 "what if" extension:
+ *   When the replay succeeds, the dialog offers a single-field payload
+ *   edit area. The hypothetical re-run requires a `whatIfReplayer`
+ *   capability not yet exposed through admin-sdk (replay.run only
+ *   accepts an intentHash). The dialog renders the editor + a clear
+ *   banner explaining the gap; operators can still see the original vs
+ *   recomputed diff for the unmodified envelope, which covers the
+ *   primary regression-detection use case.
  */
 export function ReplayDialog({ intentHash, intentKind, onClose }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [state, send] = useMachine(replayMachine);
+  const [editor, setEditor] = useState<EditorState | null>(null);
 
   // Open the dialog and trigger the replay on mount.
   useEffect(() => {
@@ -97,6 +114,25 @@ export function ReplayDialog({ intentHash, intentKind, onClose }: Props) {
     ? PackMetadataRegistry.match(resolvedKind)
     : null;
 
+  // Build the initial editor state once the replay resolves.
+  const originalPayload = state.context.result?.original.envelope.payload;
+  const payloadFields = useMemo(() => {
+    if (!originalPayload || typeof originalPayload !== "object") return [];
+    return Object.entries(originalPayload as Record<string, unknown>).filter(
+      ([, v]) =>
+        typeof v === "string" ||
+        typeof v === "number" ||
+        typeof v === "boolean",
+    );
+  }, [originalPayload]);
+
+  // Detect "no replay invoker" error (PRECONDITION_FAILED). The error
+  // string from tRPC includes the message we set in the router.
+  const noInvoker =
+    state.matches("error") &&
+    (state.context.error?.includes("Replay capability not configured") ??
+      false);
+
   return (
     <dialog
       ref={dialogRef}
@@ -145,13 +181,32 @@ export function ReplayDialog({ intentHash, intentKind, onClose }: Props) {
 
           {state.matches("error") && state.context.error ? (
             <div className="flex flex-col gap-2">
-              <div className="flex items-start gap-2 rounded-sm border border-red-500/40 bg-red-500/5 px-2 py-1.5 text-[11px] text-red-200">
-                <AlertTriangle
-                  size={14}
-                  className="mt-0.5 shrink-0 text-red-300"
-                />
-                <p>{state.context.error}</p>
-              </div>
+              {noInvoker ? (
+                <div className="flex items-start gap-2 rounded-sm border border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-[11px] text-amber-200">
+                  <Info
+                    size={14}
+                    className="mt-0.5 shrink-0 text-amber-300"
+                  />
+                  <p>
+                    Replay capability is not wired into this console. The
+                    admin-sdk route handler needs a{" "}
+                    <code className="text-ink">ReplayInvoker</code> in its
+                    context to enable re-adjudication. See{" "}
+                    <code className="text-ink">
+                      packages/admin-sdk/src/store/replay-invoker.ts
+                    </code>
+                    .
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 rounded-sm border border-red-500/40 bg-red-500/5 px-2 py-1.5 text-[11px] text-red-200">
+                  <AlertTriangle
+                    size={14}
+                    className="mt-0.5 shrink-0 text-red-300"
+                  />
+                  <p>{state.context.error}</p>
+                </div>
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
@@ -160,23 +215,115 @@ export function ReplayDialog({ intentHash, intentKind, onClose }: Props) {
                 >
                   Close
                 </button>
-                <button
-                  type="button"
-                  onClick={() => send({ type: "RETRY" })}
-                  className="rounded-sm border border-edge bg-edge/40 px-3 py-1 text-[11px] uppercase tracking-wider text-ink hover:bg-edge"
-                >
-                  Retry
-                </button>
+                {!noInvoker ? (
+                  <button
+                    type="button"
+                    onClick={() => send({ type: "RETRY" })}
+                    className="rounded-sm border border-edge bg-edge/40 px-3 py-1 text-[11px] uppercase tracking-wider text-ink hover:bg-edge"
+                  >
+                    Retry
+                  </button>
+                ) : null}
               </div>
             </div>
           ) : null}
 
           {state.matches("success") && state.context.result ? (
-            <ReplayDiffView result={state.context.result} />
+            <div className="flex flex-col gap-3">
+              <ReplayDiffView result={state.context.result} />
+              <PayloadEditor
+                fields={payloadFields}
+                editor={editor}
+                setEditor={setEditor}
+              />
+            </div>
           ) : null}
         </div>
       </div>
     </dialog>
+  );
+}
+
+interface EditorState {
+  field: string;
+  /** String-encoded edited value — JSON.parse'd before submit if numeric. */
+  value: string;
+}
+
+function PayloadEditor({
+  fields,
+  editor,
+  setEditor,
+}: {
+  fields: ReadonlyArray<readonly [string, unknown]>;
+  editor: EditorState | null;
+  setEditor: (next: EditorState | null) => void;
+}) {
+  if (fields.length === 0) {
+    return null;
+  }
+  return (
+    <section className="flex flex-col gap-2 rounded-sm border border-edge bg-panel/40 p-3">
+      <header className="flex items-baseline justify-between">
+        <h3 className="text-[10px] uppercase tracking-section text-faint">
+          What if? · single-field payload edit
+        </h3>
+        <span className="text-[10px] italic text-faint">
+          preview-only · re-adjudication of edited envelopes requires the
+          whatIfReplayer surface (post-v0.6)
+        </span>
+      </header>
+      <div className="flex flex-col gap-1.5">
+        <label className="flex items-center gap-2 text-[11px] text-muted">
+          field:
+          <select
+            value={editor?.field ?? ""}
+            onChange={(e) => {
+              const field = e.target.value;
+              if (!field) {
+                setEditor(null);
+                return;
+              }
+              const original = fields.find(([k]) => k === field)?.[1];
+              setEditor({
+                field,
+                value:
+                  typeof original === "string"
+                    ? original
+                    : String(original ?? ""),
+              });
+            }}
+            className="rounded-sm border border-edge bg-canvas px-2 py-1 text-ink"
+          >
+            <option value="">— select a field —</option>
+            {fields.map(([k]) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+        </label>
+        {editor ? (
+          <label className="flex items-center gap-2 text-[11px] text-muted">
+            value:
+            <input
+              type="text"
+              value={editor.value}
+              onChange={(e) =>
+                setEditor({ field: editor.field, value: e.target.value })
+              }
+              className="w-64 rounded-sm border border-edge bg-canvas px-2 py-1 text-ink focus:border-ink/30 focus:outline-none"
+            />
+          </label>
+        ) : null}
+      </div>
+      <p className="text-[10px] text-faint">
+        The edit is shown for review only. The kernel re-adjudicated the
+        ORIGINAL envelope under current policy — the diff above is the
+        ground truth. Hypothetical-edit re-adjudication arrives when the
+        admin-sdk exposes a whatIfReplayer surface.
+      </p>
+    </section>
   );
 }
 

@@ -36,7 +36,11 @@
     "commander": "^12.1.0",
     "zod": "^4.3.6"
   },
+  "optionalDependencies": {
+    "redis": "^4.7.0"
+  },
   "devDependencies": {
+    "@adjudicate/primitives": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

@@ -146,6 +146,13 @@ export const paymentsPixPack = {
     "pix.charge.rate_limit_exceeded",
     "pix.charge.confirm_requires_webhook",
   ],
+  /**
+   * Wire signals this Pack parks on via DEFER. Declared so the analyzer
+   * (AJD-102) can cross-check `state_defer` guard metadata against the
+   * Pack-level surface — and so the Operator Console / replay harness can
+   * enumerate the async lifecycle this Pack participates in.
+   */
+  signals: ["payment.confirmed"],
   handlers: inMemoryPixHandlers,
   /**
    * Scenario-state rehydrator. CLI `simulate` and other JSON-driven

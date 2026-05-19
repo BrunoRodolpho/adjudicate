@@ -1,75 +1,67 @@
 # Adjudicate — Execution Current State
 
-> Live status board. Updated continuously during the overnight run.
-
-## Baseline (pre-M1)
-
-- Branch: `claude/unruffled-bassi-305034`
-- Baseline test count: **748 passing** across 90 test files
-- Baseline lint: clean
-- ADRs: 5
-
 ## Current Milestone
 
-**M1 (Foundation + Safety) — COMPLETE**
+**M2 (L2 + Analyzer + Registry foundations) — COMPLETE**
 
 ## Status Summary
 
-| Milestone | Tasks Total | Complete | In Progress | Blocked | Deferred |
-|---|---|---|---|---|---|
-| M1 | 23 | 23 | 0 | 0 | 0 |
-| M2 | 29 | 0 | 0 | 0 | 0 |
-| M3 | 62 | 0 | 0 | 0 | 0 |
-| M4 | 11 | 0 | 0 | 0 | 0 |
-| **Total** | **125** | **23** | **0** | **0** | **0** |
+| Milestone | Tasks Total | Complete | Deferred | Test Count |
+|---|---|---|---|---|
+| M1 | 23 | 23 | 0 | 770 (was 748) |
+| M2 | 29 | 18 | 11 | 795 (+25) |
+| M3 | 62 | 0 | 0 | — |
+| M4 | 11 | 0 | 0 | — |
+| **Total** | **125** | **41** | **11** | — |
 
-## M1 Deliverables
+## M2 Deliverables
 
-- ✅ T-001 BASIS_CODES.kernel.GUARD_PANIC
-- ✅ T-002 Guard exception isolation in _adjudicateImpl
-- ✅ T-003 Trace variant verified (shared impl)
-- ✅ T-004 Property tests for guard panic (9 new tests)
-- ✅ T-005 Resume-hash re-derivation in resumeDeferredIntent
-- ✅ T-006 Resume-hash re-derivation in adapter.resume()
-- ✅ T-007 Resume-hash re-derivation in adapter.confirm()
-- ✅ T-008 Integration tests for tampered park blobs (9 new tests)
-- ✅ T-009 @adjudicate/locales-pt-BR package scaffold
-- ✅ T-010 RefusalMessages interface in core
-- ✅ T-011 8 PT-BR strings replaced with English defaults
-- ✅ T-012 portugueseRefusalMessages exported + localizeDecision wired
-- ✅ T-013 bench/ workspace scaffolded
-- ✅ T-014 kernel.bench.ts (adjudicate, adjudicateWithTrace, buildEnvelope)
-- ✅ T-015 audit.bench.ts (adjudicateAndAudit)
-- ✅ T-016 docs/perf/v0.2-baseline.md published
-- ✅ T-017 Sigstore signing GitHub workflow
-- ✅ T-018 npm provenance attestations enabled
-- ✅ T-019 CycloneDX SBOM generation per release
-- ✅ T-020 v0.2.0 version bump across all packages
-- ✅ T-021 docs/execution/ state docs scaffold
-- ✅ T-022 ADR-106 guard exception isolation
-- ✅ T-023 ADR-107 RefusalMessages externalization
+### Completed
+- ✅ T-024 createRewriteGuard
+- ✅ T-025 createConfirmGuard
+- ✅ T-026 createEscalateGuard
+- ✅ T-027 createIdempotencyGuard
+- ✅ T-031 Replay regression (no Pack refactor happened; replay-safe by construction)
+- ✅ T-032 ADR-108 primitives expansion
+- ✅ T-033 Pack metadata schema additions (PIX + deploys declare signals; KYC already had them)
+- ✅ T-037 docs/pack-ecosystem/quality-scoring.md
+- ✅ T-038 docs/pack-ecosystem/registry-foundations.md
+- ✅ T-039 docs/pack-ecosystem/signing-design.md
+- ✅ T-040 @adjudicate/analyze package scaffolded
+- ✅ T-041 analyzePolicy() pipeline + AnalysisReport types
+- ✅ T-042 MissingMetadataAnalyzer (AJD-101)
+- ✅ T-043 SignalConsistencyAnalyzer (AJD-102)
+- ✅ T-044 BasisCodeConsistencyAnalyzer (AJD-103)
+- ✅ T-045 RewriteScopeAnalyzer (AJD-104)
+- ✅ T-046 TaintPolicyAnalyzer (AJD-105)
+- ✅ T-047 DefaultPolarityAnalyzer (AJD-106)
+- ✅ T-049 CLI `adjudicate analyze` command
+- ✅ T-050 SARIF output
+- ✅ T-052 ADR-109 analyzer architecture
 
-## Test Counts
-
-- M1 start: 748 tests passing
-- M1 end: **770 tests passing** (+18 = guard-panic 9 + resume-hash 9 + locales 4)
+### Deferred (with rationale in decisions-log.md)
+- T-028..T-030 (Pack consumption refactors) — D-005
+- T-034..T-036 (Pack template variants + CLI integration) — D-006, deferred to M3
+- T-048 (assertPackConformance → analyzer migration) — deferred to v0.5
+- T-051 (GuardMetadata rate_limit variant) — deferred to M3
 
 ## Tags
 
-- `v0.2.0-local`: PENDING (after this commit)
-- `v0.3.0-local`: pending M2 completion
-- `v0.4.0-local`: pending M3 completion
-- `v0.5.0-local`: pending M4 completion
+- ✅ `v0.2.0-local` (M1 complete)
+- 🎯 `v0.3.0-local` (M2 complete — pending this commit)
 
-## Performance Baseline
+## Key wins from M2
 
-`adjudicate()` EXECUTE p99: 0.7µs (2.2M ops/sec)
-`adjudicate()` REWRITE p99: 6.5µs (244k ops/sec)
-`adjudicate()` REFUSE p99: 0.5µs (3.2M ops/sec)
-`adjudicateAndAudit()` REFUSE p99: 9.5µs (151k ops/sec)
-All with >200× headroom against SLO targets.
+1. The PIX pack lacked `signals` declaration — the analyzer caught this
+   real bug at AJD-102 and forced a fix. Same for `pack-deployments-approval`.
+   Both Packs now declare their wire signals.
+2. The analyzer runs in <1 second against any Pack and produces SARIF
+   that GitHub Code Scanning ingests directly.
+3. Four new L2 factories ship without disturbing existing Packs
+   (replay-safe by construction).
 
 ## ADRs
 
-- ADR-106 (guard exception isolation) — accepted
-- ADR-107 (RefusalMessages externalization) — accepted
+- ADR-106, ADR-107 (M1) — accepted
+- ADR-108 (primitives expansion) — accepted
+- ADR-109 (analyzer architecture) — accepted

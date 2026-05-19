@@ -86,6 +86,11 @@ export const deploymentsApprovalPack = {
     "deployment.git_sha_missing",
     "deployment.approval_rejected",
   ],
+  /**
+   * Wire signals this Pack parks on via DEFER. `ci.green` resumes a
+   * deferred high-ramp staging deploy when CI signs off on the build.
+   */
+  signals: ["ci.green"],
   rehydrateState: rehydrateDeploymentState,
 } as const satisfies PackV0<
   DeploymentIntentKind,

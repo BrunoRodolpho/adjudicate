@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { runAnalyze, type AnalyzeFormat } from "./commands/analyze.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runPackInit } from "./commands/pack-init.js";
 import { runPackLint } from "./commands/pack-lint.js";
@@ -87,6 +88,40 @@ program
         intent: options.intent,
         state: options.state,
         format,
+      });
+    },
+  );
+
+program
+  .command("analyze")
+  .description(
+    "Run @adjudicate/analyze Tier 1 static analysis against a Pack",
+  )
+  .requiredOption(
+    "--pack <module>",
+    "Pack module spec — npm package name or relative/absolute path",
+  )
+  .option(
+    "--format <text|json|sarif>",
+    "Output format. text for developer, json for tooling, sarif for CI",
+    "text",
+  )
+  .option(
+    "--strict",
+    "Escalate warnings to errors; analyze exits non-zero on any warning",
+    false,
+  )
+  .action(
+    async (options: { pack: string; format?: string; strict?: boolean }) => {
+      const format = (options.format ?? "text") as AnalyzeFormat;
+      if (format !== "text" && format !== "json" && format !== "sarif") {
+        console.error(`✗ Unknown --format value "${options.format}". Use text, json, or sarif.`);
+        process.exit(1);
+      }
+      await runAnalyze({
+        pack: options.pack,
+        format,
+        strict: options.strict ?? false,
       });
     },
   );

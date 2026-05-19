@@ -173,6 +173,13 @@ export async function translateDecision<K extends string, P, S>(
           kind: ctx.envelope.kind,
           actor: { sessionId: ctx.envelope.actor.sessionId },
           payload: ctx.envelope.payload,
+          // T-006: hash-verification fields. The resume path re-derives
+          // intentHash via sha256Canonical and asserts byte-equality with
+          // the stored value — detects blob tampering between park and resume.
+          version: ctx.envelope.version,
+          nonce: ctx.envelope.nonce,
+          taint: ctx.envelope.taint,
+          actorPrincipal: ctx.envelope.actor.principal,
         },
         signal: ctx.decision.signal,
         ttlSeconds,

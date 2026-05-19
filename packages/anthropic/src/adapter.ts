@@ -27,6 +27,7 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages";
 import {
   noopAuditSink,
+  sha256Canonical,
   type Decision,
   type IntentEnvelope,
 } from "@adjudicate/core";
@@ -365,6 +366,11 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
         redis: options.deferStore,
         rk,
         log: options.log,
+        // T-006: the adapter parks full envelope fields (version/nonce/
+        // taint/actorPrincipal) at DEFER-time, so resume can verify the
+        // hash. "warn" mode in v0.2-v0.4 — fails closed on tamper, allows
+        // legacy blobs through. v0.5 will tighten to "strict".
+        verifyHash: options.verifyParkedHash ?? "warn",
       });
       if (!result.resumed || !result.parked) {
         throw new AnthropicAdapterError(
@@ -459,6 +465,42 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
           { confirmationToken: args.confirmationToken },
         );
       }
+
+      // T-007: re-derive the intentHash from the taken envelope's fields
+      // and assert byte-equality with its stored intentHash. Detects
+      // tampering of the persisted confirmation blob between put() and
+      // take(). Same fail-closed posture as the resume path.
+      const verifyMode = options.verifyParkedHash ?? "warn";
+      if (verifyMode !== "off") {
+        const derived = sha256Canonical({
+          version: pending.envelope.version,
+          kind: pending.envelope.kind,
+          payload: pending.envelope.payload,
+          nonce: pending.envelope.nonce,
+          actor: pending.envelope.actor,
+          taint: pending.envelope.taint,
+        });
+        if (derived !== pending.envelope.intentHash) {
+          options.log?.warn?.(
+            {
+              sessionId: pending.sessionId,
+              stored: pending.envelope.intentHash,
+              derived,
+              confirmationToken: args.confirmationToken,
+            },
+            "[adjudicated-agent] confirmation blob tampered — refusing to resume",
+          );
+          throw new AnthropicAdapterError(
+            AnthropicAdapterErrorCode.CONFIRMATION_TOKEN_INVALID,
+            `Confirmation token "${args.confirmationToken}" failed hash verification (envelope was modified after persistence).`,
+            {
+              confirmationToken: args.confirmationToken,
+              reason: "confirmation_blob_tampered",
+            },
+          );
+        }
+      }
+
       if (!args.accepted) {
         const declineEvent: AgentEvent = {
           kind: "assistant_text",

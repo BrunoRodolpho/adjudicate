@@ -14,11 +14,13 @@
 export {
   deferResumeHash,
   resumeDeferredIntent,
+  verifyParkedEnvelopeHash,
   DEFAULT_MAX_RESUME_CYCLES,
   DEFER_PENDING_TTL_GRACE_SECONDS,
   type DeferRedis,
   type DeferLogger,
   type DeferResumeResult,
+  type ParkVerificationResult,
   type ParkedEnvelope,
   type ResumeDeferredIntentArgs,
 } from "./defer-resume.js"

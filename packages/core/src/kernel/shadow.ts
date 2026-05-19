@@ -170,7 +170,7 @@ export function legacyDecisionAsKernelDecision(
     refusal: {
       kind: "BUSINESS_RULE",
       code: "legacy.refused",
-      userFacing: "Essa ação não é permitida no momento.",
+      userFacing: "This action is not permitted right now.",
     },
     basis: [] as readonly DecisionBasis[],
   }

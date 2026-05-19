@@ -476,6 +476,19 @@ importers:
         specifier: ^8.0.0
         version: 8.59.0(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
 
+  packages/locales-pt-BR:
+    dependencies:
+      '@adjudicate/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(terser@5.47.1)(tsx@4.21.0)
+
   packages/pack-deployments-approval:
     dependencies:
       '@adjudicate/core':
@@ -4873,7 +4886,7 @@ snapshots:
       react-dom: 19.2.5(react@19.2.5)
       react-refresh: 0.18.0
       remotion: 4.0.461(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      style-loader: 4.0.0(webpack@5.105.0(postcss@8.5.12))
+      style-loader: 4.0.0(webpack@5.105.0(esbuild@0.25.0)(postcss@8.5.10))
       webpack: 5.105.0(esbuild@0.25.0)(postcss@8.5.10)
     transitivePeerDependencies:
       - '@minify-html/node'
@@ -7483,9 +7496,9 @@ snapshots:
     dependencies:
       js-tokens: 9.0.1
 
-  style-loader@4.0.0(webpack@5.105.0(postcss@8.5.12)):
+  style-loader@4.0.0(webpack@5.105.0(esbuild@0.25.0)(postcss@8.5.10)):
     dependencies:
-      webpack: 5.105.0(postcss@8.5.12)
+      webpack: 5.105.0(esbuild@0.25.0)(postcss@8.5.10)
 
   styled-jsx@5.1.6(react@19.2.5):
     dependencies:
@@ -7552,20 +7565,10 @@ snapshots:
       jest-worker: 27.5.1
       schema-utils: 4.3.3
       terser: 5.47.1
-      webpack: 5.105.0(postcss@8.5.12)
+      webpack: 5.105.0(esbuild@0.25.0)(postcss@8.5.10)
     optionalDependencies:
       esbuild: 0.25.0
       postcss: 8.5.10
-
-  terser-webpack-plugin@5.6.0(postcss@8.5.12)(webpack@5.105.0(postcss@8.5.12)):
-    dependencies:
-      '@jridgewell/trace-mapping': 0.3.31
-      jest-worker: 27.5.1
-      schema-utils: 4.3.3
-      terser: 5.47.1
-      webpack: 5.105.0(postcss@8.5.12)
-    optionalDependencies:
-      postcss: 8.5.12
 
   terser@5.47.1:
     dependencies:
@@ -7839,47 +7842,6 @@ snapshots:
       schema-utils: 4.3.3
       tapable: 2.3.3
       terser-webpack-plugin: 5.6.0(esbuild@0.25.0)(postcss@8.5.10)(webpack@5.105.0(postcss@8.5.12))
-      watchpack: 2.5.1
-      webpack-sources: 3.4.1
-    transitivePeerDependencies:
-      - '@minify-html/node'
-      - '@swc/core'
-      - '@swc/css'
-      - '@swc/html'
-      - clean-css
-      - cssnano
-      - csso
-      - esbuild
-      - html-minifier-terser
-      - lightningcss
-      - postcss
-      - uglify-js
-
-  webpack@5.105.0(postcss@8.5.12):
-    dependencies:
-      '@types/eslint-scope': 3.7.7
-      '@types/estree': 1.0.8
-      '@types/json-schema': 7.0.15
-      '@webassemblyjs/ast': 1.14.1
-      '@webassemblyjs/wasm-edit': 1.14.1
-      '@webassemblyjs/wasm-parser': 1.14.1
-      acorn: 8.16.0
-      acorn-import-phases: 1.0.4(acorn@8.16.0)
-      browserslist: 4.28.2
-      chrome-trace-event: 1.0.4
-      enhanced-resolve: 5.21.3
-      es-module-lexer: 2.1.0
-      eslint-scope: 5.1.1
-      events: 3.3.0
-      glob-to-regexp: 0.4.1
-      graceful-fs: 4.2.11
-      json-parse-even-better-errors: 2.3.1
-      loader-runner: 4.3.2
-      mime-types: 2.1.35
-      neo-async: 2.6.2
-      schema-utils: 4.3.3
-      tapable: 2.3.3
-      terser-webpack-plugin: 5.6.0(postcss@8.5.12)(webpack@5.105.0(postcss@8.5.12))
       watchpack: 2.5.1
       webpack-sources: 3.4.1
     transitivePeerDependencies:

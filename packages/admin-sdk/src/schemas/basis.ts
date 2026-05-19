@@ -22,6 +22,7 @@ export const BasisCategorySchema = z.enum([
   "kill",
   "deadline",
   "confirmation",
+  "kernel",
 ]);
 
 export const DecisionBasisSchema = z.object({

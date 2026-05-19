@@ -179,7 +179,7 @@ function _adjudicateImpl<K extends string, P, S>(
       refuse(
         "SECURITY",
         "kill_switch_active",
-        "Sistema temporariamente indisponível.",
+        "System is temporarily unavailable.",
         `Kill switch active: ${kill.reason} (toggled at ${kill.toggledAt})`,
       ),
       [
@@ -203,7 +203,7 @@ function _adjudicateImpl<K extends string, P, S>(
       refuse(
         "SECURITY",
         "schema_version_unsupported",
-        "Não foi possível processar essa ação no momento.",
+        "This action cannot be processed at the moment.",
         `Unknown envelope version: ${String((envelope as { version?: unknown }).version)}`,
       ),
       [
@@ -255,7 +255,7 @@ function _adjudicateImpl<K extends string, P, S>(
       refuse(
         "SECURITY",
         "taint_level_insufficient",
-        "Não posso realizar essa ação com a informação disponível.",
+        "I can't perform this action with the information available.",
         `Taint ${envelope.taint} insufficient for intent kind ${envelope.kind}`,
       ),
       [
@@ -315,7 +315,7 @@ function _adjudicateImpl<K extends string, P, S>(
     refuse(
       "BUSINESS_RULE",
       "default_deny",
-      "Essa ação não é permitida neste momento.",
+      "This action is not permitted right now.",
     ),
     accumulated,
   );
@@ -361,7 +361,7 @@ function guardPanicRefusal(
     refuse(
       "SECURITY",
       "guard_panic",
-      "Sistema temporariamente indisponível.",
+      "System is temporarily unavailable.",
       `Guard panic in ${phase} phase${
         guardIndex !== null ? `[${guardIndex}]` : ""
       }${guardName ? ` (${guardName})` : ""}: ${errorName}: ${message}`,

@@ -82,7 +82,7 @@ function deadlineRefusal(deadlineMs: number): Decision {
     refuse(
       "SECURITY",
       "kernel_deadline_exceeded",
-      "Não foi possível processar a ação no tempo disponível.",
+      "The action could not be completed in the time available.",
       `deadlineMs=${deadlineMs}`,
     ),
     [

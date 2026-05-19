@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/console",
-  "version": "0.1.0-experimental",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Reference operator console for the adjudicate framework. Phase 1: Audit Explorer.",

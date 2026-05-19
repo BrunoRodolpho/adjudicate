@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/admin-sdk",
-  "version": "0.1.0-experimental",
+  "version": "1.0.0",
   "description": "Admin Query Interface (AQI) for adjudicate — Zod-validated read-only audit query handlers + tRPC router. Adopter-deployed; framework-shipped contract.",
   "publishConfig": {
     "access": "public"

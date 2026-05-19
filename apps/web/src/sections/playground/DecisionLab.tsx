@@ -1,18 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import type { AuditRecord, Decision } from "@adjudicate/core";
 import { DECISIONS_ORDER, DECISIONS } from "@/content/decisions";
-import { DecisionBadge } from "@/components/motion/DecisionBadge";
-import { CodeBlock } from "@/components/ui/CodeBlock";
+import { PACK_PRESETS, PACK_DISPLAY_NAME, type PackPreset } from "@/content/pack-presets";
+import { WorkedExamplePanel } from "@/components/playground/WorkedExamplePanel";
+import type { PlaygroundResponse } from "@/lib/kernel-runner";
 import { useAuditLog } from "./audit-log-context";
-
-interface PlaygroundResponse {
-  decision: Decision;
-  record: AuditRecord;
-  packId: string;
-  packName: string;
-}
+import { PayloadSchema } from "./PayloadSchema";
 
 export function DecisionLab() {
   const { push } = useAuditLog();
@@ -28,6 +22,11 @@ export function DecisionLab() {
 
   function preset(kind: typeof DECISIONS_ORDER[number]) {
     const p = DECISIONS[kind].playgroundPreset;
+    setIntentKind(p.intentKind);
+    setPayloadText(JSON.stringify(p.payload, null, 2));
+  }
+
+  function loadPackPreset(p: PackPreset) {
     setIntentKind(p.intentKind);
     setPayloadText(JSON.stringify(p.payload, null, 2));
   }
@@ -97,9 +96,10 @@ export function DecisionLab() {
             className="w-full rounded-md border border-edge bg-canvas px-3 py-2 font-mono text-xs text-ink focus:border-indigo-400 focus:outline-none"
           />
         </div>
+        <PayloadSchema intentKind={intentKind} />
         <div className="flex flex-wrap gap-1.5">
           <span className="self-center text-xs uppercase tracking-section text-faint">
-            Presets:
+            By decision kind (Deployments Pack):
           </span>
           {DECISIONS_ORDER.map((k) => (
             <button
@@ -112,6 +112,29 @@ export function DecisionLab() {
             </button>
           ))}
         </div>
+        <div className="flex flex-col gap-2">
+          <span className="text-xs uppercase tracking-section text-faint">
+            By Pack (cross-domain scenarios):
+          </span>
+          {Object.entries(PACK_PRESETS).map(([packId, presets]) => (
+            <div key={packId} className="flex flex-wrap items-baseline gap-1.5">
+              <span className="self-center text-[10px] uppercase tracking-section text-muted">
+                {PACK_DISPLAY_NAME[packId] ?? packId}:
+              </span>
+              {presets.map((p, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => loadPackPreset(p)}
+                  title={p.description}
+                  className="rounded-full border border-edge bg-canvas px-2.5 py-1 text-[11px] text-ink transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
         <button
           type="button"
           onClick={submit}
@@ -122,54 +145,16 @@ export function DecisionLab() {
         </button>
       </div>
 
-      <div className="flex min-h-[320px] flex-col gap-3 rounded-lg border border-edge bg-surface p-4">
+      <div className="flex flex-col gap-3">
         {error ? (
           <div className="rounded-md border border-refuse/30 bg-refuse/10 px-3 py-2 text-sm text-refuse">
             {error}
           </div>
         ) : null}
         {result ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <DecisionBadge kind={result.decision.kind} size="lg" />
-              <span className="text-xs text-muted">{result.packName}</span>
-            </div>
-            <div>
-              <div className="mb-1 text-xs uppercase tracking-section text-faint">
-                Basis
-              </div>
-              <ul className="flex flex-wrap gap-1.5">
-                {result.decision.basis.map((b, i) => (
-                  <li
-                    key={i}
-                    className="rounded-md border border-edge bg-canvas px-2 py-0.5 font-mono text-[11px] text-ink"
-                  >
-                    {b.category}:{b.code}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <div className="mb-1 text-xs uppercase tracking-section text-faint">
-                AuditRecord (truncated)
-              </div>
-              <CodeBlock
-                code={JSON.stringify(
-                  {
-                    version: result.record.version,
-                    intentHash: result.record.intentHash.slice(0, 12) + "…",
-                    decision: { kind: result.decision.kind },
-                    at: result.record.at,
-                    durationMs: result.record.durationMs,
-                  },
-                  null,
-                  2,
-                )}
-              />
-            </div>
-          </div>
+          <WorkedExamplePanel result={result} />
         ) : !error ? (
-          <div className="flex h-full items-center justify-center text-center text-sm text-muted">
+          <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-dashed border-edge bg-surface p-4 text-center text-sm text-muted">
             Pick a preset or write your own payload, then press
             <br />
             <span className="font-mono text-ink">Adjudicate →</span>

@@ -50,6 +50,16 @@ export function Footer() {
           <span className="text-faint">v0.1 · experimental</span>
         </div>
         <div className="flex flex-wrap gap-4">
+          <a className="hover:text-ink" href="/architecture">
+            Architecture
+          </a>
+          <a className="hover:text-ink" href="/comparisons">
+            Comparisons
+          </a>
+          <a className="hover:text-ink" href="/introspection">
+            Introspection
+          </a>
+          <span className="text-faint">·</span>
           <a
             className="hover:text-ink"
             href="https://github.com/anthropics/adjudicate"

@@ -10,17 +10,28 @@
 
 import {
   adjudicateAndAudit,
+  adjudicateWithTrace,
   buildEnvelope,
   installPack,
+  type AdjudicationTraceEntry,
   type AuditRecord,
   type AuditSink,
   type Decision,
   type IntentEnvelope,
   type PackV0,
 } from "@adjudicate/core";
-import { deploymentsApprovalPack } from "@adjudicate/pack-deployments-approval";
-import { IdentityKycPack } from "@adjudicate/pack-identity-kyc";
-import { paymentsPixPack } from "@adjudicate/pack-payments-pix";
+import {
+  deploymentsApprovalPack,
+  rehydrateDeploymentState,
+} from "@adjudicate/pack-deployments-approval";
+import {
+  IdentityKycPack,
+  rehydrateKycState,
+} from "@adjudicate/pack-identity-kyc";
+import {
+  paymentsPixPack,
+  rehydratePixState,
+} from "@adjudicate/pack-payments-pix";
 
 interface InstalledPack {
   readonly id: string;
@@ -28,6 +39,14 @@ interface InstalledPack {
   readonly intents: ReadonlyArray<string>;
   readonly pack: ReturnType<typeof installPack>["pack"];
   readonly emptyState: unknown;
+  /**
+   * Rehydrate a JSON-deserialised state object into the runtime shape the
+   * Pack's policy guards expect (Maps where the schema uses them, etc.).
+   * Plain JSON over the wire turns `Map` into `{}` — without this, guards
+   * that call `state.charges.get(...)` blow up with
+   * `state.charges.get is not a function`.
+   */
+  readonly rehydrateState: (raw: unknown) => unknown;
 }
 
 function installAll(): ReadonlyArray<InstalledPack> {
@@ -43,6 +62,7 @@ function installAll(): ReadonlyArray<InstalledPack> {
       intents: [...paymentsPixPack.intents],
       pack: pix.pack,
       emptyState: { charges: new Map() },
+      rehydrateState: rehydratePixState,
     },
     {
       id: IdentityKycPack.id,
@@ -50,6 +70,7 @@ function installAll(): ReadonlyArray<InstalledPack> {
       intents: [...IdentityKycPack.intents],
       pack: kyc.pack,
       emptyState: { sessions: new Map() },
+      rehydrateState: rehydrateKycState,
     },
     {
       id: deploymentsApprovalPack.id,
@@ -57,6 +78,7 @@ function installAll(): ReadonlyArray<InstalledPack> {
       intents: [...deploymentsApprovalPack.intents],
       pack: dep.pack,
       emptyState: { approvals: new Map() },
+      rehydrateState: rehydrateDeploymentState,
     },
   ];
 }
@@ -81,6 +103,7 @@ export interface PlaygroundResponse {
   readonly record: AuditRecord;
   readonly packId: string;
   readonly packName: string;
+  readonly trace: ReadonlyArray<AdjudicationTraceEntry>;
 }
 
 let memorySink: { records: AuditRecord[]; sink: AuditSink } | null = null;
@@ -116,18 +139,41 @@ export async function runPlayground(
     createdAt: new Date().toISOString(),
   });
   const { sink } = getInMemorySink();
-  const state = req.state ?? pack.emptyState;
+  // Rehydrate JSON-shaped state (plain objects) into the runtime shape the
+  // Pack expects (Maps for `charges` / `sessions` / `approvals`). When the
+  // caller omits `state`, we still rehydrate the empty default to keep the
+  // path uniform.
+  const rawState = req.state ?? pack.emptyState;
+  const state = pack.rehydrateState(rawState);
   const result = await adjudicateAndAudit(
     envelope,
     state,
     pack.pack.policy as never,
     { sink },
   );
+  // Trace is computed inside adjudicateAndAudit but not exposed in its
+  // return. Kernel is pure + deterministic; re-running yields the same
+  // Decision and a fresh trace at sub-millisecond cost. Reuse the same
+  // envelope + already-rehydrated state references — re-rehydrating would
+  // waste work and risk drift if rehydrate*State ever becomes stateful.
+  //
+  // Defensive: if a Ledger is ever wired into playground deps, the audited
+  // call could short-circuit with REFUSE/ledger_replay_suppressed while
+  // this second call runs the full kernel — the trace would describe a
+  // path that didn't really happen. Today playground has no ledger, so
+  // unreachable. Suppress trace if the audited decision short-circuited.
+  const isReplaySuppressed =
+    result.decision.kind === "REFUSE" &&
+    result.decision.refusal.code === "ledger_replay_suppressed";
+  const traceResult = isReplaySuppressed
+    ? { trace: [] as ReadonlyArray<AdjudicationTraceEntry> }
+    : adjudicateWithTrace(envelope, state, pack.pack.policy as never);
   return {
     decision: result.decision,
     record: result.record,
     packId: pack.id,
     packName: pack.displayName,
+    trace: traceResult.trace,
   };
 }
 

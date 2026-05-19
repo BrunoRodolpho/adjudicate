@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import type { Decision } from "@adjudicate/core";
-import { DecisionBadge } from "@/components/motion/DecisionBadge";
-import { CodeBlock } from "@/components/ui/CodeBlock";
+import { WorkedExamplePanel } from "@/components/playground/WorkedExamplePanel";
+import type { PlaygroundResponse } from "@/lib/kernel-runner";
 import { useAuditLog } from "./audit-log-context";
 
 export interface FlowStep {
@@ -28,9 +28,14 @@ export function FlowSteps({
   packName: string;
 }) {
   const [active, setActive] = useState<number | null>(null);
-  const [results, setResults] = useState<Record<number, Decision>>({});
+  const [results, setResults] = useState<Record<number, PlaygroundResponse>>({});
   const [errors, setErrors] = useState<Record<number, string>>({});
   const { push } = useAuditLog();
+
+  const mostRecentRunIdx = Object.keys(results).reduce<number>(
+    (best, k) => Math.max(best, Number(k)),
+    -1,
+  );
 
   async function runStep(idx: number) {
     setActive(idx);
@@ -45,16 +50,15 @@ export function FlowSteps({
           state: steps[idx]!.state,
         }),
       });
-      const data = (await res.json()) as {
-        decision?: Decision;
-        error?: string;
-      };
-      if (data.decision) {
-        setResults((r) => ({ ...r, [idx]: data.decision! }));
+      const data = (await res.json()) as
+        | PlaygroundResponse
+        | { error: string };
+      if ("decision" in data) {
+        setResults((r) => ({ ...r, [idx]: data }));
         push({
           intentKind: steps[idx]!.intentKind,
           decision: data.decision,
-          at: new Date().toISOString(),
+          at: data.record.at,
           packName,
         });
       } else {
@@ -73,7 +77,7 @@ export function FlowSteps({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs uppercase tracking-section text-faint">
-        {packName} — run steps top to bottom
+        {packName} — pre-canned scenarios. Earlier steps may set state that later steps depend on, so click Run top-to-bottom.
       </p>
       <ol className="flex flex-col gap-3">
         {steps.map((step, idx) => {
@@ -109,21 +113,15 @@ export function FlowSteps({
 
               {result ? (
                 <div className="mt-3 flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <DecisionBadge kind={result.kind} size="sm" />
-                    {result.kind !== step.expectedKind ? (
-                      <span className="text-[11px] text-defer">
-                        (expected {step.expectedKind})
-                      </span>
-                    ) : null}
-                  </div>
-                  <CodeBlock
-                    code={JSON.stringify(
-                      result.basis.map((b) => `${b.category}:${b.code}`),
-                      null,
-                      2,
-                    )}
-                    className="text-[11px]"
+                  {result.decision.kind !== step.expectedKind ? (
+                    <p className="text-[11px] text-defer">
+                      Kernel returned {result.decision.kind}; step expected {step.expectedKind}.
+                    </p>
+                  ) : null}
+                  <WorkedExamplePanel
+                    result={result}
+                    initialState={step.state}
+                    compact={idx !== mostRecentRunIdx}
                   />
                 </div>
               ) : null}

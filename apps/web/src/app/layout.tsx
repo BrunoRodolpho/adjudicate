@@ -4,15 +4,20 @@ import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "adjudicate · deterministic policy kernel for LLM-mediated actions",
+  title: "adjudicate · a decision kernel for AI actions",
   description:
-    "Replay-safe adjudication, ordered policy enforcement, and forensic auditability for AI agent workflows.",
+    "A decision kernel for AI actions — a control layer between AI intent and system execution. Six possible decisions, every one auditable.",
   icons: { icon: "/favicon.svg" },
   openGraph: {
-    title: "adjudicate · deterministic policy kernel for LLM-mediated actions",
+    title: "adjudicate · a decision kernel for AI actions",
     description:
-      "Six structured decisions. Replay-safe ledger. Forensic AuditRecord. The kernel between the LLM and your side-effect.",
+      "A control layer between AI intent and system execution. It decides whether AI actions should execute, change, wait, escalate, or stop.",
     type: "website",
+    images: [{ url: "/og-homepage.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og-homepage.png"],
   },
 };
 

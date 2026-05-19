@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import { GUARD_KIND_INFO } from "@/lib/guard-colors";
+import { GuardDescriptionDetail } from "@/components/playground/GuardDescriptionDetail";
 import type { PolicyBundleDescriptorParsed } from "@adjudicate/admin-sdk";
 
 interface PolicyDescriptorResponse {
@@ -19,16 +21,18 @@ interface Node {
   readonly phase: string;
   readonly name: string;
   readonly descKind: string;
+  readonly description: Record<string, unknown> | undefined;
 }
 
-const DESC_COLOR: Record<string, string> = {
-  threshold: "fill-defer stroke-defer",
-  state_defer: "fill-confirm stroke-confirm",
-  system_taint: "fill-escalate stroke-escalate",
-  rewrite: "fill-rewrite stroke-rewrite",
-  opaque: "fill-faint stroke-faint",
-  unknown: "fill-faint stroke-faint",
-};
+/**
+ * Color tokens for each guard description kind. Sourced from the shared
+ * palette at `apps/web/src/lib/guard-colors.ts` so the radial graph and
+ * the per-tab Pack Inspector inside the playground render the same kind
+ * with the same color.
+ */
+const DESC_COLOR: Record<string, string> = Object.fromEntries(
+  Object.entries(GUARD_KIND_INFO).map(([k, v]) => [k, v.fill]),
+);
 
 /**
  * GuardMetadata force-ish graph — server-side `describePolicyBundle` for
@@ -64,6 +68,7 @@ export function GuardMetadataGraph() {
             phase: phase.phase,
             name: g.metadata.name ?? "(unnamed)",
             descKind: g.metadata.description?.kind ?? "unknown",
+            description: g.metadata.description as Record<string, unknown> | undefined,
           });
         }
       }
@@ -79,6 +84,13 @@ export function GuardMetadataGraph() {
           title="Your policy is no longer a black box."
           subtitle="Every guard carries optional metadata — name, author, since, and a structured description (threshold, state_defer, system_taint, rewrite, opaque). Tooling reads it; the graph below is one example."
         />
+        <p className="mx-auto mt-3 max-w-2xl text-center text-xs italic text-faint">
+          New to Adjudicate? This view is for auditors and analyzers — the{" "}
+          <a href="/#playground" className="underline hover:text-muted">
+            playground
+          </a>{" "}
+          surfaces the same data interactively per Pack.
+        </p>
 
         <div className="mt-10 grid items-start gap-6 md:grid-cols-[2fr_1fr]">
           <div className="rounded-2xl border border-edge bg-surface p-6 shadow-sm">
@@ -100,20 +112,14 @@ export function GuardMetadataGraph() {
               Legend
             </h3>
             <ul className="mt-3 flex flex-col gap-2 text-sm">
-              {Object.entries({
-                threshold: "Numeric threshold (refund cap, ramp%, etc.)",
-                state_defer: "DEFER on an external signal",
-                system_taint: "Taint-gated kind allow-list",
-                rewrite: "REWRITE — kernel modifies the envelope",
-                opaque: "Free-form guard — analyzers fall back to name",
-              }).map(([k, v]) => (
+              {(["threshold", "state_defer", "system_taint", "rewrite", "opaque"] as const).map((k) => (
                 <li key={k} className="flex items-start gap-2">
                   <span
                     className={`mt-1.5 inline-block h-2 w-2 rounded-full ${DESC_COLOR[k]?.replace(/\bstroke-\S+/, "")}`}
                   />
                   <span>
                     <code className="text-ink">{k}</code>{" "}
-                    <span className="text-muted">— {v}</span>
+                    <span className="text-muted">— {GUARD_KIND_INFO[k]?.oneLiner}</span>
                   </span>
                 </li>
               ))}
@@ -125,8 +131,14 @@ export function GuardMetadataGraph() {
                 </p>
                 <p className="mt-1 font-mono text-sm text-ink">{active.name}</p>
                 <p className="mt-0.5 text-xs text-muted">
-                  {active.packName} · {active.phase} · {active.descKind}
+                  {active.packName} · {active.phase} ·{" "}
+                  <span className="font-mono">{active.descKind}</span>
                 </p>
+                <GuardDescriptionDetail
+                  kind={active.descKind}
+                  description={active.description}
+                  size="md"
+                />
               </div>
             ) : (
               <p className="mt-5 border-t border-edge pt-4 text-xs italic text-faint">

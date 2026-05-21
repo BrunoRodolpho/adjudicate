@@ -45,7 +45,6 @@ const rawPixCapabilityPlanner: CapabilityPlanner<PixState, PixContext> = {
     return {
       visibleReadTools: filterReadOnly(PIX_TOOLS, allTools),
       allowedIntents,
-      forbiddenConcepts: [],
     };
   },
 };

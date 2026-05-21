@@ -20,7 +20,7 @@ import type {
   SupervisorModifiers,
   ToolSchema,
 } from "@adjudicate/core/llm";
-import { intentKindToApiName } from "./bridge.js";
+import { intentKindToApiName } from "@adjudicate/adapter-core";
 
 export interface AnthropicPromptRendererOptions {
   /** Identifies the Pack the agent serves; included in the system prompt for traceability. */
@@ -87,20 +87,6 @@ export function createAnthropicPromptRenderer<S, C = unknown>(
       if (options.basePrompt) segments.push(options.basePrompt);
       segments.push(DEFAULT_ADJUDICATED_SYSTEM_PROMPT);
       segments.push(`Pack: ${options.packId}`);
-
-      // `Plan.forbiddenConcepts` is @deprecated in @adjudicate/core
-      // (v0.1.x, scheduled for v1.0 removal) — advisory only, not
-      // enforced by the kernel. The renderer continues to inject the
-      // phrases for back-compat with adopters who populate the field;
-      // new adopters should run post-hoc content moderation outside
-      // the framework rather than relying on this prompt-level hint.
-      if (plan.forbiddenConcepts.length > 0) {
-        segments.push("");
-        segments.push("MUST NOT discuss, suggest, or attempt:");
-        for (const concept of plan.forbiddenConcepts) {
-          segments.push(`- ${concept}`);
-        }
-      }
 
       if (modifiers?.tone || modifiers?.mode) {
         const flavor: string[] = [];

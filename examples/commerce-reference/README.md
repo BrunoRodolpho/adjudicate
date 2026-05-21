@@ -1,17 +1,9 @@
 # @example/commerce-reference
 
-A pared-down e-commerce surface that demonstrates the same kernel
-patterns IbateXas's production code uses — **REWRITE** on quantity
-caps, **DEFER** on PIX-pending payment, refusals + auth gates, and
-state-aware capability planning — in a self-contained, English form
-that's safe to publish.
-
-This is a derivative of the original `packages/llm-provider`
-[`order-policy-bundle.ts`](../../packages/llm-provider/src/order-policy-bundle.ts),
-[`capability-planner.ts`](../../packages/llm-provider/src/capability-planner.ts),
-and [`refusal-taxonomy.ts`](../../packages/llm-provider/src/refusal-taxonomy.ts) —
-with IbateXas-specific glue (XState wiring, NATS, Redis namespacing,
-pt-BR strings) stripped out.
+A pared-down e-commerce surface that exercises the kernel's cart →
+checkout → payment patterns: **REWRITE** on quantity caps, **DEFER** on
+PIX-pending payment, refusals + auth gates, and state-aware capability
+planning.
 
 ## What's demonstrated
 
@@ -63,15 +55,11 @@ the kernel — at which point the adjudicator can EXECUTE because
 via `intentHash`, so duplicate webhook deliveries fold into a single
 execution.
 
-## Comparison with the IbateXas original
+## Production wiring
 
-| Concern | IbateXas (`packages/llm-provider`) | This example |
-|---|---|---|
-| State machine | XState 5 with 7 named states + guards file | single `OrderStatus` enum |
-| Refusal copy | pt-BR | English |
-| External services | Medusa cart, Stripe webhook, NATS publisher, Redis with `rk()` namespacing | none — pure types and logic |
-| Auth source | Twilio Verify session token | `customer.isAuthenticated` flag |
-| Lines of code | ~700 across 5 files | ~330 across 5 files |
-| Use case | Production WhatsApp commerce bot | Reference + onboarding |
-
-The kernel adapts to either. That's the point.
+Real adopters typically add: state-machine integration (XState or
+similar) on top of `OrderStatus`, locale-specific refusal copy via
+`@adjudicate/locales-pt-BR` or a custom `RefusalMessages` map, a real
+payment-provider webhook handler that calls `resumeDeferredIntent`, and
+session-tenant namespacing on the runtime Redis keys. The kernel adapts
+to all of them without changes — that's the point.

@@ -17,7 +17,7 @@ import { createAdjudicatedAgent } from "../src/adapter.js";
 import {
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
-} from "../src/persistence.js";
+} from "@adjudicate/adapter-core";
 import { createAnthropicPromptRenderer } from "../src/renderer-anthropic.js";
 import type { AdopterExecutor } from "../src/types.js";
 
@@ -49,7 +49,6 @@ function buildTestPack(decisionFn: (env: IntentEnvelope<Kind, Payload>, state: S
     plan: () => ({
       visibleReadTools: [],
       allowedIntents: ["demo.do_thing"],
-      forbiddenConcepts: [],
     }),
   };
   const policy: PolicyBundle<Kind, Payload, State> = {

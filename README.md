@@ -170,17 +170,18 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
 
 ## Status
 
-> **`v0.1.0-experimental`** — kernel surface stable enough for experimentation; the policy-primitives layer is intentionally not yet extracted. npm publish pending `@adjudicate` org claim.
+> **`v0.5`** — kernel API frozen, 876 tests passing, 18 workspace packages. npm publish pending `@adjudicate` org claim.
 
 **Maturity ladder** (per [`docs/concepts.md §9`](./docs/concepts.md#9-architectural-direction-intended-evolution)):
 
 | Layer | Status | What's there |
 |---|---|---|
-| **L1 — Kernel** | shipped | `adjudicate()`, `adjudicateWithTrace()`, `PolicyBundle`, taint lattice, audit emission, replay safety. The 5 headline interfaces (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) are API-stable. |
-| **L2 — Risk primitives** | shipped | [`@adjudicate/primitives`](./packages/primitives) — `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy`. Extracted at 2 Packs (deliberate override of the Rule-of-Three after the threshold and defer patterns reappeared identically across PIX and KYC). |
-| **L3 — Domain Packs** | partial | `@adjudicate/pack-payments-pix` is the lighthouse; `@adjudicate/pack-identity-kyc` adds the async-lifecycle + AML + taint-defense surface. `vacation-approval` and `commerce-reference` examples remain (handwritten guards, not Pack-shaped). |
+| **L1 — Kernel** | shipped | `adjudicate()`, `adjudicateAndAudit()`, `PolicyBundle`, taint lattice, replay safety, `verifyAuditRecord`. The 5 headline interfaces (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) are API-stable. |
+| **L2 — Risk primitives** | shipped | [`@adjudicate/primitives`](./packages/primitives) — 7 factories: `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy`, `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard`. All carry `GuardMetadata`. |
+| **L3 — Domain Packs** | partial | Three published: `@adjudicate/pack-payments-pix` (lighthouse), `@adjudicate/pack-identity-kyc` (async + AML + taint defense), `@adjudicate/pack-deployments-approval` (deploy gates). `vacation-approval` and `commerce-reference` examples remain handwritten as onboarding surfaces. |
+| **L4 — Observability / governance** | partial | `@adjudicate/observability` ships OTLP sinks + `SEMCONV`; `@adjudicate/admin-sdk` ships read-only AQI + tRPC router. Console real-time tail + Pack registry implementation deferred to v0.6. |
 
-**What's coming**: additional domain Packs (chosen to surface different shapes — HR approvals, sync-money, deploys), channel adapters, an observability dashboard, and a governance layer. Tracked in [issues](https://github.com/BrunoRodolpho/adjudicate/issues).
+**What's open** — see [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md) for the priority-ordered list.
 
 **Not for production yet.** The integration surface (subpath exports, peer deps, error shapes) may shift before `v1.0.0`.
 
@@ -188,26 +189,14 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
 
 ## Documentation
 
-- **Concepts (start here)** — [`docs/concepts.md`](./docs/concepts.md): the
-  mental model behind the framework — kernel as engine, Pack as rulebook,
-  six Decision outcomes, anatomy of a `PolicyBundle`, and a side-by-side of
-  the two reference examples.
-- **Per-package READMEs** — reference docs once concepts click. Start in
-  [`packages/core/README.md`](./packages/core/README.md) and
-  [`packages/anthropic/README.md`](./packages/anthropic/README.md).
-- **Test your policy** — [`docs/guides/testing-your-policy.md`](./docs/guides/testing-your-policy.md):
-  authoring declarative scenario fixtures, running them via
-  `adjudicate simulate`, and wiring them into CI as a decision-regression gate.
-- **ADR #9** — [`docs/architecture/decisions.md`](./docs/architecture/decisions.md)
-  documents the 8-layer defense and the load-bearing invariants.
-- **Wire format & hash spec** — [`docs/specs/intent-envelope-v2.schema.json`](./docs/specs/intent-envelope-v2.schema.json)
-  (JSON Schema 2020-12 for `IntentEnvelope` v2) and
-  [`docs/specs/canonical-json-hash.md`](./docs/specs/canonical-json-hash.md)
-  (RFC 8785 / JCS canonicalization producing `intentHash`, with golden
-  vectors and a Python cross-runtime check).
-- **Staged rollout playbook** — [`docs/ops/runbooks/`](./docs/ops/runbooks/) —
-  4-stage shadow → enforce ramp for adopters migrating from a legacy
-  decision path.
+- **Concepts (start here)** — [`docs/concepts.md`](./docs/concepts.md): the mental model — kernel as engine, Pack as rulebook, six Decision outcomes, anatomy of a `PolicyBundle`.
+- **AI agents** — [`AI_CONTEXT.md`](./AI_CONTEXT.md): dense brief on architecture, invariants, and how to modify safely.
+- **Status & next steps** — [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md): authoritative open-work list.
+- **Per-package READMEs** — reference docs. Start in [`packages/core/README.md`](./packages/core/README.md) and [`packages/anthropic/README.md`](./packages/anthropic/README.md).
+- **Test your policy** — [`docs/guides/testing-your-policy.md`](./docs/guides/testing-your-policy.md): scenario fixtures + `adjudicate simulate` as a decision-regression gate.
+- **Load-bearing decisions** — [`docs/architecture/decisions.md`](./docs/architecture/decisions.md) (8-layer defense + invariants) and the ADR series at [`docs/architecture/adr/`](./docs/architecture/adr/).
+- **Wire format & hash spec** — [`docs/specs/intent-envelope-v2.schema.json`](./docs/specs/intent-envelope-v2.schema.json) (JSON Schema 2020-12) and [`docs/specs/canonical-json-hash.md`](./docs/specs/canonical-json-hash.md) (RFC 8785 JCS, golden vectors, Python cross-runtime check).
+- **Staged rollout playbook** — [`docs/ops/runbooks/`](./docs/ops/runbooks/) — 4-stage shadow → enforce ramp.
 
 ## Contributing
 

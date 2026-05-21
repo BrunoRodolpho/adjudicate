@@ -48,6 +48,17 @@ export {
   type ReplayMismatchKind,
   type ReplayReport,
 } from "./replay.js";
+export {
+  replayWithIntegrity,
+  isReplayIntegrityClean,
+  type IntegrityFailure,
+  type ReplayIntegrityReport,
+} from "./replay-integrity.js";
+export {
+  explainReplayReport,
+  type ExplainReplayOptions,
+  type ReplayExplainFormat,
+} from "./explain-replay.js";
 
 export { isLedgerEnabled, isLedgerEnforced } from "./feature-flag.js";
 export {
@@ -55,6 +66,22 @@ export {
   type DistributedKillSwitchHandle,
   type DistributedKillSwitchOptions,
 } from "./distributed-kill-switch.js";
+export {
+  startDistributedKillSwitchPubSub,
+  type DistributedKillSwitchPubSubHandle,
+  type DistributedKillSwitchPubSubOptions,
+  type RedisPubSubClient,
+} from "./kill-switch-pubsub.js";
+export {
+  createInMemoryAuditEventBus,
+  createRedisAuditEventBus,
+  bridgeAuditSinkToBus,
+  type AuditEventBus,
+  type AuditEventHandler,
+  type BridgeAuditSinkToBusOptions,
+  type BridgeBusFailure,
+  type RedisAuditEventBusOptions,
+} from "./event-bus.js";
 
 // ─── SDK-shape Redis emergency store (Phase 1.5d) ───────────────────────────
 // Implements `@adjudicate/admin-sdk`'s EmergencyStateStore against the same

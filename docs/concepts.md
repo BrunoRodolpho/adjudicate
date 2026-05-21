@@ -265,47 +265,27 @@ The reusable asset is **decision semantics**, not business logic. That's the lin
    └────────────────────────────────────────────────────────┘
 ```
 
-**Where we are today**:
-- **L1** — shipped. Kernel + types + audit emission.
-- **L2** — embryonic. [`createPixPendingDeferGuard`](../packages/pack-payments-pix) in the PIX Pack is the first guard factory; it just hasn't been generalized.
-- **L3** — partial. Two reference examples (handwritten guards) + one published Pack.
+**Where we are today (v0.5):**
 
-### Sketch of likely L2 primitives
+- **L1 — kernel:** shipped, API frozen. `adjudicate`, `adjudicateAndAudit`, `PolicyBundle`, taint lattice, replay safety, `verifyAuditRecord`, OTLP-shaped observability sinks.
+- **L2 — `@adjudicate/primitives`:** shipped with 7 factories. `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy` (Phase 5), plus `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard` (ADR-108).
+- **L3 — domain Packs:** three published (`pack-payments-pix`, `pack-identity-kyc`, `pack-deployments-approval`). Two examples (`vacation-approval`, `commerce-reference`) remain handwritten as onboarding surfaces.
 
-These will firm up by inspection once 3+ Packs exist. **Not yet committed surface.**
-
-```
-   clampAmount({ to: state => state.cap })          → REWRITE
-   forbidSelfActor({ actorPath, targetPath })       → ESCALATE / REFUSE
-   requireTrustedFor(intentKind)                    → taint floor (TaintPolicy)
-   deferUntilSignal({ name, timeoutMs })            → DEFER
-   escalateAboveThreshold({ amount, route })        → ESCALATE
-   confirmAboveThreshold({ amount, prompt })        → REQUEST_CONFIRMATION
-   idempotentByNonce()                              → already in kernel; liftable
-```
-
-Each L3 Pack reduces to a thin composition:
+### L2 surface today
 
 ```ts
-// hypothetical post-L2 vacation pack
-export const vacationPack = compose(
-  requireTrustedFor("vacation.approve"),
-  forbidSelfActor({ actorPath: "approverId", targetPath: "request.employeeId" }),
-  clampAmount({ to: () => VACATION_POLICY.maxConsecutiveDays, of: "durationDays" }),
-  deferUntilSignal({ name: "manager.approval", timeoutMs: 24 * HOURS }),
-  // domain-specific guards still allowed inline
-);
+import {
+  createThresholdGuard,     // → any Decision via onCross
+  createStateDeferGuard,    // → DEFER on signal
+  createSystemTaintPolicy,  // → TaintPolicy declaring system-only kinds
+  createRewriteGuard,       // → REWRITE; declares mutatesPayloadFields
+  createConfirmGuard,       // → REQUEST_CONFIRMATION above threshold
+  createEscalateGuard,      // → ESCALATE above threshold + route
+  createIdempotencyGuard,   // → domain-level dedup (kernel ledger is separate)
+} from "@adjudicate/primitives";
 ```
 
-### Pacing discipline — Rule of Three
-
-L2 is **deliberately not extracted yet.** Premature factoring with one Pack would ship the wrong abstraction and force breaking changes before `v1.0.0`. The discipline:
-
-1. Ship Pack #2 — chosen to surface *different* shapes than PIX (e.g. HR approvals / access grants → exposes self-actor, multi-stage thresholds, quorum).
-2. Ship Pack #3 — chosen for diversity again (e.g. synchronous Stripe payments → exposes idempotency-without-DEFER, currency conversion, chargebacks).
-3. **Then** extract `@adjudicate/policy-primitives`. By that point the primitive interfaces will be visible by inspection rather than guesswork. Refactor existing Packs to consume the new package.
-
-Until then, leaf Packs handwrite their guards. **Duplication is acceptable and informative** — it's the data that determines the right factoring.
+All seven attach `GuardMetadata` so `@adjudicate/analyze` covers them.
 
 ### Invariant to preserve through any refactor
 
@@ -318,15 +298,7 @@ type GuardPhase = "preconditions" | "trust" | "risk" | "business";
 
 Otherwise an adopter ships a guard tagged `phase: "early"` that runs before the trust gate, and the soundness story silently breaks. The ergonomic gain isn't worth losing the invariant.
 
-### Framing pivot — landed early, knowingly
-
-> **Update**: the README headline pivot to **"Policy-as-code for AI agents"** landed in the same change as the first integration adapter ([`@adjudicate/anthropic`](../packages/anthropic)) and the runnable [Anthropic quickstart](../examples/quickstart-anthropic). This is **earlier than the discipline above prescribed** — L2 has not yet extracted. The rework cost when L2 lands is accepted; the seams that will shift are documented in [`packages/anthropic/README.md` "L2 rework callouts"](../packages/anthropic/README.md#l2-rework-callouts).
->
-> Why land early: the kernel surface is differentiated enough today (DEFER + REWRITE + taint provenance) that having a runnable adapter and a category-defining headline accelerates ecosystem feedback. The maturity ladder in the README is explicit about what's shipped vs emerging vs partial — readers see the tradeoff on first contact.
->
-> The original guidance below remains the *general* discipline for future framing changes: don't pivot before substance exists. This pivot is a deliberate exception, not a precedent.
-
-The wedge against general policy engines (OPA, Cedar, Rego) is the three things they can't express:
+### The wedge against general policy engines
 
 | Capability | OPA / Cedar | adjudicate |
 |---|---|---|
@@ -335,13 +307,9 @@ The wedge against general policy engines (OPA, Cedar, Rego) is the three things 
 | **REWRITE** (kernel-owned payload sanitization) | ✗ | ✓ |
 | **Taint provenance** (provenance as a runtime gate) | ✗ | ✓ |
 
-The general rule still stands: don't pivot the headline framing before the substance exists — that's marketing ahead of code. This pivot ships with the first runnable substance (the Anthropic adapter + quickstart); a future headline shift to something like "policy-as-code for AI action governance" still waits for L2 to prove the claim.
-
 ### Where this leads
 
-If L2 stabilizes and L3 fans out into a small library of trustworthy bundles (HR, money, access, deploys, code execution), the framework becomes the same thing for AI-mediated mutations that schema validators became for HTTP APIs: **the layer you don't think about, but every safe system has.**
-
-That's the long-term thesis. The short-term work is shipping Pack #2 and #3.
+If L2 stabilizes through Pack #4–#6 feedback and L3 fans out into a small library of trustworthy bundles (HR, money, access, deploys, code execution), the framework becomes the same thing for AI-mediated mutations that schema validators became for HTTP APIs: **the layer you don't think about, but every safe system has.**
 
 ---
 

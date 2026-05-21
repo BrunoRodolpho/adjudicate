@@ -47,13 +47,6 @@ export const vacationCapabilityPlanner: CapabilityPlanner<VacationState> = {
       allowedIntents: isManager
         ? ["vacation.request", "vacation.approve", "vacation.cancel"]
         : ["vacation.request", "vacation.cancel"],
-      forbiddenConcepts: [
-        // Concepts the LLM must NOT emit in any state — caught by the
-        // forbidden-phrase scan in the validation layer before the
-        // response reaches the user.
-        "approved automatically",
-        "skip approval",
-      ],
     };
   },
 };

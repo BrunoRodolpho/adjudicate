@@ -69,15 +69,6 @@ export interface AuditPlanSnapshot {
   readonly visibleReadTools: ReadonlyArray<string>;
   readonly allowedIntents: ReadonlyArray<string>;
   /**
-   * Mirror of `Plan.forbiddenConcepts` — recorded in the audit row but
-   * NOT included in `planFingerprint`.
-   *
-   * @deprecated v0.1.x — see `Plan.forbiddenConcepts`. Scheduled for
-   * removal at v1.0. Existing audit rows continue to be readable; the
-   * field is kept on this snapshot for back-compat with stored records.
-   */
-  readonly forbiddenConcepts: ReadonlyArray<string>;
-  /**
    * sha256 of canonical({ visibleReadTools, allowedIntents }). Used by the
    * LearningSink to dedupe identical plans across many decisions, and by the
    * replay harness to detect planner drift.
@@ -151,8 +142,7 @@ export interface BuildAuditInput {
   readonly at?: string;
   /**
    * Optional plan snapshot. When provided, `planFingerprint` is computed
-   * automatically from `visibleReadTools` + `allowedIntents` (the security-
-   * sensitive fields). `forbiddenConcepts` is recorded but not hashed.
+   * automatically from `visibleReadTools` + `allowedIntents`.
    */
   readonly plan?: Omit<AuditPlanSnapshot, "planFingerprint">;
   /**
@@ -182,7 +172,6 @@ export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
     ? {
         visibleReadTools: input.plan.visibleReadTools,
         allowedIntents: input.plan.allowedIntents,
-        forbiddenConcepts: input.plan.forbiddenConcepts,
         planFingerprint: sha256Canonical({
           visibleReadTools: input.plan.visibleReadTools,
           allowedIntents: input.plan.allowedIntents,

@@ -52,8 +52,10 @@ export function rehydrateKycState(raw: unknown): IdentityKycState {
  *   kyc.vendor.callback → EXECUTE | ESCALATE | REFUSE
  *
  * The vendor callback intent is intentionally NOT exposed to the LLM
- * (`forbiddenConcepts` in the planner). It's system-trusted; only the
- * adopter's webhook handler should construct envelopes of that kind.
+ * (omitted from `allowedIntents` in every planner state, and enforced
+ * by `createSystemTaintPolicy` in `policy.ts`). It's system-trusted;
+ * only the adopter's webhook handler should construct envelopes of
+ * that kind.
  *
  * Generated via `adjudicate pack init pack-identity-kyc` (Phase 3a)
  * and customized for the KYC domain (Phase 3b). The split between

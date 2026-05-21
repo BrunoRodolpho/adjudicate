@@ -6,7 +6,6 @@ export function PlanSnapshotPanel({ plan }: { plan: AuditPlanSnapshot }) {
     <div className="grid gap-2 text-[11px]">
       <PlanRow label="visibleReadTools" values={plan.visibleReadTools} />
       <PlanRow label="allowedIntents" values={plan.allowedIntents} />
-      <PlanRow label="forbiddenConcepts" values={plan.forbiddenConcepts} />
       <div className="flex items-center gap-2 pt-1 text-faint">
         <span className="text-[10px] uppercase tracking-section">
           fingerprint

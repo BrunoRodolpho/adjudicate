@@ -1,32 +1,29 @@
 /**
- * Decision → Anthropic tool_result + loop-action translator.
+ * Decision → provider-neutral tool-result + loop-action translator.
  *
  * One branch per `Decision.kind`. Returns:
- * - `toolResult` — the `ToolResultBlockParam` that goes back to Anthropic
- *   in the next user-role message (or `null` if no tool_result is sent).
- * - `loopAction` — what the adapter's send loop should do next:
- *   `continue` (next iteration), `pause_for_user_confirmation` /
- *   `pause_for_defer` (return outcome to adopter), or
- *   `complete_for_escalation` (terminate the turn).
+ * - `toolResult` — the provider-neutral `ToolResultBlock` that goes back
+ *   to the model in the next user-role message (or `null` if no tool-
+ *   result is sent).
+ * - `loopAction` — what the loop should do next: `continue` (next
+ *   iteration), `pause_for_user_confirmation` / `pause_for_defer`
+ *   (return outcome to adopter), or `complete_for_escalation`
+ *   (terminate the turn).
  * - `events` — `AgentEvent`s to push for audit / transcript display.
  *
  * **REWRITE** runs the executor against the *rewritten* envelope (NOT
- * the original) and surfaces a human-readable note in the tool_result by
- * default.
+ * the original) and surfaces a human-readable note in the tool-result
+ * by default.
  *
- * **First non-continue Decision wins**: if multiple tool_use blocks
- * fire in the same assistant turn, the loop processes them in order
- * but stops translating the moment a non-continue Decision arrives.
- * The remaining blocks are surfaced as `not_processed_due_to_pause`.
+ * **First non-continue Decision wins**: if multiple tool_use blocks fire
+ * in the same assistant turn, the loop processes them in order but
+ * stops translating the moment a non-continue Decision arrives. The
+ * remaining blocks are surfaced as `not_processed_due_to_pause`.
  */
 
-import type { ToolResultBlockParam, MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import type { Decision, IntentEnvelope } from "@adjudicate/core";
 import { parkDeferredIntent } from "@adjudicate/runtime";
-import {
-  AnthropicAdapterError,
-  AnthropicAdapterErrorCode,
-} from "./errors.js";
+import { AdapterError, AdapterErrorCode } from "./errors.js";
 import type {
   ConfirmationStore,
   DeferRedis,
@@ -36,9 +33,10 @@ import type {
   AdopterExecutor,
   AgentEvent,
   AgentLogger,
+  ToolResultBlock,
 } from "./types.js";
 
-export interface DecisionTranslationContext<K extends string, P, S> {
+export interface DecisionTranslationContext<K extends string, P, S, H> {
   readonly decision: Decision;
   readonly envelope: IntentEnvelope<K, P>;
   readonly toolUseId: string;
@@ -46,8 +44,8 @@ export interface DecisionTranslationContext<K extends string, P, S> {
   readonly state: S;
   readonly executor: AdopterExecutor<K, P, S>;
   readonly deferStore: DeferRedis & ParkRedis;
-  readonly confirmationStore: ConfirmationStore;
-  readonly historySnapshot: ReadonlyArray<MessageParam>;
+  readonly confirmationStore: ConfirmationStore<H>;
+  readonly historySnapshot: H;
   readonly rk: (raw: string) => string;
   readonly log?: AgentLogger;
   /**
@@ -76,23 +74,23 @@ export type LoopAction =
     };
 
 export interface DecisionTranslation {
-  readonly toolResult: ToolResultBlockParam | null;
+  readonly toolResult: ToolResultBlock | null;
   readonly loopAction: LoopAction;
   readonly extraEvents: ReadonlyArray<AgentEvent>;
 }
 
 /**
- * Translate a `Decision` into an Anthropic `tool_result` plus the next
- * loop action. The caller (the send loop) appends the tool_result to
- * the next user-role message and either continues or pauses based on
- * `loopAction.kind`.
+ * Translate a `Decision` into a provider-neutral `ToolResultBlock` plus
+ * the next loop action. The caller (the send loop) appends the tool-
+ * result to the next user-role message and either continues or pauses
+ * based on `loopAction.kind`.
  */
-export async function translateDecision<K extends string, P, S>(
-  ctx: DecisionTranslationContext<K, P, S>,
+export async function translateDecision<K extends string, P, S, H>(
+  ctx: DecisionTranslationContext<K, P, S, H>,
 ): Promise<DecisionTranslation> {
   switch (ctx.decision.kind) {
     case "EXECUTE":
-      return runExecute(ctx, ctx.envelope, /* rewriteNote */ null);
+      return runExecute(ctx, ctx.envelope, null);
     case "REWRITE":
       return runExecute(
         ctx,
@@ -101,11 +99,10 @@ export async function translateDecision<K extends string, P, S>(
       );
     case "REFUSE": {
       const text = ctx.decision.refusal.userFacing;
-      const result: ToolResultBlockParam = {
-        type: "tool_result",
-        tool_use_id: ctx.toolUseId,
+      const result: ToolResultBlock = {
+        toolUseId: ctx.toolUseId,
         content: text,
-        is_error: true,
+        isError: true,
       };
       return {
         toolResult: result,
@@ -126,12 +123,10 @@ export async function translateDecision<K extends string, P, S>(
           toolUseId: ctx.toolUseId,
           prompt: ctx.decision.prompt,
         },
-        // 24h default; adopter persistence may expire sooner.
         24 * 60 * 60,
       );
-      const result: ToolResultBlockParam = {
-        type: "tool_result",
-        tool_use_id: ctx.toolUseId,
+      const result: ToolResultBlock = {
+        toolUseId: ctx.toolUseId,
         content: `Confirmation required: ${ctx.decision.prompt}`,
       };
       return {
@@ -147,9 +142,8 @@ export async function translateDecision<K extends string, P, S>(
       };
     }
     case "ESCALATE": {
-      const result: ToolResultBlockParam = {
-        type: "tool_result",
-        tool_use_id: ctx.toolUseId,
+      const result: ToolResultBlock = {
+        toolUseId: ctx.toolUseId,
         content: `Escalated to ${ctx.decision.to}: ${ctx.decision.reason}`,
       };
       return {
@@ -165,17 +159,13 @@ export async function translateDecision<K extends string, P, S>(
       };
     }
     case "DEFER": {
-      const ttlSeconds =
-        Math.max(ctx.decision.timeoutMs, 1000) / 1000 + 60;
+      const ttlSeconds = Math.max(ctx.decision.timeoutMs, 1000) / 1000 + 60;
       const parkResult = await parkDeferredIntent({
         envelope: {
           intentHash: ctx.envelope.intentHash,
           kind: ctx.envelope.kind,
           actor: { sessionId: ctx.envelope.actor.sessionId },
           payload: ctx.envelope.payload,
-          // T-006: hash-verification fields. The resume path re-derives
-          // intentHash via sha256Canonical and asserts byte-equality with
-          // the stored value — detects blob tampering between park and resume.
           version: ctx.envelope.version,
           nonce: ctx.envelope.nonce,
           taint: ctx.envelope.taint,
@@ -188,11 +178,10 @@ export async function translateDecision<K extends string, P, S>(
         log: ctx.log,
       });
       if (!parkResult.parked) {
-        const result: ToolResultBlockParam = {
-          type: "tool_result",
-          tool_use_id: ctx.toolUseId,
+        const result: ToolResultBlock = {
+          toolUseId: ctx.toolUseId,
           content: `This action could not be queued (per-session quota exceeded; ${parkResult.observed}/${parkResult.limit}).`,
-          is_error: true,
+          isError: true,
         };
         return {
           toolResult: result,
@@ -202,9 +191,8 @@ export async function translateDecision<K extends string, P, S>(
           ],
         };
       }
-      const result: ToolResultBlockParam = {
-        type: "tool_result",
-        tool_use_id: ctx.toolUseId,
+      const result: ToolResultBlock = {
+        toolUseId: ctx.toolUseId,
         content: `Action queued. Waiting for signal "${ctx.decision.signal}" (timeout ${ctx.decision.timeoutMs}ms).`,
       };
       return {
@@ -227,8 +215,8 @@ export async function translateDecision<K extends string, P, S>(
  * envelope passed in (the original for EXECUTE, the rewritten one for
  * REWRITE), serializes the result, and returns a continue-loop translation.
  */
-async function runExecute<K extends string, P, S>(
-  ctx: DecisionTranslationContext<K, P, S>,
+async function runExecute<K extends string, P, S, H>(
+  ctx: DecisionTranslationContext<K, P, S, H>,
   effectiveEnvelope: IntentEnvelope<K, P>,
   rewriteReason: string | null,
 ): Promise<DecisionTranslation> {
@@ -241,11 +229,10 @@ async function runExecute<K extends string, P, S>(
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "executor threw a non-Error value";
-    const errResult: ToolResultBlockParam = {
-      type: "tool_result",
-      tool_use_id: ctx.toolUseId,
+    const errResult: ToolResultBlock = {
+      toolUseId: ctx.toolUseId,
       content: `Executor failed: ${message}`,
-      is_error: true,
+      isError: true,
     };
     return {
       toolResult: errResult,
@@ -271,9 +258,8 @@ async function runExecute<K extends string, P, S>(
           note: `Note: kernel rewrote your proposal — ${rewriteReason}`,
         };
 
-  const result: ToolResultBlockParam = {
-    type: "tool_result",
-    tool_use_id: ctx.toolUseId,
+  const result: ToolResultBlock = {
+    toolUseId: ctx.toolUseId,
     content: JSON.stringify(body),
   };
   return {
@@ -287,20 +273,19 @@ async function runExecute<K extends string, P, S>(
 }
 
 /**
- * Re-exported for tests + adopters who want to hand-construct an error
- * tool_result from outside the loop.
+ * Build the provider-neutral `ToolResultBlock` for an out-of-plan tool
+ * call. Re-exported so tests + adopters can construct one from outside
+ * the loop.
  */
 export function makeOutOfPlanToolResult(
   toolUseId: string,
   toolName: string,
-): ToolResultBlockParam {
+): ToolResultBlock {
   return {
-    type: "tool_result",
-    tool_use_id: toolUseId,
+    toolUseId,
     content: `Tool "${toolName}" is not available in the current plan.`,
-    is_error: true,
+    isError: true,
   };
 }
 
-/** Re-exported so the loop can throw with a typed code if needed. */
-export { AnthropicAdapterError, AnthropicAdapterErrorCode };
+export { AdapterError, AdapterErrorCode };

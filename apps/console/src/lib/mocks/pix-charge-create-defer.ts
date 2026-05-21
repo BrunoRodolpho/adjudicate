@@ -33,6 +33,5 @@ export const pixChargeCreateDefer: AuditRecord = buildAuditRecord({
   plan: {
     visibleReadTools: ["list_pix_charges"],
     allowedIntents: ["pix.charge.create"],
-    forbiddenConcepts: ["confirm-without-webhook"],
   },
 });

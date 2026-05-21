@@ -38,6 +38,5 @@ export const pixLargeRefundEscalate: AuditRecord = buildAuditRecord({
   plan: {
     visibleReadTools: ["list_pix_charges", "get_pix_charge"],
     allowedIntents: ["pix.charge.refund"],
-    forbiddenConcepts: [],
   },
 });

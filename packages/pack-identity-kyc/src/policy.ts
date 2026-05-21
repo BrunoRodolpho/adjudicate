@@ -74,8 +74,9 @@ const KYC_TOOLS: ToolClassification = {
 //
 // State-aware: `start_kyc` is visible only when no active session
 // exists; `upload_document` is visible only when a session is in
-// DOCS_REQUIRED. The vendor callback intent is in `forbiddenConcepts`
-// — the LLM must NEVER propose a vendor verification result.
+// DOCS_REQUIRED. `kyc.vendor.callback` is omitted from `allowedIntents`
+// in every state — the bridge refuses it before the kernel sees it, and
+// `createSystemTaintPolicy` below enforces the system-only origin.
 
 const rawPlanner: CapabilityPlanner<IdentityKycState, IdentityKycContext> = {
   plan(state, _context) {
@@ -100,9 +101,6 @@ const rawPlanner: CapabilityPlanner<IdentityKycState, IdentityKycContext> = {
     return {
       visibleReadTools: filterReadOnly(KYC_TOOLS, allTools),
       allowedIntents,
-      // The LLM must never propose a vendor callback. Those are
-      // system-trusted webhook events from the verification provider.
-      forbiddenConcepts: ["kyc.vendor.callback"],
     };
   },
 };

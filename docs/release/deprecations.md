@@ -133,7 +133,6 @@ lands, the calendar records both the tier and the chosen removal target.
 | API | Package | Deprecated | Tier | Removal target | Codemod |
 |---|---|---|---|---|---|
 | `nameGuard(name, guard)` | `@adjudicate/core/kernel` | v0.4.0 | Pack-author | v2.0.0 | `adjudicate-migrate name-guard-to-with-metadata` |
-| `AuditPlanSnapshot.forbiddenConcepts` | `@adjudicate/core` (audit) | v0.1.x | Pack-author | v1.0.0 | none (audit-row back-compat only) |
 
 ### Removed
 

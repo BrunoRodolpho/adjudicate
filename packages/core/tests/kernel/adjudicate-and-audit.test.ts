@@ -294,7 +294,6 @@ describe("adjudicateAndAudit — clock and resource version", () => {
       plan: () => ({
         visibleReadTools: ["list_things"],
         allowedIntents: ["thing.do"],
-        forbiddenConcepts: [],
       }),
     });
     expect(result.record.plan).toBeDefined();

@@ -28,6 +28,48 @@ export const SEMCONV = {
   INTENT_HASH: "adjudicate.intent.hash",
   /** Matched-guard identifier (see ADR-105). Omitted for non-guard phases. */
   GUARD_ID: "adjudicate.guard.id",
+  /**
+   * Source of a propagated transition (kill-switch, deferred resume, …).
+   * Low cardinality: `pubsub | poll | boot | external`. Lets dashboards
+   * separate "operator initiated trip" from "boot-time resync".
+   */
+  TRANSITION_SOURCE: "adjudicate.transition.source",
+  /**
+   * Lifecycle phase for the adapter loop. Low cardinality:
+   * `started | iteration | tool_use | decision | completed | paused`.
+   */
+  ADAPTER_PHASE: "adjudicate.adapter.phase",
+  /**
+   * Adapter iteration counter within a single `.send()` call. Bounded
+   * by `maxIterations` (default 8) — safe for low-cardinality histograms.
+   */
+  ADAPTER_ITERATION: "adjudicate.adapter.iteration",
+  /**
+   * Adapter outcome kind. Low cardinality: matches `AgentOutcome.kind`
+   * (`completed | deferred | awaiting_confirmation | escalated | max_iterations_exceeded`).
+   */
+  ADAPTER_OUTCOME: "adjudicate.adapter.outcome",
+  /**
+   * Provider identifier supplied by the bridge. Adopter-controlled
+   * vocabulary (e.g., `anthropic | openai | vercel-ai | bedrock`). Kept
+   * low-cardinality by adopter discipline; the framework does not enforce
+   * a fixed enum here because adopters add their own providers.
+   */
+  PROVIDER_ID: "adjudicate.provider.id",
+  /**
+   * Defer/confirm lifecycle phase: `parked | resumed | confirmed | declined | expired`.
+   */
+  PAUSE_PHASE: "adjudicate.pause.phase",
+  /**
+   * Defer signal vocabulary entry. Controlled by the Pack's declared
+   * `signals` list — Packs are expected to keep this list small.
+   */
+  DEFER_SIGNAL: "adjudicate.defer.signal",
+  /**
+   * Kill-switch state. Low cardinality: `active | normal`.
+   * Use {@link TRANSITION_SOURCE} alongside for the trigger.
+   */
+  KILL_SWITCH_STATE: "adjudicate.kill_switch.state",
 } as const;
 
 export type SemconvKey = keyof typeof SEMCONV;

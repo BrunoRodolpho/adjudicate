@@ -34,6 +34,32 @@ export {
   type ConformanceResult,
 } from "./types.js";
 
+// Pack manifest validation primitive (Phase 5 — Pack ecosystem).
+export {
+  crossCheckPackVsManifest,
+  validatePackManifest,
+  type PackManifest,
+  type PackManifestContract,
+  type PackManifestPackageJson,
+  type PackManifestQualityTier,
+  type PackManifestValidation,
+} from "./manifest.js";
+
+// Pack trust primitives — fingerprinting + signature verification (v0.7).
+export {
+  computePackFingerprint,
+  signPackFingerprint,
+  verifyPackSignature,
+  verifyPackTrust,
+  type PackFingerprintInput,
+  type PackSignature,
+  type PackSignatureAlgorithm,
+  type PackSignatureVerification,
+  type PackTrustReport,
+  type TrustPolicy,
+  type VerifyPackTrustOptions,
+} from "./pack-trust.js";
+
 // Individual checks are exported by id so adopters who want to assemble
 // a partial set (e.g., omit default-polarity for a read-only Pack
 // without using `allowDefaultExecute`) can pass `{ checks: [...] }`.

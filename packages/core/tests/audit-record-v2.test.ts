@@ -63,21 +63,18 @@ describe("buildAuditRecord with plan", () => {
       plan: {
         visibleReadTools: ["search_catalog", "view_cart"],
         allowedIntents: ["cart.add_item"],
-        forbiddenConcepts: ["free shipping"],
       },
     });
     expect(r.plan).toBeDefined();
     expect(r.plan!.planFingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect(r.plan!.visibleReadTools).toEqual(["search_catalog", "view_cart"]);
     expect(r.plan!.allowedIntents).toEqual(["cart.add_item"]);
-    expect(r.plan!.forbiddenConcepts).toEqual(["free shipping"]);
   });
 
   it("planFingerprint is identical for byte-equal plans", () => {
     const planInput = {
       visibleReadTools: ["a", "b"],
       allowedIntents: ["x"],
-      forbiddenConcepts: ["y"],
     };
     const r1 = buildAuditRecord({
       envelope: envFixture(),
@@ -102,50 +99,16 @@ describe("buildAuditRecord with plan", () => {
       decision: decisionFixture(),
       durationMs: 1,
       at: "2026-04-23T12:00:01.000Z",
-      plan: {
-        visibleReadTools: ["a"],
-        allowedIntents: ["x"],
-        forbiddenConcepts: [],
-      },
+      plan: { visibleReadTools: ["a"], allowedIntents: ["x"] },
     });
     const r2 = buildAuditRecord({
       envelope: envFixture(),
       decision: decisionFixture(),
       durationMs: 1,
       at: "2026-04-23T12:00:01.000Z",
-      plan: {
-        visibleReadTools: ["b"],
-        allowedIntents: ["x"],
-        forbiddenConcepts: [],
-      },
+      plan: { visibleReadTools: ["b"], allowedIntents: ["x"] },
     });
     expect(r1.plan!.planFingerprint).not.toBe(r2.plan!.planFingerprint);
-  });
-
-  it("planFingerprint is invariant to forbiddenConcepts (only visibleReadTools + allowedIntents are hashed)", () => {
-    const r1 = buildAuditRecord({
-      envelope: envFixture(),
-      decision: decisionFixture(),
-      durationMs: 1,
-      at: "2026-04-23T12:00:01.000Z",
-      plan: {
-        visibleReadTools: ["a"],
-        allowedIntents: ["x"],
-        forbiddenConcepts: ["one"],
-      },
-    });
-    const r2 = buildAuditRecord({
-      envelope: envFixture(),
-      decision: decisionFixture(),
-      durationMs: 1,
-      at: "2026-04-23T12:00:01.000Z",
-      plan: {
-        visibleReadTools: ["a"],
-        allowedIntents: ["x"],
-        forbiddenConcepts: ["two"],
-      },
-    });
-    expect(r1.plan!.planFingerprint).toBe(r2.plan!.planFingerprint);
   });
 });
 

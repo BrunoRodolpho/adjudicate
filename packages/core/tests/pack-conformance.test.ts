@@ -36,7 +36,6 @@ const planner: CapabilityPlanner<unknown, unknown> = {
     return {
       visibleReadTools: [],
       allowedIntents: ["thing.do"],
-      forbiddenConcepts: [],
     };
   },
 };

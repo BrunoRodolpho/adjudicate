@@ -1,5 +1,5 @@
 /**
- * In-memory persistence shims for the agent.
+ * In-memory persistence shims for the adapter loop.
  *
  * Two stores live here:
  * - **DeferRedis + ParkRedis** — implements the combined runtime persistence
@@ -12,10 +12,13 @@
  *   `(session, intentHash)`; REQUEST_CONFIRMATION persists by a
  *   user-held token (the user clicks "yes/no" at an arbitrary later time).
  *   Conflating them muddles both shapes.
+ *
+ * The persistence layer is provider-neutral — the `assistantHistorySnapshot`
+ * on pending confirmations is typed as a generic `H` so adapters thread
+ * their SDK's conversation-history shape through unchanged.
  */
 
 import type { IntentEnvelope } from "@adjudicate/core";
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 
 // ── Defer / Park Redis surface ──────────────────────────────────────────────
 
@@ -58,7 +61,7 @@ export interface ParkRedis {
 
 interface Entry {
   readonly value: string;
-  expiresAt: number; // ms epoch; Infinity for no-expiry
+  expiresAt: number;
 }
 
 /**
@@ -119,23 +122,17 @@ export function createInMemoryDeferStore(): DeferRedis & ParkRedis {
       return next;
     },
     async expire(_key: string, _seconds: number, _mode?: "NX") {
-      // Counter TTLs are best-effort no-ops in the in-memory shim. Real
-      // Redis honors EXPIRE; the runtime layer's safety relies on TTL,
-      // but tests use bounded scenarios so the no-op is acceptable.
       return 1;
     },
-    // ParkRedis.evalIncrCheck — left absent; the framework falls back to
-    // INCR + EXPIRE + check sequence, which is correct under in-memory
-    // single-threaded execution.
   };
 }
 
 // ── Confirmation store ──────────────────────────────────────────────────────
 
-export interface PendingConfirmation {
+export interface PendingConfirmation<H = unknown> {
   readonly envelope: IntentEnvelope;
   readonly sessionId: string;
-  readonly assistantHistorySnapshot: ReadonlyArray<MessageParam>;
+  readonly assistantHistorySnapshot: H;
   readonly toolUseId: string;
   readonly prompt: string;
 }
@@ -145,22 +142,22 @@ export interface PendingConfirmation {
  * a confirmation token is single-use. A repeated take after the first
  * resolution returns `null` (idempotent yes-then-yes).
  */
-export interface ConfirmationStore {
+export interface ConfirmationStore<H = unknown> {
   put(
     token: string,
-    pending: PendingConfirmation,
+    pending: PendingConfirmation<H>,
     ttlSeconds: number,
   ): Promise<void>;
-  take(token: string): Promise<PendingConfirmation | null>;
+  take(token: string): Promise<PendingConfirmation<H> | null>;
 }
 
-interface ConfirmationEntry {
-  readonly pending: PendingConfirmation;
+interface ConfirmationEntry<H> {
+  readonly pending: PendingConfirmation<H>;
   readonly expiresAt: number;
 }
 
-export function createInMemoryConfirmationStore(): ConfirmationStore {
-  const store = new Map<string, ConfirmationEntry>();
+export function createInMemoryConfirmationStore<H = unknown>(): ConfirmationStore<H> {
+  const store = new Map<string, ConfirmationEntry<H>>();
   return {
     async put(token, pending, ttlSeconds) {
       store.set(token, {

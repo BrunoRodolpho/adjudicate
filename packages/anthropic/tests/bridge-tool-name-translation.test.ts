@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyIncomingToolUse,
   intentKindToApiName,
-} from "../src/bridge.js";
+} from "@adjudicate/adapter-core";
 import { createAnthropicPromptRenderer } from "../src/renderer-anthropic.js";
 import type { Plan } from "@adjudicate/core/llm";
 
@@ -68,7 +68,6 @@ describe("renderer translates dotted intent-kind tool names for Anthropic", () =
     const plan: Plan = {
       visibleReadTools: ["list_pix_charges"],
       allowedIntents: ["pix.charge.create"],
-      forbiddenConcepts: [],
     };
     const rendered = renderer.render(undefined, undefined, plan);
     expect(rendered.toolSchemas).toHaveLength(2);
@@ -97,7 +96,6 @@ describe("renderer translates dotted intent-kind tool names for Anthropic", () =
     const plan: Plan = {
       visibleReadTools: [],
       allowedIntents: ["pix.charge.refund"],
-      forbiddenConcepts: [],
     };
     const rendered = renderer.render(undefined, undefined, plan);
     const schema = rendered.toolSchemas[0]!;
@@ -115,7 +113,6 @@ describe("classifyIncomingToolUse accepts both translated and raw forms", () => 
   const plan: Plan = {
     visibleReadTools: ["list_pix_charges", "get_pix_charge"],
     allowedIntents: ["pix.charge.create", "pix.charge.refund"],
-    forbiddenConcepts: [],
   };
 
   it("matches raw dotted name (mocked-test path)", () => {

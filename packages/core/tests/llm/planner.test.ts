@@ -12,12 +12,10 @@ describe("staticPlanner", () => {
     const p = staticPlanner({
       visibleReadTools: ["search"],
       allowedIntents: ["order.tool.propose"],
-      forbiddenConcepts: ["pedido confirmado"],
     });
     const plan = p.plan(null, null);
     expect(plan.visibleReadTools).toEqual(["search"]);
     expect(plan.allowedIntents).toEqual(["order.tool.propose"]);
-    expect(plan.forbiddenConcepts).toEqual(["pedido confirmado"]);
   });
 });
 

@@ -74,7 +74,7 @@ describe("MissingMetadataAnalyzer (AJD-101)", () => {
         taint: { minimumFor: () => "UNTRUSTED" },
         default: "REFUSE",
       },
-      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [], forbiddenConcepts: [] }) },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
     };
     const diags = missingMetadataAnalyzer.analyze(pack);
     expect(diags.length).toBeGreaterThan(0);
@@ -99,7 +99,7 @@ describe("MissingMetadataAnalyzer (AJD-101)", () => {
         taint: { minimumFor: () => "UNTRUSTED" },
         default: "REFUSE",
       },
-      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [], forbiddenConcepts: [] }) },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
     };
     const diags = missingMetadataAnalyzer.analyze(pack);
     expect(diags.length).toBe(0);
@@ -131,7 +131,7 @@ describe("SignalConsistencyAnalyzer (AJD-102)", () => {
         taint: { minimumFor: () => "UNTRUSTED" },
         default: "REFUSE",
       },
-      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [], forbiddenConcepts: [] }) },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
     };
     const diags = signalConsistencyAnalyzer.analyze(pack);
     expect(diags.some((d) => d.code === "AJD-102" && d.severity === "error")).toBe(true);
@@ -159,7 +159,7 @@ describe("TaintPolicyAnalyzer (AJD-105)", () => {
         },
         default: "REFUSE",
       },
-      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [], forbiddenConcepts: [] }) },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
     };
     const diags = taintPolicyAnalyzer.analyze(pack);
     expect(diags.some((d) => d.code === "AJD-105" && d.severity === "error")).toBe(true);
@@ -182,7 +182,7 @@ describe("TaintPolicyAnalyzer (AJD-105)", () => {
         },
         default: "REFUSE",
       },
-      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [], forbiddenConcepts: [] }) },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
     };
     const diags = taintPolicyAnalyzer.analyze(pack);
     expect(diags.some((d) => d.code === "AJD-105")).toBe(true);
@@ -205,7 +205,7 @@ describe("DefaultPolarityAnalyzer (AJD-106)", () => {
         taint: { minimumFor: () => "UNTRUSTED" },
         default: "EXECUTE",
       },
-      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [], forbiddenConcepts: [] }) },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
     };
     const diags = defaultPolarityAnalyzer.analyze(pack);
     expect(diags.length).toBe(1);
@@ -228,7 +228,7 @@ describe("DefaultPolarityAnalyzer (AJD-106)", () => {
         taint: { minimumFor: () => "UNTRUSTED" },
         default: "REFUSE",
       },
-      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [], forbiddenConcepts: [] }) },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
     };
     const diags = defaultPolarityAnalyzer.analyze(pack);
     expect(diags.length).toBe(0);
@@ -274,7 +274,7 @@ describe("severityOverrides + strict mode", () => {
         taint: { minimumFor: () => "UNTRUSTED" },
         default: "EXECUTE",
       },
-      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [], forbiddenConcepts: [] }) },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
     };
     const report = analyzePolicy({
       pack,
@@ -300,7 +300,7 @@ describe("severityOverrides + strict mode", () => {
         taint: { minimumFor: () => "UNTRUSTED" },
         default: "EXECUTE",
       },
-      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [], forbiddenConcepts: [] }) },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
     };
     const report = analyzePolicy({ pack, strict: true, now: fixedNow });
     expect(report.summary.error).toBeGreaterThan(0);

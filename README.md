@@ -170,20 +170,21 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
 
 ## Status
 
-> **`v0.5`** — kernel API frozen, 876 tests passing, 18 workspace packages. npm publish pending `@adjudicate` org claim.
+> **`v1.0-rc`** — release-candidate posture. Kernel API frozen, 1022 tests passing, 19 workspace packages, scale-harness operational evidence captured ([`docs/perf/scale-baselines.json`](./docs/perf/scale-baselines.json)). v1.0 cut gates on the two adopter-evidence items in [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md) §Priority 1.
 
 **Maturity ladder** (per [`docs/concepts.md §9`](./docs/concepts.md#9-architectural-direction-intended-evolution)):
 
 | Layer | Status | What's there |
 |---|---|---|
-| **L1 — Kernel** | shipped | `adjudicate()`, `adjudicateAndAudit()`, `PolicyBundle`, taint lattice, replay safety, `verifyAuditRecord`. The 5 headline interfaces (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) are API-stable. |
-| **L2 — Risk primitives** | shipped | [`@adjudicate/primitives`](./packages/primitives) — 7 factories: `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy`, `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard`. All carry `GuardMetadata`. |
+| **L1 — Kernel** | shipped, frozen | `adjudicate()`, `adjudicateAndAudit()`, `PolicyBundle`, taint lattice, replay safety, `verifyAuditRecord`. The 5 headline interfaces (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) are API-stable and tracked in [`docs/release/V1_FREEZE_MATRIX.md`](./docs/release/V1_FREEZE_MATRIX.md). |
+| **L2 — Risk primitives** | 3 frozen, 4 experimental | `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy` frozen. `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard` ship as `@experimental` per [ADR-108](./docs/architecture/adr/) pending Pack #4–#6 feedback. All carry `GuardMetadata`. |
 | **L3 — Domain Packs** | partial | Three published: `@adjudicate/pack-payments-pix` (lighthouse), `@adjudicate/pack-identity-kyc` (async + AML + taint defense), `@adjudicate/pack-deployments-approval` (deploy gates). `vacation-approval` and `commerce-reference` examples remain handwritten as onboarding surfaces. |
-| **L4 — Observability / governance** | partial | `@adjudicate/observability` ships OTLP sinks + `SEMCONV`; `@adjudicate/admin-sdk` ships read-only AQI + tRPC router. Console real-time tail + Pack registry implementation deferred to v0.6. |
+| **L4 — Adapter core** | shipped | [`@adjudicate/adapter-core`](./packages/adapter-core) — provider-neutral loop + bridge + decision translator + persistence shims + error taxonomy ([ADR-113](./docs/architecture/adr/)). Anthropic + OpenAI adapters are thin SDK shims over it. |
+| **L4 — Observability / governance** | partial | `@adjudicate/observability` ships OTLP sinks + `SEMCONV` (16 stable attributes); `@adjudicate/admin-sdk` ships read-only AQI + tRPC router. Console real-time tail migration pending (primitives shipped). |
 
-**What's open** — see [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md) for the priority-ordered list.
+**What's open** — see [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md) for the priority-ordered list. v1.0-RC reports live at [`docs/release/V1_FREEZE_MATRIX.md`](./docs/release/V1_FREEZE_MATRIX.md), [`docs/release/V1_CERTIFICATION_REPORT.md`](./docs/release/V1_CERTIFICATION_REPORT.md), and [`docs/security/V1-SECURITY-AUDIT.md`](./docs/security/V1-SECURITY-AUDIT.md).
 
-**Not for production yet.** The integration surface (subpath exports, peer deps, error shapes) may shift before `v1.0.0`.
+**Production posture.** Foundation is v1.0-ready for adopters who treat the framework as a per-decision substrate (the intended use). The closing gate for the `v1.0` tag itself is two adopter-evidence items: real-world kill-switch v2 propagation latency, and `AuditEventBus` throughput under a real WebSocket fan-out at scale.
 
 **Prior art**: this is the same architecture pattern recently named in academic literature (CaMeL, FIDES, KAIJU) — implemented as a small set of TypeScript packages adopters wire into their own apps.
 

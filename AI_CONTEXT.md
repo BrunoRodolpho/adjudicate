@@ -186,9 +186,22 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 
 `adjudicate()` p99 on commodity hardware: EXECUTE 0.7µs, REWRITE 6.5µs (hash dominates), REFUSE 0.5µs. `adjudicateAndAudit` REFUSE p99 = 9.5µs. All measurements >200× headroom against SLO (kernel ≤ 2ms, full path ≤ 15ms). Microbenchmarks: `pnpm -F adjudicate-bench bench`.
 
+## v1.0 release candidate
+
+The repo is in v1.0-RC posture. The authoritative RC artifacts are:
+
+- [`docs/release/V1_FREEZE_MATRIX.md`](docs/release/V1_FREEZE_MATRIX.md) — every public surface classified into a stability tier.
+- [`docs/release/V1_CERTIFICATION_REPORT.md`](docs/release/V1_CERTIFICATION_REPORT.md) — invariant verification + operational evidence + production-readiness scores.
+- [`docs/security/V1-SECURITY-AUDIT.md`](docs/security/V1-SECURITY-AUDIT.md) — STRIDE-aligned per-surface findings.
+- [`docs/perf/scale-baselines.json`](docs/perf/scale-baselines.json) — machine-readable scale harness output.
+
+Two adopter-evidence items remain ungated (kill-switch v2 propagation under real Redis, AuditEventBus under real WebSocket fan-out). Surface is frozen; only the option defaults flip on evidence.
+
+CI: `pnpm rc:check` runs the full pipeline locally; `.github/workflows/release-candidate.yml` runs it on tag push.
+
 ## Testing posture
 
-**1022 passing, 1 skipped (audit-postgres needs a live DB), 0 failing.** CI runs `lint + typecheck + test` on push. Integration coverage:
+**1022 passing, 1 skipped (audit-postgres needs a live DB), 0 failing.** Plus 6 freeze-matrix surface tests in `@adjudicate/core` and 4 scale-harness smoke tests in `@adjudicate/bench`. CI runs `lint + typecheck + test + check:versions + check:freeze-matrix + audit` on push. Integration coverage:
 
 - Decision regression gates via `adjudicate simulate` scenarios per Pack.
 - Property tests for replay determinism, plan conformance, canonical-JSON hash.

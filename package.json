@@ -10,7 +10,12 @@
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
-    "adjudicate": "tsx packages/cli/src/bin.ts"
+    "adjudicate": "tsx packages/cli/src/bin.ts",
+    "check:versions": "tsx scripts/check-versions.ts",
+    "check:freeze-matrix": "tsx scripts/check-freeze-matrix.ts",
+    "rc:check": "tsx scripts/rc-checks.ts",
+    "rc:scale": "pnpm -F @adjudicate/bench scale:rc",
+    "rc:audit": "pnpm audit --prod --audit-level high"
   },
   "devDependencies": {
     "@adjudicate/eslint-config": "workspace:*",

@@ -5,9 +5,15 @@
 
 ## Current state
 
-`v0.7` — operational hardening + ecosystem trust cut. **1022 tests passing, 0 failing, 1 skipped.** Kernel API frozen; v0.6 adapter-core extraction held; v0.7 additions are all opt-in primitives. The framework is pre-v1.0 ready pending two adopter-evidence items (see V0.7-AUDIT-REPORT.md "Operational evidence required before v1.0").
+`v1.0-rc` — release-candidate posture. **1022 tests passing, 0 failing, 1 skipped** (audit-postgres needs a live DB). Plus 6 new freeze-matrix surface tests in `@adjudicate/core` and 4 production-scale simulation smoke tests in `@adjudicate/bench`. Kernel API frozen; v0.6 adapter-core extraction held; v0.7 additions are opt-in primitives. The framework is v1.0-ready pending two adopter-evidence items (real kill-switch v2 latency profile, real `AuditEventBus` WebSocket fan-out).
 
-Authoritative v0.7 review: [`docs/architecture/V0.7-AUDIT-REPORT.md`](docs/architecture/V0.7-AUDIT-REPORT.md).
+Authoritative artifacts for the RC:
+
+- Freeze matrix: [`docs/release/V1_FREEZE_MATRIX.md`](docs/release/V1_FREEZE_MATRIX.md)
+- Certification report: [`docs/release/V1_CERTIFICATION_REPORT.md`](docs/release/V1_CERTIFICATION_REPORT.md)
+- Security audit: [`docs/security/V1-SECURITY-AUDIT.md`](docs/security/V1-SECURITY-AUDIT.md)
+- Scale baselines: [`docs/perf/scale-baselines.json`](docs/perf/scale-baselines.json)
+- v0.7 source review: [`docs/architecture/V0.7-AUDIT-REPORT.md`](docs/architecture/V0.7-AUDIT-REPORT.md)
 
 | Layer | Status | Footprint |
 |---|---|---|
@@ -35,10 +41,10 @@ See `.changeset/v0.5-foundation-safety-analyzer.md` for the line-by-line v0.5 in
 
 ## Open work, ordered by leverage
 
-### Priority 1 — adopter-evidence (blocks v1.0)
+### Priority 1 — adopter-evidence (blocks v1.0 cut)
 
-- **Real-world kill-switch v2 propagation latency.** Sub-100 ms holds in lab; needs a multi-replica production deployment to confirm. Once an adopter reports the latency profile, freeze the API and cut v1.0.
-- **Real-world `AuditEventBus` throughput under WebSocket fan-out.** Primitives in place (`createRedisAuditEventBus` + `bridgeAuditSinkToBus`); needs an adopter wiring it into a console with hundreds of concurrent operator sessions.
+- **Real-world kill-switch v2 propagation latency.** Sub-100 ms holds in lab AND in the in-process scale harness (100 transitions × 64 replicas × 200 ms partition × 3 reconnect cycles → 0 split-brain, propagation p99 98.2 ms — dominated by polling fallback). Needs a multi-replica PRODUCTION deployment to confirm the Redis-hop latency profile. Once an adopter reports it, freeze the option defaults and cut v1.0.
+- **Real-world `AuditEventBus` throughput under WebSocket fan-out.** Primitives in place (`createRedisAuditEventBus` + `bridgeAuditSinkToBus`); scale harness validates the in-process fan-out structure (500 subscribers × 5000 records × ordering preserved × 0 listener leaks). Needs an adopter wiring it into a console with hundreds of concurrent operator sessions.
 
 ### Priority 2 — operational scalability (remaining)
 

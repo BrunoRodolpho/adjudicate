@@ -3,7 +3,17 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@adjudicate/core": ["../packages/core/src/index.ts"],
+      "@adjudicate/core/kernel": ["../packages/core/src/kernel/index.ts"],
+      "@adjudicate/core/llm": ["../packages/core/src/llm/index.ts"],
+      "@adjudicate/audit": ["../packages/audit/src/index.ts"],
+      "@adjudicate/pack-payments-pix": [
+        "../packages/pack-payments-pix/src/index.ts"
+      ]
+    }
   },
   "include": ["src/**/*"]
 }

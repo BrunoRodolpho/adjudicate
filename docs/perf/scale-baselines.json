@@ -1,0 +1,268 @@
+{
+  "generatedAt": "2026-05-21T04:45:38.179Z",
+  "repoVersion": "local",
+  "artifacts": [
+    {
+      "name": "AuditEventBus scale fan-out",
+      "startedAt": "2026-05-21T04:45:11.777Z",
+      "completedAt": "2026-05-21T04:45:11.797Z",
+      "durationMs": 18.68195800000001,
+      "config": {
+        "subscribers": 32,
+        "records": 200,
+        "burstSize": 25,
+        "slowFraction": 0.1,
+        "slowConsumerMs": 0,
+        "pubsubLatencyMs": 0,
+        "pubsubJitterMs": 1,
+        "dropRate": 0,
+        "reconnectCycles": 1,
+        "malformedInjections": 5,
+        "seed": 1,
+        "scenario": "audit-bus-light"
+      },
+      "measurements": {
+        "subscribers": 32,
+        "records": 200,
+        "expectedDeliveries": 6400,
+        "totalReceived": 3200,
+        "dropped": 3200,
+        "droppedTransport": 0,
+        "dropRateEffective": 0.5,
+        "latencyP50Ms": 0.004958000000016227,
+        "latencyP95Ms": 0.024041999999980135,
+        "latencyP99Ms": 0.0337910000000079,
+        "latencyMeanMs": 0.007865314062500382,
+        "latencyMinMs": 0.0027079999999841675,
+        "latencyMaxMs": 0.09966700000001083,
+        "reconnectRecoveryMs": [
+          0.06954199999998423
+        ],
+        "memDeltaBytes": 323064,
+        "orderingViolations": 0
+      },
+      "invariants": [
+        {
+          "id": "bus-no-crash-under-malformed",
+          "description": "Malformed payloads do not crash any subscriber.",
+          "passed": true
+        },
+        {
+          "id": "bus-ordering-preserved",
+          "description": "Each subscriber sees records in monotonic publish order.",
+          "passed": true,
+          "observed": 0,
+          "expected": 0
+        },
+        {
+          "id": "bus-reconnect-survives",
+          "description": "Reconnect storm completes without throwing.",
+          "passed": true
+        },
+        {
+          "id": "bus-listener-cleanup",
+          "description": "After unsubscribe, the underlying pubsub holds no listeners on the channel.",
+          "passed": true,
+          "observed": 0,
+          "expected": 0
+        }
+      ],
+      "notes": "Latency is in-process; numbers represent framework dispatch overhead, not real Redis hops."
+    },
+    {
+      "name": "AuditEventBus scale fan-out",
+      "startedAt": "2026-05-21T04:45:11.797Z",
+      "completedAt": "2026-05-21T04:45:29.298Z",
+      "durationMs": 17501.863999999998,
+      "config": {
+        "subscribers": 500,
+        "records": 5000,
+        "burstSize": 100,
+        "slowFraction": 0.05,
+        "slowConsumerMs": 1,
+        "pubsubLatencyMs": 1,
+        "pubsubJitterMs": 4,
+        "dropRate": 0.001,
+        "reconnectCycles": 2,
+        "malformedInjections": 50,
+        "seed": 42,
+        "scenario": "audit-bus-heavy"
+      },
+      "measurements": {
+        "subscribers": 500,
+        "records": 5000,
+        "expectedDeliveries": 2500000,
+        "totalReceived": 1249500,
+        "dropped": 1250500,
+        "droppedTransport": 1,
+        "dropRateEffective": 0.5002,
+        "latencyP50Ms": 2.894125000000713,
+        "latencyP95Ms": 5.26733299999978,
+        "latencyP99Ms": 5.538749999999709,
+        "latencyMeanMs": 3.241983344160931,
+        "latencyMinMs": 0.03345899999840185,
+        "latencyMaxMs": 19.67829199999869,
+        "reconnectRecoveryMs": [
+          1.5347920000003796
+        ],
+        "memDeltaBytes": 72801328,
+        "orderingViolations": 0
+      },
+      "invariants": [
+        {
+          "id": "bus-no-crash-under-malformed",
+          "description": "Malformed payloads do not crash any subscriber.",
+          "passed": true
+        },
+        {
+          "id": "bus-ordering-preserved",
+          "description": "Each subscriber sees records in monotonic publish order.",
+          "passed": true,
+          "observed": 0,
+          "expected": 0
+        },
+        {
+          "id": "bus-reconnect-survives",
+          "description": "Reconnect storm completes without throwing.",
+          "passed": true
+        },
+        {
+          "id": "bus-listener-cleanup",
+          "description": "After unsubscribe, the underlying pubsub holds no listeners on the channel.",
+          "passed": true,
+          "observed": 0,
+          "expected": 0
+        }
+      ],
+      "notes": "Latency is in-process; numbers represent framework dispatch overhead, not real Redis hops."
+    },
+    {
+      "name": "Distributed kill-switch v2 scale",
+      "startedAt": "2026-05-21T04:45:29.299Z",
+      "completedAt": "2026-05-21T04:45:30.632Z",
+      "durationMs": 1332.658875000001,
+      "config": {
+        "replicas": 8,
+        "transitions": 16,
+        "pollMs": 100,
+        "pubsubLatencyMs": 0,
+        "pubsubJitterMs": 2,
+        "dropRate": 0,
+        "partitionMs": 50,
+        "reconnectCycles": 1,
+        "crashes": 1,
+        "lateBoots": 1,
+        "seed": 7,
+        "scenario": "kill-light"
+      },
+      "measurements": {
+        "replicas": 8,
+        "eagerReplicas": 7,
+        "lateBoots": 1,
+        "transitions": 16,
+        "convergedTransitions": 16,
+        "droppedPublishes": 1,
+        "publishedPublishes": 16,
+        "propagationP50Ms": 94.67399999999907,
+        "propagationP95Ms": 95.87858399999823,
+        "propagationP99Ms": 95.87858399999823,
+        "propagationMaxMs": 97.36637500000143,
+        "splitBrainResidual": 0,
+        "crashesInjected": 1,
+        "reconnectCycles": 1,
+        "partitionMs": 50
+      },
+      "invariants": [
+        {
+          "id": "kill-no-split-brain",
+          "description": "Every live replica's terminal state matches the canonical writer.",
+          "passed": true,
+          "observed": 0,
+          "expected": 0
+        },
+        {
+          "id": "kill-pubsub-convergence",
+          "description": "Every transition converges within pollMs*5 budget.",
+          "passed": true,
+          "observed": 0,
+          "expected": 0
+        },
+        {
+          "id": "kill-late-boot-resync",
+          "description": "Late-booting replicas catch up via boot-time poll.",
+          "passed": true
+        },
+        {
+          "id": "kill-fallback-after-partition",
+          "description": "Polling fallback re-establishes convergence after partition.",
+          "passed": true
+        }
+      ],
+      "notes": "Convergence latency is measured from canonical writer publish() return to last-replica apply."
+    },
+    {
+      "name": "Distributed kill-switch v2 scale",
+      "startedAt": "2026-05-21T04:45:30.632Z",
+      "completedAt": "2026-05-21T04:45:38.179Z",
+      "durationMs": 7546.692416000002,
+      "config": {
+        "replicas": 64,
+        "transitions": 100,
+        "pollMs": 100,
+        "pubsubLatencyMs": 2,
+        "pubsubJitterMs": 6,
+        "dropRate": 0.005,
+        "partitionMs": 200,
+        "reconnectCycles": 3,
+        "crashes": 5,
+        "lateBoots": 4,
+        "seed": 1337,
+        "scenario": "kill-heavy"
+      },
+      "measurements": {
+        "replicas": 64,
+        "eagerReplicas": 60,
+        "lateBoots": 4,
+        "transitions": 100,
+        "convergedTransitions": 100,
+        "droppedPublishes": 2,
+        "publishedPublishes": 100,
+        "propagationP50Ms": 94.67054199999984,
+        "propagationP95Ms": 97.35829100000046,
+        "propagationP99Ms": 98.19833300000028,
+        "propagationMaxMs": 98.53316700000141,
+        "splitBrainResidual": 0,
+        "crashesInjected": 5,
+        "reconnectCycles": 3,
+        "partitionMs": 200
+      },
+      "invariants": [
+        {
+          "id": "kill-no-split-brain",
+          "description": "Every live replica's terminal state matches the canonical writer.",
+          "passed": true,
+          "observed": 0,
+          "expected": 0
+        },
+        {
+          "id": "kill-pubsub-convergence",
+          "description": "Every transition converges within pollMs*5 budget.",
+          "passed": true,
+          "observed": 0,
+          "expected": 0
+        },
+        {
+          "id": "kill-late-boot-resync",
+          "description": "Late-booting replicas catch up via boot-time poll.",
+          "passed": true
+        },
+        {
+          "id": "kill-fallback-after-partition",
+          "description": "Polling fallback re-establishes convergence after partition.",
+          "passed": true
+        }
+      ],
+      "notes": "Convergence latency is measured from canonical writer publish() return to last-replica apply."
+    }
+  ]
+}

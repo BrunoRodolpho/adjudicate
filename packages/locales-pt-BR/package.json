@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/locales-pt-BR",
-  "version": "0.5.0",
+  "version": "0.1.0",
   "description": "Brazilian Portuguese (pt-BR) refusal messages for @adjudicate/core's localizeDecision() helper.",
   "publishConfig": {
     "access": "public"

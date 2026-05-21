@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/pack-identity-kyc",
-  "version": "0.5.0",
+  "version": "0.1.0",
   "description": "adjudicate Pack #3 — Identity/KYC verification with multi-stage DEFER + ESCALATE. Async lifecycle: start → upload → vendor callback. Generated via `adjudicate pack init pack-identity-kyc` (Phase 3a CLI dogfood).",
   "type": "module",
   "main": "./dist/index.js",

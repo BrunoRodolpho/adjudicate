@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/migrate",
-  "version": "0.5.0",
+  "version": "0.1.0",
   "description": "Codemods for adjudicate API migrations — versioned, deterministic rewrites adopters run when a deprecation lands.",
   "publishConfig": {
     "access": "public"

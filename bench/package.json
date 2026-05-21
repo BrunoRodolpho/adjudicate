@@ -8,7 +8,12 @@
     "bench": "vitest bench --run",
     "bench:kernel": "vitest bench --run src/kernel.bench.ts",
     "bench:audit": "vitest bench --run src/audit.bench.ts",
-    "report": "tsx src/report.ts"
+    "report": "tsx src/report.ts",
+    "scale": "tsx src/scale/run.ts",
+    "scale:audit-bus": "tsx src/scale/run.ts audit-bus-heavy",
+    "scale:kill": "tsx src/scale/run.ts kill-heavy",
+    "scale:rc": "tsx src/scale/run.ts all --out ../docs/perf/scale-baselines.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@adjudicate/core": "workspace:*",

@@ -27,7 +27,6 @@ const planner: CapabilityPlanner<unknown, unknown> = {
     return {
       visibleReadTools: [],
       allowedIntents: ["thing.do"],
-      forbiddenConcepts: [],
     };
   },
 };
@@ -60,7 +59,6 @@ function makePlan(overrides: Partial<Plan> = {}): Plan {
   return {
     visibleReadTools: [],
     allowedIntents: [],
-    forbiddenConcepts: [],
     ...overrides,
   };
 }
@@ -116,8 +114,7 @@ describe("safePlan with optional pack arg (T4)", () => {
       staticPlanner({
         visibleReadTools: [],
         allowedIntents: ["thing.do"],
-        forbiddenConcepts: [],
-      }),
+        }),
       classification,
       pack,
     );
@@ -130,8 +127,7 @@ describe("safePlan with optional pack arg (T4)", () => {
       staticPlanner({
         visibleReadTools: [],
         allowedIntents: ["thing.do", "admin.delete_all"],
-        forbiddenConcepts: [],
-      }),
+        }),
       classification,
       pack,
     );
@@ -143,8 +139,7 @@ describe("safePlan with optional pack arg (T4)", () => {
       staticPlanner({
         visibleReadTools: [],
         allowedIntents: ["any.intent.even.unknown"],
-        forbiddenConcepts: [],
-      }),
+        }),
       classification,
     );
     expect(() => wrapped.plan({}, {})).not.toThrow();

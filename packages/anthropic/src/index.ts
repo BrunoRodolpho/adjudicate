@@ -1,28 +1,46 @@
 /**
  * `@adjudicate/anthropic` — reference Anthropic Messages API integration.
  *
- * The adapter sits *before* `adjudicate()` from `@adjudicate/core/kernel`,
- * shaping prompts and bridging the LLM's tool_use blocks to typed
- * `IntentEnvelope`s. The kernel still adjudicates every proposed mutation;
- * the adapter never bypasses or short-circuits it.
+ * Provides:
+ *   - `createAdjudicatedAgent` — a thin shim that wires the Anthropic SDK
+ *     into the provider-neutral loop from `@adjudicate/adapter-core`.
+ *   - `createAnthropicBridge` — the `ProviderBridge<MessageParam[]>`
+ *     implementation against the Anthropic SDK. Exposed for advanced
+ *     adopters that build their own loop on adapter-core directly.
+ *   - `createAnthropicPromptRenderer` — Anthropic-tuned system prompt +
+ *     tool-name translation.
+ *   - Persistence shims and error / event types — re-exported from
+ *     `@adjudicate/adapter-core` so adopter imports stay stable across
+ *     the v0.5 → v0.6 split.
  *
- * See the package README for the L2 rework callouts — surfaces likely to
- * shift when the policy-primitives layer extracts.
+ * Everything load-bearing — tool-use loop, defer/confirm orchestration,
+ * audit + ledger wiring, REWRITE handling, confirmation-blob hash
+ * verification — lives in `@adjudicate/adapter-core`.
  */
 
 export { createAdjudicatedAgent } from "./adapter.js";
+export {
+  createAnthropicBridge,
+  type AnthropicBridgeOptions,
+} from "./bridge-anthropic.js";
+
 export type {
   AdjudicatedAgent,
   AdjudicatedAgentOptions,
   AdjudicatedAgentSendInput,
-  AgentEvent,
-  AgentOutcome,
-  AgentTurnResult,
   AdapterContext,
   AdopterExecutor,
+  AgentEvent,
   AgentLogger,
+  AgentOutcome,
+  AgentTurnResult,
+  AnthropicHistory,
   ConfirmAgentArgs,
+  ConfirmationStore,
+  PendingConfirmation,
   ResumeAgentArgs,
+  Taint,
+  ToolResultBlock,
 } from "./types.js";
 
 export {
@@ -31,43 +49,44 @@ export {
 } from "./renderer-anthropic.js";
 export type { AnthropicPromptRendererOptions } from "./renderer-anthropic.js";
 
-export {
-  createInMemoryDeferStore,
-  createInMemoryConfirmationStore,
-} from "./persistence.js";
-export type {
-  ConfirmationStore,
-  DeferRedis,
-  ParkRedis,
-  PendingConfirmation,
-} from "./persistence.js";
+// ── Re-exports from adapter-core (preserve adopter import paths) ─────────────
 
 export {
   buildEnvelopeFromToolUse,
   classifyIncomingToolUse,
   intentKindToApiName,
-} from "./bridge.js";
-export type { ToolUseClassification } from "./bridge.js";
+  createInMemoryConfirmationStore,
+  createInMemoryDeferStore,
+  createMemoryLedger,
+  translateDecision,
+  AdapterError,
+  AdapterErrorCode,
+} from "@adjudicate/adapter-core";
 
-export { translateDecision } from "./decisions.js";
 export type {
+  DeferRedis,
+  ParkRedis,
   DecisionTranslation,
   DecisionTranslationContext,
-} from "./decisions.js";
+  ToolUseClassification,
+} from "@adjudicate/adapter-core";
 
-export {
-  AnthropicAdapterError,
-  AnthropicAdapterErrorCode,
-} from "./errors.js";
+// ── Back-compat aliases (alias removed-in-v0.6 names to canonical ones) ─────
+
+import {
+  AdapterError as AdapterErrorImpl,
+  AdapterErrorCode as AdapterErrorCodeImpl,
+} from "@adjudicate/adapter-core";
 
 /**
- * In-memory Execution Ledger — re-export from `@adjudicate/audit` for
- * zero-import-friction in tests, the quickstart, and local development.
- *
- * `createMemoryLedger()` provides replay suppression only within a single
- * process lifetime and MUST NOT be used for distributed or persistent
- * production deployments. Production adopters wire `createRedisLedger`
- * (or any backing store with SET-NX, EX, INCR, DECR) from
- * `@adjudicate/audit`.
+ * @deprecated since v0.6 — use {@link AdapterError} from
+ * `@adjudicate/adapter-core` (re-exported above). Removed in v2.0.
  */
-export { createMemoryLedger } from "@adjudicate/audit";
+export const AnthropicAdapterError = AdapterErrorImpl;
+/**
+ * @deprecated since v0.6 — use {@link AdapterErrorCode} from
+ * `@adjudicate/adapter-core` (re-exported above). Removed in v2.0.
+ */
+export const AnthropicAdapterErrorCode = AdapterErrorCodeImpl;
+export type AnthropicAdapterError = AdapterErrorImpl;
+export type AnthropicAdapterErrorCode = AdapterErrorCodeImpl;

@@ -1,0 +1,88 @@
+name: Release Candidate
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*-rc*"
+      - "v*"
+
+permissions:
+  contents: read
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: rc-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rc-pipeline:
+    name: v1.0-RC invariant pipeline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Version consistency
+        run: pnpm check:versions
+
+      - name: Freeze-matrix consistency (strict)
+        run: pnpm check:freeze-matrix --strict
+        continue-on-error: true   # strict mode is advisory until the matrix is symbol-complete
+
+      - name: Cross-runtime hash vectors
+        run: pnpm -F @adjudicate/core test cross-runtime-hash-vectors
+
+      - name: Pack trust round-trip
+        run: pnpm -F @adjudicate/conformance test pack-trust
+
+      - name: Replay-with-integrity invariants
+        run: pnpm -F @adjudicate/audit test replay-integrity
+
+      - name: Scale harness — operational evidence run
+        run: pnpm rc:scale
+
+      - name: Dependency advisory audit (high+)
+        run: pnpm audit --prod --audit-level high
+
+      - name: Upload scale baselines artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scale-baselines.json
+          path: docs/perf/scale-baselines.json
+          if-no-files-found: error
+
+      - name: Upload V1 freeze matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: V1_FREEZE_MATRIX.md
+          path: docs/release/V1_FREEZE_MATRIX.md
+          if-no-files-found: error
+
+      - name: Upload V1 security audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: V1-SECURITY-AUDIT.md
+          path: docs/security/V1-SECURITY-AUDIT.md
+          if-no-files-found: error

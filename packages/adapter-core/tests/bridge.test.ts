@@ -8,7 +8,6 @@ import {
 const plan: Plan = {
   visibleReadTools: ["list_charges", "get_charge"],
   allowedIntents: ["pix.charge.create", "pix.charge.refund"],
-  forbiddenConcepts: [],
 };
 
 describe("classifyIncomingToolUse", () => {
@@ -50,8 +49,7 @@ describe("classifyIncomingToolUse", () => {
     const restrictivePlan: Plan = {
       visibleReadTools: [],
       allowedIntents: ["pix.charge.create"],
-      forbiddenConcepts: [],
-    };
+        };
     const result = classifyIncomingToolUse(
       { name: "pix.charge.confirm", input: { chargeId: "x" } },
       restrictivePlan,

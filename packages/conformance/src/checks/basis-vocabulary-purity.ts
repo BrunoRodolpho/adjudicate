@@ -31,21 +31,9 @@ import type { ConformanceCheck, ConformanceOptions, ConformanceResult } from "..
 import { deterministicNonce, deterministicTimestamp, lcg, pick } from "../prng.js";
 import { emptyStateFor } from "../state.js";
 
-/**
- * `guard_panic` is the kernel's refusal code when a guard throws — emitted
- * by `_adjudicateImpl` itself, not by any Pack-declared guard. It does not
- * appear in `KERNEL_REFUSAL_CODES` (T-002 added the emission; the set in
- * `pack-conformance.ts` predates it). Treating it as kernel-internal here
- * keeps the harness from penalizing a Pack for state-guard panics on
- * synthetic-state envelopes — which is harness-induced, not a Pack defect.
- *
- * If T-002's emission code is added to `KERNEL_REFUSAL_CODES` in core
- * later, this set becomes a no-op overlay (the union behaviour below
- * still accepts it).
- */
-const KERNEL_INTERNAL_REFUSAL_CODES: ReadonlySet<string> = new Set([
-  "guard_panic",
-]);
+// `guard_panic` is now part of `KERNEL_REFUSAL_CODES` in core — see
+// `packages/core/src/pack-conformance.ts`. The pre-merge overlay this
+// module carried is no longer needed.
 
 const TAINT_OPTIONS: ReadonlyArray<Taint> = ["SYSTEM", "TRUSTED", "UNTRUSTED"];
 
@@ -101,8 +89,7 @@ export const basisVocabularyPurityCheck: ConformanceCheck = {
           const code = decision.refusal.code;
           if (
             !declaredCodes.has(code) &&
-            !KERNEL_REFUSAL_CODES.has(code) &&
-            !KERNEL_INTERNAL_REFUSAL_CODES.has(code)
+            !KERNEL_REFUSAL_CODES.has(code)
           ) {
             failures.push(
               `kind="${String(kind)}" emitted REFUSE code "${code}" outside Pack.basisCodes ∪ KERNEL_REFUSAL_CODES`,

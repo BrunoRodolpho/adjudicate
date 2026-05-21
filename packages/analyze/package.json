@@ -21,7 +21,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@adjudicate/core": "workspace:*"
+    "@adjudicate/core": "workspace:*",
+    "ts-morph": "^25.0.0"
   },
   "devDependencies": {
     "@adjudicate/pack-payments-pix": "workspace:*",

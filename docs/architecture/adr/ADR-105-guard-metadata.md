@@ -27,8 +27,7 @@ to inspect what a guard *is*. Two specific gaps drove this ADR:
    indistinguishable learning events. Analyzers, deprecation workflows,
    and rename tooling need a stable identifier per guard.
 
-The synthesis at `docs/research/enhancement-todo.md` (P0-3) called for a
-single shared metadata surface that solves both gaps without growing into
+A single shared metadata surface solves both gaps without growing into
 an open-ended escape hatch.
 
 ## Decision
@@ -191,7 +190,6 @@ canonical synthesis rule.
 
 ## References
 
-- Synthesis TODO: `docs/research/enhancement-todo.md` (P0-3)
 - ADR-104: envelope v2 nonce (precedent for closed-enum governance)
 - ADR-101: kernel audit emission (the LearningEvent shape this ADR
   extends)

@@ -164,7 +164,6 @@ describe("rowToRecord — round-trip with recordToRow", () => {
       plan: {
         visibleReadTools: ["search", "view_cart"],
         allowedIntents: ["order.submit"],
-        forbiddenConcepts: ["free shipping"],
       },
     });
     const row = recordToRow(original);
@@ -278,7 +277,6 @@ describe("rowToRecord — round-trip with recordToRow", () => {
       plan: () => ({
         visibleReadTools: ["search"],
         allowedIntents: ["order.submit"],
-        forbiddenConcepts: [],
       }),
     });
 

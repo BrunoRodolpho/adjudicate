@@ -25,7 +25,6 @@ function makePlan(overrides: Partial<Plan> = {}): Plan {
   return {
     visibleReadTools: [],
     allowedIntents: [],
-    forbiddenConcepts: [],
     ...overrides,
   };
 }

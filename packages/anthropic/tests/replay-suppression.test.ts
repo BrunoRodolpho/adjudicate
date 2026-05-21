@@ -42,7 +42,7 @@ import { createAdjudicatedAgent, createMemoryLedger } from "../src/index.js";
 import {
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
-} from "../src/persistence.js";
+} from "@adjudicate/adapter-core";
 import { createAnthropicPromptRenderer } from "../src/renderer-anthropic.js";
 import type { AdopterExecutor } from "../src/types.js";
 

@@ -67,12 +67,6 @@ export const commerceCapabilityPlanner: CapabilityPlanner<CommerceState> = {
     return {
       visibleReadTools: filterReadOnly(COMMERCE_TOOLS, allTools),
       allowedIntents: INTENTS_BY_STATE[status] ?? [],
-      forbiddenConcepts: [
-        // Concepts the LLM must not emit at any time.
-        "guaranteed delivery",
-        "free shipping",
-        "exclusive discount",
-      ],
     };
   },
 };

@@ -16,6 +16,12 @@ export default defineConfig({
       "@adjudicate/runtime": fileURLToPath(
         new URL("../runtime/src/index.ts", import.meta.url),
       ),
+      "@adjudicate/adapter-core": fileURLToPath(
+        new URL("../adapter-core/src/index.ts", import.meta.url),
+      ),
+      "@adjudicate/audit": fileURLToPath(
+        new URL("../audit/src/index.ts", import.meta.url),
+      ),
       "@adjudicate/pack-payments-pix": fileURLToPath(
         new URL("../pack-payments-pix/src/index.ts", import.meta.url),
       ),

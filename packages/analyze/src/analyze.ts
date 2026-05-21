@@ -8,6 +8,7 @@
 
 import type { PackV0 } from "@adjudicate/core";
 import { DEFAULT_ANALYZERS } from "./analyzers.js";
+import { DEFAULT_TIER2_ANALYZERS } from "./tier2.js";
 import type {
   AnalysisReport,
   Analyzer,
@@ -39,6 +40,20 @@ export function analyzePolicy<K extends string, P, S, C>(
       let severity: DiagnosticSeverity = overridden ?? d.severity;
       if (strict && severity === "warning") severity = "error";
       allDiagnostics.push({ ...d, severity });
+    }
+  }
+
+  // Tier 2 AST analyzers — only when sourceFiles are supplied.
+  if (args.sourceFiles !== undefined && args.sourceFiles.length > 0) {
+    const tier2 = args.tier2Analyzers ?? DEFAULT_TIER2_ANALYZERS;
+    for (const analyzer of tier2) {
+      const raw = analyzer.analyze(args.pack, args.sourceFiles);
+      for (const d of raw) {
+        const overridden = overrides[d.code];
+        let severity: DiagnosticSeverity = overridden ?? d.severity;
+        if (strict && severity === "warning") severity = "error";
+        allDiagnostics.push({ ...d, severity });
+      }
     }
   }
 

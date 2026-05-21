@@ -33,15 +33,18 @@ export type DiagnosticCode =
   | "AJD-101" // MissingMetadataAnalyzer
   | "AJD-102" // SignalConsistencyAnalyzer
   | "AJD-103" // BasisCodeConsistencyAnalyzer
-  | "AJD-104" // RewriteScopeAnalyzer
+  | "AJD-104" // RewriteScopeAnalyzer (Tier 1 — declaration check)
   | "AJD-105" // TaintPolicyAnalyzer
   | "AJD-106" // DefaultPolarityAnalyzer
+  | "AJD-201" // RewriteScopeAstAnalyzer (Tier 2 — AST mutation check)
+  | "AJD-202" // BasisCodeAstAnalyzer (Tier 2 — reserved)
   | string;  // Forward-compat: unknown codes pass through
 
 /**
- * One diagnostic emitted by an analyzer. Mirrors SARIF Result shape
- * minus the heavy `locations.physicalLocation.region` (we work on
- * Pack objects, not source files, so locations are guard-keyed).
+ * One diagnostic emitted by an analyzer. Mirrors SARIF Result shape.
+ * Tier 1 analyzers only populate guard-keyed location (`phase`, `guardId`).
+ * Tier 2 analyzers also populate `sourceLocation` so editors and
+ * GitHub Code Scanning can deep-link to the offending source span.
  */
 export interface Diagnostic {
   readonly code: DiagnosticCode;
@@ -56,6 +59,23 @@ export interface Diagnostic {
   readonly phase?: "state" | "auth" | "business";
   /** Free-form structured detail for tooling. */
   readonly detail?: Record<string, unknown>;
+  /**
+   * Source location for Tier 2 (AST) diagnostics. Absent on Tier 1.
+   * `file` is an absolute or workspace-relative path; `line`/`column`
+   * are 1-indexed to match SARIF + IDE conventions.
+   */
+  readonly sourceLocation?: SourceLocation;
+  /** Suggested fix text the analyzer can recommend (Tier 2). */
+  readonly fixHint?: string;
+}
+
+export interface SourceLocation {
+  readonly file: string;
+  readonly line: number;
+  readonly column: number;
+  /** Optional end position. */
+  readonly endLine?: number;
+  readonly endColumn?: number;
 }
 
 /**
@@ -94,6 +114,29 @@ export interface Analyzer {
 }
 
 /**
+ * Tier 2 analyzer: walks source files in addition to inspecting the Pack
+ * value. Tier 2 analyzers MUST be deterministic (same inputs → same
+ * diagnostics) and SHOULD prefer low false-positive rates over coverage.
+ *
+ * `sourceFiles` is a pre-parsed `ts-morph` view of the relevant source.
+ * Loaded by `analyzePolicy({ sourceFiles })`; absent for the Tier 1-only
+ * `analyzePolicy({ pack })` path.
+ */
+export interface Tier2Analyzer {
+  readonly name: string;
+  readonly code: DiagnosticCode;
+  /**
+   * `sourceFiles` is `ReadonlyArray<unknown>` so this interface does not
+   * leak `ts-morph` types to consumers that only use Tier 1. The
+   * concrete analyzer narrows to `SourceFile[]` at the boundary.
+   */
+  analyze<K extends string, P, S, C>(
+    pack: PackV0<K, P, S, C>,
+    sourceFiles: ReadonlyArray<unknown>,
+  ): ReadonlyArray<Diagnostic>;
+}
+
+/**
  * Options for `analyzePolicy`. `severityOverrides` lets adopters tune
  * a noisy diagnostic without disabling it (e.g., downgrade AJD-101
  * from warning to note in a Pack with intentionally anonymous guards).
@@ -108,4 +151,11 @@ export interface AnalyzeOptions {
   readonly strict?: boolean;
   /** Wall clock for the `analyzedAt` field (test injection). */
   readonly now?: () => Date;
+  /**
+   * Source-file globs (resolved by the caller into `ts-morph` SourceFile
+   * objects) for Tier 2 analyzers. Absent → Tier 1 only.
+   */
+  readonly sourceFiles?: ReadonlyArray<unknown>;
+  /** Tier 2 analyzers to run when `sourceFiles` is supplied. */
+  readonly tier2Analyzers?: ReadonlyArray<Tier2Analyzer>;
 }

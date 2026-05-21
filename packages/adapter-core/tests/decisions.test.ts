@@ -53,14 +53,14 @@ function buildContext(opts?: { executor?: AdopterExecutor<"pix.charge.refund", P
     state: {} as State,
     executor,
     deferStore: createInMemoryDeferStore(),
-    confirmationStore: createInMemoryConfirmationStore(),
-    historySnapshot: [],
+    confirmationStore: createInMemoryConfirmationStore<unknown>(),
+    historySnapshot: [] as unknown,
     rk: (raw: string) => raw,
     generateToken: () => "ct-fixed",
   };
 }
 
-describe("translateDecision", () => {
+describe("translateDecision (adapter-core)", () => {
   it("EXECUTE → invokes executor, returns JSON tool_result, continues", async () => {
     const ctx = buildContext();
     const t = await translateDecision({
@@ -68,9 +68,8 @@ describe("translateDecision", () => {
       decision: decisionExecute([]),
     });
     expect(t.loopAction).toEqual({ kind: "continue" });
-    expect(t.toolResult?.type).toBe("tool_result");
-    expect(t.toolResult?.tool_use_id).toBe("tu-1");
-    expect(t.toolResult?.is_error).toBeUndefined();
+    expect(t.toolResult?.toolUseId).toBe("tu-1");
+    expect(t.toolResult?.isError).toBeUndefined();
     expect(ctx.executor.invokeIntent).toHaveBeenCalledWith(envelope, {});
     const content = JSON.parse(t.toolResult?.content as string);
     expect(content).toMatchObject({
@@ -79,7 +78,7 @@ describe("translateDecision", () => {
     });
   });
 
-  it("REFUSE → tool_result with userFacing text, is_error=true, continues", async () => {
+  it("REFUSE → tool_result with userFacing text, isError=true, continues", async () => {
     const ctx = buildContext();
     const t = await translateDecision({
       ...ctx,
@@ -93,7 +92,7 @@ describe("translateDecision", () => {
       ),
     });
     expect(t.loopAction).toEqual({ kind: "continue" });
-    expect(t.toolResult?.is_error).toBe(true);
+    expect(t.toolResult?.isError).toBe(true);
     expect(t.toolResult?.content).toBe("That amount is not allowed.");
     expect(ctx.executor.invokeIntent).not.toHaveBeenCalled();
   });
@@ -176,7 +175,7 @@ describe("translateDecision", () => {
     expect(ctx.executor.invokeIntent).not.toHaveBeenCalled();
   });
 
-  it("EXECUTE with throwing executor → is_error tool_result, loop continues", async () => {
+  it("EXECUTE with throwing executor → isError tool_result, loop continues", async () => {
     const executor: AdopterExecutor<"pix.charge.refund", Payload, State> = {
       invokeRead: vi.fn(async () => ({})),
       invokeIntent: vi.fn(async () => {
@@ -189,7 +188,7 @@ describe("translateDecision", () => {
       decision: decisionExecute([]),
     });
     expect(t.loopAction).toEqual({ kind: "continue" });
-    expect(t.toolResult?.is_error).toBe(true);
+    expect(t.toolResult?.isError).toBe(true);
     expect(t.toolResult?.content).toContain("provider down");
   });
 });

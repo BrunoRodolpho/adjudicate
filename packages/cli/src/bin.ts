@@ -6,6 +6,7 @@ import { runDoctor } from "./commands/doctor.js";
 import { runExport, type ExportFormat } from "./commands/export.js";
 import { runPackInit, TEMPLATE_NAMES, type TemplateName } from "./commands/pack-init.js";
 import { runPackLint } from "./commands/pack-lint.js";
+import { runPackVerify, type TrustPolicy } from "./commands/pack-verify.js";
 import { runReap } from "./commands/reap.js";
 import { runReplay } from "./commands/replay.js";
 import { runRepl } from "./commands/repl.js";
@@ -21,7 +22,7 @@ program
   .description(
     "adjudicate framework CLI — Pack lifecycle commands for policy authors",
   )
-  .version("0.1.0-experimental");
+  .version("0.1.0");
 
 // Commands listed in alphabetical order matching the eventual `--help` layout.
 
@@ -149,6 +150,64 @@ pack
   .action(async (packPath: string | undefined) => {
     await runPackLint(packPath);
   });
+
+pack
+  .command("verify [path]")
+  .description(
+    "Verify a Pack's trust posture: fingerprint + optional signature + manifest",
+  )
+  .option(
+    "--expect <hex>",
+    "Expected SHA-256 fingerprint. Mismatch is a hard failure.",
+  )
+  .option("--public-key <pem-path>", "Path to a PEM-encoded public key")
+  .option(
+    "--signature <json-path>",
+    'Path to a JSON file with { "algorithm", "keyId", "value": "<base64>" }',
+  )
+  .option(
+    "--policy <policy>",
+    'Trust policy: none | best_effort | require_fingerprint | require_signature. Defaults to best_effort.',
+    "best_effort",
+  )
+  .option("--quiet", "Print only the fingerprint on stdout; exit 1 on failure", false)
+  .action(
+    async (
+      packPath: string | undefined,
+      options: {
+        expect?: string;
+        publicKey?: string;
+        signature?: string;
+        policy?: string;
+        quiet?: boolean;
+      },
+    ) => {
+      const policy = (options.policy ?? "best_effort") as TrustPolicy;
+      const allowed: TrustPolicy[] = [
+        "none",
+        "best_effort",
+        "require_fingerprint",
+        "require_signature",
+      ];
+      if (!allowed.includes(policy)) {
+        console.error(
+          `✗ Unknown --policy value "${options.policy}". Use one of: ${allowed.join(", ")}`,
+        );
+        process.exit(1);
+      }
+      await runPackVerify(packPath, {
+        ...(options.expect !== undefined ? { expect: options.expect } : {}),
+        ...(options.publicKey !== undefined
+          ? { publicKey: options.publicKey }
+          : {}),
+        ...(options.signature !== undefined
+          ? { signature: options.signature }
+          : {}),
+        policy,
+        quiet: options.quiet ?? false,
+      });
+    },
+  );
 
 program
   .command("reap")

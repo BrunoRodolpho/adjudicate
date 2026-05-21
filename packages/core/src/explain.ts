@@ -24,6 +24,14 @@ export interface DecisionExplanation {
   readonly headline: string;
   readonly bullets: readonly string[];
   readonly locale: string;
+  /**
+   * Supersession-chain narration (AuditRecord v3+). Present when the
+   * record carries `supersedes` — describes what this record continues
+   * from in human-readable form ("Continues a prior REQUEST_CONFIRMATION
+   * resolved at 2026-01-15T10:32:08Z"). Operators viewing a single
+   * record can follow the chain back without joining tables.
+   */
+  readonly supersession?: string;
 }
 
 export interface ExplanationRegistry {
@@ -104,11 +112,75 @@ export function explainRecord(
 ): DecisionExplanation {
   const headlineFn =
     registry.headlines?.[record.decision.kind] ?? defaultHeadline;
+  const supersession = narrateSupersession(record, registry);
   return {
     intentHash: record.intentHash,
     headline: headlineFn(record),
     bullets: renderBullets(record, registry.templates),
     locale: registry.locale,
+    ...(supersession !== undefined ? { supersession } : {}),
+  };
+}
+
+/**
+ * Narrate the supersession link (AuditRecord v3+). Returns `undefined`
+ * when the record carries no `supersedes` field; otherwise returns a
+ * single-sentence narration suitable for an operator console.
+ */
+function narrateSupersession(
+  record: AuditRecord,
+  registry: ExplanationRegistry,
+): string | undefined {
+  const s = record.supersedes;
+  if (s === undefined) return undefined;
+  const tplKey = `supersedes:${s.reason}`;
+  const tpl =
+    registry.templates[tplKey] ??
+    `Continues a prior decision (${s.reason}) recorded at {predecessorAt}.`;
+  return substitute(tpl, {
+    predecessorAt: s.predecessorAt,
+    predecessorIntentHash: s.predecessorIntentHash,
+    reason: s.reason,
+    ...(s.token !== undefined ? { token: s.token } : {}),
+  });
+}
+
+/**
+ * Merge multiple `ExplanationRegistry` objects into one. Later registries
+ * override earlier ones at the key level — this is what Pack authors do
+ * when extending the framework's `DEFAULT_EXPLANATION_REGISTRY` with
+ * their domain-specific basis codes. Locale must agree across all
+ * inputs (else the merge throws); pass distinct locales by building
+ * separate merged registries.
+ *
+ * The merge is shallow at the template level and shallow at the
+ * `headlines` map level. Adopters who need deeper composition (e.g.,
+ * conditional templates) wrap the merged registry themselves.
+ */
+export function mergeExplanationRegistries(
+  ...registries: ReadonlyArray<ExplanationRegistry>
+): ExplanationRegistry {
+  if (registries.length === 0) {
+    throw new Error("mergeExplanationRegistries: at least one registry required");
+  }
+  const locale = registries[0]!.locale;
+  for (const r of registries) {
+    if (r.locale !== locale) {
+      throw new Error(
+        `mergeExplanationRegistries: locale mismatch (${locale} vs ${r.locale}). Build per-locale registries separately.`,
+      );
+    }
+  }
+  const templates: Record<string, string> = {};
+  const headlines: Partial<Record<Decision["kind"], (record: AuditRecord) => string>> = {};
+  for (const r of registries) {
+    Object.assign(templates, r.templates);
+    if (r.headlines) Object.assign(headlines, r.headlines);
+  }
+  return {
+    locale,
+    templates,
+    ...(Object.keys(headlines).length > 0 ? { headlines } : {}),
   };
 }
 
@@ -183,5 +255,14 @@ export const DEFAULT_EXPLANATION_REGISTRY: ExplanationRegistry = {
     // confirmation
     "confirmation:received":
       "The user supplied a confirmation receipt at {confirmedAt}.",
+    // supersession narrations
+    "supersedes:confirmation_resolved":
+      "Continues a prior REQUEST_CONFIRMATION resolved at {predecessorAt}.",
+    "supersedes:defer_resumed":
+      "Resumes a prior DEFER signal received at {predecessorAt}.",
+    "supersedes:rewrite_executed":
+      "Executes the rewritten envelope from a prior REWRITE at {predecessorAt}.",
+    "supersedes:replay":
+      "Re-evaluates a prior decision recorded at {predecessorAt}.",
   },
 };

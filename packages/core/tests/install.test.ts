@@ -26,7 +26,7 @@ type K = "thing.do";
 const taintPolicy: TaintPolicy = { minimumFor: () => "UNTRUSTED" };
 const planner: CapabilityPlanner<unknown, unknown> = {
   plan() {
-    return { visibleReadTools: [], allowedIntents: ["thing.do"], forbiddenConcepts: [] };
+    return { visibleReadTools: [], allowedIntents: ["thing.do"] };
   },
 };
 

@@ -45,7 +45,7 @@ import { createAdjudicatedAgent } from "../src/adapter.js";
 import {
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
-} from "../src/persistence.js";
+} from "@adjudicate/adapter-core";
 import { createAnthropicPromptRenderer } from "../src/renderer-anthropic.js";
 import type { AdopterExecutor, AgentEvent } from "../src/types.js";
 
@@ -411,7 +411,7 @@ function fingerprintEvents(events: AgentEvent[]): unknown[] {
       return {
         kind: "tool_result",
         toolUseId: e.toolUseId,
-        is_error: e.payload.is_error ?? false,
+        is_error: e.payload.isError ?? false,
       };
     }
     if (e.kind === "tool_use") {

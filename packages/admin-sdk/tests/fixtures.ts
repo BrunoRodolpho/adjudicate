@@ -51,7 +51,6 @@ export const fixtureExecute: AuditRecord = buildAuditRecord({
   plan: {
     visibleReadTools: ["list_things"],
     allowedIntents: ["test.execute"],
-    forbiddenConcepts: [],
   },
 });
 

@@ -312,6 +312,40 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(terser@5.47.1)(tsx@4.21.0)
 
+  packages/adapter-core:
+    dependencies:
+      '@adjudicate/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@adjudicate/core':
+        specifier: workspace:*
+        version: link:../core
+      '@adjudicate/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+    devDependencies:
+      '@adjudicate/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@adjudicate/pack-payments-pix':
+        specifier: workspace:*
+        version: link:../pack-payments-pix
+      '@eslint/eslintrc':
+        specifier: ^3.0.0
+        version: 3.3.5
+      '@vitest/coverage-v8':
+        specifier: ^3.2.0
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.17)(jiti@1.21.7)(terser@5.47.1)(tsx@4.21.0))
+      eslint:
+        specifier: ^9.0.0
+        version: 9.39.4(jiti@1.21.7)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(terser@5.47.1)(tsx@4.21.0)
+
   packages/admin-sdk:
     dependencies:
       '@trpc/server':
@@ -336,6 +370,9 @@ importers:
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../core
+      ts-morph:
+        specifier: ^25.0.0
+        version: 25.0.1
     devDependencies:
       '@adjudicate/pack-payments-pix':
         specifier: workspace:*
@@ -349,6 +386,9 @@ importers:
 
   packages/anthropic:
     dependencies:
+      '@adjudicate/adapter-core':
+        specifier: workspace:*
+        version: link:../adapter-core
       '@adjudicate/audit':
         specifier: workspace:*
         version: link:../audit
@@ -448,6 +488,9 @@ importers:
       '@adjudicate/analyze':
         specifier: workspace:*
         version: link:../analyze
+      '@adjudicate/conformance':
+        specifier: workspace:*
+        version: link:../conformance
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../core
@@ -577,6 +620,43 @@ importers:
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../core
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(terser@5.47.1)(tsx@4.21.0)
+
+  packages/openai:
+    dependencies:
+      '@adjudicate/adapter-core':
+        specifier: workspace:*
+        version: link:../adapter-core
+      '@adjudicate/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@adjudicate/core':
+        specifier: workspace:*
+        version: link:../core
+      '@adjudicate/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+    devDependencies:
+      '@adjudicate/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@adjudicate/pack-payments-pix':
+        specifier: workspace:*
+        version: link:../pack-payments-pix
+      '@eslint/eslintrc':
+        specifier: ^3.0.0
+        version: 3.3.5
+      '@vitest/coverage-v8':
+        specifier: ^3.2.0
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.17)(jiti@1.21.7)(terser@5.47.1)(tsx@4.21.0))
+      eslint:
+        specifier: ^9.0.0
+        version: 9.39.4(jiti@1.21.7)
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

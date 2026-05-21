@@ -3,25 +3,41 @@
  *
  * `Pack.basisCodes` declares the refusal-code taxonomy a Pack's policy may
  * emit. The compile-time `satisfies PackV0<...>` clause catches structural
- * drift; this module catches drift that the type system cannot see:
+ * drift; this module catches drift that the type system cannot see.
  *
- *   - **boot-time** (`assertPackConformance`): validates required fields
- *     are present, intents/basisCodes are non-empty + unique, and
- *     `default = "EXECUTE"` is rejected unless the adopter explicitly
- *     opts in via `{ allowDefaultExecute: true }` (T4 #20).
- *   - **runtime** (`withBasisAudit`): wraps every guard so any decision
- *     whose basis category:code is outside `BASIS_CODES` records a
- *     `basis_code_drift` sink failure. REFUSE codes outside
- *     `pack.basisCodes ∪ KERNEL_REFUSAL_CODES` also record drift.
- *     REWRITE taint regression (rewritten.taint > envelope.taint) records
- *     `rewrite_taint_regression`. DEFER signal outside `pack.signals`
- *     records `defer_signal_drift`. Decisions are NOT blocked — drift is
- *     a telemetry event, mirroring the audit-fail-open posture of the
- *     pre-T4 wrapper.
+ * # Three conformance surfaces, three responsibilities
  *
- * Kernel-vocabulary refusals (schema, taint, default_deny, kill, deadline,
- * ledger_replay_suppressed) are exempt — those codes belong to the
- * framework and live outside the Pack's taxonomy.
+ * The framework offers three Pack-conformance surfaces. They are
+ * deliberately separate; understanding the split matters when wiring
+ * a Pack into a new application.
+ *
+ * | Surface | When it runs | What it does | Blocking? |
+ * |---|---|---|---|
+ * | `assertPackConformance(pack, opts)` | **boot-time, sync** | Structural: required fields present, intents/basisCodes non-empty + unique, default polarity opt-in. | **Yes** — throws `PackConformanceError`. |
+ * | `withBasisAudit(pack)` wrapper | **runtime, every decision** | Telemetry: REFUSE/basis/REWRITE-taint/DEFER-signal drift recorded as `recordSinkFailure(…)`. | **No** — Decisions pass through unchanged. |
+ * | `runConformance(pack, opts)` from `@adjudicate/conformance` | **CI / boot-time, sync** | Property: probes many synthetic envelopes against the policy and asserts replay-determinism, taint protection, basis-vocabulary purity, guard ordering. | **Returns a report; caller decides.** |
+ *
+ * The first two live in this module. The third is in `@adjudicate/conformance`
+ * because it depends on a deterministic PRNG and a check-set abstraction
+ * that does not belong on the kernel hot path.
+ *
+ * # Pick the right surface
+ *
+ * - **Adopting a Pack in production?** Call `assertPackConformance(pack)`
+ *   at startup, wrap with `withBasisAudit(pack)` before passing to the
+ *   kernel, and run `runConformance(pack)` in CI.
+ * - **Authoring a Pack?** All three surfaces target your Pack; the unit
+ *   tests in your Pack's repo should cover `runConformance` against
+ *   representative state fixtures.
+ * - **Adding a kernel-emitted refusal code?** Add it to
+ *   `KERNEL_REFUSAL_CODES` below; `withBasisAudit` and `runConformance`
+ *   pick it up automatically.
+ *
+ * Kernel-vocabulary refusals (`schema_*`, `taint_*`, `default_deny`,
+ * `kill_switch_active`, `kernel_deadline_exceeded`,
+ * `ledger_replay_suppressed`, `guard_panic`) are exempt from drift —
+ * those codes belong to the framework and live outside the Pack's
+ * taxonomy.
  */
 
 import { isKnownBasisCode } from "./basis-codes.js";
@@ -48,6 +64,13 @@ export class PackConformanceError extends Error {
  * Refusal codes the kernel itself may emit (not domain-specific). These
  * codes pass through `withBasisAudit` without contributing to drift —
  * they're the framework's vocabulary, not the Pack's.
+ *
+ * Stays in sync with the `BASIS_CODES.{kill,deadline,kernel,ledger,…}`
+ * categories: every refusal code the kernel produces at adjudication
+ * time (or that `adjudicateAndAudit` overlays on a kernel decision)
+ * appears here. Adding a kernel-emitted code without adding it to this
+ * set is a forensic regression — Packs would incorrectly see drift on
+ * their own audit dashboards.
  */
 export const KERNEL_REFUSAL_CODES: ReadonlySet<string> = new Set([
   "schema_version_unsupported",
@@ -56,6 +79,11 @@ export const KERNEL_REFUSAL_CODES: ReadonlySet<string> = new Set([
   "kill_switch_active",
   "kernel_deadline_exceeded",
   "ledger_replay_suppressed",
+  // T-002: `_adjudicateImpl` converts a thrown guard into a SECURITY REFUSE
+  // with this refusal code. Documented in ADR-106 (guard-exception isolation).
+  // Adding this here lets `withBasisAudit` and `runConformance` treat the
+  // kernel-internal panic refusal the same way as the other kernel codes.
+  "guard_panic",
 ]);
 
 export interface AssertPackConformanceOptions {

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "adjudicate canonical-JSON SHA-256 golden vectors",
+  "description": "Cross-runtime vectors pinning the RFC 8785 (JCS) + SHA-256 algorithm documented in canonical-json-hash.md. Any external runtime (Rust, Go, Python, Java, browser-JS) that claims interop with @adjudicate/core MUST produce the listed hash for each input. These vectors are derived from packages/core/tests/hash-golden-vectors.test.ts and any change here REQUIRES the same change there.",
+  "spec": "docs/specs/canonical-json-hash.md",
+  "algorithmVersion": "v2",
+  "vectors": [
+    {
+      "label": "v1-minimal-canonical-envelope",
+      "notes": "the baseline shape — published in canonical-json-hash.md",
+      "input": {
+        "version": 2,
+        "kind": "order.submit",
+        "payload": { "sku": "X", "qty": 1 },
+        "nonce": "n-golden-1",
+        "actor": { "principal": "llm", "sessionId": "s-golden-1" },
+        "taint": "UNTRUSTED"
+      },
+      "expectedHash": "ccaaf1c710d6956f00b84cbed4fc8a31c148a9e3e1c932d21f377c472c690bc0"
+    },
+    {
+      "label": "v2-key-order-independence",
+      "notes": "key-order independence — the canonicalization sorts keys; this hash MUST equal v1 byte-for-byte",
+      "input": {
+        "version": 2,
+        "kind": "order.submit",
+        "payload": { "qty": 1, "sku": "X" },
+        "nonce": "n-golden-1",
+        "actor": { "sessionId": "s-golden-1", "principal": "llm" },
+        "taint": "UNTRUSTED"
+      },
+      "expectedHash": "ccaaf1c710d6956f00b84cbed4fc8a31c148a9e3e1c932d21f377c472c690bc0"
+    },
+    {
+      "label": "v3-trusted-system-variant",
+      "notes": "taint and principal both feed the recipe — TRUSTED+system MUST hash differently from UNTRUSTED+llm with same kind/payload/nonce",
+      "input": {
+        "version": 2,
+        "kind": "order.submit",
+        "payload": { "sku": "X", "qty": 1 },
+        "nonce": "n-golden-1",
+        "actor": { "principal": "system", "sessionId": "s-golden-1" },
+        "taint": "TRUSTED"
+      },
+      "expectedHash": "cb045813218ec9e038242e29de76440c5d429397db1dbddbe2238ea4c5fb5440"
+    },
+    {
+      "label": "v4-empty-payload-system-taint",
+      "notes": "{} is a valid payload — not equivalent to undefined or null",
+      "input": {
+        "version": 2,
+        "kind": "system.heartbeat",
+        "payload": {},
+        "nonce": "n-golden-4",
+        "actor": { "principal": "system", "sessionId": "s-golden-4" },
+        "taint": "SYSTEM"
+      },
+      "expectedHash": "f8780e5fe67820ad6744e7fe2afcdcd3140778638e3dba0fdd1db618707c15f1"
+    },
+    {
+      "label": "v5-utf8-nested",
+      "notes": "RFC 8785 §3.3 mandates literal UTF-8 in strings, not \\uXXXX escapes — 'café' must hash with bytes caf-c3-a9, not caf-005c-u00e9",
+      "input": {
+        "version": 2,
+        "kind": "order.batch",
+        "payload": {
+          "items": [{ "sku": "A" }, { "sku": "B" }, { "sku": "C" }],
+          "note": "café"
+        },
+        "nonce": "n-golden-5",
+        "actor": { "principal": "user", "sessionId": "s-golden-5" },
+        "taint": "TRUSTED"
+      },
+      "expectedHash": "838c9a8dc783131ac7d5eb00c4708dc5ae624145c6b6d77353a8e1a09842a347"
+    },
+    {
+      "label": "v6-null-preserved-undefined-omitted",
+      "notes": "{reason: null} preserves the null; {optional: undefined} omits the key entirely — see canonical-json-hash.md §2.2",
+      "input": {
+        "version": 2,
+        "kind": "order.cancel",
+        "payload": { "reason": null, "note": "ok" },
+        "nonce": "n-golden-6",
+        "actor": { "principal": "llm", "sessionId": "s-golden-6" },
+        "taint": "UNTRUSTED"
+      },
+      "expectedHash": "ca446cbbb5d08a2eeb7b3ed762600a253aee654c66cd07f4bfeaea4b11b28026"
+    }
+  ]
+}

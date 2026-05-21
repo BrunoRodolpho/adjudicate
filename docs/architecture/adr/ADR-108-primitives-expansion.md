@@ -118,6 +118,5 @@ are the four patterns visible in production code.
 
 ## References
 
-- Implementation: `packages/primitives/src/guards.ts` lines (createRewriteGuard, createConfirmGuard, createEscalateGuard, createIdempotencyGuard).
+- Implementation: `packages/primitives/src/guards.ts` (`createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard`).
 - Tests: `packages/primitives/tests/m2-factories.test.ts`.
-- Deferred consumption: `docs/execution/decisions-log.md` §D-005.

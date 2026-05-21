@@ -7,6 +7,8 @@ export type {
   Diagnostic,
   DiagnosticCode,
   DiagnosticSeverity,
+  SourceLocation,
+  Tier2Analyzer,
 } from "./types.js";
 
 export {
@@ -18,6 +20,12 @@ export {
   signalConsistencyAnalyzer,
   taintPolicyAnalyzer,
 } from "./analyzers.js";
+
+export {
+  DEFAULT_TIER2_ANALYZERS,
+  loadSourceFiles,
+  rewriteScopeAstAnalyzer,
+} from "./tier2.js";
 
 export { analyzePolicy, type AnalyzePolicyArgs } from "./analyze.js";
 

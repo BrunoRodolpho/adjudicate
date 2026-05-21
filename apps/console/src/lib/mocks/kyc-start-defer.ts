@@ -47,6 +47,5 @@ export const kycStartDefer: AuditRecord = buildAuditRecord({
   plan: {
     visibleReadTools: ["list_kyc_sessions", "get_kyc_session"],
     allowedIntents: ["kyc.start"],
-    forbiddenConcepts: ["kyc.vendor.callback"],
   },
 });

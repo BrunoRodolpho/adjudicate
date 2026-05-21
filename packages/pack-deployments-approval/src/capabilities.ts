@@ -29,7 +29,6 @@ export const deploymentCapabilityPlanner: CapabilityPlanner<
       allowedIntents: context.requesterId
         ? [...DEPLOYMENT_TOOLS.mutating]
         : [],
-      forbiddenConcepts: [],
     };
   },
 };

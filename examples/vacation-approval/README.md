@@ -83,5 +83,4 @@ import {
 
 That's the whole framework surface. No runtime adapter needed for the
 adjudicator alone — the runtime package is for the `DEFER` consumer
-side, demonstrated separately in
-[`packages/runtime/examples/clinic/`](../../packages/runtime/examples/clinic/).
+side, with a sample policy at [`packages/runtime/examples/clinic/`](../../packages/runtime/examples/clinic/).

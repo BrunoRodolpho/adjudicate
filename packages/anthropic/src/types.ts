@@ -83,6 +83,19 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C> {
     payload: unknown;
   }) => string;
   readonly log?: AgentLogger;
+  /**
+   * Hash-verification policy for parked envelope blobs at resume.
+   *
+   * The adapter parks full envelope fields (version/nonce/taint/actorPrincipal)
+   * at DEFER time so the resume side can re-derive the intentHash and detect
+   * tampering. Modes:
+   *
+   * - `"strict"` — re-derive intentHash, fail-closed on mismatch OR missing
+   *   verification fields.
+   * - `"warn"` — fail-closed on mismatch; log + allow legacy blobs without
+   *   verification fields (default; flip to `"strict"` pre-v1.0).
+   * - `"off"` — no verification (NOT recommended for production).
+   */
   readonly verifyParkedHash?: "strict" | "warn" | "off";
 }
 

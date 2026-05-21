@@ -1,7 +1,9 @@
+import { GitMerge } from "lucide-react";
+import Link from "next/link";
 import type { AuditRecord } from "@adjudicate/core";
-import { formatDurationMs, formatRelative } from "@/lib/format";
 import { DecisionBadge } from "./DecisionBadge";
 import { IntentHashChip } from "./IntentHashChip";
+import { formatDurationMs, formatRelative } from "@/lib/format";
 
 export function DecisionTraceHeader({ record }: { record: AuditRecord }) {
   return (
@@ -32,6 +34,18 @@ export function DecisionTraceHeader({ record }: { record: AuditRecord }) {
         </span>
         <span className="text-faint">·</span>
         <IntentHashChip hash={record.intentHash} />
+        {record.supersedes ? (
+          <>
+            <span className="text-faint">·</span>
+            <Link
+              href={`/decisions/${record.intentHash}/lineage`}
+              className="flex items-center gap-1 text-amber-200 hover:text-amber-100"
+              title="Walk the supersession chain backward"
+            >
+              <GitMerge size={11} /> View Lineage
+            </Link>
+          </>
+        ) : null}
       </div>
     </header>
   );

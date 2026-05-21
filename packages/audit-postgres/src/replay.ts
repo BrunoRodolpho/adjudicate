@@ -53,7 +53,13 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
   const envelope = JSON.parse(row.envelope_jsonb) as IntentEnvelope;
   const decision = JSON.parse(row.decision_jsonb) as Decision;
   const version: AuditRecordVersion =
-    row.record_version === 3 ? 3 : row.record_version === 2 ? 2 : 1;
+    row.record_version === 4
+      ? 4
+      : row.record_version === 3
+        ? 3
+        : row.record_version === 2
+          ? 2
+          : 1;
   const plan: AuditPlanSnapshot | undefined =
     version >= 2 && row.plan_jsonb
       ? (JSON.parse(row.plan_jsonb) as AuditPlanSnapshot)

@@ -8,6 +8,39 @@ export interface PackInitOptions {
   readonly target?: string;
   /** Override cwd (test injection point). */
   readonly cwd?: string;
+  /**
+   * Domain template to scaffold from. Defaults to `"basic"` which produces
+   * the minimal hello-world Pack. Domain templates ship richer guard
+   * patterns (REWRITE/ESCALATE/DEFER/REQUEST_CONFIRMATION) keyed off the
+   * domain shape — see `packages/cli/templates/<name>/` for each layout.
+   */
+  readonly template?: TemplateName;
+}
+
+/**
+ * Template registry — the allowlist of templates the CLI honors. The
+ * `basic` alias is resolved to the existing `pack/` directory so prior
+ * `pack init <name>` invocations keep producing the same output.
+ */
+export const TEMPLATE_NAMES = [
+  "basic",
+  "payment",
+  "approval",
+  "kyc",
+  "deployment",
+] as const;
+export type TemplateName = (typeof TEMPLATE_NAMES)[number];
+
+const TEMPLATE_DIR_BY_NAME: Readonly<Record<TemplateName, string>> = {
+  basic: "pack",
+  payment: "payment",
+  approval: "approval",
+  kyc: "kyc",
+  deployment: "deployment",
+};
+
+export function isValidTemplateName(name: string): name is TemplateName {
+  return (TEMPLATE_NAMES as ReadonlyArray<string>).includes(name);
 }
 
 const NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -58,6 +91,16 @@ export async function runPackInit(
     process.exit(1);
   }
 
+  const templateRequested = options.template ?? "basic";
+  if (!isValidTemplateName(templateRequested)) {
+    console.error(
+      chalk.red("✗"),
+      `Unknown template "${templateRequested}". Available: ${TEMPLATE_NAMES.join(", ")}.`,
+    );
+    process.exit(1);
+  }
+  const templateDir = TEMPLATE_DIR_BY_NAME[templateRequested];
+
   const cwd = options.cwd ?? process.cwd();
   const ws = await detectWorkspace(cwd);
 
@@ -69,11 +112,16 @@ export async function runPackInit(
   const vars = deriveVars(name);
 
   console.log(chalk.dim("•"), "mode:", chalk.cyan(ws.mode));
+  console.log(chalk.dim("•"), "template:", chalk.cyan(templateRequested));
   console.log(chalk.dim("•"), "target:", chalk.cyan(targetDir));
+  console.log(
+    chalk.dim("•"),
+    `Scaffolding Pack from \`${templateRequested}\` template…`,
+  );
 
   try {
     const result = await renderTemplate({
-      templateName: "pack",
+      templateName: templateDir,
       targetDir,
       vars,
     });

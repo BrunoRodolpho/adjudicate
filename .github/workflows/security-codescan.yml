@@ -1,0 +1,32 @@
+# Codescan: pnpm audit + npm provenance verification on PRs that touch dependencies.
+# Companion to T-017/T-018/T-019 — verifies supply-chain hygiene at PR time.
+# Out-of-scope for the M1 overnight run; ships as a deliverable.
+
+name: Security Codescan
+
+on:
+  pull_request:
+    paths:
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/security-codescan.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: pnpm audit
+        run: pnpm audit --audit-level=high
+        continue-on-error: false

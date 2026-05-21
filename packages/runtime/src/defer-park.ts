@@ -91,6 +91,24 @@ export interface ParkDeferredIntentArgs {
     readonly kind: string
     readonly actor: { readonly sessionId: string }
     readonly payload: unknown
+    /**
+     * T-005 hash-verification fields (additive, recommended).
+     *
+     * When supplied, the parked blob carries enough envelope fields for
+     * `resumeDeferredIntent` to re-derive the `intentHash` via
+     * `sha256Canonical({version, kind, payload, nonce, actor, taint})` and
+     * assert byte-equality with the stored `intentHash` — detecting blob
+     * tampering at resume time.
+     *
+     * Optional for back-compat with v0.1-shaped park calls. v0.5 promotes
+     * this to required for first-party adapters; legacy blobs without the
+     * fields surface as `reason: "park_blob_unverifiable"` at resume when
+     * `verifyHash: "strict"` is set.
+     */
+    readonly version?: number
+    readonly nonce?: string
+    readonly taint?: "SYSTEM" | "TRUSTED" | "UNTRUSTED"
+    readonly actorPrincipal?: "llm" | "user" | "system"
   }
   readonly signal: string
   /** TTL for the parked envelope blob — typically `signal.timeoutMs / 1000 + grace`. */
@@ -203,6 +221,8 @@ export async function parkDeferredIntent(
     JSON.stringify({
       envelope: args.envelope,
       signal: args.signal,
+      // parkedAt is metadata for the audit-trail only; it is NOT part of any
+      // hash-derivation and never enters the resume-side intentHash check.
       parkedAt: new Date().toISOString(),
     }),
     { EX: args.ttlSeconds },

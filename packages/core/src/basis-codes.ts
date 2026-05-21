@@ -19,7 +19,8 @@ export type BasisCategory =
   | "validation"
   | "kill"
   | "deadline"
-  | "confirmation";
+  | "confirmation"
+  | "kernel";
 
 export const BASIS_CODES = {
   state: {
@@ -83,6 +84,21 @@ export const BASIS_CODES = {
    */
   confirmation: {
     RECEIVED: "received",
+  },
+  /**
+   * Kernel-internal — emitted when the kernel itself produces a decision
+   * because a guard threw (`GUARD_PANIC`) or when execution exceeded the
+   * configured kernel deadline (`DEADLINE_EXCEEDED`, redundant with the
+   * `deadline.EXCEEDED` code maintained for back-compat — prefer
+   * `deadline.EXCEEDED` outside the kernel-internal path).
+   *
+   * `guard_panic` is the result of T-002 — the kernel wraps every guard
+   * invocation in `try/catch` and converts a thrown error into a SECURITY
+   * REFUSE rather than propagating to the adopter. The basis carries the
+   * phase + matched-guard identity in `detail`.
+   */
+  kernel: {
+    GUARD_PANIC: "guard_panic",
   },
 } as const;
 

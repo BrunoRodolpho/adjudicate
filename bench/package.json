@@ -1,0 +1,24 @@
+{
+  "name": "@adjudicate/bench",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Performance characterization benchmarks for @adjudicate/* hot paths. Outputs p50/p95/p99 captured in docs/perf/.",
+  "type": "module",
+  "scripts": {
+    "bench": "vitest bench --run",
+    "bench:kernel": "vitest bench --run src/kernel.bench.ts",
+    "bench:audit": "vitest bench --run src/audit.bench.ts",
+    "report": "tsx src/report.ts"
+  },
+  "dependencies": {
+    "@adjudicate/core": "workspace:*",
+    "@adjudicate/audit": "workspace:*",
+    "@adjudicate/pack-payments-pix": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

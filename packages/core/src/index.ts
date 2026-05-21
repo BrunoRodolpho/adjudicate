@@ -9,6 +9,7 @@ export * from "./envelope.js";
 export * from "./decision.js";
 export * from "./basis-codes.js";
 export * from "./refusal.js";
+export * from "./refusal-messages.js";
 export * from "./taint.js";
 export * from "./audit.js";
 export * from "./hash.js";

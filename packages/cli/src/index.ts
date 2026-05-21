@@ -22,6 +22,46 @@ export {
 } from "./commands/simulate.js";
 
 export {
+  runReap,
+  type ReapOptions,
+  type ReapRedisClient,
+  type ReapReport,
+} from "./commands/reap.js";
+
+export {
+  runVisualize,
+  type VisualizeOptions,
+} from "./commands/visualize.js";
+
+export {
+  runRepl,
+  type ReplOptions,
+} from "./commands/repl.js";
+
+export {
+  runReplay,
+  type ReplayOptions,
+  type ReplayReport,
+} from "./commands/replay.js";
+
+export {
+  runExport,
+  type ExportOptions,
+  type ExportFormat,
+} from "./commands/export.js";
+
+export {
+  runScenariosGenerate,
+  type ScenariosGenerateOptions,
+} from "./commands/scenarios-generate.js";
+
+export {
+  runDev,
+  type DevOptions,
+  COMPOSE_FILENAME,
+} from "./commands/dev.js";
+
+export {
   detectWorkspace,
   type WorkspaceContext,
   type WorkspaceMode,

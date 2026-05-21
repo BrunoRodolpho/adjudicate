@@ -215,7 +215,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       refuse(
         "SECURITY",
         "kill_switch_active",
-        "Sistema temporariamente indisponível.",
+        "System is temporarily unavailable.",
         `Tenant kill switch active: ${killState.reason} (toggledAt ${killState.toggledAt})`,
       ),
       [
@@ -427,7 +427,7 @@ function replaySuppressedRefusal(intentHash: string, hit: LedgerHit): Decision {
     refuse(
       "STATE",
       "ledger_replay_suppressed",
-      "Essa ação já foi processada.",
+      "This action has already been processed.",
       `intentHash=${intentHash} previousAt=${hit.at}`,
     ),
     [

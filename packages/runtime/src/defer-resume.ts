@@ -18,6 +18,7 @@
 // has no `@ibatexas/tools` dependency and is testable at the framework level.
 
 import { createHash } from "node:crypto"
+import { sha256Canonical } from "@adjudicate/core"
 
 export const DEFER_PENDING_TTL_GRACE_SECONDS = 14 * 24 * 60 * 60 // 14d resume-token retention
 
@@ -31,9 +32,61 @@ export interface ParkedEnvelope {
     readonly kind: string
     readonly actor: { readonly sessionId: string }
     readonly payload: unknown
+    /**
+     * T-005 hash-verification fields (additive).
+     *
+     * When present, `resumeDeferredIntent` re-derives the intentHash via
+     * `sha256Canonical({version, kind, payload, nonce, actor, taint})` and
+     * asserts byte-equality with the stored `intentHash` field.
+     *
+     * Absence is back-compat for v0.1-shaped blobs; v0.5+ first-party
+     * adapters always populate these.
+     */
+    readonly version?: number
+    readonly nonce?: string
+    readonly taint?: "SYSTEM" | "TRUSTED" | "UNTRUSTED"
+    readonly actorPrincipal?: "llm" | "user" | "system"
   }
   readonly signal: string
   readonly parkedAt: string
+}
+
+/**
+ * Re-derive the intentHash from a parked envelope's stored fields and assert
+ * byte-equality with the stored hash. Returns:
+ *   - `{ verified: true }` — all required fields present, hash matches
+ *   - `{ verified: false, reason: "tampered", derived, stored }` — fields
+ *      present, hash mismatches (blob was modified after park)
+ *   - `{ verified: null, reason: "missing_fields" }` — legacy blob without
+ *      hash-verification fields; caller decides whether to fail-closed
+ */
+export type ParkVerificationResult =
+  | { readonly verified: true }
+  | { readonly verified: false; readonly reason: "tampered"; readonly derived: string; readonly stored: string }
+  | { readonly verified: null; readonly reason: "missing_fields" }
+
+export function verifyParkedEnvelopeHash(parked: ParkedEnvelope): ParkVerificationResult {
+  const e = parked.envelope
+  if (
+    typeof e.version !== "number" ||
+    typeof e.nonce !== "string" ||
+    typeof e.taint !== "string" ||
+    typeof e.actorPrincipal !== "string"
+  ) {
+    return { verified: null, reason: "missing_fields" }
+  }
+  const derived = sha256Canonical({
+    version: e.version,
+    kind: e.kind,
+    payload: e.payload,
+    nonce: e.nonce,
+    actor: { principal: e.actorPrincipal, sessionId: e.actor.sessionId },
+    taint: e.taint,
+  })
+  if (derived !== e.intentHash) {
+    return { verified: false, reason: "tampered", derived, stored: e.intentHash }
+  }
+  return { verified: true }
 }
 
 export interface DeferResumeResult {
@@ -102,6 +155,19 @@ export interface ResumeDeferredIntentArgs {
    * expose `incr`).
    */
   readonly maxResumeCycles?: number
+  /**
+   * T-005: hash-verification policy for parked envelope blobs.
+   *
+   * `"strict"` — re-derive intentHash from stored fields; mismatch returns
+   *   `{ resumed: false, reason: "park_blob_tampered" }`; missing fields
+   *   returns `{ resumed: false, reason: "park_blob_unverifiable" }`.
+   * `"warn"` — same checks; mismatch fails-closed; missing fields logs
+   *   a warning and proceeds (back-compat with v0.1 parked blobs).
+   * `"off"` — no verification (NOT recommended for production).
+   *
+   * Default: `"warn"` in v0.2; will become `"strict"` in v0.5.
+   */
+  readonly verifyHash?: "strict" | "warn" | "off"
 }
 
 export const DEFAULT_MAX_RESUME_CYCLES = 3
@@ -129,6 +195,42 @@ export async function resumeDeferredIntent(
     return { resumed: false, reason: "signal_mismatch" }
   }
   const intentHash = parked.envelope.intentHash
+
+  // T-005: hash verification — re-derive intentHash from stored fields and
+  // assert byte-equality with the stored value. Detects blob tampering at
+  // resume time (the threat: a malicious actor with Redis write access
+  // mutates the parked payload between park and resume).
+  const verifyMode = args.verifyHash ?? "warn"
+  if (verifyMode !== "off") {
+    const verification = verifyParkedEnvelopeHash(parked)
+    if (verification.verified === false) {
+      log?.warn?.(
+        {
+          sessionId,
+          intentHash,
+          signal,
+          stored: verification.stored,
+          derived: verification.derived,
+        },
+        "[defer-resolver] park blob tampered — refusing to resume",
+      )
+      return { resumed: false, reason: "park_blob_tampered", intentHash }
+    }
+    if (verification.verified === null) {
+      // Legacy blob without hash-verification fields.
+      if (verifyMode === "strict") {
+        log?.warn?.(
+          { sessionId, intentHash, signal },
+          "[defer-resolver] park blob lacks verification fields and verifyHash=strict",
+        )
+        return { resumed: false, reason: "park_blob_unverifiable", intentHash }
+      }
+      log?.warn?.(
+        { sessionId, intentHash, signal },
+        "[defer-resolver] park blob lacks verification fields — v0.5 will require these",
+      )
+    }
+  }
 
   // T5 (top-priority I): per-intentHash resume cycle cap. Caps DEFER →
   // resume → re-adjudicate → DEFER oscillation against a misbehaving

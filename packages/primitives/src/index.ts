@@ -38,8 +38,16 @@
  */
 
 export {
+  createConfirmGuard,
+  createEscalateGuard,
+  createIdempotencyGuard,
+  createRewriteGuard,
   createStateDeferGuard,
   createThresholdGuard,
+  type ConfirmGuardOptions,
+  type EscalateGuardOptions,
+  type IdempotencyGuardOptions,
+  type RewriteGuardOptions,
   type StateDeferGuardOptions,
   type ThresholdComparator,
   type ThresholdGuardOptions,

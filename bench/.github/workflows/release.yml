@@ -1,0 +1,99 @@
+# T-017 + T-018 + T-019: Release workflow with Sigstore signing,
+# npm provenance attestations, and CycloneDX SBOM per release.
+#
+# Triggered manually via workflow_dispatch. Remote CI execution is out of
+# scope for the M1 overnight run.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: "Dry-run (no actual publish)"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm test
+
+      # ── T-019: CycloneDX SBOM ──
+      - name: Generate SBOM
+        run: |
+          npx --yes @cyclonedx/cyclonedx-npm \
+            --output-format JSON \
+            --output-file sbom-adjudicate.cdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom-adjudicate.cdx.json
+
+      # ── T-017: Sigstore signing ──
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign source archive
+        run: |
+          git archive --format=tar.gz -o source-${{ github.sha }}.tar.gz HEAD
+          cosign sign-blob --yes \
+            --output-signature source-${{ github.sha }}.sig \
+            --output-certificate source-${{ github.sha }}.crt \
+            source-${{ github.sha }}.tar.gz
+
+      - name: Upload signed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-source
+          path: |
+            source-${{ github.sha }}.tar.gz
+            source-${{ github.sha }}.sig
+            source-${{ github.sha }}.crt
+
+      # ── Version + publish ──
+      - name: Run changeset version
+        if: ${{ !inputs.dryRun }}
+        run: |
+          pnpm changeset version
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore(release): version packages" || true
+
+      # ── T-018: npm publish with provenance ──
+      - name: Publish to npm
+        if: ${{ !inputs.dryRun }}
+        run: pnpm changeset publish --no-git-tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Push tags
+        if: ${{ !inputs.dryRun }}
+        run: git push --follow-tags

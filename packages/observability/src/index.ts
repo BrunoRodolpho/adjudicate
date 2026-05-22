@@ -57,3 +57,25 @@ export {
   createOtlpAuditSpanExporter,
   type OtlpAuditSpanExporterOptions,
 } from "./audit-spans.js";
+
+// Post-v1 ecosystem-telemetry primitive — opt-in, local-first, deterministic.
+// Adopters compose this aggregator alongside their sinks to produce
+// JSON-stable evidence snapshots. The framework never instantiates it.
+export {
+  createEcosystemTelemetry,
+  classifyReplayFailure,
+  serializeEcosystemSnapshot,
+  type EcosystemTelemetry,
+  type EcosystemTelemetryOptions,
+  type EcosystemTelemetrySnapshot,
+  type PackEcosystemSnapshot,
+  type DecisionDistributionSnapshot,
+  type ReplayFailureSnapshot,
+  type ReplayFailureClass,
+  type AnalyzerTriageSnapshot,
+  type AnalyzerTriageOutcome,
+  type SemconvAdoptionSnapshot,
+  type MigrationPainSnapshot,
+  type IncidentSnapshot,
+  type OperationalIncidentClass,
+} from "./ecosystem-telemetry.js";

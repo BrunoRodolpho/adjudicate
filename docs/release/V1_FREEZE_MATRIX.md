@@ -545,3 +545,50 @@ The following are explicit decisions remaining before the v1.0 changeset is cut:
 4. **§6 `AuditEventBus`** — same evidence-gate posture as kill-switch v2. Recommendation: promote at v1.0 if Phase 2 fan-out simulation passes.
 
 All other surfaces are recommended `frozen` at v1.0 cut.
+
+---
+
+## §29 — Post-v1 additions (introduced after the RC cut)
+
+The following surfaces were introduced after the v1.0-RC cut as
+disciplined post-v1 additions per
+[`EXTENSION_POLICY.md`](./EXTENSION_POLICY.md). They are MINOR-bumpable
+and ship under the same semver discipline as the rest of the matrix.
+
+### §29.1 — `@adjudicate/observability` (ecosystem telemetry)
+
+| Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
+|---|---|---|---|---|---|---|---|---|
+| `createEcosystemTelemetry` / `EcosystemTelemetry` / `EcosystemTelemetryOptions` / `EcosystemTelemetrySnapshot` / `PackEcosystemSnapshot` / `DecisionDistributionSnapshot` / `ReplayFailureSnapshot` / `AnalyzerTriageSnapshot` / `SemconvAdoptionSnapshot` / `MigrationPainSnapshot` / `IncidentSnapshot` | F | observability | none | additive | low | additive | scheduled | Opt-in local-first aggregator. `schemaVersion: 1` is pinned; field-shape changes are MINOR via additive bump. |
+| `classifyReplayFailure` | F | observability | none | additive | low | closed | scheduled | Closed `ReplayFailureClass` taxonomy; additions are MINOR. |
+| `serializeEcosystemSnapshot` | F | observability | none | additive | low | closed | scheduled | Canonical-JSON serializer for the snapshot value. |
+| `ReplayFailureClass` (union `decision_kind_changed | basis_added | basis_removed | basis_swapped | refusal_code_changed | unclassified`) | F | observability | none | additive | low | additive | scheduled | Closed taxonomy; additions are MINOR. |
+| `AnalyzerTriageOutcome` (union `true_positive | false_positive | by_design | wont_fix | deferred`) | F | observability | none | additive | low | additive | scheduled | Closed; additions are MINOR. |
+| `OperationalIncidentClass` (closed list) | F | observability | none | additive | low | additive | scheduled | Closed; additions are MINOR. |
+
+### §29.2 — `@adjudicate/conformance` (Pack health)
+
+| Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
+|---|---|---|---|---|---|---|---|---|
+| `scorePackHealth` / `explainPackHealth` / `PackHealthReport` / `PackHealthAxis` / `PackHealthAxisName` / `PackHealthAxisOutcome` / `PackHealthInputs` / `PackHealthTier` | F | conformance | none | additive | medium | additive | scheduled | Pure roll-up over `validatePackManifest` + `runConformance` + `verifyPackTrust`. Closed axis vocabulary; additions are MINOR. |
+
+### §29.3 — `@adjudicate/audit` (operational intelligence)
+
+| Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
+|---|---|---|---|---|---|---|---|---|
+| `classifyReplayDrift` / `DEFAULT_DRIFT_THRESHOLDS` / `ReplayDriftClass` / `ReplayDriftSample` / `ReplayDriftReport` / `ReplayDriftPoint` / `ReplayDriftThresholds` | F | audit | none | additive | medium | additive | scheduled | Closed `ReplayDriftClass` taxonomy; additions are MINOR. Default thresholds are conservative and tunable. |
+| `buildSupersessionChains` / `explainSupersessionChainReport` / `SupersessionChainReport` / `SupersessionChain` / `SupersessionChainNode` | F | audit | none | additive | medium | additive | scheduled | Pure walker over AuditRecord v3+ supersession links. |
+| `analyzeKillSwitchTimeline` / `KILL_SWITCH_EVENT_SOURCES` / `KillSwitchEvent` / `KillSwitchEventKind` / `KillSwitchEventSource` / `KillSwitchStabilityClass` / `KillSwitchTimelineOptions` / `KillSwitchTimelineReport` | F | audit | none | additive | medium | additive | scheduled | Closed source + stability vocabulary; additions are MINOR. |
+
+### §29.4 — Cross-runtime vectors (`docs/specs/canonical-hash-vectors.json`)
+
+| Vector category | Tier | Replay impact | Notes |
+|---|---|---|---|
+| `envelope` vectors (`v1`..`v9`) | F | decision | Existing v1-v6 unchanged; v7-v9 add deep-array, numeric-edge, recursive-key-sort coverage. |
+| `audit-record-subset` vectors (`audit-v4-execute`, `audit-v4-refuse`) | F | none | Pin `verifyAuditRecord`'s canonical subset across runtimes. Additions are MINOR. |
+
+### §29.5 — Multi-runtime conformance spec
+
+| Artifact | Tier | Notes |
+|---|---|---|
+| `docs/specs/MULTIRUNTIME_CONFORMANCE.md` | F | Normative requirements for non-Node implementations. Closed-enum parity, replay-equivalence, conformance vectors. |

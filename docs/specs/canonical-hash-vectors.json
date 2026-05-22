@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "adjudicate canonical-JSON SHA-256 golden vectors",
-  "description": "Cross-runtime vectors pinning the RFC 8785 (JCS) + SHA-256 algorithm documented in canonical-json-hash.md. Any external runtime (Rust, Go, Python, Java, browser-JS) that claims interop with @adjudicate/core MUST produce the listed hash for each input. These vectors are derived from packages/core/tests/hash-golden-vectors.test.ts and any change here REQUIRES the same change there.",
+  "description": "Cross-runtime vectors pinning the RFC 8785 (JCS) + SHA-256 algorithm documented in canonical-json-hash.md. Any external runtime (Rust, Go, Python, Java, browser-JS) that claims interop with @adjudicate/core MUST produce the listed hash for each input. These vectors are derived from packages/core/tests/hash-golden-vectors.test.ts and the audit subset vectors are derived from packages/core/scripts/compute-vectors.ts. Any change here REQUIRES the same change in both producers.",
   "spec": "docs/specs/canonical-json-hash.md",
   "algorithmVersion": "v2",
   "vectors": [
     {
       "label": "v1-minimal-canonical-envelope",
+      "category": "envelope",
       "notes": "the baseline shape — published in canonical-json-hash.md",
       "input": {
         "version": 2,
@@ -20,6 +21,7 @@
     },
     {
       "label": "v2-key-order-independence",
+      "category": "envelope",
       "notes": "key-order independence — the canonicalization sorts keys; this hash MUST equal v1 byte-for-byte",
       "input": {
         "version": 2,
@@ -33,6 +35,7 @@
     },
     {
       "label": "v3-trusted-system-variant",
+      "category": "envelope",
       "notes": "taint and principal both feed the recipe — TRUSTED+system MUST hash differently from UNTRUSTED+llm with same kind/payload/nonce",
       "input": {
         "version": 2,
@@ -46,6 +49,7 @@
     },
     {
       "label": "v4-empty-payload-system-taint",
+      "category": "envelope",
       "notes": "{} is a valid payload — not equivalent to undefined or null",
       "input": {
         "version": 2,
@@ -59,6 +63,7 @@
     },
     {
       "label": "v5-utf8-nested",
+      "category": "envelope",
       "notes": "RFC 8785 §3.3 mandates literal UTF-8 in strings, not \\uXXXX escapes — 'café' must hash with bytes caf-c3-a9, not caf-005c-u00e9",
       "input": {
         "version": 2,
@@ -75,6 +80,7 @@
     },
     {
       "label": "v6-null-preserved-undefined-omitted",
+      "category": "envelope",
       "notes": "{reason: null} preserves the null; {optional: undefined} omits the key entirely — see canonical-json-hash.md §2.2",
       "input": {
         "version": 2,
@@ -85,6 +91,125 @@
         "taint": "UNTRUSTED"
       },
       "expectedHash": "ca446cbbb5d08a2eeb7b3ed762600a253aee654c66cd07f4bfeaea4b11b28026"
+    },
+    {
+      "label": "v7-large-nested-array",
+      "category": "envelope",
+      "notes": "stresses 32-element nested-object arrays — order MUST be preserved",
+      "input": {
+        "version": 2,
+        "kind": "batch.process",
+        "payload": {
+          "items": [
+            { "id": 0, "ok": true }, { "id": 1, "ok": false }, { "id": 2, "ok": true },
+            { "id": 3, "ok": false }, { "id": 4, "ok": true }, { "id": 5, "ok": false },
+            { "id": 6, "ok": true }, { "id": 7, "ok": false }, { "id": 8, "ok": true },
+            { "id": 9, "ok": false }, { "id": 10, "ok": true }, { "id": 11, "ok": false },
+            { "id": 12, "ok": true }, { "id": 13, "ok": false }, { "id": 14, "ok": true },
+            { "id": 15, "ok": false }, { "id": 16, "ok": true }, { "id": 17, "ok": false },
+            { "id": 18, "ok": true }, { "id": 19, "ok": false }, { "id": 20, "ok": true },
+            { "id": 21, "ok": false }, { "id": 22, "ok": true }, { "id": 23, "ok": false },
+            { "id": 24, "ok": true }, { "id": 25, "ok": false }, { "id": 26, "ok": true },
+            { "id": 27, "ok": false }, { "id": 28, "ok": true }, { "id": 29, "ok": false },
+            { "id": 30, "ok": true }, { "id": 31, "ok": false }
+          ]
+        },
+        "nonce": "n-golden-7",
+        "actor": { "principal": "llm", "sessionId": "s-golden-7" },
+        "taint": "UNTRUSTED"
+      },
+      "expectedHash": "00aaf15e6110ea60b0ccdeffe189de35b148909a24e7ee030dd8a33019aebb0b"
+    },
+    {
+      "label": "v8-numeric-edge",
+      "category": "envelope",
+      "notes": "JCS numeric serialization — 100.0 → '100', 0.01 → '0.01', 1e-7 → '1e-7'. Implementations using float-printers other than ES2015 will diverge here",
+      "input": {
+        "version": 2,
+        "kind": "money.transfer",
+        "payload": { "amount": 100.0, "fee": 0.01, "ratio": 1e-7 },
+        "nonce": "n-golden-8",
+        "actor": { "principal": "user", "sessionId": "s-golden-8" },
+        "taint": "TRUSTED"
+      },
+      "expectedHash": "1eee80fb6459ed53d36d53ab00ff492dd844b6f396cd79877379f95510aec3b2"
+    },
+    {
+      "label": "v9-deeply-nested-object",
+      "category": "envelope",
+      "notes": "recursive key sort — every nested object's keys are sorted, not just top-level",
+      "input": {
+        "version": 2,
+        "kind": "graph.walk",
+        "payload": { "z": { "y": { "x": { "w": 1 } } }, "a": { "b": 2 } },
+        "nonce": "n-golden-9",
+        "actor": { "principal": "llm", "sessionId": "s-golden-9" },
+        "taint": "UNTRUSTED"
+      },
+      "expectedHash": "08e5dd2cabfe985f516c890a835d46531daf2e8c9fabab7672582117dd8f3d97"
+    },
+    {
+      "label": "audit-v4-execute",
+      "category": "audit-record-subset",
+      "notes": "Canonical AuditRecord v4 hash subset for an EXECUTE decision. The subset is the record minus {auditHash, signature}; see packages/core/src/audit.ts. Cross-runtime audit verification MUST hash this subset to the listed digest.",
+      "input": {
+        "version": 4,
+        "intentHash": "ed6d6370c28bedbb46db77e46a588e9b8963c9c9fe392ee5d2434cace4ce0f6d",
+        "envelope": {
+          "version": 2,
+          "kind": "vacation.request",
+          "payload": { "durationDays": 3 },
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "nonce": "n-audit-1",
+          "actor": { "principal": "llm", "sessionId": "s-audit-1" },
+          "taint": "UNTRUSTED",
+          "intentHash": "ed6d6370c28bedbb46db77e46a588e9b8963c9c9fe392ee5d2434cace4ce0f6d"
+        },
+        "decision": {
+          "kind": "EXECUTE",
+          "basis": [{ "category": "BUSINESS_RULE", "code": "ok", "detail": "all good" }]
+        },
+        "decision_basis": [{ "category": "BUSINESS_RULE", "code": "ok", "detail": "all good" }],
+        "at": "2026-01-01T00:00:00.000Z",
+        "durationMs": 5,
+        "policyVersion": "1.0.0",
+        "kernelVersion": "1.0.0"
+      },
+      "expectedHash": "7d8aebf67bbaef79a47fddbbd01de2282d0369a861decf82875295bf758306b6"
+    },
+    {
+      "label": "audit-v4-refuse",
+      "category": "audit-record-subset",
+      "notes": "Canonical AuditRecord v4 hash subset for a REFUSE decision. Mirrors audit-v4-execute structure; covers the refusal-code path which carries the Refusal object inside Decision.",
+      "input": {
+        "version": 4,
+        "intentHash": "ed6d6370c28bedbb46db77e46a588e9b8963c9c9fe392ee5d2434cace4ce0f6d",
+        "envelope": {
+          "version": 2,
+          "kind": "vacation.request",
+          "payload": { "durationDays": 3 },
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "nonce": "n-audit-1",
+          "actor": { "principal": "llm", "sessionId": "s-audit-1" },
+          "taint": "UNTRUSTED",
+          "intentHash": "ed6d6370c28bedbb46db77e46a588e9b8963c9c9fe392ee5d2434cace4ce0f6d"
+        },
+        "decision": {
+          "kind": "REFUSE",
+          "refusal": {
+            "kind": "BUSINESS_RULE",
+            "code": "pto.insufficient_balance",
+            "userFacing": "no balance"
+          },
+          "basis": [{ "category": "BUSINESS_RULE", "code": "pto.insufficient_balance", "detail": "no balance" }]
+        },
+        "decision_basis": [{ "category": "BUSINESS_RULE", "code": "pto.insufficient_balance", "detail": "no balance" }],
+        "at": "2026-01-01T00:00:00.000Z",
+        "durationMs": 5,
+        "policyVersion": "1.0.0",
+        "kernelVersion": "1.0.0"
+      },
+      "expectedHash": "467dc1744868cfa6e1ba1dc1b6128a93694348b9e826a46f6a40033635ef1b2a"
     }
   ]
 }

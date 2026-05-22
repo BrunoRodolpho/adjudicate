@@ -5,7 +5,30 @@
 
 ## Current state
 
-`v1.0-rc` — release-candidate posture. **1022 tests passing, 0 failing, 1 skipped** (audit-postgres needs a live DB). Plus 6 new freeze-matrix surface tests in `@adjudicate/core` and 4 production-scale simulation smoke tests in `@adjudicate/bench`. Kernel API frozen; v0.6 adapter-core extraction held; v0.7 additions are opt-in primitives. The framework is v1.0-ready pending two adopter-evidence items (real kill-switch v2 latency profile, real `AuditEventBus` WebSocket fan-out).
+`v1.0-rc + post-v1 additions` — **the framework has entered the post-v1
+disciplined-evolution phase**. Architecture, wire formats, semantic
+conventions, and provider-neutral contracts are frozen per
+[`docs/release/V1_FREEZE_MATRIX.md`](docs/release/V1_FREEZE_MATRIX.md).
+New work is governed by
+[`docs/release/EXTENSION_POLICY.md`](docs/release/EXTENSION_POLICY.md) and
+[`docs/release/SEMVER_GOVERNANCE.md`](docs/release/SEMVER_GOVERNANCE.md).
+
+**Test posture: 1084 passing, 1 skipped (audit-postgres needs a live
+DB), 0 failing.** Includes the original RC tests, 6 freeze-matrix
+surface tests, 4 scale-harness smoke tests, plus the post-v1
+additions:
+
+- 11 ecosystem-telemetry tests
+- 9 Pack-health diagnostics tests
+- 8 replay-drift classifier tests
+- 7 supersession-chain analytics tests
+- 8 kill-switch timeline analyser tests
+- 3 new envelope cross-runtime vectors + 2 audit-record-subset vectors
+
+Kernel API frozen; v0.6 adapter-core extraction held; v0.7 additions
+remain opt-in primitives. The framework is v1.0-ready pending two
+adopter-evidence items (real kill-switch v2 latency profile, real
+`AuditEventBus` WebSocket fan-out).
 
 Authoritative artifacts for the RC:
 
@@ -14,6 +37,17 @@ Authoritative artifacts for the RC:
 - Security audit: [`docs/security/V1-SECURITY-AUDIT.md`](docs/security/V1-SECURITY-AUDIT.md)
 - Scale baselines: [`docs/perf/scale-baselines.json`](docs/perf/scale-baselines.json)
 - v0.7 source review: [`docs/architecture/V0.7-AUDIT-REPORT.md`](docs/architecture/V0.7-AUDIT-REPORT.md)
+
+Post-v1 governance + strategy artifacts:
+
+- Post-v1 strategy: [`docs/release/POST_V1_STRATEGY.md`](docs/release/POST_V1_STRATEGY.md)
+- Semver governance: [`docs/release/SEMVER_GOVERNANCE.md`](docs/release/SEMVER_GOVERNANCE.md)
+- Extension policy: [`docs/release/EXTENSION_POLICY.md`](docs/release/EXTENSION_POLICY.md)
+- Long-horizon architecture audit: [`docs/architecture/LONG_HORIZON_AUDIT.md`](docs/architecture/LONG_HORIZON_AUDIT.md)
+- Operator guide: [`docs/ops/OPERATOR_GUIDE.md`](docs/ops/OPERATOR_GUIDE.md)
+- Ecosystem health model: [`docs/pack-ecosystem/ECOSYSTEM_HEALTH_MODEL.md`](docs/pack-ecosystem/ECOSYSTEM_HEALTH_MODEL.md)
+- Multi-runtime conformance: [`docs/specs/MULTIRUNTIME_CONFORMANCE.md`](docs/specs/MULTIRUNTIME_CONFORMANCE.md)
+- Post-v1 extension discipline ADR: [`docs/architecture/adr/ADR-116-post-v1-extension-discipline.md`](docs/architecture/adr/ADR-116-post-v1-extension-discipline.md)
 
 | Layer | Status | Footprint |
 |---|---|---|
@@ -116,12 +150,56 @@ See `.changeset/v0.5-foundation-safety-analyzer.md` for the line-by-line v0.5 in
 | L3 Domain Packs | 3 shipped (PIX, KYC, deployments), more pending |
 | L4 Observability / governance | partial — sinks shipped, console + dashboards iterating |
 
+## Post-v1 additions (do not re-litigate)
+
+Disciplined post-v1 additions per
+[`docs/release/EXTENSION_POLICY.md`](docs/release/EXTENSION_POLICY.md).
+All MINOR-bumpable, all opt-in, all classified in
+[`docs/release/V1_FREEZE_MATRIX.md §29`](docs/release/V1_FREEZE_MATRIX.md).
+
+- **Ecosystem telemetry primitive** — `createEcosystemTelemetry()` in
+  `@adjudicate/observability`. Local-first, opt-in, deterministic
+  aggregator over Pack/decision/replay-failure/analyzer/SEMCONV/codemod
+  /incident axes. Closed taxonomies for `ReplayFailureClass`,
+  `AnalyzerTriageOutcome`, `OperationalIncidentClass`. Bounded
+  cardinality. JSON-stable snapshot.
+- **Replay-drift classifier** — `classifyReplayDrift()` in
+  `@adjudicate/audit`. Closed `ReplayDriftClass` vocabulary
+  (`stable | improving | regressing | flapping | insufficient_data`).
+  Pure; deterministic over the same input sequence.
+- **Pack health diagnostics** — `scorePackHealth()` /
+  `explainPackHealth()` in `@adjudicate/conformance`. Roll-up over
+  `validatePackManifest` + `runConformance` + `verifyPackTrust`.
+  Closed `PackHealthTier` (`gold | silver | bronze | unrated`).
+- **Supersession-chain analytics** — `buildSupersessionChains()` /
+  `explainSupersessionChainReport()` in `@adjudicate/audit`.
+  Reconstructs AuditRecord v3+ supersession chains; reports singletons
+  and dangling references.
+- **Kill-switch timeline analyser** — `analyzeKillSwitchTimeline()` in
+  `@adjudicate/audit`. Closed `KillSwitchStabilityClass` (`stable |
+  single_incident | recurring_incidents | storm`).
+- **Cross-runtime conformance spec** —
+  [`docs/specs/MULTIRUNTIME_CONFORMANCE.md`](docs/specs/MULTIRUNTIME_CONFORMANCE.md).
+  Normative; pins what non-Node implementations must satisfy.
+- **Expanded cross-runtime vectors** — three new envelope vectors
+  (`v7-large-nested-array`, `v8-numeric-edge`, `v9-deeply-nested-object`)
+  + two audit-record-subset vectors (`audit-v4-execute`,
+  `audit-v4-refuse`) in
+  [`docs/specs/canonical-hash-vectors.json`](docs/specs/canonical-hash-vectors.json).
+- **ADR-116** — post-v1 extension discipline. Codifies evidence-before-
+  code, closed-vocabulary protection, wire-format append-only, ADR
+  gates.
+- **Governance docs** — semver governance, extension policy, ecosystem
+  health model, long-horizon architecture audit, post-v1 strategic
+  roadmap, operator guide.
+
 ## Verification
 
 ```bash
 pnpm install
-pnpm test       # 1022 passing, 1 skipped, 0 failing
+pnpm test       # 1084 passing, 1 skipped, 0 failing
 pnpm -F @adjudicate/cli run analyze --pack ../pack-payments-pix
 pnpm -F @adjudicate/cli run adjudicate pack verify ./packages/pack-payments-pix
+pnpm rc:check   # full release pipeline
 git tag -l "v0.*"
 ```

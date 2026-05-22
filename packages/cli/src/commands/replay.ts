@@ -20,6 +20,7 @@
 
 import { promises as fs } from "node:fs";
 import chalk from "chalk";
+import { errorMessage } from "../lib/error-message.js";
 import {
   adjudicate,
   classify,
@@ -106,7 +107,7 @@ function runRecords(
     } catch (e) {
       errored.push({
         intentHash: record.intentHash,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
     }
   }
@@ -183,7 +184,7 @@ async function loadPack(
   try {
     pack = await loadPackFromModule(spec, cwd);
   } catch (e) {
-    out(chalk.red("✗") + ` Failed to import pack: ${asMessage(e)}`);
+    out(chalk.red("✗") + ` Failed to import pack: ${errorMessage(e)}`);
     process.exit(1);
   }
   if (!isLoadedPack(pack)) {
@@ -201,7 +202,7 @@ async function loadRecords(
   try {
     text = await fs.readFile(filePath, "utf8");
   } catch (e) {
-    out(chalk.red("✗") + ` Failed to read records file: ${asMessage(e)}`);
+    out(chalk.red("✗") + ` Failed to read records file: ${errorMessage(e)}`);
     process.exit(1);
   }
 
@@ -216,7 +217,7 @@ async function loadRecords(
       }
       return parsed as ReadonlyArray<AuditRecord>;
     } catch (e) {
-      out(chalk.red("✗") + ` Failed to parse records JSON: ${asMessage(e)}`);
+      out(chalk.red("✗") + ` Failed to parse records JSON: ${errorMessage(e)}`);
       process.exit(1);
     }
   }
@@ -231,7 +232,7 @@ async function loadRecords(
     } catch (e) {
       out(
         chalk.red("✗") +
-          ` Failed to parse line ${i + 1} of records file: ${asMessage(e)}`,
+          ` Failed to parse line ${i + 1} of records file: ${errorMessage(e)}`,
       );
       process.exit(1);
     }
@@ -249,6 +250,3 @@ function isLoadedPack(v: unknown): v is LoadedPack {
   );
 }
 
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}

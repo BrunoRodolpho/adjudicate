@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor, GovernanceEvent } from "@adjudicate/admin-sdk";
 import {
+  _resetMetricsSink,
+  setMetricsSink,
+  type MetricsSink,
+  type SinkFailureEvent,
+} from "@adjudicate/core/kernel";
+import {
   createRedisEmergencyStateStore,
   type EmergencyHistoryLog,
 } from "../src/redis-emergency-store.js";
@@ -109,11 +115,21 @@ describe("createRedisEmergencyStateStore — getState", () => {
     );
   });
 
-  it("throws on payload missing active/reason", async () => {
+  it("throws specific error when 'active' is missing or wrong type", async () => {
     const redis = createMockRedis({ [KEY]: JSON.stringify({ foo: "bar" }) });
     const store = createRedisEmergencyStateStore({ redis, key: KEY });
     await expect(store.getState()).rejects.toThrow(
-      /missing active\/reason/,
+      /'active' must be boolean \(got undefined\)/,
+    );
+  });
+
+  it("throws specific error when 'reason' is missing or wrong type", async () => {
+    const redis = createMockRedis({
+      [KEY]: JSON.stringify({ active: true, reason: 42 }),
+    });
+    const store = createRedisEmergencyStateStore({ redis, key: KEY });
+    await expect(store.getState()).rejects.toThrow(
+      /'reason' must be string \(got number\)/,
     );
   });
 
@@ -251,7 +267,7 @@ describe("createRedisEmergencyStateStore — update", () => {
     expect(inserted[0]!.newStatus).toBe("DENY_ALL");
   });
 
-  it("update succeeds even when historyLog.insert throws (fire-and-forget)", async () => {
+  it("update succeeds even when historyLog.insert throws (fire-and-forget, sink-failure recorded)", async () => {
     const redis = createMockRedis();
     const { log, insertShouldFail } = createMockHistoryLog();
     insertShouldFail();
@@ -260,7 +276,19 @@ describe("createRedisEmergencyStateStore — update", () => {
       key: KEY,
       historyLog: log,
     });
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const failures: SinkFailureEvent[] = [];
+    const metrics: MetricsSink = {
+      recordLedgerOp() {},
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure(e) {
+        failures.push(e);
+      },
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    };
+    setMetricsSink(metrics);
 
     const result = await store.update({
       newStatus: "DENY_ALL",
@@ -270,8 +298,15 @@ describe("createRedisEmergencyStateStore — update", () => {
 
     expect(result.state.status).toBe("DENY_ALL");
     expect(result.event).not.toBeNull();
-    expect(errSpy).toHaveBeenCalled();
-    errSpy.mockRestore();
+    expect(
+      failures.some(
+        (f) =>
+          f.subject === "redis-emergency-store" &&
+          f.errorClass.startsWith("history_insert"),
+      ),
+    ).toBe(true);
+
+    _resetMetricsSink();
   });
 });
 

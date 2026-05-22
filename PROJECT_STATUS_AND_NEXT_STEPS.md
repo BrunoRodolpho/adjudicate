@@ -13,7 +13,7 @@ New work is governed by
 [`docs/release/EXTENSION_POLICY.md`](docs/release/EXTENSION_POLICY.md) and
 [`docs/release/SEMVER_GOVERNANCE.md`](docs/release/SEMVER_GOVERNANCE.md).
 
-**Test posture: 1084 passing, 1 skipped (audit-postgres needs a live
+**Test posture: 1121 passing, 1 skipped (audit-postgres needs a live
 DB), 0 failing.** Includes the original RC tests, 6 freeze-matrix
 surface tests, 4 scale-harness smoke tests, plus the post-v1
 additions:
@@ -24,6 +24,8 @@ additions:
 - 7 supersession-chain analytics tests
 - 8 kill-switch timeline analyser tests
 - 3 new envelope cross-runtime vectors + 2 audit-record-subset vectors
+- 1 reliability-audit test (sink-failure-on-history-insert) added 2026-05-21
+- 10 pg-types diagnostic tests (normalizeTimestamptz contract) added 2026-05-21
 
 Kernel API frozen; v0.6 adapter-core extraction held; v0.7 additions
 remain opt-in primitives. The framework is v1.0-ready pending two
@@ -197,7 +199,8 @@ All MINOR-bumpable, all opt-in, all classified in
 
 ```bash
 pnpm install
-pnpm test       # 1084 passing, 1 skipped, 0 failing
+pnpm build      # required: per-package tsc consumes upstream dist .d.ts
+pnpm test       # 1121 passing, 1 skipped, 0 failing
 pnpm -F @adjudicate/cli run analyze --pack ../pack-payments-pix
 pnpm -F @adjudicate/cli run adjudicate pack verify ./packages/pack-payments-pix
 pnpm rc:check   # full release pipeline

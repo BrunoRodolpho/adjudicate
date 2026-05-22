@@ -27,7 +27,7 @@ for years. Its public contracts will not change. Its purpose is:
 
 Your role is *not* to add features. Your role is to:
 
-1. **Keep the test surface green** (1084+ tests; see §5).
+1. **Keep the test surface green** (1120+ tests; see §5).
 2. **Approve only additive evolution** (§3).
 3. **Triage operational incidents** ([`OPERATOR_GUIDE.md`](./OPERATOR_GUIDE.md)).
 4. **Cut releases on demand** (§4).
@@ -48,8 +48,13 @@ minutes of receiving credentials. The order:
    - [`docs/release/EXTENSION_POLICY.md`](../release/EXTENSION_POLICY.md)
    - [`docs/release/SEMVER_GOVERNANCE.md`](../release/SEMVER_GOVERNANCE.md)
 3. Run the full test suite locally: `pnpm install --frozen-lockfile &&
-   pnpm test`. **Result must be ≥1084 passing.** Any deviation is a
-   regression to investigate before doing anything else.
+   pnpm build && pnpm test`. **Result must be ≥1120 passing.** Any
+   deviation is a regression to investigate before doing anything else.
+   The `pnpm build` step is required because per-package `tsc --noEmit`
+   (run by `pnpm lint`) consumes the `dist/` `.d.ts` files of upstream
+   workspace packages — skipping it produces stale-artifact `TS2322`
+   errors that masquerade as real regressions. CI runs the steps in
+   this exact order; mirror it locally.
 4. Run a dry-run release: `pnpm tsx scripts/rc-checks.ts`. The six
    release gates must pass.
 5. Read [`WHY_THE_INVARIANTS_EXIST.md`](../architecture/WHY_THE_INVARIANTS_EXIST.md)
@@ -145,7 +150,7 @@ the full discipline. The headlines:
 
 ## 5. The test surface
 
-The test posture is **1084 passing, 1 skipped (audit-postgres
+The test posture is **1121 passing, 1 skipped (audit-postgres
 live-DB), 0 failing**. The 1 skipped test is gated on a live Postgres
 instance; the maintainer should confirm it passes locally with
 `POSTGRES_URL=…` before any change to `audit-postgres`.

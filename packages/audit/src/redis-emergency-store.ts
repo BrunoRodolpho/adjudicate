@@ -61,6 +61,7 @@ import type {
   EmergencyUpdateResult,
   GovernanceEvent,
 } from "@adjudicate/admin-sdk";
+import { recordSinkFailure } from "@adjudicate/core/kernel";
 import type { RedisLedgerClient } from "./ledger-redis.js";
 
 /** Optional adopter-supplied governance log backend. */
@@ -131,13 +132,20 @@ function isValidActor(value: unknown): value is Actor {
 function payloadToState(payload: unknown): EmergencyState {
   if (typeof payload !== "object" || payload === null) {
     throw new Error(
-      "redis-emergency-store: payload is not an object",
+      `redis-emergency-store: payload is not an object (got ${
+        payload === null ? "null" : typeof payload
+      })`,
     );
   }
   const p = payload as Partial<RedisPayload>;
-  if (typeof p.active !== "boolean" || typeof p.reason !== "string") {
+  if (typeof p.active !== "boolean") {
     throw new Error(
-      "redis-emergency-store: malformed payload (missing active/reason)",
+      `redis-emergency-store: malformed payload — 'active' must be boolean (got ${typeof p.active})`,
+    );
+  }
+  if (typeof p.reason !== "string") {
+    throw new Error(
+      `redis-emergency-store: malformed payload — 'reason' must be string (got ${typeof p.reason})`,
     );
   }
   return {
@@ -164,6 +172,7 @@ export function createRedisEmergencyStateStore(
       const e = err instanceof Error ? err : new Error(String(err));
       throw new Error(
         `redis-emergency-store: malformed JSON at key "${opts.key}": ${e.message}`,
+        { cause: e },
       );
     }
     return payloadToState(parsed);
@@ -214,15 +223,20 @@ export function createRedisEmergencyStateStore(
 
       // Optional log delegation, fire-and-forget. Same operator-priority-
       // over-audit-completeness reasoning as the in-memory durable
-      // composite from Phase 1.5c.
+      // composite from Phase 1.5c. The failure path routes through
+      // `recordSinkFailure` so the adopter's metrics pipeline observes
+      // the drop instead of relying on stdout scraping.
       if (opts.historyLog) {
         try {
           await opts.historyLog.insert(event);
         } catch (err) {
-          console.error(
-            "[redis-emergency-store] failed to write governance event:",
-            err,
-          );
+          const message = err instanceof Error ? err.message : String(err);
+          recordSinkFailure({
+            sink: "console",
+            subject: "redis-emergency-store",
+            errorClass: `history_insert: ${message}`,
+            consecutiveFailures: 1,
+          });
         }
       }
 

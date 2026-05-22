@@ -28,6 +28,7 @@ import type {
 } from "@adjudicate/admin-sdk";
 import type { PostgresReader } from "./pg-reader.js";
 import type { IntentAuditRow } from "./postgres-sink.js";
+import { normalizeTimestamptz } from "./pg-types.js";
 import { rowToRecord } from "./replay.js";
 
 const SELECT_COLUMNS = `
@@ -109,15 +110,6 @@ export function buildWhereClauses(q: AuditQuery): SqlFragment {
   return { clauses, params };
 }
 
-/** Normalize TIMESTAMPTZ values that pg drivers may return as Date. */
-function normalizeAt(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value instanceof Date) return value.toISOString();
-  throw new Error(
-    `audit-postgres: unexpected TIMESTAMPTZ value type ${typeof value}`,
-  );
-}
-
 export interface CreatePostgresAuditStoreDeps {
   readonly reader: PostgresReader;
 }
@@ -162,7 +154,7 @@ export function createPostgresAuditStore(
       // Normalize recorded_at to string in case the pg driver returned Date.
       const rows = rawRows.map((row) => ({
         ...row,
-        recorded_at: normalizeAt(row.recorded_at),
+        recorded_at: normalizeTimestamptz(row.recorded_at, "intent_audit.recorded_at"),
       }));
 
       const hasMore = rows.length > q.limit;
@@ -202,7 +194,7 @@ export function createPostgresAuditStore(
       if (rawRows.length === 0) return null;
       const row = {
         ...rawRows[0]!,
-        recorded_at: normalizeAt(rawRows[0]!.recorded_at),
+        recorded_at: normalizeTimestamptz(rawRows[0]!.recorded_at, "intent_audit.recorded_at"),
       };
       return rowToRecord(row);
     },

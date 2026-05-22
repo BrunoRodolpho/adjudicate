@@ -228,7 +228,7 @@ CI: `pnpm rc:check` runs the full pipeline locally; `.github/workflows/release-c
 
 ## Testing posture
 
-**1022 passing, 1 skipped (audit-postgres needs a live DB), 0 failing.** Plus 6 freeze-matrix surface tests in `@adjudicate/core` and 4 scale-harness smoke tests in `@adjudicate/bench`. CI runs `lint + typecheck + test + check:versions + check:freeze-matrix + audit` on push. Integration coverage:
+**1121 passing, 1 skipped (audit-postgres needs a live DB), 0 failing.** Plus 6 freeze-matrix surface tests in `@adjudicate/core` and 4 scale-harness smoke tests in `@adjudicate/bench`. CI runs `lint + typecheck + test + check:versions + check:freeze-matrix + audit` on push. Integration coverage:
 
 - Decision regression gates via `adjudicate simulate` scenarios per Pack.
 - Property tests for replay determinism, plan conformance, canonical-JSON hash.

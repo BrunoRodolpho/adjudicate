@@ -101,11 +101,15 @@ export function startDistributedKillSwitch(
     let parsed: RemoteKillState;
     try {
       const obj = JSON.parse(raw) as Partial<RemoteKillState>;
-      if (
-        typeof obj.active !== "boolean" ||
-        typeof obj.reason !== "string"
-      ) {
-        throw new Error("malformed payload");
+      if (typeof obj.active !== "boolean") {
+        throw new Error(
+          `malformed payload: 'active' must be boolean (got ${typeof obj.active})`,
+        );
+      }
+      if (typeof obj.reason !== "string") {
+        throw new Error(
+          `malformed payload: 'reason' must be string (got ${typeof obj.reason})`,
+        );
       }
       parsed = { active: obj.active, reason: obj.reason };
     } catch (err) {

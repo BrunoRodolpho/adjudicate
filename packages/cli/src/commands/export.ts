@@ -21,6 +21,7 @@
 import { promises as fs } from "node:fs";
 import chalk from "chalk";
 import type { AuditRecord } from "@adjudicate/core";
+import { errorMessage } from "../lib/error-message.js";
 
 export type ExportFormat = "json" | "csv" | "parquet";
 
@@ -126,7 +127,7 @@ async function loadSource(
   try {
     text = await fs.readFile(filePath, "utf8");
   } catch (e) {
-    err(chalk.red("✗") + ` Failed to read source: ${asMessage(e)}`);
+    err(chalk.red("✗") + ` Failed to read source: ${errorMessage(e)}`);
     process.exit(1);
   }
 
@@ -143,7 +144,7 @@ async function loadSource(
       }
       return parsed as ReadonlyArray<AuditRecord>;
     } catch (e) {
-      err(chalk.red("✗") + ` JSON parse error: ${asMessage(e)}`);
+      err(chalk.red("✗") + ` JSON parse error: ${errorMessage(e)}`);
       process.exit(1);
     }
   }
@@ -157,14 +158,10 @@ async function loadSource(
       records.push(JSON.parse(line) as AuditRecord);
     } catch (e) {
       err(
-        chalk.red("✗") + ` JSONL parse error at line ${i + 1}: ${asMessage(e)}`,
+        chalk.red("✗") + ` JSONL parse error at line ${i + 1}: ${errorMessage(e)}`,
       );
       process.exit(1);
     }
   }
   return records;
-}
-
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }

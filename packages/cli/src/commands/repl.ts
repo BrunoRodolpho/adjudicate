@@ -24,6 +24,7 @@
 
 import * as readline from "node:readline";
 import chalk from "chalk";
+import { errorMessage } from "../lib/error-message.js";
 import {
   adjudicate,
   buildEnvelope,
@@ -64,8 +65,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
   try {
     pack = await loadPackFromModule(options.pack, cwd);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    out(chalk.red("✗") + ` Failed to import pack: ${msg}`);
+    out(chalk.red("✗") + ` Failed to import pack: ${errorMessage(e)}`);
     process.exit(1);
   }
   if (!isLoadedPack(pack)) {
@@ -123,7 +123,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
       try {
         pendingPayload = line === "" ? {} : JSON.parse(line);
       } catch (e) {
-        out(chalk.red("✗") + ` Payload JSON parse error: ${asMessage(e)}`);
+        out(chalk.red("✗") + ` Payload JSON parse error: ${errorMessage(e)}`);
         stage = "kind";
         pendingKind = undefined;
         out(chalk.cyan("kind > "));
@@ -139,7 +139,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     try {
       stateRaw = line === "" ? {} : JSON.parse(line);
     } catch (e) {
-      out(chalk.red("✗") + ` State JSON parse error: ${asMessage(e)}`);
+      out(chalk.red("✗") + ` State JSON parse error: ${errorMessage(e)}`);
       stage = "kind";
       pendingKind = undefined;
       pendingPayload = undefined;
@@ -163,7 +163,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     try {
       decision = adjudicate(envelope, state, pack.policy);
     } catch (e) {
-      out(chalk.red("✗") + ` adjudicate() threw: ${asMessage(e)}`);
+      out(chalk.red("✗") + ` adjudicate() threw: ${errorMessage(e)}`);
       stage = "kind";
       pendingKind = undefined;
       pendingPayload = undefined;
@@ -272,6 +272,3 @@ function isLoadedPack(v: unknown): v is LoadedPack {
   );
 }
 
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}

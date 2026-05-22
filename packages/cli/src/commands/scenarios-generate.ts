@@ -24,6 +24,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import chalk from "chalk";
+import { errorMessage } from "../lib/error-message.js";
 import { loadPackFromModule } from "../lib/pack-loader.js";
 
 export interface ScenariosGenerateOptions {
@@ -168,7 +169,7 @@ async function loadPack(spec: string, cwd: string): Promise<LoadedPack> {
   try {
     pack = await loadPackFromModule(spec, cwd);
   } catch (e) {
-    fail(`Failed to import pack: ${asMessage(e)}`);
+    fail(`Failed to import pack: ${errorMessage(e)}`);
   }
   if (!isLoadedPack(pack)) {
     fail(`No Pack export found in "${spec}".`);
@@ -186,9 +187,6 @@ function isLoadedPack(v: unknown): v is LoadedPack {
   );
 }
 
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 function fail(message: string): never {
   console.error(chalk.red("✗"), message);

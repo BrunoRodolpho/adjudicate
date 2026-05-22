@@ -31,6 +31,7 @@
  */
 
 import chalk from "chalk";
+import { errorMessage } from "../lib/error-message.js";
 
 export interface ReapOptions {
   /** Redis connection URL. Defaults to `redis://localhost:6379`. */
@@ -93,10 +94,9 @@ export async function runReap(options: ReapOptions): Promise<void> {
       ? await options.clientFactory(url)
       : await defaultClientFactory(url);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
     err(
       chalk.red("✗") +
-        ` Failed to connect to Redis at ${url}: ${msg}` +
+        ` Failed to connect to Redis at ${url}: ${errorMessage(e)}` +
         "\n  Hint: ensure Redis is running (`adjudicate dev` spins up a local instance)",
     );
     process.exit(1);
@@ -110,8 +110,7 @@ export async function runReap(options: ReapOptions): Promise<void> {
       out(renderText(report));
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    err(chalk.red("✗") + ` Reap scan failed: ${msg}`);
+    err(chalk.red("✗") + ` Reap scan failed: ${errorMessage(e)}`);
     process.exit(1);
   } finally {
     try {

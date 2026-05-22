@@ -9,6 +9,7 @@
  */
 
 import type { Actor, GovernanceEvent } from "@adjudicate/admin-sdk";
+import { normalizeTimestamptz } from "./pg-types.js";
 
 /** Shape of one row in the `governance_events` table. */
 export interface GovernanceEventRow {
@@ -19,15 +20,6 @@ export interface GovernanceEventRow {
   readonly previous_status: string;
   readonly new_status: string;
   readonly reason: string;
-}
-
-/** Normalize TIMESTAMPTZ values that pg drivers may return as Date. */
-function normalizeAt(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value instanceof Date) return value.toISOString();
-  throw new Error(
-    `audit-postgres: unexpected TIMESTAMPTZ value type ${typeof value}`,
-  );
 }
 
 /**
@@ -59,7 +51,7 @@ export function rowToGovernanceEvent(
   // SDK's literal type for the current vocabulary.
   return {
     id: row.id,
-    at: normalizeAt(row.at),
+    at: normalizeTimestamptz(row.at, "governance_events.at"),
     kind: row.kind as "emergency.update",
     actor: row.actor,
     previousStatus: row.previous_status as GovernanceEvent["previousStatus"],

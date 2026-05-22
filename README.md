@@ -170,7 +170,7 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
 
 ## Status
 
-> **`v1.0-rc`** — release-candidate posture. Kernel API frozen, 1022 tests passing, 19 workspace packages, scale-harness operational evidence captured ([`docs/perf/scale-baselines.json`](./docs/perf/scale-baselines.json)). v1.0 cut gates on the two adopter-evidence items in [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md) §Priority 1.
+> **`v1.0-rc`** — release-candidate posture. Kernel API frozen, 1121 tests passing (1 skipped — live-DB integration), 19 workspace packages, scale-harness operational evidence captured ([`docs/perf/scale-baselines.json`](./docs/perf/scale-baselines.json)). v1.0 cut gates on the two adopter-evidence items in [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md) §Priority 1.
 
 **Maturity ladder** (per [`docs/concepts.md §9`](./docs/concepts.md#9-architectural-direction-intended-evolution)):
 

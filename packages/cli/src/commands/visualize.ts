@@ -21,6 +21,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import chalk from "chalk";
+import { errorMessage } from "../lib/error-message.js";
 import {
   describePolicyBundle,
   type GuardDescriptor,
@@ -57,7 +58,7 @@ export async function runVisualize(options: VisualizeOptions): Promise<void> {
   try {
     pack = await loadPackFromModule(options.pack, cwd);
   } catch (e) {
-    fail(`Failed to import pack "${options.pack}": ${asMessage(e)}`);
+    fail(`Failed to import pack "${options.pack}": ${errorMessage(e)}`);
   }
   if (!isLoadedPack(pack)) {
     fail(
@@ -324,9 +325,6 @@ function isLoadedPack(v: unknown): v is LoadedPack {
   );
 }
 
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 function fail(message: string): never {
   console.error(chalk.red("✗"), message);

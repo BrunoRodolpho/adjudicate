@@ -105,7 +105,7 @@ For now, regressions are caught by:
 - The scale harness CI smoke tests in `bench/src/scale/scale.test.ts`
   (4 invariant-shaped tests that fail on framework regressions in the
   fan-out / propagation story).
-- The existing 1022-test suite — performance regressions that materially
+- The existing 1121-test suite — performance regressions that materially
   change behavior usually fail at least one functional test.
 
 ---

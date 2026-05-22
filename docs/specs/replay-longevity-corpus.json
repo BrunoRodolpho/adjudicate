@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "adjudicate replay longevity corpus",
+  "description": "Long-range replay fixtures. Each entry encodes a logical (envelope, decision) pair whose replay outcome MUST remain IDENTICAL across all releases in the v1 line. The corpus is consumed by packages/audit/tests/replay-longevity.test.ts and is normative for any cross-runtime reimplementation. Add entries; do NOT mutate existing entries.",
+  "spec": "docs/specs/REPLAY_LONGEVITY_MODEL.md",
+  "algorithmVersion": "v2",
+  "since": "v1.0",
+  "fixtures": [
+    {
+      "label": "v1.0-execute-canonical",
+      "category": "execute",
+      "since": "v1.0",
+      "notes": "the v1-minimal envelope from canonical-hash-vectors.json paired with an EXECUTE decision. Pins the joint contract: same envelope -> same intentHash -> same replayed decision-kind.",
+      "envelopeInput": {
+        "kind": "order.submit",
+        "payload": { "sku": "X", "qty": 1 },
+        "actor": { "principal": "llm", "sessionId": "s-golden-1" },
+        "taint": "UNTRUSTED",
+        "nonce": "n-golden-1",
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      "expectedIntentHash": "ccaaf1c710d6956f00b84cbed4fc8a31c148a9e3e1c932d21f377c472c690bc0",
+      "decision": {
+        "kind": "EXECUTE",
+        "basis": [
+          { "category": "state", "code": "transition_valid" }
+        ]
+      },
+      "recordedAt": "2026-01-01T00:00:01.000Z",
+      "durationMs": 1
+    },
+    {
+      "label": "v1.0-refuse-untrusted-system-only",
+      "category": "refuse",
+      "since": "v1.0",
+      "notes": "an UNTRUSTED actor targeting a system-only intent refuses with taint basis. Pins the zero-trust property: any future kernel must reject this envelope.",
+      "envelopeInput": {
+        "kind": "webhook.callback",
+        "payload": { "event": "payment.completed", "ref": "ref-1" },
+        "actor": { "principal": "llm", "sessionId": "s-longevity-1" },
+        "taint": "UNTRUSTED",
+        "nonce": "n-longevity-refuse-1",
+        "createdAt": "2026-01-02T00:00:00.000Z"
+      },
+      "decision": {
+        "kind": "REFUSE",
+        "refusal": {
+          "kind": "SECURITY",
+          "code": "taint.untrusted_to_system_only",
+          "userFacing": "Action not allowed."
+        },
+        "basis": [
+          { "category": "taint", "code": "level_insufficient" }
+        ]
+      },
+      "recordedAt": "2026-01-02T00:00:01.000Z",
+      "durationMs": 2
+    },
+    {
+      "label": "v1.0-defer-async-process",
+      "category": "defer",
+      "since": "v1.0",
+      "notes": "a DEFER decision with a signal-driven resume. Pins the deferral path.",
+      "envelopeInput": {
+        "kind": "kyc.review",
+        "payload": { "applicantId": "a-1", "tier": "enhanced" },
+        "actor": { "principal": "llm", "sessionId": "s-longevity-2" },
+        "taint": "UNTRUSTED",
+        "nonce": "n-longevity-defer-1",
+        "createdAt": "2026-01-03T00:00:00.000Z"
+      },
+      "decision": {
+        "kind": "DEFER",
+        "signal": "kyc.review.completed",
+        "timeoutMs": 86400000,
+        "basis": [
+          { "category": "state", "code": "transition_valid" }
+        ]
+      },
+      "recordedAt": "2026-01-03T00:00:01.000Z",
+      "durationMs": 1
+    },
+    {
+      "label": "v1.0-confirm-high-value",
+      "category": "request_confirmation",
+      "since": "v1.0",
+      "notes": "a REQUEST_CONFIRMATION decision for a high-value transfer. Pins the confirmation path.",
+      "envelopeInput": {
+        "kind": "pix.charge.create",
+        "payload": { "amount": 50000, "currency": "BRL", "recipient": "r-1" },
+        "actor": { "principal": "llm", "sessionId": "s-longevity-3" },
+        "taint": "UNTRUSTED",
+        "nonce": "n-longevity-confirm-1",
+        "createdAt": "2026-01-04T00:00:00.000Z"
+      },
+      "decision": {
+        "kind": "REQUEST_CONFIRMATION",
+        "prompt": "Confirm transfer of R$ 500.00 to recipient r-1",
+        "basis": [
+          { "category": "business", "code": "rule_satisfied" }
+        ]
+      },
+      "recordedAt": "2026-01-04T00:00:01.000Z",
+      "durationMs": 1
+    },
+    {
+      "label": "v1.0-escalate-prod-deployment",
+      "category": "escalate",
+      "since": "v1.0",
+      "notes": "ESCALATE decision for a prod deployment without approver. Pins the escalation path.",
+      "envelopeInput": {
+        "kind": "deploy.production",
+        "payload": { "service": "api", "image": "api:v1.2.3" },
+        "actor": { "principal": "llm", "sessionId": "s-longevity-4" },
+        "taint": "UNTRUSTED",
+        "nonce": "n-longevity-escalate-1",
+        "createdAt": "2026-01-05T00:00:00.000Z"
+      },
+      "decision": {
+        "kind": "ESCALATE",
+        "to": "human",
+        "reason": "production_deploy_requires_human_approver",
+        "basis": [
+          { "category": "business", "code": "rule_violated" }
+        ]
+      },
+      "recordedAt": "2026-01-05T00:00:01.000Z",
+      "durationMs": 2
+    }
+  ]
+}

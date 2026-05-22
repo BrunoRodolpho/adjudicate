@@ -119,6 +119,35 @@ export {
   type RedisAuditEventBusOptions,
 } from "./event-bus.js";
 
+// Operational survivability snapshots — deterministic, portable, archival-safe
+// exports of operational state. Pure functions over caller-supplied inputs.
+// See docs/specs/REPLAY_LONGEVITY_MODEL.md and docs/ops/OPERATOR_GUIDE.md
+// for the consumer-facing discipline.
+export {
+  buildOperationalSnapshot,
+  buildIncidentBundle,
+  buildOperatorHandoff,
+  verifyOperationalSnapshot,
+  verifyIncidentBundle,
+  verifyOperatorHandoff,
+  OPERATIONAL_SNAPSHOT_SCHEMA_VERSION,
+  type OperationalSnapshot,
+  type IncidentBundle,
+  type OperatorHandoff,
+  type BuildOperationalSnapshotInput,
+  type BuildIncidentBundleInput,
+  type BuildOperatorHandoffInput,
+  type DeploymentIdentity,
+  type DeploymentConfigSummary,
+  type DeploymentMode,
+  type KillSwitchSnapshot,
+  type LedgerStatsSummary,
+  type ReplaySnapshot,
+  type SinkHealthStatus,
+  type SinkHealthSummary,
+  type SnapshotSchemaVersion,
+} from "./operational-snapshot.js";
+
 // ─── SDK-shape Redis emergency store (Phase 1.5d) ───────────────────────────
 // Implements `@adjudicate/admin-sdk`'s EmergencyStateStore against the same
 // Redis key format the kernel's `startDistributedKillSwitch` already polls.

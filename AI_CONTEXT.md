@@ -182,6 +182,33 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 
 `PROJECT_STATUS_AND_NEXT_STEPS.md` — priority-ordered list of what's open and what was deliberately deferred or rejected (do not re-litigate the rejections without an ADR).
 
+## Stewardship documentation set (post-v1)
+
+The framework is post-v1 governance infrastructure. The stewardship document set encodes engineering intent for future maintainers. **Read these before reviewing kernel-touching, replay-touching, or wire-format-touching changes:**
+
+- [`docs/architecture/WHY_THE_INVARIANTS_EXIST.md`](docs/architecture/WHY_THE_INVARIANTS_EXIST.md) — rationale for each of the 11 constitutional invariants. Cite this when declining changes that violate them.
+- [`docs/architecture/INSTITUTIONAL_RISK_REGISTER.md`](docs/architecture/INSTITUTIONAL_RISK_REGISTER.md) — risk inventory with mitigation status. Annual walk.
+- [`docs/architecture/ECOSYSTEM_ANTI_FRAGILITY.md`](docs/architecture/ECOSYSTEM_ANTI_FRAGILITY.md) — per-dependency failure response.
+- [`docs/architecture/MAINTENANCE_COST_AUDIT.md`](docs/architecture/MAINTENANCE_COST_AUDIT.md) — ongoing-burden tracking. Reach for it when tempted to add governance bureaucracy.
+- [`docs/architecture/LONG_TERM_STEWARDSHIP_REPORT.md`](docs/architecture/LONG_TERM_STEWARDSHIP_REPORT.md) — annual certification capstone.
+- [`docs/ops/MAINTAINER_GUIDE.md`](docs/ops/MAINTAINER_GUIDE.md) — onboarding (90 minutes to first patch release).
+- [`docs/ops/OPERATIONAL_ASSUMPTIONS.md`](docs/ops/OPERATIONAL_ASSUMPTIONS.md) — what the runtime presupposes.
+- [`docs/ops/FAILURE_MODE_CATALOG.md`](docs/ops/FAILURE_MODE_CATALOG.md) — known failure modes + degraded-mode contracts.
+- [`docs/ops/ECOSYSTEM_RECOVERY_PROCEDURES.md`](docs/ops/ECOSYSTEM_RECOVERY_PROCEDURES.md) — per-incident playbooks.
+- [`docs/release/GOVERNANCE_PLAYBOOK.md`](docs/release/GOVERNANCE_PLAYBOOK.md) — maintainer process (forbidden actions in §15).
+- [`docs/release/CHANGE_REVIEW_CHECKLIST.md`](docs/release/CHANGE_REVIEW_CHECKLIST.md) — mechanical per-PR gate.
+- [`docs/release/REPLAY_RISK_REVIEW.md`](docs/release/REPLAY_RISK_REVIEW.md) — extra checklist for replay-impacting changes.
+- [`docs/release/SEMVER_DURABILITY_AUDIT.md`](docs/release/SEMVER_DURABILITY_AUDIT.md) — 3/5/10-year horizon analysis of the freeze matrix.
+- [`docs/specs/REPLAY_LONGEVITY_MODEL.md`](docs/specs/REPLAY_LONGEVITY_MODEL.md) — what "replay" means over 10 years.
+
+Operational survivability primitives shipped in `@adjudicate/audit`:
+
+- `buildOperationalSnapshot` — deterministic point-in-time export of deployment state (digest-verified, JSON-portable).
+- `buildIncidentBundle` — replayable incident package (snapshot at start + records + integrity report).
+- `buildOperatorHandoff` — out-of-band handoff artefact (snapshot + config + open issues + references).
+
+Long-range replay corpus: [`docs/specs/replay-longevity-corpus.json`](docs/specs/replay-longevity-corpus.json), enforced by [`packages/audit/tests/replay-longevity.test.ts`](packages/audit/tests/replay-longevity.test.ts). Extend additively; never mutate existing entries.
+
 ## Performance posture
 
 `adjudicate()` p99 on commodity hardware: EXECUTE 0.7µs, REWRITE 6.5µs (hash dominates), REFUSE 0.5µs. `adjudicateAndAudit` REFUSE p99 = 9.5µs. All measurements >200× headroom against SLO (kernel ≤ 2ms, full path ≤ 15ms). Microbenchmarks: `pnpm -F adjudicate-bench bench`.

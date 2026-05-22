@@ -60,6 +60,42 @@ export {
   type ReplayExplainFormat,
 } from "./explain-replay.js";
 
+// Post-v1 replay-drift detector — turns a chronological sequence of
+// ReplayReport samples into a deterministic trend classification.
+// Closed vocabulary; pure; additive.
+export {
+  classifyReplayDrift,
+  DEFAULT_DRIFT_THRESHOLDS,
+  type ReplayDriftClass,
+  type ReplayDriftPoint,
+  type ReplayDriftReport,
+  type ReplayDriftSample,
+  type ReplayDriftThresholds,
+} from "./replay-drift.js";
+
+// Post-v1 supersession-chain analytics — reconstructs the chains formed by
+// AuditRecord.supersedes links (v3+). Pure; deterministic; additive.
+export {
+  buildSupersessionChains,
+  explainSupersessionChainReport,
+  type SupersessionChain,
+  type SupersessionChainNode,
+  type SupersessionChainReport,
+} from "./supersession-chain.js";
+
+// Post-v1 kill-switch timeline analyser — summarises a sequence of
+// kill-switch state transitions into a closed-vocabulary stability class.
+export {
+  analyzeKillSwitchTimeline,
+  KILL_SWITCH_EVENT_SOURCES,
+  type KillSwitchEvent,
+  type KillSwitchEventKind,
+  type KillSwitchEventSource,
+  type KillSwitchStabilityClass,
+  type KillSwitchTimelineOptions,
+  type KillSwitchTimelineReport,
+} from "./kill-switch-timeline.js";
+
 export { isLedgerEnabled, isLedgerEnforced } from "./feature-flag.js";
 export {
   startDistributedKillSwitch,

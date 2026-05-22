@@ -60,6 +60,19 @@ export {
   type VerifyPackTrustOptions,
 } from "./pack-trust.js";
 
+// Pack health diagnostics — post-v1 composable scoring over the
+// existing primitives. Pure; closed vocabulary; additive over time.
+export {
+  scorePackHealth,
+  explainPackHealth,
+  type PackHealthAxis,
+  type PackHealthAxisName,
+  type PackHealthAxisOutcome,
+  type PackHealthInputs,
+  type PackHealthReport,
+  type PackHealthTier,
+} from "./pack-health.js";
+
 // Individual checks are exported by id so adopters who want to assemble
 // a partial set (e.g., omit default-polarity for a read-only Pack
 // without using `allowDefaultExecute`) can pass `{ checks: [...] }`.

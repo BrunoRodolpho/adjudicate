@@ -44,6 +44,8 @@ pnpm-debug.log*
 
 # Claude Code local session files
 .claude/
+.agents/
+skills-lock.json
 
 # ibx CLI runtime files
 .ibx-dev.pids

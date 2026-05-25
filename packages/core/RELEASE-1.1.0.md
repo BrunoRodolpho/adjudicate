@@ -1,24 +1,36 @@
 # `@adjudicate/core` 1.1.0 — release plan + rollback notes
 
-Bundled minor release with three backwards-compatible additions, surfaced by
-the IbateXas adopter during the audit-2026-05-24 closeout sweep. All three
-additions are purely additive at the type and runtime layers; no breaking
-changes; no schema migration.
+Bundled minor release with three additions, surfaced by the IbateXas adopter
+during the audit-2026-05-24 closeout sweep. Two additions are purely
+additive; the `SupersessionReason` union extension is **technically
+breaking for consumers that pattern-match exhaustively** (see the
+"Backwards-compatibility caveat" section below). The release ships under a
+minor bump rather than 2.0.0 because the additive-union argument holds for
+*non-exhaustive* consumers and the framework itself never `switch`es
+exhaustively on the union — but exhaustive consumers must update at
+upgrade time. No runtime schema migration.
 
 ---
 
 ## Summary of additions
 
-### 1. `BASIS_CODES.kernel.KERNEL_INTENT_DISPATCHED = "kernel.intent_dispatched"`
+### 1. `BASIS_CODES.kernel.KERNEL_INTENT_DISPATCHED = "intent_dispatched"`
 
 New basis code in the `kernel` category. Adopters can now emit an
 explicit "the kernel dispatched this intent" basis on audit records,
-distinct from `GUARD_PANIC` (which signals a guard threw). The IbateXas
-consumer had been hand-coding the literal `"kernel.intent_dispatched"`
-string, which the basis-vocabulary purity conformance was about to start
-flagging — promoting it to the vocabulary closes the drift.
+distinct from `GUARD_PANIC` (which signals a guard threw). The value is
+the bare name `"intent_dispatched"` (matching every other BASIS_CODES
+leaf — `GUARD_PANIC: "guard_panic"`, `ACTIVE: "active"`, etc.). The
+category prefix is added automatically by downstream lookup-key
+construction (`${category}:${code}` → `"kernel:intent_dispatched"`).
 
-File: `packages/core/src/basis-codes.ts`.
+The pre-1.1.0 IbateXas consumer was hand-coding the literal
+`"kernel.intent_dispatched"`; that drift is now closed by promoting the
+code into the vocabulary AND correcting it to the bare-name convention.
+
+Files: `packages/core/src/basis-codes.ts`,
+`packages/core/src/explain.ts` (DEFAULT_EXPLANATION_REGISTRY entry for
+`kernel:intent_dispatched` AND the previously-missing `kernel:guard_panic`).
 
 ### 2. `"lgpd_scrub"` added to `SupersessionReason` union
 
@@ -68,8 +80,8 @@ Files: `packages/core/src/kernel/metrics.ts`,
 | Addition | Compat surface | Guarantee |
 |---|---|---|
 | `KERNEL_INTENT_DISPATCHED` basis code | `BASIS_CODES.kernel.GUARD_PANIC` still present | Strictly additive enum extension. |
-| `"lgpd_scrub"` reason | Existing 4-literal union still type-checks | Strictly additive union extension. Framework does not switch exhaustively. |
-| Optional `recordShadowDivergence` | Existing implementations that DEFINE the method still work | Strict relaxation: required → optional. |
+| `"lgpd_scrub"` reason | Non-exhaustive consumers still type-check | Additive union extension — **breaking** for exhaustive consumers (see caveat below). |
+| Optional `recordShadowDivergence` | Existing implementations that DEFINE the method still work | Strict relaxation: required → optional. Note: omitted methods now silently no-op for shadow telemetry; `setMetricsSink` emits a one-time `console.warn` at install time when the method is absent so the silent-drop is operator-visible. |
 
 Type-level guarantees:
 
@@ -79,6 +91,59 @@ Type-level guarantees:
   required — only the underlying sink relaxes. Every framework caller
   goes through the slot, so call sites outside the framework see the
   same stable surface.
+
+### Backwards-compatibility caveat — `SupersessionReason` union extension
+
+Adding a literal to a TypeScript string-literal union is technically
+breaking for consumers that pattern-match exhaustively. Concrete
+breakages observed in this very PR's own console package
+(`apps/console/src/components/decision/{LineageGraph,SupersessionChain}.tsx`)
+pre-extension, which had to be updated:
+
+```ts
+// BEFORE — compiles against 1.0.x, fails to compile against 1.1.0:
+const REASON_LABEL: Record<Supersession["reason"], string> = {
+  confirmation_resolved: "Confirmed",
+  defer_resumed:         "Resumed",
+  rewrite_executed:      "Rewritten",
+  replay:                "Replayed",
+};
+
+// AFTER — compiles against 1.1.0:
+const REASON_LABEL: Record<Supersession["reason"], string> = {
+  confirmation_resolved: "Confirmed",
+  defer_resumed:         "Resumed",
+  rewrite_executed:      "Rewritten",
+  replay:                "Replayed",
+  lgpd_scrub:            "LGPD scrubbed",
+};
+```
+
+Similar breakage shape for `switch (r.reason) { ...; default: assertNever(r.reason); }`
+exhaustive switches — adding a `case "lgpd_scrub":` is required.
+
+**Codemod for consumers** (paste into a fresh PR):
+
+```bash
+# Find every Record<SupersessionReason, X> and exhaustive switch in your codebase:
+rg -l 'Record<SupersessionReason' your-repo/src
+rg -l 'assertNever.*\.reason' your-repo/src
+
+# For each match, add an `lgpd_scrub` branch carrying the locale-appropriate label
+# or handler. For the Zod side (admin-sdk consumers), the SupersessionReasonSchema
+# enum in `@adjudicate/admin-sdk@1.1.0` already includes `"lgpd_scrub"` — upgrade
+# both packages in lockstep.
+```
+
+The framework itself does NOT pattern-match exhaustively on
+`SupersessionReason` (verified across `@adjudicate/core`,
+`@adjudicate/audit`, `@adjudicate/admin-sdk`) — exhaustiveness is a
+consumer concern only. We chose minor-bump over major-bump because the
+additive-union argument holds for the (much more common) non-exhaustive
+case; the breakage is *purely* in exhaustive type-level pattern-matching
+with no runtime impact. Consumers who prefer major-bump semantics can
+treat this entry as the migration note and version-gate their upgrade
+accordingly.
 
 ---
 
@@ -102,9 +167,11 @@ against the IbateXas codebase post-`@adjudicate/core` 1.1.0 install:
    (one `expect(...).toBe("replay")` → `"lgpd_scrub"`).
 
 3. **`KERNEL_INTENT_DISPATCHED` adopters** — zero source-side literal
-   `"kernel.intent_dispatched"` references in IbateXas today. The
-   consumer can opt in to the new basis code at its convenience; no
-   forced migration.
+   `"kernel.intent_dispatched"` references in IbateXas today (the
+   pre-cutover hand-coding was already removed). The consumer opts in
+   to the new basis code at its convenience by importing
+   `BASIS_CODES.kernel.KERNEL_INTENT_DISPATCHED`; no forced migration,
+   no string-literal coupling.
 
 4. **MetricsSink stub removal** — IbateXas's audit-postgres metrics
    sink at `apps/api/src/plugins/kernel-metrics-sink.ts` retains
@@ -120,19 +187,36 @@ this writing.
 
 **Pre-publish gate:** review this PR's commits and merge to `main`.
 
-1. **`pnpm publish`** — publishes `@adjudicate/core@1.1.0` to npm. One-way
-   operation; cannot be unpublished after 24h.
-2. **`git tag v1.1.0 && git push --tags`** — first published-version git
-   tag for `@adjudicate/core` (sibling repo currently has only `-local`
-   build tags). Establishes the convention going forward.
-3. **(In IbateXas) `pnpm install` at workspace root** — picks up `1.1.0`
-   via the existing `^1.0.0` caret pin. No `package.json` edit needed.
-4. **(In IbateXas) one-line swap** — change `reason: "replay"` to
+`@adjudicate/audit` and `@adjudicate/admin-sdk` ALSO ship 1.1.0 in this
+release — their source changed to add `lgpd_scrub` (audit: `REASON_KEYS`,
+`emptyReasonCounts()`; admin-sdk: `SupersessionReasonSchema` enum), and
+the version bumps are required so consumers pinning `^1.0.0` actually
+receive the new behavior. Publishing only `@adjudicate/core@1.1.0` (without
+bumping the siblings) would leave pinned consumers with audit@1.0.1 that
+yields `NaN` in `reasonCounts` and admin-sdk@1.0.0 that rejects the new
+enum value with a Zod validation error — the review explicitly flagged
+this hazard.
+
+1. **`pnpm -F @adjudicate/core publish`** — publishes
+   `@adjudicate/core@1.1.0` to npm. One-way; cannot be unpublished after 24h.
+2. **`pnpm -F @adjudicate/audit publish`** — publishes
+   `@adjudicate/audit@1.1.0` to npm. Required for `lgpd_scrub`
+   reason-count support.
+3. **`pnpm -F @adjudicate/admin-sdk publish`** — publishes
+   `@adjudicate/admin-sdk@1.1.0` to npm. Required for `lgpd_scrub`
+   Zod-schema acceptance.
+4. **`git tag v1.1.0 && git push --tags`** — first published-version git
+   tag for the `@adjudicate/*` 1.1.0 line. Establishes the convention
+   going forward.
+5. **(In IbateXas) `pnpm install` at workspace root** — picks up `1.1.0`
+   across `@adjudicate/core`, `@adjudicate/audit`, and
+   `@adjudicate/admin-sdk` via the existing `^1.0.0` caret pins.
+6. **(In IbateXas) one-line swap** — change `reason: "replay"` to
    `reason: "lgpd_scrub"` in
    `packages/domain/src/services/customer.service.ts`
    `emitScrubAuditRecords()`, plus the companion assertion in
-   `anonymize-customer.test.ts`. Tracked as a follow-up agent task per
-   the audit-2026-05-24 closeout's "Phase A" sequencing.
+   `anonymize-customer.test.ts`. Tracked as ibatexas commit I12 per the
+   fix plan.
 
 ---
 

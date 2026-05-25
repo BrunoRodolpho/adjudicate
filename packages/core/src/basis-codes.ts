@@ -99,7 +99,7 @@ export const BASIS_CODES = {
    */
   kernel: {
     GUARD_PANIC: "guard_panic",
-    KERNEL_INTENT_DISPATCHED: "kernel.intent_dispatched",
+    KERNEL_INTENT_DISPATCHED: "intent_dispatched",
   },
 } as const;
 

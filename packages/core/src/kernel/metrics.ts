@@ -101,10 +101,26 @@ export interface ShadowDivergenceEvent {
 
 let _sink: MetricsSink = noopSink()
 let _explicitlySet = false
+let _warnedMissingShadowDivergence = false
 
 export function setMetricsSink(sink: MetricsSink): void {
   _sink = sink
   _explicitlySet = true
+  // Boot-time signal when the installed sink omits the (now-optional)
+  // recordShadowDivergence method. Shadow-mode telemetry will silently
+  // route to a no-op — operators investigating an empty shadow-divergence
+  // dashboard need to see this once at install time rather than discover
+  // it through absence of data. The warn fires once per process; tests
+  // that exercise install/install cycles reset via _resetMetricsSink().
+  if (
+    sink.recordShadowDivergence === undefined &&
+    !_warnedMissingShadowDivergence
+  ) {
+    _warnedMissingShadowDivergence = true
+    console.warn(
+      "[adjudicate/metrics] installed MetricsSink does not implement recordShadowDivergence — shadow-mode divergence events will silently no-op. If this kernel runs in always-on mode (no shadow path) the omission is intentional; otherwise wire a method to surface BASIS_ONLY / DECISION_KIND / PAYLOAD_REWRITE divergence events to your observability backend.",
+    )
+  }
   // Also wire the shadow telemetry sink so all four divergence classes are
   // routed through the same pipeline as the rest of the metrics. Each call
   // uses `?.()` because `recordShadowDivergence` is optional on MetricsSink
@@ -151,6 +167,7 @@ export function hasMetricsSink(): boolean {
 export function _resetMetricsSink(): void {
   _sink = noopSink()
   _explicitlySet = false
+  _warnedMissingShadowDivergence = false
 }
 
 function noopSink(): MetricsSink {

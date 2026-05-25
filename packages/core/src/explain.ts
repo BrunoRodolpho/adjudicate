@@ -255,6 +255,11 @@ export const DEFAULT_EXPLANATION_REGISTRY: ExplanationRegistry = {
     // confirmation
     "confirmation:received":
       "The user supplied a confirmation receipt at {confirmedAt}.",
+    // kernel
+    "kernel:guard_panic":
+      "A guard threw an unexpected error during adjudication and was converted to a SECURITY refusal (phase: {phase}, guard: {guard}).",
+    "kernel:intent_dispatched":
+      "The kernel dispatched this intent (sessionId: {sessionId}).",
     // supersession narrations
     "supersedes:confirmation_resolved":
       "Continues a prior REQUEST_CONFIRMATION resolved at {predecessorAt}.",

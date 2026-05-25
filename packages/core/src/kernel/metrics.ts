@@ -33,8 +33,14 @@ export interface MetricsSink {
   recordRefusal(event: RefusalEvent): void
   /** Audit sink failures (NATS, console, Postgres). */
   recordSinkFailure(event: SinkFailureEvent): void
-  /** Shadow-mode divergence (one of the four DivergenceClass values). */
-  recordShadowDivergence(event: ShadowDivergenceEvent): void
+  /**
+   * Optional. Shadow-mode divergence (one of the four DivergenceClass
+   * values). Optional so downstream consumers running always-on kernels
+   * with no shadow path can omit the method without keeping a no-op stub.
+   * Framework call sites use `?.()` and the shadow-telemetry wiring in
+   * `setMetricsSink` no-ops when the method is absent.
+   */
+  recordShadowDivergence?(event: ShadowDivergenceEvent): void
   /**
    * Optional. Resource-limit events (parked-envelope quota exceeded, future
    * back-pressure events). Optional so adopters with hand-written
@@ -100,10 +106,14 @@ export function setMetricsSink(sink: MetricsSink): void {
   _sink = sink
   _explicitlySet = true
   // Also wire the shadow telemetry sink so all four divergence classes are
-  // routed through the same pipeline as the rest of the metrics.
+  // routed through the same pipeline as the rest of the metrics. Each call
+  // uses `?.()` because `recordShadowDivergence` is optional on MetricsSink
+  // (consumers with always-on kernels and no shadow path omit it). The
+  // shadow telemetry sink itself stays wired; the routed method is a no-op
+  // when the user's MetricsSink doesn't implement it.
   setShadowTelemetrySink({
     recordBasisOnly(intentKind, decision) {
-      _sink.recordShadowDivergence({
+      _sink.recordShadowDivergence?.({
         intentKind,
         divergence: "BASIS_ONLY",
         legacy: { kind: "EXECUTE" },
@@ -111,7 +121,7 @@ export function setMetricsSink(sink: MetricsSink): void {
       })
     },
     alertDecisionKind(intentKind, legacy, decision) {
-      _sink.recordShadowDivergence({
+      _sink.recordShadowDivergence?.({
         intentKind,
         divergence: "DECISION_KIND",
         legacy,
@@ -119,7 +129,7 @@ export function setMetricsSink(sink: MetricsSink): void {
       })
     },
     alertPayloadRewrite(intentKind, decision) {
-      _sink.recordShadowDivergence({
+      _sink.recordShadowDivergence?.({
         intentKind,
         divergence: "PAYLOAD_REWRITE",
         legacy: { kind: "EXECUTE" },

@@ -35,6 +35,7 @@ const REASON_LABEL: Record<Supersession["reason"], string> = {
   defer_resumed: "defer_resumed",
   rewrite_executed: "rewrite_executed",
   replay: "replay",
+  lgpd_scrub: "lgpd_scrub",
 };
 
 export function LineageGraph({ nodes, truncated, cyclic }: Props) {

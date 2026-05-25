@@ -264,5 +264,7 @@ export const DEFAULT_EXPLANATION_REGISTRY: ExplanationRegistry = {
       "Executes the rewritten envelope from a prior REWRITE at {predecessorAt}.",
     "supersedes:replay":
       "Re-evaluates a prior decision recorded at {predecessorAt}.",
+    "supersedes:lgpd_scrub":
+      "Continues a LGPD/GDPR anonymization started at {predecessorAt}.",
   },
 };

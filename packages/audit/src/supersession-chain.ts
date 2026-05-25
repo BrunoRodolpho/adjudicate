@@ -11,7 +11,9 @@
  *     the parked record;
  *   - REWRITE executes → the execution record carries `supersedes` back
  *     to the rewrite-issuing record;
- *   - replay records carry `supersedes` back to the original.
+ *   - replay records carry `supersedes` back to the original;
+ *   - LGPD/GDPR per-surface scrub records carry `supersedes` back to the
+ *     originating customer-anonymize envelope.
  *
  * Operators triaging "what happened to this intent over time" walk these
  * chains. Without this primitive every adopter would re-implement the
@@ -72,6 +74,7 @@ const REASON_KEYS: ReadonlyArray<SupersessionReason> = [
   "defer_resumed",
   "rewrite_executed",
   "replay",
+  "lgpd_scrub",
 ];
 
 function emptyReasonCounts(): Record<SupersessionReason, number> {
@@ -80,6 +83,7 @@ function emptyReasonCounts(): Record<SupersessionReason, number> {
     defer_resumed: 0,
     rewrite_executed: 0,
     replay: 0,
+    lgpd_scrub: 0,
   };
 }
 

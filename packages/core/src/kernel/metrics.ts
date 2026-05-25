@@ -33,8 +33,14 @@ export interface MetricsSink {
   recordRefusal(event: RefusalEvent): void
   /** Audit sink failures (NATS, console, Postgres). */
   recordSinkFailure(event: SinkFailureEvent): void
-  /** Shadow-mode divergence (one of the four DivergenceClass values). */
-  recordShadowDivergence(event: ShadowDivergenceEvent): void
+  /**
+   * Optional. Shadow-mode divergence (one of the four DivergenceClass
+   * values). Optional so downstream consumers running always-on kernels
+   * with no shadow path can omit the method without keeping a no-op stub.
+   * Framework call sites use `?.()` and the shadow-telemetry wiring in
+   * `setMetricsSink` no-ops when the method is absent.
+   */
+  recordShadowDivergence?(event: ShadowDivergenceEvent): void
   /**
    * Optional. Resource-limit events (parked-envelope quota exceeded, future
    * back-pressure events). Optional so adopters with hand-written
@@ -95,15 +101,35 @@ export interface ShadowDivergenceEvent {
 
 let _sink: MetricsSink = noopSink()
 let _explicitlySet = false
+let _warnedMissingShadowDivergence = false
 
 export function setMetricsSink(sink: MetricsSink): void {
   _sink = sink
   _explicitlySet = true
+  // Boot-time signal when the installed sink omits the (now-optional)
+  // recordShadowDivergence method. Shadow-mode telemetry will silently
+  // route to a no-op — operators investigating an empty shadow-divergence
+  // dashboard need to see this once at install time rather than discover
+  // it through absence of data. The warn fires once per process; tests
+  // that exercise install/install cycles reset via _resetMetricsSink().
+  if (
+    sink.recordShadowDivergence === undefined &&
+    !_warnedMissingShadowDivergence
+  ) {
+    _warnedMissingShadowDivergence = true
+    console.warn(
+      "[adjudicate/metrics] installed MetricsSink does not implement recordShadowDivergence — shadow-mode divergence events will silently no-op. If this kernel runs in always-on mode (no shadow path) the omission is intentional; otherwise wire a method to surface BASIS_ONLY / DECISION_KIND / PAYLOAD_REWRITE divergence events to your observability backend.",
+    )
+  }
   // Also wire the shadow telemetry sink so all four divergence classes are
-  // routed through the same pipeline as the rest of the metrics.
+  // routed through the same pipeline as the rest of the metrics. Each call
+  // uses `?.()` because `recordShadowDivergence` is optional on MetricsSink
+  // (consumers with always-on kernels and no shadow path omit it). The
+  // shadow telemetry sink itself stays wired; the routed method is a no-op
+  // when the user's MetricsSink doesn't implement it.
   setShadowTelemetrySink({
     recordBasisOnly(intentKind, decision) {
-      _sink.recordShadowDivergence({
+      _sink.recordShadowDivergence?.({
         intentKind,
         divergence: "BASIS_ONLY",
         legacy: { kind: "EXECUTE" },
@@ -111,7 +137,7 @@ export function setMetricsSink(sink: MetricsSink): void {
       })
     },
     alertDecisionKind(intentKind, legacy, decision) {
-      _sink.recordShadowDivergence({
+      _sink.recordShadowDivergence?.({
         intentKind,
         divergence: "DECISION_KIND",
         legacy,
@@ -119,7 +145,7 @@ export function setMetricsSink(sink: MetricsSink): void {
       })
     },
     alertPayloadRewrite(intentKind, decision) {
-      _sink.recordShadowDivergence({
+      _sink.recordShadowDivergence?.({
         intentKind,
         divergence: "PAYLOAD_REWRITE",
         legacy: { kind: "EXECUTE" },
@@ -141,6 +167,7 @@ export function hasMetricsSink(): boolean {
 export function _resetMetricsSink(): void {
   _sink = noopSink()
   _explicitlySet = false
+  _warnedMissingShadowDivergence = false
 }
 
 function noopSink(): MetricsSink {

@@ -19,12 +19,13 @@ export const AuditPlanSnapshotSchema = z.object({
   planFingerprint: z.string(),
 });
 
-/** v3 — predecessor link for confirmation_resolved / defer_resumed / rewrite_executed / replay. */
+/** v3 — predecessor link for confirmation_resolved / defer_resumed / rewrite_executed / replay / lgpd_scrub. */
 export const SupersessionReasonSchema = z.enum([
   "confirmation_resolved",
   "defer_resumed",
   "rewrite_executed",
   "replay",
+  "lgpd_scrub",
 ]);
 
 export const SupersessionSchema = z.object({

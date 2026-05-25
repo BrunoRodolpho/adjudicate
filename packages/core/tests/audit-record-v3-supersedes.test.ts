@@ -44,6 +44,7 @@ describe("AuditRecord supersedes (v3)", () => {
     "defer_resumed",
     "rewrite_executed",
     "replay",
+    "lgpd_scrub",
   ];
 
   for (const reason of reasons) {

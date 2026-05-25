@@ -38,12 +38,19 @@ export type AuditRecordVersion = 1 | 2 | 3 | 4;
  *     was then adjudicated to an EXECUTE.
  *   - `replay` — re-adjudication from an audit row (replay harness or
  *     migration). The predecessor is the stored record.
+ *   - `lgpd_scrub` — per-surface anonymization continuation. The predecessor
+ *     is the originating LGPD/GDPR scrub envelope; this record links a
+ *     downstream surface scrub (OrderProjection, ConversationMessage,
+ *     LoyaltyAccount, etc.) back to the customer-anonymize root so the
+ *     audit reader can reconstruct the full scrub fan-out from a single
+ *     `predecessorIntentHash`.
  */
 export type SupersessionReason =
   | "confirmation_resolved"
   | "defer_resumed"
   | "rewrite_executed"
-  | "replay";
+  | "replay"
+  | "lgpd_scrub";
 
 export interface Supersession {
   readonly predecessorIntentHash: string;

@@ -313,7 +313,9 @@ function makeMetricsSinkSlot(): MetricsSinkSlot {
       sink.recordResourceLimit?.(event);
     },
     recordShadowDivergence(event) {
-      sink.recordShadowDivergence(event);
+      // Optional on MetricsSink — no-op when the installed sink omits it
+      // (e.g., consumers with always-on kernels and no shadow path).
+      sink.recordShadowDivergence?.(event);
     },
   };
 }

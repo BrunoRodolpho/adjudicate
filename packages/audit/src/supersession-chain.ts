@@ -11,7 +11,9 @@
  *     the parked record;
  *   - REWRITE executes → the execution record carries `supersedes` back
  *     to the rewrite-issuing record;
- *   - replay records carry `supersedes` back to the original.
+ *   - replay records carry `supersedes` back to the original;
+ *   - LGPD/GDPR per-surface scrub records carry `supersedes` back to the
+ *     originating customer-anonymize envelope.
  *
  * Operators triaging "what happened to this intent over time" walk these
  * chains. Without this primitive every adopter would re-implement the
@@ -63,6 +65,28 @@ export interface SupersessionChainReport {
     readonly intentHash: string;
     readonly missingPredecessor: string;
   }>;
+  /**
+   * Diagnostic: chains containing a cycle (A→B→…→A). Cycles are not
+   * possible by construction in legitimate workloads, so any entry here
+   * indicates an adversarial input, a hash collision, or a producer bug.
+   * The chain is emitted with `head` = first node in the cycle and
+   * `tail` = the loop walked once until the cycle closes. Operators
+   * should investigate.
+   */
+  readonly cycles: ReadonlyArray<SupersessionChain>;
+  /**
+   * Diagnostic: records whose `intentHash` is the predecessor of more
+   * than one other record. The canonical shape is the LGPD/GDPR
+   * per-surface scrub fan-out: one customer-anonymize root + N
+   * `lgpd_scrub` records, all carrying `supersedes.predecessorIntentHash`
+   * pointing at the root. Each fork shows up as its own chain in
+   * `chains` — `forks` is the index that lets dashboards report
+   * "1 forked anonymize → 7 surfaces" instead of "7 unrelated chains".
+   */
+  readonly forks: ReadonlyArray<{
+    readonly predecessorIntentHash: string;
+    readonly successorIntentHashes: ReadonlyArray<string>;
+  }>;
   /** Aggregate reason counts across every chain in the report. */
   readonly aggregateReasonCounts: Readonly<Record<SupersessionReason, number>>;
 }
@@ -72,6 +96,7 @@ const REASON_KEYS: ReadonlyArray<SupersessionReason> = [
   "defer_resumed",
   "rewrite_executed",
   "replay",
+  "lgpd_scrub",
 ];
 
 function emptyReasonCounts(): Record<SupersessionReason, number> {
@@ -80,6 +105,7 @@ function emptyReasonCounts(): Record<SupersessionReason, number> {
     defer_resumed: 0,
     rewrite_executed: 0,
     replay: 0,
+    lgpd_scrub: 0,
   };
 }
 
@@ -103,16 +129,20 @@ function nodeOf(record: AuditRecord): SupersessionChainNode {
  * Algorithm:
  *
  *   1. Build a hash → record map.
- *   2. Build a hash → successor map (who supersedes me).
+ *   2. Build a hash → successors map (who supersedes me — multimap so
+ *      LGPD scrub fan-outs surface as a `forks` entry instead of being
+ *      collapsed to the last writer).
  *   3. Walk every record that has no successor — those are the *heads*
  *      of their chains. From each head, follow `supersedes` backwards
  *      to reach the original.
  *   4. Records that have no predecessor and no successor are emitted
  *      as `singletons`.
+ *   5. Cycles (A→B→…→A) are detected via a per-walk `visited` set; on
+ *      revisit, the chain is emitted to `cycles` instead of `chains`.
  *
- * Cycles are not possible by construction (supersedes points backwards
- * in time, and the build is hash-keyed) — but to be robust against
- * adversarial inputs the walk is bounded by `records.length`.
+ * Cycles are not possible by construction in legitimate workloads, but
+ * the guard is real (not just a comment) so adversarial input or hash
+ * collisions don't silently vanish from the report.
  */
 export function buildSupersessionChains(
   records: ReadonlyArray<AuditRecord>,
@@ -120,7 +150,7 @@ export function buildSupersessionChains(
   const byHash = new Map<string, AuditRecord>();
   for (const r of records) byHash.set(r.intentHash, r);
 
-  const successorOf = new Map<string, string>();
+  const successorsOf = new Map<string, string[]>();
   const dangling: { intentHash: string; missingPredecessor: string }[] = [];
 
   for (const r of records) {
@@ -133,16 +163,24 @@ export function buildSupersessionChains(
       });
       continue;
     }
-    successorOf.set(s.predecessorIntentHash, r.intentHash);
+    const existing = successorsOf.get(s.predecessorIntentHash);
+    if (existing === undefined) {
+      successorsOf.set(s.predecessorIntentHash, [r.intentHash]);
+    } else {
+      existing.push(r.intentHash);
+    }
   }
 
   // Heads = records that are not a predecessor of any other record.
+  // (A predecessor with one or more successors is not a head; that's
+  // true regardless of how many successors it has.)
   const heads: AuditRecord[] = [];
   for (const r of records) {
-    if (!successorOf.has(r.intentHash)) heads.push(r);
+    if (!successorsOf.has(r.intentHash)) heads.push(r);
   }
 
   const chains: SupersessionChain[] = [];
+  const cycles: SupersessionChain[] = [];
   const singletons: SupersessionChainNode[] = [];
   const aggregateReasonCounts = emptyReasonCounts();
 
@@ -150,18 +188,37 @@ export function buildSupersessionChains(
     const headNode = nodeOf(head);
     const tail: SupersessionChainNode[] = [];
     const reasonCounts = emptyReasonCounts();
+    const visited = new Set<string>([head.intentHash]);
 
     let cursor: AuditRecord | undefined = head;
-    let steps = 0;
-    while (cursor?.supersedes !== undefined && steps < records.length) {
+    let cycleDetected = false;
+    while (cursor?.supersedes !== undefined) {
       const r = cursor.supersedes.reason;
-      const prev = byHash.get(cursor.supersedes.predecessorIntentHash);
+      const prevHash = cursor.supersedes.predecessorIntentHash;
+      const prev = byHash.get(prevHash);
       if (prev === undefined) break; // dangling — separately reported, not counted
+      if (visited.has(prevHash)) {
+        // Cycle: the predecessor was already in this walk. Emit the
+        // partial chain to `cycles` (operators investigate); do NOT
+        // increment aggregate counters for the looping edge.
+        cycleDetected = true;
+        break;
+      }
+      visited.add(prevHash);
       reasonCounts[r]++;
       aggregateReasonCounts[r]++;
       tail.push(nodeOf(prev));
       cursor = prev;
-      steps++;
+    }
+
+    if (cycleDetected) {
+      cycles.push({
+        head: headNode,
+        tail,
+        reasonCounts,
+        length: 1 + tail.length,
+      });
+      continue;
     }
 
     if (tail.length === 0) {
@@ -181,17 +238,81 @@ export function buildSupersessionChains(
     });
   }
 
-  // Deterministic ordering: chains sorted by head.intentHash; singletons
-  // sorted by intentHash; dangling sorted by intentHash.
+  // Pure-cycle component salvage: records that are part of a cycle but
+  // never picked up as a head (because every node in the cycle has a
+  // successor) would otherwise silently vanish. Detect them by finding
+  // records absent from every chain/cycle/singleton/dangling collection,
+  // then walk each unvisited record to surface its loop.
+  const accountedFor = new Set<string>();
+  for (const c of chains) {
+    accountedFor.add(c.head.intentHash);
+    for (const t of c.tail) accountedFor.add(t.intentHash);
+  }
+  for (const c of cycles) {
+    accountedFor.add(c.head.intentHash);
+    for (const t of c.tail) accountedFor.add(t.intentHash);
+  }
+  for (const s of singletons) accountedFor.add(s.intentHash);
+  for (const d of dangling) accountedFor.add(d.intentHash);
+
+  for (const r of records) {
+    if (accountedFor.has(r.intentHash)) continue;
+    // r is part of a pure-cycle component. Walk it.
+    const tail: SupersessionChainNode[] = [];
+    const reasonCounts = emptyReasonCounts();
+    const visited = new Set<string>([r.intentHash]);
+    let cursor: AuditRecord | undefined = r;
+    while (cursor?.supersedes !== undefined) {
+      const prevHash = cursor.supersedes.predecessorIntentHash;
+      const prev = byHash.get(prevHash);
+      if (prev === undefined) break;
+      if (visited.has(prevHash)) break; // cycle closes
+      visited.add(prevHash);
+      reasonCounts[cursor.supersedes.reason]++;
+      aggregateReasonCounts[cursor.supersedes.reason]++;
+      tail.push(nodeOf(prev));
+      cursor = prev;
+    }
+    cycles.push({
+      head: nodeOf(r),
+      tail,
+      reasonCounts,
+      length: 1 + tail.length,
+    });
+    accountedFor.add(r.intentHash);
+    for (const t of tail) accountedFor.add(t.intentHash);
+  }
+
+  // Fork index: every predecessor with more than one successor.
+  const forks: {
+    predecessorIntentHash: string;
+    successorIntentHashes: string[];
+  }[] = [];
+  for (const [predecessor, successors] of successorsOf) {
+    if (successors.length > 1) {
+      forks.push({
+        predecessorIntentHash: predecessor,
+        successorIntentHashes: [...successors].sort(),
+      });
+    }
+  }
+
+  // Deterministic ordering across every emitted collection.
   chains.sort((a, b) => (a.head.intentHash < b.head.intentHash ? -1 : 1));
+  cycles.sort((a, b) => (a.head.intentHash < b.head.intentHash ? -1 : 1));
   singletons.sort((a, b) => (a.intentHash < b.intentHash ? -1 : 1));
   dangling.sort((a, b) => (a.intentHash < b.intentHash ? -1 : 1));
+  forks.sort((a, b) =>
+    a.predecessorIntentHash < b.predecessorIntentHash ? -1 : 1,
+  );
 
   return {
     schemaVersion: 1,
     chains,
     singletons,
     danglingReferences: dangling,
+    cycles,
+    forks,
     aggregateReasonCounts,
   };
 }
@@ -199,8 +320,9 @@ export function buildSupersessionChains(
 /**
  * Render a one-line operator summary of the report:
  *
- *   "5 chains (avg length 2.4), 12 singletons, 0 dangling — reasons:
- *    confirmation_resolved=3, defer_resumed=2"
+ *   "5 chains (avg length 2.4), 12 singletons, 0 dangling, 1 fork
+ *    (LGPD scrub fan-out), 0 cycles — reasons:
+ *    confirmation_resolved=3, defer_resumed=2, lgpd_scrub=7"
  */
 export function explainSupersessionChainReport(
   report: SupersessionChainReport,
@@ -216,5 +338,13 @@ export function explainSupersessionChainReport(
     .map((k) => `${k}=${report.aggregateReasonCounts[k] ?? 0}`)
     .join(", ");
   const reasonClause = reasons.length > 0 ? ` — reasons: ${reasons}` : "";
-  return `${report.chains.length} chain${report.chains.length === 1 ? "" : "s"} (avg length ${avg.toFixed(1)}), ${report.singletons.length} singleton${report.singletons.length === 1 ? "" : "s"}, ${report.danglingReferences.length} dangling${reasonClause}`;
+  const forkClause =
+    report.forks.length > 0
+      ? `, ${report.forks.length} fork${report.forks.length === 1 ? "" : "s"}`
+      : "";
+  const cycleClause =
+    report.cycles.length > 0
+      ? `, ${report.cycles.length} cycle${report.cycles.length === 1 ? "" : "s"}`
+      : "";
+  return `${report.chains.length} chain${report.chains.length === 1 ? "" : "s"} (avg length ${avg.toFixed(1)}), ${report.singletons.length} singleton${report.singletons.length === 1 ? "" : "s"}, ${report.danglingReferences.length} dangling${forkClause}${cycleClause}${reasonClause}`;
 }

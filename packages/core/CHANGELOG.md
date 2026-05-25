@@ -1,5 +1,24 @@
 # @adjudicate/core
 
+## 1.1.0
+
+### Minor Changes
+
+- Audit-2026-05-24 F2 — three backwards-compatible additions bundled as a single minor release. Surfaced by the IbateXas adopter during the audit-2026-05-24 closeout sweep; landed together so downstream consumers can adopt all three on one `pnpm install`.
+
+  - **NEW: `BASIS_CODES.kernel.KERNEL_INTENT_DISPATCHED = "kernel.intent_dispatched"`** — adopters can now emit an explicit "the kernel dispatched this intent" basis on audit records (distinct from `GUARD_PANIC` which signals a guard threw). The IbateXas consumer had been hand-coding the literal `"kernel.intent_dispatched"` string, which the basis-vocabulary purity conformance was about to start flagging; promoting it to the vocabulary closes the drift.
+
+  - **NEW: `SupersessionReason` gains `"lgpd_scrub"`** — per-surface LGPD/GDPR anonymization records can now link back to the originating customer-anonymize envelope via `supersedes.predecessorIntentHash` with a precise reason. Audit readers reconstruct the full scrub fan-out (`OrderProjection`, `ConversationMessage`, `LoyaltyAccount`, etc.) from one root record. Surfaced by IbateXas H3 Wave A1, which had been using `"replay"` as the closest fit in the closed union — semantically lossy. The default explanation registry, the supersession-chain analytics (`REASON_KEYS` / `emptyReasonCounts`), the admin-sdk Zod wire schema, and the operator-console lineage visualization all gained the new value alongside the union extension.
+
+  - **CHANGED: `MetricsSink.recordShadowDivergence` is now optional** — downstream consumers running always-on kernels (no shadow path) can omit the method without keeping a no-op stub. The framework's internal call sites in `setMetricsSink` and `MetricsSinkSlot.recordShadowDivergence` use `?.()` to dispatch safely under any sink shape. `noopMetricsSink`, `noopSink`, and `createConsoleMetricsSink` all continue to define the method (optional methods may be present). Existing MetricsSink implementations across the workspace continue to define the method; the relaxation is purely additive for downstream consumers.
+
+  **Migration:** none required for any adopter.
+    - Adopters using `BASIS_CODES.kernel.GUARD_PANIC` continue to work; the new `KERNEL_INTENT_DISPATCHED` is additive.
+    - Adopters whose `Supersession.reason` literals are `"confirmation_resolved" | "defer_resumed" | "rewrite_executed" | "replay"` continue to type-check; the new `"lgpd_scrub"` literal is additive.
+    - Adopters with hand-written MetricsSink implementations that already define `recordShadowDivergence` continue to work; the method moving to optional is a strict relaxation of the contract. Adopters who want to drop the no-op stub now can — `?.()` guards in the framework handle absence cleanly.
+
+  **Verification:** 1122 tests pass across 21 workspace packages (plus 1 testcontainer-gated skip in `@adjudicate/audit-postgres`). `@adjudicate/core` 377/377 (including basis-vocabulary-purity property test which automatically picks up the new BASIS_CODES.kernel entry); `@adjudicate/audit` 181/181 (including supersession-chain); `@adjudicate/admin-sdk` 70/70 (including the Zod schema round-trip).
+
 ## 1.0.0
 
 ### Major Changes

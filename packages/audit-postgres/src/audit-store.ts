@@ -35,7 +35,9 @@ const SELECT_COLUMNS = `
   intent_hash, session_id, kind, principal, taint, decision_kind,
   refusal_kind, refusal_code, decision_basis, resource_version,
   envelope_jsonb, decision_jsonb, recorded_at, duration_ms,
-  partition_month, record_version, plan_jsonb
+  partition_month, record_version, plan_jsonb, nonce, supersedes_jsonb,
+  kernel_identity_jsonb, policy_version, kernel_version, audit_hash,
+  signature_jsonb
 `.trim();
 
 interface CursorPayload {

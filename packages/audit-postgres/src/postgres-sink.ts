@@ -18,9 +18,16 @@ import type { AuditSink } from "@adjudicate/audit";
  *   INSERT INTO intent_audit
  *     (intent_hash, session_id, kind, principal, taint, decision_kind,
  *      refusal_kind, refusal_code, decision_basis, resource_version,
- *      envelope_jsonb, decision_jsonb, recorded_at, duration_ms, partition_month)
- *   VALUES ($1...$15)
+ *      envelope_jsonb, decision_jsonb, recorded_at, duration_ms, partition_month,
+ *      record_version, plan_jsonb, nonce, supersedes_jsonb, policy_version,
+ *      kernel_version, audit_hash, signature_jsonb, kernel_identity_jsonb)
+ *   VALUES ($1...$24)
  *   ON CONFLICT (intent_hash, recorded_at) DO NOTHING
+ *
+ * Adopters MUST insert every column above. Omitting the v2/v3/v4 columns
+ * (record_version through kernel_identity_jsonb) silently discards the
+ * tamper-evidence binding and supersession chain — verifyAuditRecord then
+ * returns missing_hash on read-back.
  */
 export interface PostgresWriter {
   insertAudit(row: IntentAuditRow): Promise<void>;
@@ -44,7 +51,7 @@ export interface IntentAuditRow {
   readonly duration_ms: number;
   readonly partition_month: string; // "2026-04" — for partition routing
   /**
-   * Audit record schema version (1, 2, or 3). Carried alongside the row so the
+   * Audit record schema version (1-4). Carried alongside the row so the
    * replay reader can branch without parsing JSON. v1 rows that predate this
    * column may be NULL — the reader treats NULL as v1.
    */
@@ -67,6 +74,36 @@ export interface IntentAuditRow {
    * `005-add-supersedes.sql` adds the underlying column.
    */
   readonly supersedes_jsonb: string | null;
+  /**
+   * v3+ optional kernel build identity `{ id, version }`, pre-serialized
+   * JSON. Part of the v4 `auditHash` pre-image, so it MUST round-trip or
+   * verifyAuditRecord reports false-positive tampering. Migration
+   * `008-add-v4-fields.sql` adds the underlying column.
+   */
+  readonly kernel_identity_jsonb: string | null;
+  /**
+   * v4+ optional Pack semantic version at adjudication time. NULL when the
+   * record carries no policyVersion. Migration `008-add-v4-fields.sql`.
+   */
+  readonly policy_version: string | null;
+  /**
+   * v4+ optional @adjudicate/core version that produced the record. NULL
+   * when absent. Migration `008-add-v4-fields.sql`.
+   */
+  readonly kernel_version: string | null;
+  /**
+   * v4+ tamper-evidence hash — `sha256Canonical(record \ { auditHash,
+   * signature })`. NULL for pre-v4 records. Migration
+   * `008-add-v4-fields.sql`. Dropping this on write/read defeats
+   * verifyAuditRecord end-to-end.
+   */
+  readonly audit_hash: string | null;
+  /**
+   * v4+ optional cryptographic signature `{ keyId, alg, value }` over the
+   * auditHash, pre-serialized JSON. NULL when no AuditSigner is configured.
+   * Migration `008-add-v4-fields.sql`.
+   */
+  readonly signature_jsonb: string | null;
 }
 
 export interface PostgresSinkOptions {
@@ -133,6 +170,13 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
     supersedes_jsonb: record.supersedes
       ? JSON.stringify(record.supersedes)
       : null,
+    kernel_identity_jsonb: record.kernelIdentity
+      ? JSON.stringify(record.kernelIdentity)
+      : null,
+    policy_version: record.policyVersion ?? null,
+    kernel_version: record.kernelVersion ?? null,
+    audit_hash: record.auditHash ?? null,
+    signature_jsonb: record.signature ? JSON.stringify(record.signature) : null,
   };
 }
 

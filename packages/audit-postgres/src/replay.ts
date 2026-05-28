@@ -68,6 +68,25 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
     version >= 3 && row.supersedes_jsonb
       ? (JSON.parse(row.supersedes_jsonb) as Supersession)
       : undefined;
+  // v3+ kernelIdentity and v4+ policyVersion/kernelVersion are part of the
+  // v4 auditHash pre-image. They MUST be reconstructed with the same
+  // key-presence buildAuditRecord used (omit when absent, never `undefined`-
+  // valued) or verifyAuditRecord re-derives a different hash and reports
+  // false-positive tampering. auditHash + signature are excluded from the
+  // pre-image by verifyAuditRecord, but auditHash is restored so verification
+  // has a stored value to compare against.
+  const kernelIdentity: NonNullable<AuditRecord["kernelIdentity"]> | undefined =
+    version >= 3 && row.kernel_identity_jsonb
+      ? (JSON.parse(row.kernel_identity_jsonb) as NonNullable<
+          AuditRecord["kernelIdentity"]
+        >)
+      : undefined;
+  const signature: NonNullable<AuditRecord["signature"]> | undefined =
+    version >= 4 && row.signature_jsonb
+      ? (JSON.parse(row.signature_jsonb) as NonNullable<
+          AuditRecord["signature"]
+        >)
+      : undefined;
   return {
     version,
     intentHash: row.intent_hash,
@@ -79,6 +98,17 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
     durationMs: row.duration_ms,
     ...(plan !== undefined ? { plan } : {}),
     ...(supersedes !== undefined ? { supersedes } : {}),
+    ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
+    ...(version >= 4 && row.policy_version != null
+      ? { policyVersion: row.policy_version }
+      : {}),
+    ...(version >= 4 && row.kernel_version != null
+      ? { kernelVersion: row.kernel_version }
+      : {}),
+    ...(version >= 4 && row.audit_hash != null
+      ? { auditHash: row.audit_hash }
+      : {}),
+    ...(signature !== undefined ? { signature } : {}),
   };
 }
 

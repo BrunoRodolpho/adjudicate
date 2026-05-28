@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   basis,
@@ -7,6 +8,7 @@ import {
   decisionExecute,
   decisionRefuse,
   refuse,
+  verifyAuditRecord,
 } from "@adjudicate/core";
 import {
   createPostgresSink,
@@ -299,5 +301,112 @@ describe("rowToRecord — round-trip with recordToRow", () => {
     expect(recovered.plan!.visibleReadTools).toEqual(["search"]);
     expect(recovered.plan!.allowedIntents).toEqual(["order.submit"]);
     expect(recovered.plan!.planFingerprint).toBe(original.plan!.planFingerprint);
+  });
+});
+
+// A v4 record carrying every optional field that participates in the
+// auditHash pre-image: resourceVersion, supersedes, kernelIdentity,
+// policyVersion, kernelVersion.
+function v4Record() {
+  const env = buildEnvelope({
+    kind: "order.submit",
+    payload: { sku: "X", qty: 2 },
+    actor: { principal: "llm", sessionId: "s-v4" },
+    taint: "UNTRUSTED",
+    nonce: "n-v4",
+    createdAt: "2026-05-13T12:00:00.000Z",
+  });
+  return buildAuditRecord({
+    envelope: env,
+    decision: decisionExecute([
+      basis("state", BASIS_CODES.state.TRANSITION_VALID),
+    ]),
+    durationMs: 9,
+    resourceVersion: "rv-1",
+    at: "2026-05-13T12:00:01.000Z",
+    policyVersion: "1.2.3",
+    kernelVersion: "1.1.0",
+    kernelIdentity: { id: "kernel-prod", version: "build-42" },
+    supersedes: {
+      predecessorIntentHash: "b".repeat(64),
+      predecessorAt: "2026-05-13T11:59:00.000Z",
+      reason: "confirmation_resolved",
+      token: "cr-1",
+    },
+  });
+}
+
+describe("v4 tamper-evidence persistence (RC-K1)", () => {
+  it("recordToRow populates every v4 column", () => {
+    const r = v4Record();
+    const row = recordToRow(r);
+    expect(row.record_version).toBe(4);
+    expect(row.audit_hash).toBe(r.auditHash);
+    expect(row.policy_version).toBe("1.2.3");
+    expect(row.kernel_version).toBe("1.1.0");
+    expect(JSON.parse(row.kernel_identity_jsonb!)).toEqual({
+      id: "kernel-prod",
+      version: "build-42",
+    });
+    expect(row.supersedes_jsonb).not.toBeNull();
+  });
+
+  it("round-trips so verifyAuditRecord confirms the record is intact", () => {
+    const r = v4Record();
+    const recovered = rowToRecord(recordToRow(r));
+    // auditHash survives the round-trip AND re-derivation matches it →
+    // tamper-evidence preserved end-to-end (was missing_hash before RC-K1).
+    expect(recovered.auditHash).toBe(r.auditHash);
+    expect(verifyAuditRecord(recovered).verified).toBe(true);
+    // Structural fidelity of the hashed optional fields.
+    expect(recovered.policyVersion).toBe("1.2.3");
+    expect(recovered.kernelVersion).toBe("1.1.0");
+    expect(recovered.kernelIdentity).toEqual({
+      id: "kernel-prod",
+      version: "build-42",
+    });
+  });
+
+  it("verifies a plain v4 record (no v3/v4 extras) after round-trip", () => {
+    const recovered = rowToRecord(recordToRow(record()));
+    expect(verifyAuditRecord(recovered).verified).toBe(true);
+  });
+
+  it("round-trips a signature without disturbing hash verification", () => {
+    const signed = {
+      ...v4Record(),
+      signature: { keyId: "k1", alg: "ed25519", value: "sig-bytes" },
+    };
+    const recovered = rowToRecord(recordToRow(signed));
+    expect(recovered.signature).toEqual({
+      keyId: "k1",
+      alg: "ed25519",
+      value: "sig-bytes",
+    });
+    // signature is excluded from the hash pre-image, so verification holds.
+    expect(verifyAuditRecord(recovered).verified).toBe(true);
+  });
+
+  it("flags tampering when a hashed field is mutated post-round-trip", () => {
+    const recovered = rowToRecord(recordToRow(v4Record()));
+    const tampered = { ...recovered, durationMs: recovered.durationMs + 1000 };
+    expect(verifyAuditRecord(tampered).verified).toBe(false);
+  });
+});
+
+describe("migration 008 — record_version CHECK (DataReviewer-001)", () => {
+  const sql = readFileSync(
+    new URL("../migrations/008-add-v4-fields.sql", import.meta.url),
+    "utf-8",
+  );
+
+  it("widens the record_version CHECK to admit v4 inserts", () => {
+    expect(sql).toMatch(
+      /record_version\s+IN\s*\(\s*1\s*,\s*2\s*,\s*3\s*,\s*4\s*\)/,
+    );
+  });
+
+  it("adds the kernel_identity_jsonb column", () => {
+    expect(sql).toMatch(/kernel_identity_jsonb/);
   });
 });

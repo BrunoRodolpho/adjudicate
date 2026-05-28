@@ -301,3 +301,34 @@ describe("adjudicateAndAudit — clock and resource version", () => {
     expect(result.record.plan!.planFingerprint).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+describe("adjudicateAndAudit — async-tail rate-limit rollback (consolidated-async-tail)", () => {
+  it("fires rateLimitRollback for a non-EXECUTE decision even when sink.emit throws", async () => {
+    const rollback = vi.fn(async () => {});
+    const throwingSink: AuditSink = {
+      async emit() {
+        throw new Error("sink down");
+      },
+    };
+    await expect(
+      adjudicateAndAudit(envFixture(), {}, refuseBundle, {
+        sink: throwingSink,
+        rateLimitRollback: rollback,
+      }),
+    ).rejects.toThrow("sink down");
+    // Pre-fix the rollback ran after a bare `await sink.emit`, so the throw
+    // skipped it. try/finally now guarantees it for non-EXECUTE decisions.
+    expect(rollback).toHaveBeenCalledOnce();
+  });
+
+  it("does not roll back on an EXECUTE decision when the sink succeeds", async () => {
+    const rollback = vi.fn(async () => {});
+    const okSink: AuditSink = { async emit() {} };
+    const result = await adjudicateAndAudit(envFixture(), {}, passBundle, {
+      sink: okSink,
+      rateLimitRollback: rollback,
+    });
+    expect(result.decision.kind).toBe("EXECUTE");
+    expect(rollback).not.toHaveBeenCalled();
+  });
+});

@@ -248,7 +248,21 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       at: clock.nowIso(),
       ...(deps.supersedes !== undefined ? { supersedes: deps.supersedes } : {}),
     });
-    await deps.sink.emit(record);
+    try {
+      await deps.sink.emit(record);
+    } finally {
+      // The tenant kill switch returns a non-EXECUTE decision — roll the
+      // rate-limit counter back even if the audit emit throws, so a
+      // maintenance window does not poison legitimate users' budgets
+      // (audit consolidated-async-tail, case (c): early return skipped rollback).
+      if (deps.rateLimitRollback) {
+        try {
+          await deps.rateLimitRollback();
+        } catch {
+          // Counter rollback failures are not the kernel's problem.
+        }
+      }
+    }
     return { decision, record, ledgerHit: null };
   }
 
@@ -406,16 +420,22 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     ...(supersedes !== undefined ? { supersedes } : {}),
     ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
   });
-  await deps.sink.emit(record);
 
-  // ── 7. Rate-limit rollback on non-EXECUTE (T5 #41) ─────────────────
-  // Telemetry must never block — catch rollback failures here so a flaky
-  // counter does not propagate as an audit-emit failure.
-  if (decision.kind !== "EXECUTE" && deps.rateLimitRollback) {
-    try {
-      await deps.rateLimitRollback();
-    } catch {
-      // Counter rollback failures are not the kernel's problem.
+  // ── 6+7. Audit emission + rate-limit rollback (T5 #41) ─────────────
+  // The rollback for a non-EXECUTE decision MUST fire even if sink.emit throws.
+  // Pre-fix the rollback ran AFTER a bare `await sink.emit`, so a transient
+  // audit-sink failure skipped it and poisoned the rate-limit counter for
+  // legitimate users (audit consolidated-async-tail, case (a) — the
+  // load-bearing one). try/finally guarantees the rollback.
+  try {
+    await deps.sink.emit(record);
+  } finally {
+    if (decision.kind !== "EXECUTE" && deps.rateLimitRollback) {
+      try {
+        await deps.rateLimitRollback();
+      } catch {
+        // Counter rollback failures are not the kernel's problem.
+      }
     }
   }
 

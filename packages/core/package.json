@@ -31,6 +31,7 @@
     "test:invariants": "vitest run tests/kernel/invariants/"
   },
   "dependencies": {
+    "@adjudicate/canonical": "workspace:*",
     "@noble/hashes": "^1.7.1",
     "zod": "^4.3.6"
   },

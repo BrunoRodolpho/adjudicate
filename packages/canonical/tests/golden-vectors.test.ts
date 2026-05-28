@@ -41,4 +41,18 @@ describe("@adjudicate/canonical — canonical rules", () => {
   it("preserves array order", () => {
     expect(sha256Canonical([1, 2, 3])).not.toBe(sha256Canonical([3, 2, 1]));
   });
+
+  it("NFC-normalizes strings (NFD and NFC inputs hash identically) — DataReviewer-008", () => {
+    const nfc = "caf\u00e9"; // NFC: e-acute precomposed U+00E9
+    const nfd = "cafe\u0301"; // NFD: e + combining acute U+0301
+    expect(nfc).not.toBe(nfd); // distinct code points...
+    expect(sha256Canonical({ name: nfc })).toBe(sha256Canonical({ name: nfd })); // ...same hash
+  });
+
+  it("throws on non-finite numbers (no silent null collision) — CryptoReviewer-002", () => {
+    expect(() => sha256Canonical({ x: NaN })).toThrow();
+    expect(() => sha256Canonical({ x: Infinity })).toThrow();
+    expect(() => sha256Canonical({ x: -Infinity })).toThrow();
+    expect(() => sha256Canonical([1, NaN, 3])).toThrow();
+  });
 });

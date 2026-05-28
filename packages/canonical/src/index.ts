@@ -27,9 +27,28 @@ import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils";
  * Recursively canonicalize a value: objects get their keys sorted, arrays stay
  * ordered, primitives pass through. null and undefined are normalized —
  * undefined fields are omitted so `{a: undefined}` and `{}` hash identically.
+ *
+ * Two correctness rules the encoder enforces (RFC 8785 §3.2.2):
+ *   - **Strings are Unicode-NFC-normalized.** Visually identical strings in
+ *     different normalization forms (e.g. "café" composed vs decomposed) MUST
+ *     hash identically, or an adopter's NFD input silently mints a different
+ *     intentHash/proofHash than the same NFC text (DataReviewer-008).
+ *   - **Non-finite numbers throw.** NaN / Infinity / -Infinity have no JSON
+ *     representation; JSON.stringify maps them to `null`, which collides three
+ *     distinct values onto one hash. RFC 8785 §3.2.2.3 mandates fail-on-
+ *     non-finite, so we throw rather than silently collide (CryptoReviewer-002).
  */
 export function canonicalize(value: unknown): unknown {
   if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value.normalize("NFC");
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new RangeError(
+        `canonical-JSON: non-finite number (${String(value)}) has no canonical representation (RFC 8785 §3.2.2.3)`,
+      );
+    }
+    return value;
+  }
   if (typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(canonicalize);
 

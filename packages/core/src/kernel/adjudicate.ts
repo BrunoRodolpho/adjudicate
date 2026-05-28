@@ -9,6 +9,9 @@
  * Evaluation order (strict — do not reorder):
  *   1. Kill switch    — operator-engaged global override (engages before schema)
  *   2. Schema version — unknown versions are SECURITY refusals
+ *   2b. intentHash    — re-derived from canonical content; a mismatch is a
+ *                       SECURITY refusal (content-addressing must be verified,
+ *                       not trusted). Adopters using buildEnvelope pay no cost.
  *   3. stateGuards    — legality of the transition the intent proposes
  *   4. taint gate     — provenance check via canPropose() (T8: moved ahead of auth)
  *   5. authGuards     — caller identity and scope
@@ -42,6 +45,7 @@ import {
   type Decision,
 } from "../decision.js";
 import {
+  deriveIntentHash,
   INTENT_ENVELOPE_VERSION,
   type IntentEnvelope,
 } from "../envelope.js";
@@ -92,8 +96,23 @@ export interface AdjudicationTraceResult {
   readonly trace: ReadonlyArray<AdjudicationTraceEntry>;
 }
 
-// ─── Public entry points ───────────────────────────────────────────────────
+// ─── Pure decision core (non-audited — see adjudicateAndAudit for production) ─
 
+/**
+ * The pure, deterministic decision core — NOT the production entry point.
+ *
+ * `adjudicate()` emits NO AuditRecord, consults NO ledger, and produces NO
+ * side effects. It exists for replay, simulation, trace tooling, and property
+ * tests, where re-auditing would be wrong. Determinism is a hard invariant:
+ * the same `(envelope, state, policy)` always yields the same Decision, with
+ * no Date/env/IO read in the path.
+ *
+ * Production mutation paths MUST call `adjudicateAndAudit()` instead — that is
+ * the only entry point that enforces the audit-complete invariant (every
+ * authoritative decision yields a durable AuditRecord) plus the ledger
+ * replay-suppression that stops side effects from double-firing. Wiring a raw
+ * `adjudicate()` call into a mutation path silently bypasses governance.
+ */
 export function adjudicate<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,
   state: S,
@@ -216,6 +235,25 @@ function _adjudicateImpl<K extends string, P, S>(
   }
   if (traceOut) traceOut.push({ phase: "schema", outcome: "pass" });
   accumulated.push(basis("schema", BASIS_CODES.schema.VERSION_SUPPORTED));
+
+  // 1b. Content-addressing integrity — re-derive intentHash from canonical
+  //     content and compare. The kernel uses intentHash as the ledger dedup
+  //     key, the audit-row identifier, and the confirmation-receipt match
+  //     target; trusting the caller-supplied hash makes content-addressing
+  //     unverified. A forged or drifted hash is refused here, fail-closed.
+  //     Adopters using buildEnvelope pay zero cost — the hashes match.
+  if (deriveIntentHash(envelope) !== envelope.intentHash) {
+    if (traceOut) traceOut.push({ phase: "schema", outcome: "match" });
+    return decisionRefuse(
+      refuse(
+        "SECURITY",
+        "intent_hash_mismatch",
+        "This action cannot be processed at the moment.",
+        "envelope.intentHash does not match the canonical content hash",
+      ),
+      [...accumulated, basis("schema", BASIS_CODES.schema.INTENT_HASH_MISMATCH)],
+    );
+  }
 
   // 2. State guards
   for (let i = 0; i < policy.stateGuards.length; i++) {

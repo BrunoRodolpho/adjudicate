@@ -22,15 +22,26 @@ const taintPolicy: TaintPolicy = {
   minimumFor: (kind) => (kind === "payment.send" ? "SYSTEM" : "UNTRUSTED"),
 };
 
-function baseEnvelope(overrides?: Partial<IntentEnvelope<Kind, Payload>>): IntentEnvelope<Kind, Payload> {
+function baseEnvelope(overrides: Partial<IntentEnvelope<Kind, Payload>> = {}): IntentEnvelope<Kind, Payload> {
+  // Hash-relevant overrides (kind, payload, actor, taint, nonce) flow into
+  // buildEnvelope's inputs so the resulting intentHash matches the canonical
+  // content — the kernel now verifies it (schema:intent_hash_mismatch). Only
+  // version/intentHash overrides are spread on top, for tests that
+  // deliberately craft a malformed/forged envelope.
+  const { version, intentHash, createdAt, ...hashRelevant } = overrides;
   const env = buildEnvelope<Kind, Payload>({
-    kind: "order.tool.propose",
-    payload: { toolName: "add_item" },
-    actor: { principal: "llm", sessionId: "s-1" },
-    taint: "UNTRUSTED",
-    nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
+    kind: (hashRelevant.kind ?? "order.tool.propose") as Kind,
+    payload: hashRelevant.payload ?? { toolName: "add_item" },
+    actor: hashRelevant.actor ?? { principal: "llm", sessionId: "s-1" },
+    taint: hashRelevant.taint ?? "UNTRUSTED",
+    nonce: hashRelevant.nonce ?? "n-test",
+    createdAt: createdAt ?? "2026-04-23T12:00:00.000Z",
   });
-  return { ...env, ...overrides } as IntentEnvelope<Kind, Payload>;
+  return {
+    ...env,
+    ...(version !== undefined ? { version } : {}),
+    ...(intentHash !== undefined ? { intentHash } : {}),
+  } as IntentEnvelope<Kind, Payload>;
 }
 
 function bundle(
@@ -154,6 +165,27 @@ describe("adjudicate — schema gate", () => {
     if (decision.kind !== "REFUSE") return;
     expect(decision.refusal.kind).toBe("SECURITY");
     expect(decision.refusal.code).toBe("schema_version_unsupported");
+  });
+});
+
+describe("adjudicate — content-addressing integrity (AuthReviewer-001)", () => {
+  it("refuses an envelope whose intentHash does not match canonical content", () => {
+    const forged = baseEnvelope({ intentHash: "0".repeat(64) });
+    const decision = adjudicate(forged, { step: "pre_order" }, bundle());
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("intent_hash_mismatch");
+    expect(
+      decision.basis.some(
+        (b) => b.category === "schema" && b.code === "intent_hash_mismatch",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts an envelope whose intentHash matches (buildEnvelope output)", () => {
+    const decision = adjudicate(baseEnvelope(), { step: "pre_order" }, bundle());
+    expect(decision.kind).toBe("EXECUTE");
   });
 });
 

@@ -48,6 +48,7 @@ export const BASIS_CODES = {
     VERSION_SUPPORTED: "version_supported",
     VERSION_UNSUPPORTED: "version_unsupported",
     PAYLOAD_INVALID: "payload_invalid",
+    INTENT_HASH_MISMATCH: "intent_hash_mismatch",
   },
   business: {
     RULE_SATISFIED: "rule_satisfied",

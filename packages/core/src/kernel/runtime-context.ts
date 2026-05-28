@@ -105,10 +105,15 @@ function makeKillSwitchControl(
     if (inner.envSeeded) return;
     inner.envSeeded = true;
     if (envIsActive(env[envVar])) {
+      // Determinism: env-seeded kills use a fixed sentinel toggledAt (not
+      // new Date()) so the value folded into the kill basis is identical
+      // across replicas regardless of boot time. Manual set() runs outside
+      // adjudicate() and keeps a real wall-clock timestamp. Mirrors
+      // enforce-config.ts KILL_SWITCH_ENV_SEED_AT.
       inner.state = {
         active: true,
         reason: `env: ${envVar}`,
-        toggledAt: new Date().toISOString(),
+        toggledAt: "1970-01-01T00:00:00.000Z",
       };
     }
   }

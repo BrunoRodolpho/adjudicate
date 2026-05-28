@@ -84,6 +84,32 @@ export interface BuildEnvelopeInput<K extends string, P> {
 }
 
 /**
+ * The content-addressed fields that feed `intentHash` (v2 recipe):
+ * `(version, kind, payload, nonce, actor, taint)`. `createdAt` is descriptive
+ * metadata and is deliberately excluded. Single source of truth so
+ * `buildEnvelope` (construction) and `deriveIntentHash` (kernel verification)
+ * can never drift — a divergence between the two would silently break ledger
+ * dedup and let forged hashes through.
+ */
+function intentHashInput<K extends string, P>(e: {
+  readonly version: IntentEnvelopeVersion;
+  readonly kind: K;
+  readonly payload: P;
+  readonly nonce: string;
+  readonly actor: IntentActor;
+  readonly taint: Taint;
+}): Record<string, unknown> {
+  return {
+    version: e.version,
+    kind: e.kind,
+    payload: e.payload,
+    nonce: e.nonce,
+    actor: e.actor,
+    taint: e.taint,
+  };
+}
+
+/**
  * Construct a fully-formed IntentEnvelope with a computed intentHash.
  * Hash is derived from `(version, kind, payload, nonce, actor, taint)` —
  * NOT `createdAt`. Reconstructing an envelope from its fields with the
@@ -93,15 +119,16 @@ export function buildEnvelope<K extends string, P>(
   input: BuildEnvelopeInput<K, P>,
 ): IntentEnvelope<K, P> {
   const createdAt = input.createdAt ?? new Date().toISOString();
-  const hashInput = {
-    version: INTENT_ENVELOPE_VERSION,
-    kind: input.kind,
-    payload: input.payload,
-    nonce: input.nonce,
-    actor: input.actor,
-    taint: input.taint,
-  };
-  const intentHash = sha256Canonical(hashInput);
+  const intentHash = sha256Canonical(
+    intentHashInput({
+      version: INTENT_ENVELOPE_VERSION,
+      kind: input.kind,
+      payload: input.payload,
+      nonce: input.nonce,
+      actor: input.actor,
+      taint: input.taint,
+    }),
+  );
   return {
     version: INTENT_ENVELOPE_VERSION,
     kind: input.kind,
@@ -112,6 +139,19 @@ export function buildEnvelope<K extends string, P>(
     taint: input.taint,
     intentHash,
   };
+}
+
+/**
+ * Re-derive the content-addressed `intentHash` for an existing envelope.
+ *
+ * The kernel calls this to VERIFY that `envelope.intentHash` actually matches
+ * the canonical content — content-addressing is only meaningful if the hash is
+ * verified, not trusted. Adopters who build envelopes via `buildEnvelope` get a
+ * matching hash for free; a forged or drifted hash is caught by the kernel and
+ * refused with `schema:intent_hash_mismatch`.
+ */
+export function deriveIntentHash(envelope: IntentEnvelope): string {
+  return sha256Canonical(intentHashInput(envelope));
 }
 
 /**

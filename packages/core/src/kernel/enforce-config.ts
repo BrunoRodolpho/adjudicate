@@ -167,6 +167,15 @@ function killSwitchEnvActive(env: NodeJS.ProcessEnv = process.env): boolean {
   return v === "1" || v === "true" || v === "yes" || v === "on"
 }
 
+// Determinism sentinel for env-seeded kills. The kill `toggledAt` flows into
+// the Decision basis detail, and `adjudicate()` must be deterministic over
+// (envelope, state, policy). If env-seeding stamped `new Date()`, two replicas
+// booting at different times would emit different Decision bytes for the same
+// envelope — audit-hash drift, and the replay-determinism property test breaks.
+// Operator toggles via `setKillSwitch()` happen OUTSIDE adjudicate(), so they
+// keep a real wall-clock timestamp.
+const KILL_SWITCH_ENV_SEED_AT = "1970-01-01T00:00:00.000Z"
+
 function ensureKillSwitchSeeded(env: NodeJS.ProcessEnv = process.env): void {
   if (_killSwitchSeededFromEnv) return
   _killSwitchSeededFromEnv = true
@@ -174,7 +183,7 @@ function ensureKillSwitchSeeded(env: NodeJS.ProcessEnv = process.env): void {
     _killSwitch = {
       active: true,
       reason: "env: IBX_KILL_SWITCH",
-      toggledAt: new Date().toISOString(),
+      toggledAt: KILL_SWITCH_ENV_SEED_AT,
     }
   }
 }

@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import {
-  _resetEnforceConfig,
-  isEnforced,
-  isShadowed,
-  validateEnforceConfig,
-} from "../../src/kernel/enforce-config.js"
+import { validateEnforceConfig } from "../../src/kernel/enforce-config.js"
+import { createRuntimeContext } from "../../src/kernel/runtime-context.js"
 import {
   _resetMetricsSink,
   setMetricsSink,
@@ -12,55 +8,60 @@ import {
   type SinkFailureEvent,
 } from "../../src/kernel/metrics.js"
 
-describe("intent-enforce-config", () => {
-  afterEach(() => {
-    _resetEnforceConfig()
-  })
+// ConfigReviewer-001: the module-level isShadowed/isEnforced wrappers (which
+// defaulted env to process.env) were removed. Enforce/shadow lookups now go
+// through a RuntimeContext seeded from an explicit envSeed, which never reads
+// live process.env. These tests exercise that surface.
+function enforceConfigFor(env: NodeJS.ProcessEnv) {
+  return createRuntimeContext({ id: "test", envSeed: env }).enforceConfig
+}
 
+describe("intent-enforce-config (via RuntimeContext.enforceConfig)", () => {
   it("returns false for both when env vars are unset", () => {
-    expect(isShadowed("order.submit", {})).toBe(false)
-    expect(isEnforced("order.submit", {})).toBe(false)
+    const cfg = enforceConfigFor({})
+    expect(cfg.isShadowed("order.submit")).toBe(false)
+    expect(cfg.isEnforced("order.submit")).toBe(false)
   })
 
   it("parses comma-separated intent kinds for shadow", () => {
-    const env = { IBX_KERNEL_SHADOW: "order.submit,payment.confirm" }
-    expect(isShadowed("order.submit", env)).toBe(true)
-    expect(isShadowed("payment.confirm", env)).toBe(true)
-    expect(isShadowed("refund.issue", env)).toBe(false)
+    const cfg = enforceConfigFor({ IBX_KERNEL_SHADOW: "order.submit,payment.confirm" })
+    expect(cfg.isShadowed("order.submit")).toBe(true)
+    expect(cfg.isShadowed("payment.confirm")).toBe(true)
+    expect(cfg.isShadowed("refund.issue")).toBe(false)
   })
 
   it("parses comma-separated intent kinds for enforce independently", () => {
-    const env = {
+    const cfg = enforceConfigFor({
       IBX_KERNEL_SHADOW: "order.submit",
       IBX_KERNEL_ENFORCE: "apply_coupon,update_preferences",
-    }
-    expect(isShadowed("order.submit", env)).toBe(true)
-    expect(isShadowed("apply_coupon", env)).toBe(false)
-    expect(isEnforced("apply_coupon", env)).toBe(true)
-    expect(isEnforced("order.submit", env)).toBe(false)
+    })
+    expect(cfg.isShadowed("order.submit")).toBe(true)
+    expect(cfg.isShadowed("apply_coupon")).toBe(false)
+    expect(cfg.isEnforced("apply_coupon")).toBe(true)
+    expect(cfg.isEnforced("order.submit")).toBe(false)
   })
 
   it("supports wildcard `*` for blanket coverage", () => {
-    expect(isShadowed("anything.at.all", { IBX_KERNEL_SHADOW: "*" })).toBe(true)
-    expect(isEnforced("anything.at.all", { IBX_KERNEL_ENFORCE: "*" })).toBe(true)
+    expect(enforceConfigFor({ IBX_KERNEL_SHADOW: "*" }).isShadowed("anything.at.all")).toBe(true)
+    expect(enforceConfigFor({ IBX_KERNEL_ENFORCE: "*" }).isEnforced("anything.at.all")).toBe(true)
   })
 
   it("trims whitespace around comma-separated values", () => {
-    const env = { IBX_KERNEL_SHADOW: " order.submit ,  payment.confirm  " }
-    expect(isShadowed("order.submit", env)).toBe(true)
-    expect(isShadowed("payment.confirm", env)).toBe(true)
+    const cfg = enforceConfigFor({ IBX_KERNEL_SHADOW: " order.submit ,  payment.confirm  " })
+    expect(cfg.isShadowed("order.submit")).toBe(true)
+    expect(cfg.isShadowed("payment.confirm")).toBe(true)
   })
 
   it("ignores empty entries", () => {
-    const env = { IBX_KERNEL_SHADOW: ",order.submit,," }
-    expect(isShadowed("order.submit", env)).toBe(true)
-    expect(isShadowed("", env)).toBe(false)
+    const cfg = enforceConfigFor({ IBX_KERNEL_SHADOW: ",order.submit,," })
+    expect(cfg.isShadowed("order.submit")).toBe(true)
+    expect(cfg.isShadowed("")).toBe(false)
   })
 
   it("recomputes when env values change between calls", () => {
-    expect(isEnforced("order.submit", { IBX_KERNEL_ENFORCE: "" })).toBe(false)
+    expect(enforceConfigFor({ IBX_KERNEL_ENFORCE: "" }).isEnforced("order.submit")).toBe(false)
     expect(
-      isEnforced("order.submit", { IBX_KERNEL_ENFORCE: "order.submit" }),
+      enforceConfigFor({ IBX_KERNEL_ENFORCE: "order.submit" }).isEnforced("order.submit"),
     ).toBe(true)
   })
 })

@@ -28,43 +28,18 @@ function parseList(raw: string | undefined): { wildcard: boolean; kinds: Readonl
   return { wildcard: false, kinds: new Set(parts) }
 }
 
-let _shadow: { wildcard: boolean; kinds: ReadonlySet<string> } | null = null
-let _enforce: { wildcard: boolean; kinds: ReadonlySet<string> } | null = null
-let _envSnapshot: { shadow: string | undefined; enforce: string | undefined } | null = null
-
-function ensureLoaded(env: NodeJS.ProcessEnv): void {
-  const shadow = env["IBX_KERNEL_SHADOW"]
-  const enforce = env["IBX_KERNEL_ENFORCE"]
-  if (
-    _envSnapshot &&
-    _envSnapshot.shadow === shadow &&
-    _envSnapshot.enforce === enforce
-  ) {
-    return
-  }
-  _shadow = parseList(shadow)
-  _enforce = parseList(enforce)
-  _envSnapshot = { shadow, enforce }
-}
-
-/** Is this intent kind covered by `IBX_KERNEL_SHADOW`? */
-export function isShadowed(intentKind: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  ensureLoaded(env)
-  return _shadow!.wildcard || _shadow!.kinds.has(intentKind)
-}
-
-/** Is this intent kind covered by `IBX_KERNEL_ENFORCE`? */
-export function isEnforced(intentKind: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  ensureLoaded(env)
-  return _enforce!.wildcard || _enforce!.kinds.has(intentKind)
-}
-
-/** @internal — reset the cached env snapshot (for tests). */
-export function _resetEnforceConfig(): void {
-  _shadow = null
-  _enforce = null
-  _envSnapshot = null
-}
+// ── Per-intent shadow/enforce lookup ─────────────────────────────────────────
+//
+// ConfigReviewer-001: the module-level `isShadowed` / `isEnforced` wrappers
+// previously defaulted `env` to `process.env` and re-read it per call. That
+// is a footgun for any future "kernel authoritative per intent" wiring — a
+// commit dropping them into the decision path would silently read env inside
+// adjudicate(), violating the deterministic-core invariant. They have been
+// removed. Callers route through `RuntimeContext.enforceConfig.{isShadowed,
+// isEnforced}` instead, which is seeded once from a captured `envSeed` at
+// context creation and never reaches for live `process.env`. The wildcard /
+// comma-list parsing lives in `parseList` (still used by
+// `validateEnforceConfig` below and re-implemented in `runtime-context.ts`).
 
 // ── T7 (#17): typo guard for IBX_KERNEL_SHADOW / IBX_KERNEL_ENFORCE. ──
 

@@ -231,3 +231,42 @@ describe("adjudicate — direct decision pass-through", () => {
     expect(decision.kind).toBe("EXECUTE");
   });
 });
+
+describe("adjudicate — hot path reads no enforce-config env (ConfigReviewer-001)", () => {
+  // The module-level isShadowed/isEnforced wrappers (which defaulted to
+  // process.env) were removed. This pins the invariant that adjudicate()
+  // never reaches for IBX_KERNEL_SHADOW / IBX_KERNEL_ENFORCE on the hot path —
+  // if a future commit wires per-intent enforce into the decision path via a
+  // process.env default, this trap fires. (Deterministic core: no env reads
+  // inside adjudicate().)
+  it("does not access IBX_KERNEL_SHADOW or IBX_KERNEL_ENFORCE during adjudicate()", () => {
+    const accessed: string[] = [];
+    const realEnv = process.env;
+    const trap = new Proxy(realEnv, {
+      get(target, prop, receiver) {
+        if (typeof prop === "string") accessed.push(prop);
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    // eslint-disable-next-line no-global-assign
+    (process as { env: NodeJS.ProcessEnv }).env = trap;
+    try {
+      adjudicate(
+        baseEnvelope(),
+        { step: "pre_order" },
+        bundle({
+          business: [
+            () =>
+              decisionExecute([
+                basis("business", BASIS_CODES.business.RULE_SATISFIED),
+              ]),
+          ],
+        }),
+      );
+    } finally {
+      (process as { env: NodeJS.ProcessEnv }).env = realEnv;
+    }
+    expect(accessed).not.toContain("IBX_KERNEL_SHADOW");
+    expect(accessed).not.toContain("IBX_KERNEL_ENFORCE");
+  });
+});

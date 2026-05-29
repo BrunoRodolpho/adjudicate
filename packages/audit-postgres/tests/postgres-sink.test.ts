@@ -11,6 +11,8 @@ import {
   verifyAuditRecord,
 } from "@adjudicate/core";
 import {
+  INSERT_AUDIT_SQL,
+  auditInsertParams,
   createPostgresSink,
   partitionMonthOf,
   recordToRow,
@@ -97,6 +99,71 @@ describe("recordToRow", () => {
     const parsed = JSON.parse(row.envelope_jsonb);
     expect(parsed.intentHash).toBe(r.intentHash);
     expect(parsed.payload.sku).toBe("X");
+  });
+});
+
+describe("INSERT_AUDIT_SQL + auditInsertParams (symmetry with governance)", () => {
+  // Declared column order — the single source of truth that
+  // auditInsertParams must mirror positionally. Mirrors the governance-log
+  // column-order test.
+  const COLUMNS = [
+    "intent_hash",
+    "session_id",
+    "kind",
+    "principal",
+    "taint",
+    "decision_kind",
+    "refusal_kind",
+    "refusal_code",
+    "decision_basis",
+    "resource_version",
+    "envelope_jsonb",
+    "decision_jsonb",
+    "recorded_at",
+    "duration_ms",
+    "partition_month",
+    "record_version",
+    "plan_jsonb",
+    "nonce",
+    "supersedes_jsonb",
+    "kernel_identity_jsonb",
+    "policy_version",
+    "kernel_version",
+    "audit_hash",
+    "signature_jsonb",
+  ] as const;
+
+  it("INSERT_AUDIT_SQL declares all 24 columns with $1..$24 and ON CONFLICT DO NOTHING", () => {
+    expect(INSERT_AUDIT_SQL).toContain(`(${COLUMNS.join(", ")})`);
+    const placeholders = Array.from({ length: 24 }, (_, i) => `$${i + 1}`).join(", ");
+    expect(INSERT_AUDIT_SQL).toContain(`VALUES (${placeholders})`);
+    expect(INSERT_AUDIT_SQL).toContain("INSERT INTO intent_audit");
+    expect(INSERT_AUDIT_SQL).toContain("ON CONFLICT (intent_hash, recorded_at) DO NOTHING");
+  });
+
+  it("auditInsertParams returns values in the exact column order of the INSERT SQL", () => {
+    const row = recordToRow(v4Record());
+    const params = auditInsertParams(row);
+    expect(params).toHaveLength(COLUMNS.length);
+    // Each param equals the row field named by the column at the same index.
+    COLUMNS.forEach((col, i) => {
+      expect(params[i]).toBe((row as Record<string, unknown>)[col]);
+    });
+  });
+
+  it("a writer running INSERT_AUDIT_SQL with auditInsertParams sees the full v4 row", async () => {
+    // Smoke test: the sink hands recordToRow output to the writer; an adopter
+    // writer would bind auditInsertParams(row) to INSERT_AUDIT_SQL. Assert the
+    // params carry the load-bearing v4 tamper-evidence fields (audit_hash et al)
+    // so nothing is dropped before the DB sees it.
+    const r = v4Record();
+    const row = recordToRow(r);
+    const params = auditInsertParams(row);
+    // audit_hash is at index 22 (0-based) per COLUMNS.
+    expect(params[COLUMNS.indexOf("audit_hash")]).toBe(r.auditHash);
+    expect(params[COLUMNS.indexOf("policy_version")]).toBe("1.2.3");
+    expect(params[COLUMNS.indexOf("kernel_version")]).toBe("1.1.0");
+    expect(params[COLUMNS.indexOf("supersedes_jsonb")]).not.toBeNull();
   });
 });
 

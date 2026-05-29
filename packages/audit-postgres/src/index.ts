@@ -1,6 +1,8 @@
 // @adjudicate/audit-postgres — durable governance trail in Postgres.
 
 export {
+  INSERT_AUDIT_SQL,
+  auditInsertParams,
   createPostgresSink,
   partitionMonthOf,
   recordToRow,

@@ -14,20 +14,18 @@ import type { AuditSink } from "@adjudicate/audit";
  * Minimal Postgres-write interface. Adopters wrap their existing Postgres
  * client (pg, postgres.js, Prisma) into this shape.
  *
- * INSERT shape:
- *   INSERT INTO intent_audit
- *     (intent_hash, session_id, kind, principal, taint, decision_kind,
- *      refusal_kind, refusal_code, decision_basis, resource_version,
- *      envelope_jsonb, decision_jsonb, recorded_at, duration_ms, partition_month,
- *      record_version, plan_jsonb, nonce, supersedes_jsonb, policy_version,
- *      kernel_version, audit_hash, signature_jsonb, kernel_identity_jsonb)
- *   VALUES ($1...$24)
- *   ON CONFLICT (intent_hash, recorded_at) DO NOTHING
+ * The reference INSERT statement is exported as `INSERT_AUDIT_SQL` (single
+ * source of truth for the row shape), with `auditInsertParams(row)` producing
+ * the bound `$1...$24` parameter array in matching column order. A typical
+ * `pg`-backed writer is:
  *
- * Adopters MUST insert every column above. Omitting the v2/v3/v4 columns
- * (record_version through kernel_identity_jsonb) silently discards the
+ *   insertAudit: (row) => pool.query(INSERT_AUDIT_SQL, [...auditInsertParams(row)])
+ *
+ * Adopters MUST insert every column. Omitting the v2/v3/v4 columns
+ * (record_version through signature_jsonb) silently discards the
  * tamper-evidence binding and supersession chain — verifyAuditRecord then
- * returns missing_hash on read-back.
+ * returns missing_hash on read-back. Using the exported const + params helper
+ * keeps the column set complete and in sync by construction.
  */
 export interface PostgresWriter {
   insertAudit(row: IntentAuditRow): Promise<void>;
@@ -178,6 +176,71 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
     audit_hash: record.auditHash ?? null,
     signature_jsonb: record.signature ? JSON.stringify(record.signature) : null,
   };
+}
+
+/**
+ * Reference INSERT statement for the `intent_audit` table. Mirrors
+ * `INSERT_GOVERNANCE_EVENT_SQL` in governance-log.ts — adopters wrap their
+ * `pg`/`postgres.js`/Prisma client into a `PostgresWriter` whose
+ * `insertAudit` runs this statement. Exposed as a constant so the SQL stays
+ * in this package (single source of truth for the row shape), and so a
+ * column-order test can pin it against `auditInsertParams`.
+ *
+ * Column order matches `recordToRow` / `auditInsertParams`. The 24 columns
+ * span the base v1 schema (001) plus the additive v2/v3/v4 migrations
+ * (002 plan_jsonb, 003 nonce, 005 supersedes_jsonb, 008 kernel_identity_jsonb
+ * / policy_version / kernel_version / audit_hash / signature_jsonb). Because
+ * the columns are named explicitly, physical column order in Postgres is
+ * irrelevant — only this list and `auditInsertParams` must agree.
+ *
+ * `ON CONFLICT (intent_hash, recorded_at) DO NOTHING` matches the table's
+ * PRIMARY KEY (id, recorded_at) dedup intent at the (intent_hash, recorded_at)
+ * grain — idempotent re-emit of the same record is a no-op.
+ */
+export const INSERT_AUDIT_SQL = `
+  INSERT INTO intent_audit
+    (intent_hash, session_id, kind, principal, taint, decision_kind,
+     refusal_kind, refusal_code, decision_basis, resource_version,
+     envelope_jsonb, decision_jsonb, recorded_at, duration_ms, partition_month,
+     record_version, plan_jsonb, nonce, supersedes_jsonb, kernel_identity_jsonb,
+     policy_version, kernel_version, audit_hash, signature_jsonb)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+          $16, $17, $18, $19, $20, $21, $22, $23, $24)
+  ON CONFLICT (intent_hash, recorded_at) DO NOTHING
+`.replace(/\s+/g, " ").trim();
+
+/**
+ * Helper to convert an `IntentAuditRow` to the parameter array for
+ * `INSERT_AUDIT_SQL`. Adopters use this to keep the column order in sync
+ * with the SQL constant. Mirrors `governanceInsertParams`.
+ */
+export function auditInsertParams(row: IntentAuditRow): readonly unknown[] {
+  return [
+    row.intent_hash,
+    row.session_id,
+    row.kind,
+    row.principal,
+    row.taint,
+    row.decision_kind,
+    row.refusal_kind,
+    row.refusal_code,
+    row.decision_basis,
+    row.resource_version,
+    row.envelope_jsonb,
+    row.decision_jsonb,
+    row.recorded_at,
+    row.duration_ms,
+    row.partition_month,
+    row.record_version,
+    row.plan_jsonb,
+    row.nonce,
+    row.supersedes_jsonb,
+    row.kernel_identity_jsonb,
+    row.policy_version,
+    row.kernel_version,
+    row.audit_hash,
+    row.signature_jsonb,
+  ];
 }
 
 /**

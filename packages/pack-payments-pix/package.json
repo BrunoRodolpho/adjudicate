@@ -18,7 +18,7 @@
     "build": "tsc --outDir dist",
     "lint": "tsc --noEmit && eslint \"src/**/*.ts\"",
     "test": "vitest run",
-    "test:scenarios": "adjudicate simulate --pack ./dist/index.js --scenarios ./scenarios"
+    "test:scenarios": "node ../cli/dist/bin.js simulate --pack ./dist/index.js --scenarios ./scenarios"
   },
   "files": [
     "dist",
@@ -30,7 +30,6 @@
     "@adjudicate/primitives": "workspace:*"
   },
   "devDependencies": {
-    "@adjudicate/cli": "workspace:*",
     "@adjudicate/eslint-config": "workspace:*",
     "@adjudicate/runtime": "workspace:*",
     "@eslint/eslintrc": "^3.0.0",

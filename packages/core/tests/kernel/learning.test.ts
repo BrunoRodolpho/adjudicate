@@ -61,6 +61,14 @@ function envFixture() {
   });
 }
 
+// adjudicateAndLearn requires an explicit clock (SecurityReviewer-002): the
+// kernel barrel advertises determinism, so the function never reaches for an
+// implicit Date.now. Tests inject a deterministic clock.
+const fixedClock = {
+  now: () => 0,
+  clockIso: () => "2026-04-23T12:00:00.000Z",
+} as const;
+
 describe("flattenBasis", () => {
   it("renders DecisionBasis as category:code strings", () => {
     const flat = flattenBasis([
@@ -132,12 +140,12 @@ describe("adjudicateAndLearn", () => {
   });
 
   it("returns the same Decision adjudicate would have returned (EXECUTE)", () => {
-    const decision = adjudicateAndLearn(envFixture(), {}, passBundle);
+    const decision = adjudicateAndLearn(envFixture(), {}, passBundle, fixedClock);
     expect(decision.kind).toBe("EXECUTE");
   });
 
   it("returns the same Decision adjudicate would have returned (REFUSE)", () => {
-    const decision = adjudicateAndLearn(envFixture(), {}, refuseBundle);
+    const decision = adjudicateAndLearn(envFixture(), {}, refuseBundle, fixedClock);
     expect(decision.kind).toBe("REFUSE");
   });
 
@@ -149,8 +157,8 @@ describe("adjudicateAndLearn", () => {
       },
     };
     setLearningSink(sink);
-    adjudicateAndLearn(envFixture(), {}, passBundle);
-    adjudicateAndLearn(envFixture(), {}, passBundle);
+    adjudicateAndLearn(envFixture(), {}, passBundle, fixedClock);
+    adjudicateAndLearn(envFixture(), {}, passBundle, fixedClock);
     expect(events).toHaveLength(2);
   });
 
@@ -183,6 +191,7 @@ describe("adjudicateAndLearn", () => {
       },
     });
     adjudicateAndLearn(envFixture(), {}, passBundle, {
+      ...fixedClock,
       planFingerprint: "abc123",
     });
     expect(events[0]!.planFingerprint).toBe("abc123");
@@ -194,7 +203,7 @@ describe("adjudicateAndLearn", () => {
         throw new Error("sink down");
       },
     });
-    const decision = adjudicateAndLearn(envFixture(), {}, passBundle);
+    const decision = adjudicateAndLearn(envFixture(), {}, passBundle, fixedClock);
     expect(decision.kind).toBe("EXECUTE");
   });
 });

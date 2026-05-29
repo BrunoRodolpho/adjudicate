@@ -191,11 +191,19 @@ export interface AdjudicateAndLearnOptions {
   /** Optional plan fingerprint to cross-reference with the AuditRecord. */
   readonly planFingerprint?: string
   /**
-   * Override for the wall-clock used to compute durationMs and emission
-   * timestamps. Tests inject a fake; production uses the defaults.
+   * Wall-clock source used to compute `durationMs`. REQUIRED — this function
+   * is exported from the kernel barrel, which advertises determinism, so it
+   * must never reach for an implicit `Date.now`. Production wires a real
+   * clock at the call site (`() => Date.now()`); replay/property harnesses
+   * inject a fake (SecurityReviewer-002).
    */
-  readonly now?: () => number
-  readonly clockIso?: () => string
+  readonly now: () => number
+  /**
+   * ISO-8601 timestamp source for the emitted `LearningEvent.at`. REQUIRED
+   * for the same reason as `now` — no implicit `new Date()` inside a
+   * kernel-barrel export.
+   */
+  readonly clockIso: () => string
 }
 
 /**
@@ -211,10 +219,9 @@ export function adjudicateAndLearn<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,
   state: S,
   policy: PolicyBundle<K, P, S>,
-  options: AdjudicateAndLearnOptions = {},
+  options: AdjudicateAndLearnOptions,
 ): Decision {
-  const now = options.now ?? Date.now
-  const clockIso = options.clockIso ?? (() => new Date().toISOString())
+  const { now, clockIso } = options
   const start = now()
   const { decision, trace } = adjudicateWithTrace(envelope, state, policy)
   const durationMs = now() - start

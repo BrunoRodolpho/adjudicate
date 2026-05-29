@@ -133,9 +133,25 @@ let _killSwitch: KillSwitchState = {
   reason: "",
   toggledAt: "1970-01-01T00:00:00.000Z",
 }
+// LOAD-BEARING (ConfigReviewer-003): one-shot memo. Once true, neither the
+// env snapshot nor a later explicit env re-reads the kill state — this is
+// what gives `setKillSwitch()` precedence over the env pre-seed and what
+// keeps `isKilled()` from re-reading on the adjudicate() hot path. Only
+// `_resetKillSwitch()` (tests) and an explicit env arg (reseed) clear it.
 let _killSwitchSeededFromEnv = false
 
-function killSwitchEnvActive(env: NodeJS.ProcessEnv = process.env): boolean {
+// ConfigReviewer-003: capture process.env ONCE at module load rather than
+// defaulting the read functions to live `process.env`. The previous default
+// (`env = process.env`) meant the module-level `isKilled()` /
+// `getKillSwitchState()` — which `adjudicate()` calls with no argument on the
+// hot path — held a live reference to `process.env`. Seeding is already
+// one-shot via the memo above, so live env was never actually re-read after
+// the first call; snapshotting makes that explicit and removes the footgun of
+// a future change reading mutable env mid-decision. Callers that genuinely
+// need to re-seed (tests, operator reseed) still pass an explicit env arg.
+const KILL_SWITCH_ENV_SNAPSHOT: NodeJS.ProcessEnv = { ...process.env }
+
+function killSwitchEnvActive(env: NodeJS.ProcessEnv): boolean {
   const raw = env["IBX_KILL_SWITCH"]
   if (raw === undefined) return false
   const v = raw.toLowerCase().trim()
@@ -151,7 +167,7 @@ function killSwitchEnvActive(env: NodeJS.ProcessEnv = process.env): boolean {
 // keep a real wall-clock timestamp.
 const KILL_SWITCH_ENV_SEED_AT = "1970-01-01T00:00:00.000Z"
 
-function ensureKillSwitchSeeded(env: NodeJS.ProcessEnv = process.env): void {
+function ensureKillSwitchSeeded(env: NodeJS.ProcessEnv = KILL_SWITCH_ENV_SNAPSHOT): void {
   if (_killSwitchSeededFromEnv) return
   _killSwitchSeededFromEnv = true
   if (killSwitchEnvActive(env)) {
@@ -182,8 +198,12 @@ export function setKillSwitch(active: boolean, reason: string): void {
 
 /**
  * Is the kill switch currently active?
+ *
+ * `env` defaults to a one-time module snapshot of `process.env` (captured at
+ * import), NOT live `process.env` — see `KILL_SWITCH_ENV_SNAPSHOT`. Pass an
+ * explicit env to force a (one-shot) re-seed; the memo still gates it.
  */
-export function isKilled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isKilled(env: NodeJS.ProcessEnv = KILL_SWITCH_ENV_SNAPSHOT): boolean {
   ensureKillSwitchSeeded(env)
   return _killSwitch.active
 }
@@ -192,8 +212,11 @@ export function isKilled(env: NodeJS.ProcessEnv = process.env): boolean {
  * Read the current kill-switch state (active flag, reason, toggle timestamp).
  * Used by adopters that want to surface the reason in user-facing messages,
  * or to emit a synthetic AuditRecord on toggle.
+ *
+ * `env` defaults to the one-time module snapshot (not live `process.env`),
+ * matching `isKilled` — keeps the adjudicate() hot path off mutable env.
  */
-export function getKillSwitchState(env: NodeJS.ProcessEnv = process.env): KillSwitchState {
+export function getKillSwitchState(env: NodeJS.ProcessEnv = KILL_SWITCH_ENV_SNAPSHOT): KillSwitchState {
   ensureKillSwitchSeeded(env)
   return _killSwitch
 }

@@ -10,6 +10,7 @@ import {
   type TaintPolicy,
 } from "@adjudicate/core";
 import { adjudicate } from "../../src/kernel/adjudicate.js";
+import { _resetKillSwitch } from "../../src/kernel/enforce-config.js";
 import type { Guard, PolicyBundle } from "../../src/kernel/policy.js";
 
 type Kind = "order.tool.propose";
@@ -232,14 +233,13 @@ describe("adjudicate — direct decision pass-through", () => {
   });
 });
 
-describe("adjudicate — hot path reads no enforce-config env (ConfigReviewer-001)", () => {
-  // The module-level isShadowed/isEnforced wrappers (which defaulted to
-  // process.env) were removed. This pins the invariant that adjudicate()
-  // never reaches for IBX_KERNEL_SHADOW / IBX_KERNEL_ENFORCE on the hot path —
-  // if a future commit wires per-intent enforce into the decision path via a
-  // process.env default, this trap fires. (Deterministic core: no env reads
-  // inside adjudicate().)
-  it("does not access IBX_KERNEL_SHADOW or IBX_KERNEL_ENFORCE during adjudicate()", () => {
+describe("adjudicate — hot path reads no live process.env (ConfigReviewer-001/003)", () => {
+  // Run adjudicate() with process.env replaced by a recording Proxy and assert
+  // the enforce-config / kill-switch env keys are never read off LIVE env on
+  // the decision hot path. Deterministic core: no env reads inside
+  // adjudicate(). If a future commit wires per-intent enforce or re-reads the
+  // kill switch from mutable process.env mid-decision, these traps fire.
+  function recordEnvAccessDuringAdjudicate(): string[] {
     const accessed: string[] = [];
     const realEnv = process.env;
     const trap = new Proxy(realEnv, {
@@ -248,7 +248,6 @@ describe("adjudicate — hot path reads no enforce-config env (ConfigReviewer-00
         return Reflect.get(target, prop, receiver);
       },
     });
-    // eslint-disable-next-line no-global-assign
     (process as { env: NodeJS.ProcessEnv }).env = trap;
     try {
       adjudicate(
@@ -266,7 +265,22 @@ describe("adjudicate — hot path reads no enforce-config env (ConfigReviewer-00
     } finally {
       (process as { env: NodeJS.ProcessEnv }).env = realEnv;
     }
+    return accessed;
+  }
+
+  it("does not access IBX_KERNEL_SHADOW or IBX_KERNEL_ENFORCE during adjudicate()", () => {
+    const accessed = recordEnvAccessDuringAdjudicate();
     expect(accessed).not.toContain("IBX_KERNEL_SHADOW");
     expect(accessed).not.toContain("IBX_KERNEL_ENFORCE");
+  });
+
+  it("does not access IBX_KILL_SWITCH off live process.env during adjudicate()", () => {
+    // Force a fresh kill-switch seed so the first isKilled() inside
+    // adjudicate() would actually consult an env source. The module snapshot
+    // (captured at import) is what gets read — never the live, trapped env.
+    _resetKillSwitch();
+    const accessed = recordEnvAccessDuringAdjudicate();
+    expect(accessed).not.toContain("IBX_KILL_SWITCH");
+    _resetKillSwitch();
   });
 });

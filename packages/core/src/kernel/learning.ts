@@ -15,6 +15,7 @@ import type { DecisionBasis } from "../basis-codes.js"
 import type { IntentEnvelope } from "../envelope.js"
 import type { Taint } from "../taint.js"
 import { adjudicateWithTrace, type AdjudicationTraceEntry } from "./adjudicate.js"
+import { recordSinkFailure } from "./metrics.js"
 import type { PolicyBundle } from "./policy.js"
 
 export interface LearningEvent {
@@ -212,8 +213,11 @@ export interface AdjudicateAndLearnOptions {
  * the learning surface call this entry point; adopters who don't care
  * (or who run in a property-testing harness) keep using `adjudicate()`.
  *
- * Returns the same Decision the pure kernel would have returned. Sink
- * failures are absorbed — telemetry must never become a customer outage.
+ * Returns the same Decision the pure kernel would have returned. A failing
+ * LearningSink never blocks the Decision (telemetry must not become a
+ * customer outage), but the failure is no longer swallowed silently — it is
+ * surfaced via `recordSinkFailure` so operators can dashboard it
+ * (ErrorReviewer-006).
  */
 export function adjudicateAndLearn<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,
@@ -242,8 +246,21 @@ export function adjudicateAndLearn<K extends string, P, S>(
         : {}),
       at: clockIso(),
     })
-  } catch {
-    // Sink failures are not the kernel's problem.
+  } catch (err) {
+    // Telemetry must never become a customer outage — the Decision is still
+    // returned. But a swallowed LearningSink failure is invisible to
+    // operators, so surface it through the metrics sink the same way the
+    // rest of the kernel reports sink failures (recordSinkFailure, cf.
+    // enforce-config typo guard / ledger parse failures). ErrorReviewer-006.
+    recordSinkFailure({
+      sink: "console",
+      subject: envelope.intentHash,
+      errorClass:
+        err instanceof Error
+          ? `learning_sink_failure:${err.name}`
+          : "learning_sink_failure",
+      consecutiveFailures: 1,
+    })
   }
   return decision
 }

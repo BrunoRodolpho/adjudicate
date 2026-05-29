@@ -21,8 +21,21 @@ describe("canonicalJson", () => {
   });
 
   it("is deterministic on arbitrary JSON-safe objects", () => {
+    // JSON-safe = finite numbers only. fc.object()'s default fc.double() emits
+    // NaN/Infinity, which canonicalize() (correctly, per RFC 8785 §3.2.2.3)
+    // throws on — so the default generator is NOT JSON-safe and made this
+    // determinism property flaky once the non-finite throw landed. Constrain the
+    // leaf values to genuinely JSON-safe primitives (the non-finite throw has its
+    // own dedicated test).
+    const jsonSafeValues = [
+      fc.boolean(),
+      fc.integer(),
+      fc.double({ noNaN: true, noDefaultInfinity: true }),
+      fc.string(),
+      fc.constant(null),
+    ];
     fc.assert(
-      fc.property(fc.object({ maxDepth: 3 }), (obj) => {
+      fc.property(fc.object({ maxDepth: 3, values: jsonSafeValues }), (obj) => {
         expect(canonicalJson(obj)).toBe(canonicalJson(obj));
       }),
     );

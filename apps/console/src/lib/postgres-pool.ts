@@ -17,16 +17,24 @@ import {
  * pool is never opened in MOCK / no-DATABASE_URL deployments.
  */
 
+// Snapshot DATABASE_URL once at module load so config can't drift mid-process
+// (a later mutation of process.env.DATABASE_URL must not change which database
+// the already-decided pool targets). The pool is still constructed lazily on
+// first call; only the resolved connection string is frozen here. `undefined`
+// when unset — the "throw if unset" behavior below is preserved against this
+// snapshot.
+const DATABASE_URL = process.env.DATABASE_URL;
+
 let pool: pg.Pool | null = null;
 
 export function getPgPool(): pg.Pool {
   if (pool) return pool;
-  if (!process.env.DATABASE_URL) {
+  if (!DATABASE_URL) {
     throw new Error(
       "[postgres-pool] DATABASE_URL is not set. Either set it to enable the Postgres-backed stores, or do not call getPgPool().",
     );
   }
-  pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  pool = new pg.Pool({ connectionString: DATABASE_URL });
   return pool;
 }
 

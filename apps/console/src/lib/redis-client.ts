@@ -15,16 +15,23 @@ import type { RedisLedgerClient } from "@adjudicate/audit";
  * same shape.
  */
 
+// Snapshot REDIS_URL once at module load so config can't drift mid-process
+// (a later mutation of process.env.REDIS_URL must not change which Redis the
+// already-decided adapter targets). The connection is still opened lazily on
+// first call; only the resolved URL is frozen here. `undefined` when unset —
+// the "throw if unset" behavior below is preserved against this snapshot.
+const REDIS_URL = process.env.REDIS_URL;
+
 let clientPromise: Promise<RedisClientType> | null = null;
 
 async function getRedisClient(): Promise<RedisClientType> {
   if (clientPromise) return clientPromise;
-  if (!process.env.REDIS_URL) {
+  if (!REDIS_URL) {
     throw new Error(
       "[redis-client] REDIS_URL is not set. Either set it to enable the Redis-coordinated emergency store, or do not call createLazyRedisLedgerAdapter().",
     );
   }
-  const c = createClient({ url: process.env.REDIS_URL }) as RedisClientType;
+  const c = createClient({ url: REDIS_URL }) as RedisClientType;
   c.on("error", (err) => {
     console.error("[redis-client] connection error:", err);
   });

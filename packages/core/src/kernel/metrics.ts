@@ -10,7 +10,7 @@
 //   1. emit a structured console.warn line (operator triage during incidents)
 //   2. invoke a pluggable MetricsSink for analytics (PostHog) + Sentry
 //
-// IbateXas wiring (in `apps/api/src/plugins/sentry.ts` extension or similar)
+// Adopter wiring (e.g. in an app-level boot plugin or equivalent)
 // installs a real sink at boot. Tests can install a mock sink for assertions.
 
 import type { Decision } from "../decision.js"

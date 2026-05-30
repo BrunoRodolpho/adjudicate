@@ -14,7 +14,7 @@ export interface Refusal {
   readonly kind: RefusalKind;
   /** Stable, machine-readable identifier, e.g. "post_order.forbidden_phrase". */
   readonly code: string;
-  /** The text the end user sees — pt-BR in IbateXas per CLAUDE.md rule #4. */
+  /** The text the end user sees — locale-appropriate per adopter configuration. */
   readonly userFacing: string;
   /** Operator/log-facing detail — may reveal internal reasoning. */
   readonly detail?: string;

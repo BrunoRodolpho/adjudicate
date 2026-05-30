@@ -53,7 +53,7 @@ export interface ShadowTelemetrySink {
 
 let _sink: ShadowTelemetrySink = noopSink()
 
-/** Replace the telemetry sink (called by IbateXas wiring at boot). */
+/** Replace the telemetry sink (called by the adopter's wiring at boot). */
 export function setShadowTelemetrySink(sink: ShadowTelemetrySink): void {
   _sink = sink
 }

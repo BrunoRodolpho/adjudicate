@@ -108,6 +108,40 @@ describe("assertPackConformance", () => {
     ).toThrow(/duplicate basis code/);
   });
 
+  // ── SecurityReviewer-014: refusal-taxonomy-stable invariant ──────────────
+  it("rejects basisCodes that collide with KERNEL_REFUSAL_CODES", () => {
+    // Packs must not claim kernel-reserved refusal codes — doing so lets
+    // a Pack guard emit a kernel-vocabulary refusal with user-controlled detail.
+    expect(() =>
+      assertPackConformance(
+        makePack({ basisCodes: ["thing.do.invalid", "kill_switch_active"] }),
+      ),
+    ).toThrow(/kernel-reserved/);
+  });
+
+  it("rejects basisCodes colliding with multiple kernel codes and lists them", () => {
+    let caught: PackConformanceError | undefined;
+    try {
+      assertPackConformance(
+        makePack({ basisCodes: ["kill_switch_active", "default_deny"] }),
+      );
+    } catch (err) {
+      caught = err as PackConformanceError;
+    }
+    expect(caught).toBeInstanceOf(PackConformanceError);
+    expect(caught!.violations.some((v) => v.includes("kill_switch_active"))).toBe(true);
+    expect(caught!.violations.some((v) => v.includes("default_deny"))).toBe(true);
+  });
+
+  it("accepts basisCodes that do not collide with KERNEL_REFUSAL_CODES", () => {
+    // Ensure non-colliding codes still pass.
+    expect(() =>
+      assertPackConformance(
+        makePack({ basisCodes: ["domain.custom.code", "pack.rule.violated"] }),
+      ),
+    ).not.toThrow();
+  });
+
   it("aggregates multiple violations into a single error", () => {
     let caught: PackConformanceError | undefined;
     try {

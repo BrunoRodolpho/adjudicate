@@ -137,6 +137,7 @@ export function assertPackConformance<
     violations.push("basisCodes must be a non-empty array");
   } else {
     const seen = new Set<string>();
+    const collisions: string[] = [];
     for (const c of pack.basisCodes) {
       if (typeof c !== "string" || c.length === 0) {
         violations.push("basisCodes entries must be non-empty strings");
@@ -146,6 +147,19 @@ export function assertPackConformance<
         violations.push(`duplicate basis code "${c}"`);
       }
       seen.add(c);
+      // SecurityReviewer-014 (refusal-taxonomy-stable invariant): a Pack
+      // must not claim a code that the kernel itself emits. Collision lets a
+      // Pack guard return a kernel-vocabulary refusal with a user-controlled
+      // message and basis detail, breaking the refusal-taxonomy guarantee and
+      // confusing `withBasisAudit` drift detection.
+      if (KERNEL_REFUSAL_CODES.has(c)) {
+        collisions.push(c);
+      }
+    }
+    if (collisions.length > 0) {
+      violations.push(
+        `basisCodes collide with kernel-reserved codes: ${collisions.join(", ")} — remove these codes from the Pack's basisCodes (kernel-emitted refusals are the framework's vocabulary)`,
+      );
     }
   }
   if (pack.policy === undefined || pack.policy === null) {

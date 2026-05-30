@@ -57,9 +57,10 @@ describe("intent-metrics — sink dispatch", () => {
       outcome: "hit",
       intentKind: "order.submit",
       latencyMs: 3,
+      intentHash: "h",
     })
     expect(calls).toEqual([
-      { method: "recordLedgerOp", args: [{ op: "check", outcome: "hit", intentKind: "order.submit", latencyMs: 3 }] },
+      { method: "recordLedgerOp", args: [{ op: "check", outcome: "hit", intentKind: "order.submit", latencyMs: 3, intentHash: "h" }] },
     ])
   })
 
@@ -132,6 +133,7 @@ describe("createConsoleMetricsSink", () => {
       outcome: "hit",
       intentKind: "x",
       latencyMs: 1,
+      intentHash: "h",
     })
     expect(log).toHaveBeenCalledOnce()
     log.mockRestore()

@@ -276,6 +276,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       outcome: ledgerHit ? "hit" : "miss",
       intentKind: envelope.kind,
       latencyMs: clock.nowMs() - checkStart,
+      intentHash: envelope.intentHash,
     });
   }
 
@@ -341,6 +342,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         outcome: outcome === "acquired" ? "ok" : "duplicate",
         intentKind: envelope.kind,
         latencyMs: clock.nowMs() - recordStart,
+        intentHash: envelope.intentHash,
       });
       if (outcome === "exists") {
         // Another adjudicateAndAudit call beat us between checkLedger and

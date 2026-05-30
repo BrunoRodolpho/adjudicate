@@ -332,3 +332,43 @@ describe("adjudicateAndAudit — async-tail rate-limit rollback (consolidated-as
     expect(rollback).not.toHaveBeenCalled();
   });
 });
+
+describe("adjudicateAndAudit — LedgerOpEvent includes intentHash (SecurityReviewer-015)", () => {
+  it("emits intentHash on the ledger check event for correlation", async () => {
+    const ledgerOpEvents: Array<{ op: string; intentHash: string }> = [];
+    setMetricsSink({
+      recordLedgerOp(e) { ledgerOpEvents.push({ op: e.op, intentHash: e.intentHash }); },
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure() {},
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    });
+    const ledger = makeMemLedger();
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const env = envFixture();
+    await adjudicateAndAudit(env, {}, passBundle, { sink, ledger: ledger.ledger });
+    const checkOp = ledgerOpEvents.find((e) => e.op === "check");
+    expect(checkOp).toBeDefined();
+    expect(checkOp!.intentHash).toBe(env.intentHash);
+  });
+
+  it("emits intentHash on the ledger record event for EXECUTE correlation", async () => {
+    const ledgerOpEvents: Array<{ op: string; intentHash: string }> = [];
+    setMetricsSink({
+      recordLedgerOp(e) { ledgerOpEvents.push({ op: e.op, intentHash: e.intentHash }); },
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure() {},
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    });
+    const ledger = makeMemLedger();
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const env = envFixture();
+    await adjudicateAndAudit(env, {}, passBundle, { sink, ledger: ledger.ledger });
+    const recordOp = ledgerOpEvents.find((e) => e.op === "record");
+    expect(recordOp).toBeDefined();
+    expect(recordOp!.intentHash).toBe(env.intentHash);
+  });
+});

@@ -66,6 +66,13 @@ export interface LedgerOpEvent {
   readonly outcome: "hit" | "miss" | "ok" | "duplicate" | "error"
   readonly intentKind: string
   readonly latencyMs: number
+  /**
+   * SHA-256 hex hash of the envelope. Observability-only — not part of the
+   * hashed audit record. Enables cross-referencing a ledger hit/miss event
+   * with its corresponding DecisionEvent, RefusalEvent, and AuditRecord in
+   * dashboards and incident tooling (SecurityReviewer-015).
+   */
+  readonly intentHash: string
 }
 
 export interface DecisionEvent {

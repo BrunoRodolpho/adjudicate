@@ -18,6 +18,7 @@
 // has no `@ibatexas/tools` dependency and is testable at the framework level.
 
 import { createHash } from "node:crypto"
+import type { IntentActor, Taint } from "@adjudicate/core"
 import { sha256Canonical } from "@adjudicate/core"
 
 export const DEFER_PENDING_TTL_GRACE_SECONDS = 14 * 24 * 60 * 60 // 14d resume-token retention
@@ -44,8 +45,8 @@ export interface ParkedEnvelope {
      */
     readonly version?: number
     readonly nonce?: string
-    readonly taint?: "SYSTEM" | "TRUSTED" | "UNTRUSTED"
-    readonly actorPrincipal?: "llm" | "user" | "system"
+    readonly taint?: Taint
+    readonly actorPrincipal?: IntentActor["principal"]
   }
   readonly signal: string
   readonly parkedAt: string

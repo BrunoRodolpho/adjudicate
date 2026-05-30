@@ -12,6 +12,7 @@
 // On successful resume, defer-resume.ts DECRs the counter back; the TTL
 // guarantees zero-counter cleanup even if a resume was missed.
 
+import type { IntentActor, Taint } from "@adjudicate/core"
 import { recordResourceLimit } from "@adjudicate/core"
 import { DEFER_PENDING_TTL_GRACE_SECONDS } from "./defer-resume.js"
 
@@ -107,8 +108,8 @@ export interface ParkDeferredIntentArgs {
      */
     readonly version?: number
     readonly nonce?: string
-    readonly taint?: "SYSTEM" | "TRUSTED" | "UNTRUSTED"
-    readonly actorPrincipal?: "llm" | "user" | "system"
+    readonly taint?: Taint
+    readonly actorPrincipal?: IntentActor["principal"]
   }
   readonly signal: string
   /** TTL for the parked envelope blob — typically `signal.timeoutMs / 1000 + grace`. */

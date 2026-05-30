@@ -59,7 +59,26 @@ export interface GuardFireStatsOptions {
    * is a no-op.
    */
   readonly resolvePackId?: (intentKind: string) => string | undefined
+  /**
+   * MemoryReviewer-003: hard cap on the number of in-memory buckets. When the
+   * accumulator exceeds this many distinct `(guard, phase, decision, day, pack)`
+   * tuples, the oldest buckets (lowest `day`) are compacted away on write —
+   * a rolling window that keeps recent telemetry hot and bounds heap.
+   *
+   * In-memory telemetry only — eviction never affects adjudication output, and
+   * a `store` (when supplied) retains the full history regardless of this cap.
+   * Defaults to {@link DEFAULT_MAX_BUCKETS}.
+   */
+  readonly maxBuckets?: number
 }
+
+/**
+ * Default in-memory bucket cap. Sized for a generous adopter (more packs /
+ * guards / a wider day window than the typical ~16k estimate above) while
+ * still bounding heap so a long-lived process cannot grow the accumulator
+ * without limit. Override via {@link GuardFireStatsOptions.maxBuckets}.
+ */
+export const DEFAULT_MAX_BUCKETS = 100_000
 
 const dayKey = (iso: string): string => iso.slice(0, 10)
 
@@ -75,10 +94,36 @@ export class GuardFireStats implements LearningSink {
   private readonly memo = new Map<string, GuardFireBucket & { packId?: string }>()
   private readonly store?: GuardFireStatsStore
   private readonly resolvePackId?: (intentKind: string) => string | undefined
+  private readonly maxBuckets: number
 
   constructor(options: GuardFireStatsOptions = {}) {
     this.store = options.store
     this.resolvePackId = options.resolvePackId
+    const requested = options.maxBuckets ?? DEFAULT_MAX_BUCKETS
+    // A non-positive cap would compact every bucket immediately, silently
+    // disabling telemetry — clamp to at least 1.
+    this.maxBuckets = requested > 0 ? Math.floor(requested) : 1
+  }
+
+  /**
+   * Rolling-window compaction: while the accumulator exceeds `maxBuckets`,
+   * evict the bucket(s) with the oldest `day`. Buckets sharing the oldest day
+   * are evicted in insertion order (Map iteration order) so the eviction is
+   * deterministic. Telemetry-only — never touches decision output.
+   */
+  private compact(): void {
+    while (this.memo.size > this.maxBuckets) {
+      let oldestKey: string | undefined
+      let oldestDay: string | undefined
+      for (const [key, bucket] of this.memo) {
+        if (oldestDay === undefined || bucket.day < oldestDay) {
+          oldestDay = bucket.day
+          oldestKey = key
+        }
+      }
+      if (oldestKey === undefined) break
+      this.memo.delete(oldestKey)
+    }
   }
 
   recordOutcome(event: LearningEvent): void {
@@ -99,6 +144,9 @@ export class GuardFireStats implements LearningSink {
       ? { ...prior, count: prior.count + 1 }
       : bucket
     this.memo.set(key, merged)
+    // MemoryReviewer-003: bound the in-memory accumulator. Only a brand-new
+    // bucket can grow the map, so compaction after a merge is a cheap no-op.
+    if (prior === undefined) this.compact()
     if (this.store) {
       // Best-effort write; telemetry must not block adjudication.
       try {

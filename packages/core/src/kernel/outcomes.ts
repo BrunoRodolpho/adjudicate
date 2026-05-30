@@ -84,16 +84,55 @@ export async function recordRetrospectiveOutcome(
 }
 
 /**
+ * Default cap on the number of distinct `intentHash` entries an
+ * {@link InMemoryOutcomeSink} retains. Sized so dev/test workloads never
+ * notice it, while a long-lived process cannot accumulate retrospective
+ * outcomes without bound. Override via the constructor's `maxEntries`.
+ */
+export const DEFAULT_MAX_OUTCOME_ENTRIES = 50_000;
+
+export interface InMemoryOutcomeSinkOptions {
+  /**
+   * MemoryReviewer-004: hard cap on retained entries. When a *new*
+   * `intentHash` would push the map past this size, the oldest-inserted
+   * entry is evicted (FIFO). Defaults to {@link DEFAULT_MAX_OUTCOME_ENTRIES}.
+   */
+  readonly maxEntries?: number;
+}
+
+/**
  * In-memory accumulator. Useful for tests, dev, and adopters who don't
  * need durable storage yet.
  *
  * The map is keyed by `intentHash`; later observations overwrite earlier
  * ones (last-write-wins). Adopters who need full history install a
  * Postgres sink and append rather than overwrite.
+ *
+ * MemoryReviewer-004: the map is bounded by `maxEntries` with FIFO eviction
+ * of the oldest-inserted entry. Re-recording an existing `intentHash` keeps
+ * its original insertion position (Map semantics), so refreshing a known
+ * outcome never evicts a neighbour.
  */
 export class InMemoryOutcomeSink implements OutcomeSink {
   private readonly memo = new Map<string, RetrospectiveOutcome>();
+  private readonly maxEntries: number;
+
+  constructor(options: InMemoryOutcomeSinkOptions = {}) {
+    const requested = options.maxEntries ?? DEFAULT_MAX_OUTCOME_ENTRIES;
+    // A non-positive cap would evict every entry on insert; clamp to >= 1.
+    this.maxEntries = requested > 0 ? Math.floor(requested) : 1;
+  }
+
   recordOutcome(outcome: RetrospectiveOutcome): void {
+    // Overwriting an existing key is last-write-wins and does not grow the
+    // map, so only evict when inserting a genuinely new intentHash.
+    if (!this.memo.has(outcome.intentHash)) {
+      while (this.memo.size >= this.maxEntries) {
+        const oldest = this.memo.keys().next().value;
+        if (oldest === undefined) break;
+        this.memo.delete(oldest);
+      }
+    }
     this.memo.set(outcome.intentHash, outcome);
   }
   get(intentHash: string): RetrospectiveOutcome | undefined {

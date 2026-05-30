@@ -176,3 +176,35 @@ describe("createEmergencyHandler", () => {
     });
   });
 });
+
+// ── MemoryReviewer-006: bounded governance-event history ───────────────────
+describe("createInMemoryEmergencyStateStore — maxEvents cap", () => {
+  it("caps retained events at maxEvents, trimming oldest", async () => {
+    const store = createInMemoryEmergencyStateStore({ maxEvents: 3 });
+    // Each update toggles status so every call emits an event (no no-ops).
+    for (let i = 0; i < 6; i++) {
+      await store.update({
+        newStatus: i % 2 === 0 ? "DENY_ALL" : "NORMAL",
+        reason: `r${i}`,
+        actor: operator,
+      });
+    }
+    // Only the 3 newest events are retained, newest-first.
+    const hist = await store.history(100);
+    expect(hist).toHaveLength(3);
+    expect(hist.map((e) => e.reason)).toEqual(["r5", "r4", "r3"]);
+  });
+
+  it("retains all events when count is under the default cap", async () => {
+    const store = createInMemoryEmergencyStateStore();
+    for (let i = 0; i < 4; i++) {
+      await store.update({
+        newStatus: i % 2 === 0 ? "DENY_ALL" : "NORMAL",
+        reason: `d${i}`,
+        actor: operator,
+      });
+    }
+    const hist = await store.history(100);
+    expect(hist).toHaveLength(4);
+  });
+});

@@ -158,8 +158,24 @@ interface ConfirmationEntry<H> {
 
 export function createInMemoryConfirmationStore<H = unknown>(): ConfirmationStore<H> {
   const store = new Map<string, ConfirmationEntry<H>>();
+
+  /**
+   * MemoryReviewer-005: opportunistic sweep of expired entries. `take()`
+   * only deletes the single token it reads, so confirmations that are never
+   * redeemed (user walks away, token never clicked) would otherwise linger
+   * past their TTL forever. Sweeping on `put` keeps the map bounded by the
+   * set of *live* confirmations without needing a background timer (which
+   * would keep the event loop alive in tests and short-lived processes).
+   */
+  function sweepExpired(now: number): void {
+    for (const [token, entry] of store) {
+      if (entry.expiresAt <= now) store.delete(token);
+    }
+  }
+
   return {
     async put(token, pending, ttlSeconds) {
+      sweepExpired(Date.now());
       store.set(token, {
         pending,
         expiresAt: Date.now() + ttlSeconds * 1000,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
@@ -101,5 +101,39 @@ describe("createInMemoryConfirmationStore", () => {
   it("take returns null for an unknown token", async () => {
     const store = createInMemoryConfirmationStore();
     expect(await store.take("nope")).toBeNull();
+  });
+
+  // ── MemoryReviewer-005: expired-entry sweep on put ───────────────────────
+  describe("expired-entry sweep", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("sweeps expired entries on put without disturbing live ones", async () => {
+      vi.useFakeTimers();
+      const store = createInMemoryConfirmationStore();
+
+      // A batch of short-lived tokens that nobody ever redeems.
+      for (let i = 0; i < 5; i++) {
+        await store.put(`stale-${i}`, pending, 10);
+      }
+      // A long-lived token that must survive the sweep.
+      await store.put("live", pending, 10_000);
+
+      // Advance past the short TTL so the stale tokens are expired, then put a
+      // fresh token — this `put` triggers the opportunistic sweep.
+      vi.advanceTimersByTime(20_000);
+      await store.put("fresh", pending, 10_000);
+
+      // Expired tokens are gone (swept proactively, not merely lazily on read).
+      for (let i = 0; i < 5; i++) {
+        expect(await store.take(`stale-${i}`)).toBeNull();
+      }
+      // The long-lived token (10_000s TTL from t0) is still alive at +20s and
+      // must not be collateral damage of the sweep.
+      expect(await store.take("live")).toEqual(pending);
+      // The freshly-put token is alive and redeemable.
+      expect(await store.take("fresh")).toEqual(pending);
+    });
   });
 });

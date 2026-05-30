@@ -46,7 +46,7 @@ examples/
 
 bench/                     Vitest microbenchmarks (kernel.bench.ts, audit.bench.ts).
 docs/
-  architecture/            ADRs (ADR-101..ADR-112), 8-layer defense, hosted topology.
+  architecture/            ADRs (ADR-101..ADR-116), 8-layer defense, hosted topology.
   concepts.md              Mental model. Start here.
   guides/                  Testing your policy. (Scenario fixtures + simulate.)
   release/                 Semver, API surface, deprecations.
@@ -111,7 +111,7 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 
 - **Kernel call sites:** `packages/core/src/kernel/adjudicate.ts` (pure) and `packages/core/src/kernel/adjudicate-and-audit.ts` (wraps with ledger + sinks).
 - **Pack registration:** `installPack(pack)` in `packages/core/src/install.ts` — validates contract, extracts signal map, freezes policy.
-- **CLI:** `pnpm adjudicate <command>` → `packages/cli/src/bin.ts`. Commands: `pack init`, `pack lint`, `analyze`, `simulate`, `repl`, `replay`, `export`, `visualize`, `doctor`, `dev`, `reap`, `scenarios generate`.
+- **CLI:** `pnpm adjudicate <command>` → `packages/cli/src/bin.ts`. Commands: `pack init`, `pack lint`, `pack verify`, `analyze`, `simulate`, `repl`, `replay`, `export`, `visualize`, `doctor`, `dev`, `reap`, `scenarios generate`.
 - **Admin tRPC:** `apps/console/src/app/api/admin/trpc/[trpc]/route.ts` proxies to `@adjudicate/admin-sdk`. Audit query, kill switch, replay verification.
 - **Playground HTTP:** `apps/web/src/app/api/playground/{adjudicate,policy,outcome-distribution}/route.ts`.
 - **Adapter loop:** `createAdjudicatedAgent` in `packages/adapter-core/src/loop.ts`. Provider-neutral tool-use loop + DEFER/CONFIRMATION stores. Anthropic and OpenAI adapters are thin SDK shims that supply a `ProviderBridge<H>`.
@@ -228,7 +228,7 @@ CI: `pnpm rc:check` runs the full pipeline locally; `.github/workflows/release-c
 
 ## Testing posture
 
-**1121 passing, 1 skipped (audit-postgres needs a live DB), 0 failing.** Plus 6 freeze-matrix surface tests in `@adjudicate/core` and 4 scale-harness smoke tests in `@adjudicate/bench`. CI runs `lint + typecheck + test + check:versions + check:freeze-matrix + audit` on push. Integration coverage:
+**Full suite green (1 skipped — audit-postgres needs a live DB), 0 failing.** Plus 6 freeze-matrix surface tests in `@adjudicate/core` and 4 scale-harness smoke tests in `@adjudicate/bench`. CI runs `lint + typecheck + test + check:versions + check:freeze-matrix + audit` on push. Integration coverage:
 
 - Decision regression gates via `adjudicate simulate` scenarios per Pack.
 - Property tests for replay determinism, plan conformance, canonical-JSON hash.

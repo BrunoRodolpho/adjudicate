@@ -120,6 +120,48 @@ describe("recordToRow", () => {
     ]);
   });
 
+  // DataReviewer-012: `decision_basis` (TEXT[]) and `decision_jsonb.basis`
+  // are two on-disk encodings of the same data. The column is the indexed,
+  // queryable projection; the JSON is the structured source the replay
+  // reader (rowToRecord) actually parses back via `decision.basis`. Since
+  // recordToRow writes them from independent expressions
+  // (`record.decision_basis.map(...)` vs `JSON.stringify(record.decision)`),
+  // a future edit could let them drift. This invariant pins them in sync at
+  // write time — the least-destructive guard (no column drop, no schema
+  // change) called for by the audit.
+  describe("decision_basis column ↔ decision_jsonb.basis invariant", () => {
+    function assertBasisInSync(r: ReturnType<typeof record>) {
+      const row = recordToRow(r);
+      const jsonbBasis = (
+        JSON.parse(row.decision_jsonb) as {
+          basis: { category: string; code: string }[];
+        }
+      ).basis;
+      const flattenedFromJsonb = jsonbBasis.map((b) => `${b.category}:${b.code}`);
+      // The flattened TEXT[] column must be exactly the flattening of the
+      // basis embedded in decision_jsonb — same entries, same order.
+      expect(row.decision_basis).toEqual(flattenedFromJsonb);
+    }
+
+    it("EXECUTE decision: column equals flatten(decision_jsonb.basis)", () => {
+      assertBasisInSync(record());
+    });
+
+    it("REFUSE decision: column equals flatten(decision_jsonb.basis)", () => {
+      assertBasisInSync(record({ decision: "REFUSE" }));
+    });
+
+    it("count and ordering match between the two encodings", () => {
+      const r = record();
+      const row = recordToRow(r);
+      const jsonbBasis = (JSON.parse(row.decision_jsonb) as { basis: unknown[] })
+        .basis;
+      expect(row.decision_basis).toHaveLength(jsonbBasis.length);
+      // Same length as the kernel's structured basis too (no silent drop).
+      expect(row.decision_basis).toHaveLength(r.decision.basis.length);
+    });
+  });
+
   it("envelope_jsonb is parseable JSON of the original envelope", () => {
     const r = record();
     const row = recordToRow(r);
@@ -512,5 +554,35 @@ describe("migration 008 — record_version CHECK (DataReviewer-001)", () => {
 
   it("adds the kernel_identity_jsonb column", () => {
     expect(sql).toMatch(/kernel_identity_jsonb/);
+  });
+});
+
+describe("migration 001 — intent_hash format CHECK (CryptoReviewer-009)", () => {
+  const sql = readFileSync(
+    new URL("../migrations/001-create-intent-audit.sql", import.meta.url),
+    "utf-8",
+  );
+
+  it("constrains intent_hash to the sha256 lowercase-hex shape", () => {
+    // Inline CHECK on the column, matching the principal/taint convention
+    // in the same CREATE TABLE. Anchored 64-char lowercase-hex pattern.
+    expect(sql).toMatch(
+      /intent_hash\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*intent_hash\s*~\s*'\^\[a-f0-9\]\{64\}\$'\s*\)/,
+    );
+  });
+
+  it("the CHECK pattern accepts a real kernel intentHash and rejects malformed values", () => {
+    // Mirror the DB regex in JS to prove the chosen pattern is correct: it
+    // must accept a 64-char lowercase-hex hash and reject truncated /
+    // upper-cased / non-hex strings.
+    const pattern = /^[a-f0-9]{64}$/;
+    const realHash =
+      "ccaaf1c710d6956f00b84cbed4fc8a31c148a9e3e1c932d21f377c472c690bc0";
+    expect(realHash).toHaveLength(64);
+    expect(pattern.test(realHash)).toBe(true);
+    expect(pattern.test(realHash.toUpperCase())).toBe(false); // upper-case hex
+    expect(pattern.test(realHash.slice(0, 63))).toBe(false); // truncated
+    expect(pattern.test(realHash + "0")).toBe(false); // too long
+    expect(pattern.test("v1hash".repeat(11) + "ab")).toBe(false); // non-hex legacy fixture
   });
 });

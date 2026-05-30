@@ -50,10 +50,29 @@ export function legacyV1ToV2(row: IntentAuditRow): IntentEnvelope {
     readonly createdAt: string;
     readonly nonce?: string;
   };
-  const nonce =
-    typeof row.nonce === "string" && row.nonce.length > 0
-      ? row.nonce
-      : (stored.nonce ?? stored.createdAt);
+  const rowNonce =
+    typeof row.nonce === "string" && row.nonce.length > 0 ? row.nonce : null;
+  const storedNonce =
+    typeof stored.nonce === "string" && stored.nonce.length > 0
+      ? stored.nonce
+      : null;
+  // v2+ records MUST carry a real nonce — it is the hash input, not
+  // descriptive metadata. A v2+ row reaching this helper with no usable
+  // nonce (neither the row column nor the stored envelope JSON) is a
+  // data-integrity violation: silently substituting `createdAt` (the v1
+  // synthesis path) would forge a nonce the original kernel never hashed,
+  // masking corruption rather than surfacing it. Fail loudly instead.
+  // v1 rows (record_version 1 or NULL) legitimately lack a nonce and keep
+  // the legacy createdAt fallback below.
+  if (row.record_version >= 2 && rowNonce === null && storedNonce === null) {
+    throw new Error(
+      `legacyV1ToV2: v2+ row (record_version=${row.record_version}, intent_hash=${row.intent_hash}) is missing a nonce — ` +
+        "both the nonce column and the stored envelope nonce are null/empty. " +
+        "A v2+ record MUST carry the nonce it was hashed with; refusing to " +
+        "synthesize one from createdAt (which would forge a hash input).",
+    );
+  }
+  const nonce = rowNonce ?? storedNonce ?? stored.createdAt;
   return buildEnvelope({
     kind: stored.kind,
     payload: stored.payload,

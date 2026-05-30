@@ -2,7 +2,7 @@
  * adjudicateWithDeadline — race the kernel against a wall-clock budget.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   basis,
   BASIS_CODES,
@@ -88,15 +88,30 @@ describe("adjudicateWithDeadline", () => {
     expect(decision.refusal.code).toBe("kernel_deadline_exceeded");
   });
 
-  it("never blocks longer than deadlineMs (smoke)", async () => {
-    const start = Date.now();
-    await adjudicateWithDeadline(envFixture(), {}, fastBundle, {
-      deadlineMs: 50,
-    });
-    const elapsed = Date.now() - start;
-    // Wide margin to absorb CI jitter; the kernel is fast and should resolve
-    // well under 50ms in normal conditions.
-    expect(elapsed).toBeLessThan(500);
+  it("kernel wins the race within budget without the deadline timer firing", async () => {
+    // Deterministic replacement for the old wall-clock smoke test (which
+    // asserted `Date.now()` elapsed < 500ms — a flaky 10× margin over the
+    // 50ms budget). The kernel call is scheduled as a microtask while the
+    // deadline is a setTimeout; with fake timers installed and the clock
+    // NEVER advanced, the microtask must resolve first. So if the wrapper
+    // returns the kernel's EXECUTE decision while no timer has fired, the
+    // kernel provably beat the budget — no real-clock dependence at all.
+    vi.useFakeTimers();
+    try {
+      const pending = adjudicateWithDeadline(envFixture(), {}, fastBundle, {
+        deadlineMs: 50,
+      });
+      // Flush only microtasks; do NOT advance fake time, so the 50ms timer
+      // cannot fire. The kernel microtask resolves the race.
+      await vi.advanceTimersByTimeAsync(0);
+      const decision = await pending;
+      expect(decision.kind).toBe("EXECUTE");
+      // The deadline timer was the only pending timer; the wrapper must have
+      // cleared it on the kernel win (no leaked handles).
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("clears the deadline timer when the kernel wins (no leaked handles)", async () => {

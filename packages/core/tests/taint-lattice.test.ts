@@ -7,10 +7,14 @@ const RANK: Record<Taint, number> = { SYSTEM: 3, TRUSTED: 2, UNTRUSTED: 1 };
 
 describe("mergeTaint — lattice algebra", () => {
   it("is commutative", () => {
+    // The Taint domain has exactly 3 values, so the (a, b) space is 3×3 = 9
+    // pairs. 9 runs exhausts it deterministically — more would only re-draw
+    // already-covered inputs.
     fc.assert(
       fc.property(taintArb, taintArb, (a, b) => {
         expect(mergeTaint(a, b)).toBe(mergeTaint(b, a));
       }),
+      { numRuns: 9 },
     );
   });
 

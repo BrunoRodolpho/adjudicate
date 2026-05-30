@@ -12,8 +12,12 @@ import {
   BASIS_CODES,
   buildAuditRecord,
   buildEnvelope,
+  decisionDefer,
+  decisionEscalate,
   decisionExecute,
   decisionRefuse,
+  decisionRequestConfirmation,
+  decisionRewrite,
   explainRecord,
   refuse,
   type AuditRecord,
@@ -105,6 +109,66 @@ describe("explainRecord", () => {
   it("uses defaultHeadline when no headlines override exists", () => {
     const out = explainRecord(execFixture(), DEFAULT_EXPLANATION_REGISTRY);
     expect(out.headline).toBe("Executed: order.refund");
+  });
+
+  // defaultHeadline (explain.ts) has one arm per Decision["kind"]. EXECUTE is
+  // covered above and REFUSE below; these pin the remaining four arms verbatim
+  // so a wording change to any of them is caught. The headline depends only on
+  // decision.kind + envelope.kind (= "order.refund" from envFixture), so the
+  // basis/payload contents are irrelevant here.
+  function recordFor(decision: AuditRecord["decision"]): AuditRecord {
+    return buildAuditRecord({
+      envelope: envFixture(),
+      decision,
+      durationMs: 1,
+      at: "2026-05-13T12:00:01.000Z",
+    });
+  }
+
+  it("defaultHeadline ESCALATE arm", () => {
+    const out = explainRecord(
+      recordFor(decisionEscalate("human", "needs_review", [])),
+      DEFAULT_EXPLANATION_REGISTRY,
+    );
+    expect(out.headline).toBe(
+      "Escalated: order.refund — awaiting human approval",
+    );
+  });
+
+  it("defaultHeadline REQUEST_CONFIRMATION arm", () => {
+    const out = explainRecord(
+      recordFor(decisionRequestConfirmation("Confirm?", [])),
+      DEFAULT_EXPLANATION_REGISTRY,
+    );
+    expect(out.headline).toBe("Awaiting confirmation: order.refund");
+  });
+
+  it("defaultHeadline DEFER arm", () => {
+    const out = explainRecord(
+      recordFor(decisionDefer("pix.confirmed", 60_000, [])),
+      DEFAULT_EXPLANATION_REGISTRY,
+    );
+    expect(out.headline).toBe(
+      "Deferred: order.refund — awaiting external signal",
+    );
+  });
+
+  it("defaultHeadline REWRITE arm", () => {
+    const out = explainRecord(
+      recordFor(decisionRewrite(envFixture(), "normalized", [])),
+      DEFAULT_EXPLANATION_REGISTRY,
+    );
+    expect(out.headline).toBe("Rewritten: order.refund");
+  });
+
+  it("uses defaultHeadline REFUSE arm", () => {
+    const out = explainRecord(
+      recordFor(
+        decisionRefuse(refuse("SECURITY", "blocked", "no"), []),
+      ),
+      DEFAULT_EXPLANATION_REGISTRY,
+    );
+    expect(out.headline).toBe("Refused: order.refund");
   });
 
   it("keeps literal {field} when the basis details lack the key (misconfig surfacing)", () => {

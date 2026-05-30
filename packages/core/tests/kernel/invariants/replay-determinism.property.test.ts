@@ -19,6 +19,7 @@ import {
   BASIS_CODES,
   buildAuditRecord,
   buildEnvelope,
+  classify,
   decisionExecute,
   decisionRefuse,
   refuse,
@@ -104,6 +105,58 @@ function decisionsMatch(a: Decision, b: Decision): boolean {
   }
   return true;
 }
+
+/**
+ * Drift guard (TestReviewer-007): the inline `decisionsMatch` above is a
+ * deliberate copy of the production rule that lives in
+ * `@adjudicate/core`'s exported `classify` (it can't import the audit-layer
+ * `replay()` without closing a package-graph cycle). `classify` returns
+ * `null` on a match and a structured `ReplayMismatch` otherwise — so the two
+ * encode the SAME predicate iff `decisionsMatch(a, b) === (classify(_, a, b)
+ * === null)` for every pair. This property fuzzes a wide space of Decision
+ * pairs (kind × basis-set × refusal-code) and fails loudly if the inline copy
+ * ever diverges from the real rule. Note: `classify`'s basis comparison is a
+ * SET symmetric-difference and the inline copy is a sorted-list compare; these
+ * agree on the boolean (match / no-match) for the basis vocabularies a real
+ * Decision can carry (no duplicate category:code keys), which is exactly the
+ * equivalence we pin.
+ */
+const basisCodeArb = fc.constantFrom<DecisionBasis>(
+  basis("business", BASIS_CODES.business.RULE_SATISFIED),
+  basis("business", BASIS_CODES.business.RULE_VIOLATED),
+  basis("state", BASIS_CODES.state.TRANSITION_VALID),
+  basis("auth", BASIS_CODES.auth.SCOPE_SUFFICIENT),
+);
+
+const basisSetArb = fc.uniqueArray(basisCodeArb, {
+  minLength: 0,
+  maxLength: 4,
+  selector: (b) => `${b.category}:${b.code}`,
+});
+
+const refusalCodeArb = fc.constantFrom("x.do.invalid", "y.blocked", "z.denied");
+
+const decisionArb: fc.Arbitrary<Decision> = fc.oneof(
+  basisSetArb.map((b) => decisionExecute(b)),
+  fc
+    .tuple(refusalCodeArb, basisSetArb)
+    .map(([code, b]) =>
+      decisionRefuse(refuse("BUSINESS_RULE", code, "no"), b),
+    ),
+);
+
+describe("invariant: inline decisionsMatch tracks the production classify rule", () => {
+  it("decisionsMatch(a, b) === (classify(hash, a, b) === null) for any pair", () => {
+    fc.assert(
+      fc.property(decisionArb, decisionArb, (a, b) => {
+        const inline = decisionsMatch(a, b);
+        const viaClassify = classify("hash-under-test", a, b) === null;
+        expect(inline).toBe(viaClassify);
+      }),
+      { numRuns: 2_000 },
+    );
+  });
+});
 
 describe("invariant: replay matches the stored Decision when policy is unchanged", () => {
   it("decisionsMatch(stored, replay) for any (taint × default × guard × payload)", () => {

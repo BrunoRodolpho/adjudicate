@@ -263,7 +263,12 @@ export function startDistributedKillSwitchPubSub(
       });
     }
     if (stopped) {
-      if (unsubscribe !== null) await unsubscribe().catch(() => {});
+      if (unsubscribe !== null) {
+        await unsubscribe().catch((err: unknown) => {
+          const e = err instanceof Error ? err : new Error(String(err));
+          opts.logger?.warn({ reason: `unsubscribe (early-stop): ${e.message}` });
+        });
+      }
       return;
     }
     pollLoop();
@@ -306,7 +311,10 @@ export function startDistributedKillSwitchPubSub(
       pollTimer = null;
     }
     if (unsubscribe !== null) {
-      await unsubscribe().catch(() => {});
+      await unsubscribe().catch((err: unknown) => {
+        const e = err instanceof Error ? err : new Error(String(err));
+        opts.logger?.warn({ reason: `unsubscribe (stop): ${e.message}` });
+      });
       unsubscribe = null;
     }
   }

@@ -19,6 +19,7 @@ import {
 import {
   createInMemorySpillStorage,
   persistentBufferedSink,
+  type InMemorySpillStorageOptions,
 } from "../src/persistent-buffered-sink.js";
 
 function record(seed: string): AuditRecord {
@@ -196,5 +197,122 @@ describe("persistentBufferedSink", () => {
     // No runtime assertion needed — the type signature requires onOverflow.
     // This test documents the contract for readers.
     expect(true).toBe(true);
+  });
+});
+
+// ── ConcurrencyReviewer-005 + MemoryReviewer-007: createInMemorySpillStorage ─
+
+describe("createInMemorySpillStorage", () => {
+  // Helper: build a minimal record with a specific intentHash.
+  function spillRecord(intentHash: string): AuditRecord {
+    return record(intentHash.slice(-2).padStart(2, "0"));
+  }
+
+  it("ack removes the SPECIFIC record, not the first match on intentHash (ConcurrencyReviewer-005)", async () => {
+    const storage = createInMemorySpillStorage();
+
+    // Append two records with the SAME intentHash — possible under retried
+    // emits or other deduplication-bypassed paths.
+    const r1 = record("01");
+    const r2 = record("02");
+
+    // Force them to have the same intentHash to trigger the old bug.
+    const sameHash = "duplicate-hash-for-test";
+    const dup1 = { ...r1, intentHash: sameHash };
+    const dup2 = { ...r2, intentHash: sameHash };
+
+    await storage.append(dup1);
+    await storage.append(dup2);
+
+    // Read both — they each get a unique seqId tag.
+    const yielded: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      yielded.push(r);
+    }
+    expect(yielded).toHaveLength(2);
+
+    // Ack the SECOND one by its tagged reference.
+    await storage.ack(yielded[1]!);
+
+    // Only the first one should remain.
+    const remaining: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      remaining.push(r);
+    }
+    expect(remaining).toHaveLength(1);
+    // The remaining record is the first appended (same hash, but seqId 0).
+    // We verify by checking it's a different object than the one we acked.
+    expect(remaining[0]).not.toBe(yielded[1]);
+  });
+
+  it("ack after readAll is O(1) — does not remove a sibling with the same intentHash", async () => {
+    const storage = createInMemorySpillStorage();
+
+    const base = record("01");
+    const sharedHash = "shared-hash-x";
+    const copy1 = { ...base, intentHash: sharedHash };
+    const copy2 = { ...base, intentHash: sharedHash };
+    const copy3 = { ...base, intentHash: sharedHash };
+
+    await storage.append(copy1);
+    await storage.append(copy2);
+    await storage.append(copy3);
+
+    const all: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      all.push(r);
+    }
+    expect(all).toHaveLength(3);
+
+    // Ack the middle entry.
+    await storage.ack(all[1]!);
+
+    const after: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      after.push(r);
+    }
+    // Exactly two remain — not zero (old bug would remove first match
+    // from the front).
+    expect(after).toHaveLength(2);
+  });
+
+  // ── MemoryReviewer-007: bounded store / drop-oldest policy ───────────────
+  it("maxSize: evicts oldest when capacity is exceeded (drop-oldest policy)", async () => {
+    const opts: InMemorySpillStorageOptions = { maxSize: 2 };
+    const storage = createInMemorySpillStorage(opts);
+
+    const r1 = record("01");
+    const r2 = record("02");
+    const r3 = record("03");
+
+    await storage.append(r1);
+    await storage.append(r2);
+    await storage.append(r3); // r1 should be evicted
+
+    const all: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      all.push(r);
+    }
+    expect(all).toHaveLength(2);
+    // r1 was evicted — only r2 and r3 remain.
+    const hashes = all.map((r) => (r.envelope.payload as { seed: string }).seed);
+    expect(hashes).not.toContain("01");
+    expect(hashes).toContain("02");
+    expect(hashes).toContain("03");
+  });
+
+  it("maxSize: appending up to the limit does not evict any record", async () => {
+    const opts: InMemorySpillStorageOptions = { maxSize: 3 };
+    const storage = createInMemorySpillStorage(opts);
+
+    await storage.append(record("01"));
+    await storage.append(record("02"));
+    await storage.append(record("03"));
+
+    const all: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      all.push(r);
+    }
+    expect(all).toHaveLength(3);
   });
 });

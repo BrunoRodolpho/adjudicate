@@ -191,8 +191,18 @@ function enqueue(
     if (evicted !== undefined && opts.onOverflow) {
       try {
         opts.onOverflow(evicted);
-      } catch {
-        // onOverflow callback failures cannot prevent enqueue — swallow.
+      } catch (err) {
+        // onOverflow threw — the record is already evicted and cannot be
+        // re-queued. Route the callback failure through recordSinkFailure
+        // so it is visible via the metrics pipeline rather than silently
+        // lost. The enqueue of the incoming record still proceeds.
+        const error = err instanceof Error ? err : new Error(String(err));
+        recordSinkFailure({
+          sink: "console",
+          subject: "bufferedSink.onOverflow",
+          errorClass: error.name,
+          consecutiveFailures: 1,
+        });
       }
     }
   }

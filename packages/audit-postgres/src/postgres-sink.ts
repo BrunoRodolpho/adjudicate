@@ -7,7 +7,7 @@
 //
 // Schema: see ./schema.ts and ./migrations/001-create-intent-audit.sql.
 
-import type { AuditRecord } from "@adjudicate/core";
+import type { AuditRecord, IntentActor, Taint } from "@adjudicate/core";
 import type { AuditSink } from "@adjudicate/audit";
 
 /**
@@ -36,8 +36,8 @@ export interface IntentAuditRow {
   readonly intent_hash: string;
   readonly session_id: string;
   readonly kind: string;
-  readonly principal: "llm" | "user" | "system";
-  readonly taint: "SYSTEM" | "TRUSTED" | "UNTRUSTED";
+  readonly principal: IntentActor["principal"];
+  readonly taint: Taint;
   readonly decision_kind: string;
   readonly refusal_kind: string | null;
   readonly refusal_code: string | null;
@@ -159,12 +159,10 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
     partition_month: partition,
     record_version: record.version,
     plan_jsonb: record.plan ? JSON.stringify(record.plan) : null,
-    // T8: extract nonce from the envelope (v2+). v1 rows had no nonce
-    // field; mappers reading historical rows see NULL here.
-    nonce:
-      typeof (record.envelope as { nonce?: unknown }).nonce === "string"
-        ? (record.envelope as { nonce: string }).nonce
-        : null,
+    // T8: nonce is required on IntentEnvelope (v2+). Written directly;
+    // pre-v2 rows that lack the column see NULL via the DB default, but
+    // any AuditRecord reaching this code carries a well-typed envelope.
+    nonce: record.envelope.nonce,
     supersedes_jsonb: record.supersedes
       ? JSON.stringify(record.supersedes)
       : null,
@@ -247,6 +245,13 @@ export function auditInsertParams(row: IntentAuditRow): readonly unknown[] {
  * Compute the partition month string for a given ISO-8601 timestamp.
  * Returns "YYYY-MM". Used by the Postgres partitioning scheme — see
  * migrations/001-create-intent-audit.sql.
+ *
+ * Throws on:
+ *   - a string that does not begin with "YYYY-MM" (regex mismatch)
+ *   - a string whose extracted month is outside 01-12
+ * These represent malformed inputs that should never reach the sink for a
+ * valid AuditRecord. Deterministic failure is preferable to a wall-clock
+ * fallback that silently routes the row to the wrong partition table.
  */
 export function partitionMonthOf(isoTimestamp: string): string {
   // Extract the year-month portion of the ISO-8601 string. "2026-04-23T..."
@@ -254,12 +259,15 @@ export function partitionMonthOf(isoTimestamp: string): string {
   // identically across timezones.
   const match = isoTimestamp.match(/^(\d{4})-(\d{2})/);
   if (!match) {
-    // Fallback: use UTC date conversion. ISO without a leading YYYY-MM is
-    // unusual but defensively handled.
-    const d = new Date(isoTimestamp);
-    const yyyy = d.getUTCFullYear().toString().padStart(4, "0");
-    const mm = (d.getUTCMonth() + 1).toString().padStart(2, "0");
-    return `${yyyy}-${mm}`;
+    throw new Error(
+      `partitionMonthOf: unparseable timestamp — expected ISO-8601 beginning with YYYY-MM, got: ${JSON.stringify(isoTimestamp)}`,
+    );
+  }
+  const month = parseInt(match[2]!, 10);
+  if (month < 1 || month > 12) {
+    throw new Error(
+      `partitionMonthOf: invalid month ${match[2]} in timestamp ${JSON.stringify(isoTimestamp)} — must be 01-12`,
+    );
   }
   return `${match[1]}-${match[2]}`;
 }

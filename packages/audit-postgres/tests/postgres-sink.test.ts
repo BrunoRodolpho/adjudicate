@@ -52,9 +52,36 @@ describe("partitionMonthOf", () => {
     expect(partitionMonthOf("2025-12-31T23:59:59.999Z")).toBe("2025-12");
   });
 
-  it("falls back to UTC date for non-standard input", () => {
-    // Real ISO-8601 always has YYYY-MM at the start; stay defensive.
-    expect(partitionMonthOf("2026/04/23")).toMatch(/^\d{4}-\d{2}$/);
+  it("accepts all valid months 01-12", () => {
+    for (let m = 1; m <= 12; m++) {
+      const mm = String(m).padStart(2, "0");
+      expect(partitionMonthOf(`2026-${mm}-01T00:00:00.000Z`)).toBe(`2026-${mm}`);
+    }
+  });
+
+  it("throws on an unparseable timestamp (no YYYY-MM prefix)", () => {
+    // Previously silently fell back to new Date() — now deterministically throws.
+    expect(() => partitionMonthOf("2026/04/23")).toThrow("partitionMonthOf: unparseable timestamp");
+    expect(() => partitionMonthOf("")).toThrow("partitionMonthOf: unparseable timestamp");
+    expect(() => partitionMonthOf("not-a-date")).toThrow("partitionMonthOf: unparseable timestamp");
+  });
+
+  it("throws on month 00 (invalid)", () => {
+    expect(() => partitionMonthOf("2026-00-15T00:00:00.000Z")).toThrow(
+      "partitionMonthOf: invalid month 00",
+    );
+  });
+
+  it("throws on month 13 (invalid)", () => {
+    expect(() => partitionMonthOf("2026-13-01T00:00:00.000Z")).toThrow(
+      "partitionMonthOf: invalid month 13",
+    );
+  });
+
+  it("throws on month 99 (impossible)", () => {
+    expect(() => partitionMonthOf("2026-99-01T00:00:00.000Z")).toThrow(
+      "partitionMonthOf: invalid month 99",
+    );
   });
 });
 
@@ -99,6 +126,16 @@ describe("recordToRow", () => {
     const parsed = JSON.parse(row.envelope_jsonb);
     expect(parsed.intentHash).toBe(r.intentHash);
     expect(parsed.payload.sku).toBe("X");
+  });
+
+  it("writes the correct nonce value to the row (TypeReviewer-005)", () => {
+    // nonce is required on IntentEnvelope (v2+). recordToRow must write
+    // the byte-identical value — removing the dead optional probe must not
+    // change what gets persisted.
+    const r = record();
+    const row = recordToRow(r);
+    expect(row.nonce).toBe(r.envelope.nonce);
+    expect(row.nonce).toBe("n-test");
   });
 });
 

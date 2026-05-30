@@ -234,6 +234,19 @@ export function recordResourceLimit(event: ResourceLimitEvent): void {
  * that emits Sentry breadcrumbs and posts to the analytics pipeline. Useful
  * out-of-the-box: `setMetricsSink(createConsoleMetricsSink())` at boot gives
  * full operator visibility with no extra dependencies.
+ *
+ * ⚠️ PII WARNING (SecurityReviewer-016): this DEV-ONLY sink logs whole event
+ * objects verbatim via `JSON.stringify`. Two fields are a session-id PII
+ * proxy and are emitted in clear: `LedgerOpEvent`/`SinkFailureEvent`/
+ * `ResourceLimitEvent.subject` (documented as "typically a session id") and
+ * `ResourceLimitEvent.subject` for quota events. `intentHash` is NOT PII (it
+ * is a content digest, deliberately truncated to 8 chars on the decision/
+ * refusal lines). Do NOT ship this sink to a production log pipeline that
+ * leaves logs at rest: a real MetricsSink MUST redact or hash `subject`
+ * before egress (e.g. `hash(subject)` or a tenant-scoped pseudonym). Changing
+ * the bytes emitted here is intentionally avoided — the metrics contract and
+ * field set are unchanged; this is the documented convention every adopter
+ * sink is expected to honour. See also the `subject` field docs above.
  */
 export function createConsoleMetricsSink(): MetricsSink {
   return {

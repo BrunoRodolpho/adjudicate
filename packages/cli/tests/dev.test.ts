@@ -41,6 +41,13 @@ describe("dev — compose generation", () => {
     expect(composeText).toMatch(/redis:7-alpine/);
     expect(composeText).toMatch(/postgres:16-alpine/);
     expect(composeText).toMatch(/POSTGRES_DB: adjudicate/);
+    // SecurityReviewer-012: dev services must bind to localhost only, never
+    // the LAN. Assert the 127.0.0.1 prefix and that no bare host-port mapping
+    // (e.g. "6379:6379") leaks through for the active services.
+    expect(composeText).toContain('"127.0.0.1:6379:6379"');
+    expect(composeText).toContain('"127.0.0.1:5432:5432"');
+    expect(composeText).not.toMatch(/-\s*"6379:6379"/);
+    expect(composeText).not.toMatch(/-\s*"5432:5432"/);
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]!.args).toContain("up");
     expect(spawnCalls[0]!.args).toContain("-d");

@@ -19,6 +19,7 @@ import {
   createRedisAuditEventBus,
 } from "../src/event-bus.js";
 import type { RedisPubSubClient } from "../src/kill-switch-pubsub.js";
+import type { InMemoryAuditEventBusOptions } from "../src/event-bus.js";
 
 function recordOf(overrides: Partial<AuditRecord> = {}): AuditRecord {
   return {
@@ -125,6 +126,83 @@ describe("createInMemoryAuditEventBus", () => {
     await bus.publish(recordOf({ intentHash: "h-2" }));
     // After unsubscribe, 'a' no longer fires
     expect(log).toEqual(["a:h-1", "b:h-1", "b:h-2"]);
+  });
+
+  // ── PerformanceReviewer-006: O(1) unsubscribe via Map token ──────────────
+  it("unsubscribe removes exactly the right handler (O(1), by token not value-scan)", async () => {
+    const bus = createInMemoryAuditEventBus();
+    const logA: string[] = [];
+    const logB: string[] = [];
+    const unsubA = bus.subscribe((r) => logA.push(r.intentHash));
+    bus.subscribe((r) => logB.push(r.intentHash));
+
+    await bus.publish(recordOf({ intentHash: "h-1" }));
+    expect(logA).toEqual(["h-1"]);
+    expect(logB).toEqual(["h-1"]);
+
+    unsubA();
+    expect(bus.subscriberCount()).toBe(1);
+
+    await bus.publish(recordOf({ intentHash: "h-2" }));
+    // A was unsubscribed — only B receives further records.
+    expect(logA).toEqual(["h-1"]);
+    expect(logB).toEqual(["h-1", "h-2"]);
+  });
+
+  it("registering the same handler function twice creates two distinct subscriptions", async () => {
+    const bus = createInMemoryAuditEventBus();
+    const log: string[] = [];
+    const handler = (r: AuditRecord): void => { log.push(r.intentHash); };
+    const u1 = bus.subscribe(handler);
+    bus.subscribe(handler);
+    expect(bus.subscriberCount()).toBe(2);
+    await bus.publish(recordOf({ intentHash: "h-1" }));
+    expect(log).toEqual(["h-1", "h-1"]);
+    // Unsubscribing u1 removes exactly one of the two registrations.
+    u1();
+    expect(bus.subscriberCount()).toBe(1);
+    await bus.publish(recordOf({ intentHash: "h-2" }));
+    expect(log).toEqual(["h-1", "h-1", "h-2"]);
+  });
+
+  // ── MemoryReviewer-009: maxSubscribers cap ───────────────────────────────
+  it("maxSubscribers: throws when limit is exceeded", () => {
+    const opts: InMemoryAuditEventBusOptions = { maxSubscribers: 2 };
+    const bus = createInMemoryAuditEventBus(opts);
+    bus.subscribe(() => {});
+    bus.subscribe(() => {});
+    expect(() => bus.subscribe(() => {})).toThrow(/maxSubscribers limit/);
+  });
+
+  it("maxSubscribers: allows re-subscribe after unsubscribe frees a slot", () => {
+    const opts: InMemoryAuditEventBusOptions = { maxSubscribers: 1 };
+    const bus = createInMemoryAuditEventBus(opts);
+    const unsub = bus.subscribe(() => {});
+    expect(() => bus.subscribe(() => {})).toThrow(/maxSubscribers limit/);
+    unsub();
+    // Freed a slot — this must NOT throw.
+    expect(() => bus.subscribe(() => {})).not.toThrow();
+  });
+
+  // ── ErrorReviewer-007: onHandlerFailure callback ─────────────────────────
+  it("onHandlerFailure is invoked when a handler throws, without affecting siblings", async () => {
+    const failures: Array<{ err: unknown; record: AuditRecord }> = [];
+    const opts: InMemoryAuditEventBusOptions = {
+      onHandlerFailure: (err, record) => failures.push({ err, record }),
+    };
+    const bus = createInMemoryAuditEventBus(opts);
+    const log: string[] = [];
+    bus.subscribe(() => { throw new Error("handler-boom"); });
+    bus.subscribe((r) => log.push(r.intentHash));
+
+    const rec = recordOf({ intentHash: "h-err" });
+    await bus.publish(rec);
+
+    expect(log).toEqual(["h-err"]); // sibling unaffected
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.err).toBeInstanceOf(Error);
+    expect((failures[0]!.err as Error).message).toBe("handler-boom");
+    expect(failures[0]!.record.intentHash).toBe("h-err");
   });
 });
 

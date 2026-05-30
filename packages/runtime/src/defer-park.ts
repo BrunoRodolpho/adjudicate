@@ -242,9 +242,16 @@ export interface CounterRedis {
 }
 
 /**
- * DECR the per-session counter. Called by `resumeDeferredIntent` when a
- * parked envelope is successfully resumed. Errors are swallowed — the TTL
- * is the safety net.
+ * DECR the per-session counter once a parked envelope has been resumed.
+ *
+ * This is the exported counter-decrement primitive for the resume path:
+ * an adopter's resume handler calls it after it successfully consumes a
+ * parked envelope, mirroring the INCR that `parkDeferredIntent` performed.
+ * There is no first-party in-tree caller — the framework ships the park
+ * side plus this helper and leaves the resume wiring to the adopter (the
+ * only in-repo callers are this module's own unit tests). Errors are
+ * swallowed — the counter's TTL is the safety net, so a missed DECR still
+ * self-heals when the parked envelopes expire.
  */
 export async function decrementDeferCounter(
   redis: CounterRedis,

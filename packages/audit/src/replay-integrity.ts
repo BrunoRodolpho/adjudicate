@@ -27,7 +27,7 @@
  * "missing_hash" }` in `integrity` — the replay axis still runs.
  */
 
-import type { AuditRecord, Decision } from "@adjudicate/core";
+import type { AuditRecord } from "@adjudicate/core";
 import {
   classify,
   sha256Canonical,
@@ -35,6 +35,12 @@ import {
   type AuditRecordVerification,
   type ReplayMismatch,
 } from "@adjudicate/core";
+// Shared declaration: imported for local use here and re-exported below so
+// the historical `import { Adjudicator } from ".../replay-integrity.js"`
+// path keeps working while there is a single source of truth.
+import type { Adjudicator } from "./adjudicator.js";
+
+export type { Adjudicator } from "./adjudicator.js";
 
 export interface IntegrityFailure {
   readonly intentHash: string;
@@ -59,8 +65,6 @@ export interface ReplayIntegrityReport {
    */
   readonly preV4Records: number;
 }
-
-export type Adjudicator = (record: AuditRecord) => Decision;
 
 /**
  * Re-derive `sha256Canonical` over the envelope's hash-input subset and

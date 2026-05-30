@@ -27,8 +27,12 @@
  * } from "@adjudicate/audit"`) keeps working.
  */
 
-import type { AuditRecord, Decision } from "@adjudicate/core";
+import type { AuditRecord } from "@adjudicate/core";
 import { classify } from "@adjudicate/core";
+// Single source of truth for the replay adjudicator shape. Imported for
+// local use in this module and re-exported below so existing
+// `import { Adjudicator } from ".../replay.js"` call sites keep working.
+import type { Adjudicator } from "./adjudicator.js";
 
 export {
   classify,
@@ -37,13 +41,13 @@ export {
   type ReplayMismatchKind,
 } from "@adjudicate/core";
 
+export type { Adjudicator } from "./adjudicator.js";
+
 export interface ReplayReport {
   readonly total: number;
   readonly matched: number;
   readonly mismatches: readonly import("@adjudicate/core").ReplayMismatch[];
 }
-
-export type Adjudicator = (record: AuditRecord) => Decision;
 
 /**
  * Re-adjudicate every record and classify divergences.

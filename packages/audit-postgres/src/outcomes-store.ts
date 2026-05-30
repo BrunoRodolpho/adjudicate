@@ -64,8 +64,6 @@ export function createPostgresOutcomeSink(
 export function createPostgresOutcomeLookup(deps: {
   readonly reader: PostgresReader;
 }): { get(intentHash: string): RetrospectiveOutcome | undefined } {
-  const cache = new Map<string, RetrospectiveOutcome>();
-  void cache; // placeholder for adopters wanting a memoized variant
   return {
     get(_intentHash: string): RetrospectiveOutcome | undefined {
       // The synchronous get() contract matches the admin-sdk's

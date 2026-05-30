@@ -301,8 +301,8 @@ describe("createRedisEmergencyStateStore — update", () => {
     expect(
       failures.some(
         (f) =>
-          f.subject === "redis-emergency-store" &&
-          f.errorClass.startsWith("history_insert"),
+          f.subject.startsWith("redis-emergency-store: history_insert") &&
+          f.errorClass === "history_insert",
       ),
     ).toBe(true);
 

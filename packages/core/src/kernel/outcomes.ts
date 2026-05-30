@@ -12,6 +12,8 @@
  * `@adjudicate/audit-postgres` (Phase 1.5C) for durable storage.
  */
 
+import { z } from "zod";
+
 export type ObservedOutcome = "succeeded" | "failed" | "withdrawn";
 
 export interface RetrospectiveOutcome {
@@ -26,6 +28,23 @@ export interface RetrospectiveOutcome {
   /** Free-form note carrying operator context. Bounded by adopters. */
   readonly note?: string;
 }
+
+/**
+ * Wire schema for `RetrospectiveOutcome`. Enforces a 2000-character cap on
+ * `note` so unbounded operator text cannot inflate audit storage or bypass
+ * downstream column limits. Call `RetrospectiveOutcomeWireSchema.parse(raw)`
+ * at API boundaries (tRPC mutation handler, REST adapter) before forwarding
+ * to `recordRetrospectiveOutcome`.
+ *
+ * APIReviewer-011: `note` has no length cap at the interface level; the Zod
+ * schema is the authoritative wire-boundary enforcement point.
+ */
+export const RetrospectiveOutcomeWireSchema = z.object({
+  intentHash: z.string().min(1),
+  observed: z.enum(["succeeded", "failed", "withdrawn"]),
+  at: z.string().min(1),
+  note: z.string().max(2000).optional(),
+});
 
 export interface OutcomeSink {
   recordOutcome(outcome: RetrospectiveOutcome): void | Promise<void>;

@@ -84,7 +84,19 @@ export interface RefusalEvent {
 }
 
 export interface SinkFailureEvent {
-  readonly sink: "console" | "nats" | "postgres"
+  /**
+   * Well-known sink identifiers for `SinkFailureEvent.sink`:
+   *   - `"console"` — the built-in console sink (dev / fallback)
+   *   - `"nats"`    — NATS JetStream audit sink
+   *   - `"postgres"` — Postgres audit sink
+   *   - `"multi"`   — composite `multiSink` / `multiSinkLossy` wrapper
+   *   - `"buffered"` — `bufferedSink` wrapper (async fan-out with replay)
+   *
+   * Custom sinks may supply any string label; the union is widened to
+   * string for forward-compatibility while the well-known values serve
+   * as canonical labels for dashboards and alerts.
+   */
+  readonly sink: "console" | "nats" | "postgres" | "multi" | "buffered" | (string & {})
   readonly subject: string
   readonly errorClass: string
   readonly consecutiveFailures: number

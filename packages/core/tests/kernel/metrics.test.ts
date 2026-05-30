@@ -8,7 +8,9 @@ import {
   recordSinkFailure,
   setMetricsSink,
   type MetricsSink,
+  type SinkFailureEvent,
 } from "../../src/kernel/metrics.js"
+import { RetrospectiveOutcomeWireSchema } from "../../src/kernel/outcomes.js"
 import {
   _resetShadowTelemetrySink,
   adjudicateWithShadow,
@@ -189,5 +191,87 @@ describe("createConsoleMetricsSink", () => {
     expect(warn).toHaveBeenCalled()
     log.mockRestore()
     warn.mockRestore()
+  })
+})
+
+describe("SinkFailureEvent.sink union — APIReviewer-015", () => {
+  it("accepts well-known sink labels: console, nats, postgres, multi, buffered", () => {
+    const labels: SinkFailureEvent["sink"][] = [
+      "console",
+      "nats",
+      "postgres",
+      "multi",
+      "buffered",
+    ]
+    for (const sink of labels) {
+      const event: SinkFailureEvent = {
+        sink,
+        subject: "test",
+        errorClass: "test_error",
+        consecutiveFailures: 1,
+      }
+      // Structural assertion: object should typecheck and carry the expected sink label.
+      expect(event.sink).toBe(sink)
+    }
+  })
+
+  it("accepts arbitrary string labels (forward-compatible open union)", () => {
+    const event: SinkFailureEvent = {
+      sink: "custom-sink-v2",
+      subject: "x",
+      errorClass: "y",
+      consecutiveFailures: 0,
+    }
+    expect(event.sink).toBe("custom-sink-v2")
+  })
+})
+
+describe("RetrospectiveOutcomeWireSchema — APIReviewer-011", () => {
+  it("parses a valid outcome without note", () => {
+    const result = RetrospectiveOutcomeWireSchema.safeParse({
+      intentHash: "abc123",
+      observed: "succeeded",
+      at: "2026-05-30T00:00:00.000Z",
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it("parses a valid outcome with a note within 2000 chars", () => {
+    const result = RetrospectiveOutcomeWireSchema.safeParse({
+      intentHash: "abc123",
+      observed: "failed",
+      at: "2026-05-30T00:00:00.000Z",
+      note: "operator note here",
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it("rejects note longer than 2000 characters (APIReviewer-011 cap)", () => {
+    const result = RetrospectiveOutcomeWireSchema.safeParse({
+      intentHash: "abc123",
+      observed: "withdrawn",
+      at: "2026-05-30T00:00:00.000Z",
+      note: "x".repeat(2001),
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it("accepts note at exactly 2000 characters (boundary)", () => {
+    const result = RetrospectiveOutcomeWireSchema.safeParse({
+      intentHash: "abc123",
+      observed: "succeeded",
+      at: "2026-05-30T00:00:00.000Z",
+      note: "x".repeat(2000),
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it("rejects unrecognized observed values", () => {
+    const result = RetrospectiveOutcomeWireSchema.safeParse({
+      intentHash: "abc123",
+      observed: "cancelled",
+      at: "2026-05-30T00:00:00.000Z",
+    })
+    expect(result.success).toBe(false)
   })
 })

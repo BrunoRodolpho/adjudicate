@@ -13,6 +13,7 @@ export * from "./refusal-messages.js";
 export * from "./taint.js";
 export * from "./audit.js";
 export * from "./hash.js";
+export * from "./timing-safe.js";
 export * from "./ledger.js";
 export * from "./sink.js";
 export * from "./pack.js";

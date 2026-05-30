@@ -140,6 +140,50 @@ describe("verifyAuditRecord", () => {
     expect(v.verified).toBeNull();
   });
 
+  // SecurityReviewer-008: verifyAuditRecord now compares derived-vs-stored with
+  // a constant-time hex compare (timingSafeHexEqual) instead of `!==`. These pin
+  // the two branches that compare-hardening must handle: a same-length wrong
+  // hash (the constant-time path) and a length-mismatch hash (the guard path,
+  // which must NOT throw — timingSafeEqual would throw on unequal lengths).
+  it("returns verified=false for a same-length wrong auditHash (constant-time branch)", () => {
+    const r = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+    });
+    // Overwrite auditHash with a different 64-hex string of the SAME length so
+    // the derived (correct) hash and the stored hash differ only in content.
+    const wrong = { ...r, auditHash: "a".repeat(64) };
+    const v = verifyAuditRecord(wrong);
+    expect(v.verified).toBe(false);
+    if (v.verified === false) {
+      expect(v.reason).toBe("tampered");
+      expect(v.stored).toBe("a".repeat(64));
+    }
+  });
+
+  it("returns verified=false (never throws) for a length-mismatched auditHash", () => {
+    const r = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+    });
+    // Truncated stored hash — unequal length must resolve to "tampered", not a
+    // thrown RangeError from timingSafeEqual.
+    const shortHash = { ...r, auditHash: "dead" };
+    let v: ReturnType<typeof verifyAuditRecord>;
+    expect(() => {
+      v = verifyAuditRecord(shortHash);
+    }).not.toThrow();
+    expect(v!.verified).toBe(false);
+    if (v!.verified === false) {
+      expect(v!.reason).toBe("tampered");
+      expect(v!.stored).toBe("dead");
+    }
+  });
+
   it("signature field round-trips without affecting hash", () => {
     const r = buildAuditRecord({
       envelope: ENV,

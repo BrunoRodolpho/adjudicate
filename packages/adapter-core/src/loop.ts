@@ -22,6 +22,7 @@
 import {
   noopAuditSink,
   sha256Canonical,
+  timingSafeHexEqual,
   type Decision,
   type IntentEnvelope,
 } from "@adjudicate/core";
@@ -458,7 +459,11 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
           actor: pending.envelope.actor,
           taint: pending.envelope.taint,
         });
-        if (derived !== pending.envelope.intentHash) {
+        // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare
+        // leaks via timing how many leading hex chars of a tampered intentHash
+        // matched. timingSafeHexEqual is boolean-identical to `!==` here
+        // (length-mismatch / non-hex → not equal) and never throws.
+        if (!timingSafeHexEqual(derived, pending.envelope.intentHash)) {
           options.log?.warn?.(
             {
               sessionId: pending.sessionId,

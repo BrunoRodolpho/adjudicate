@@ -19,6 +19,7 @@
  */
 
 import { sha256Canonical } from "./hash.js";
+import { timingSafeHexEqual } from "./timing-safe.js";
 import { buildEnvelope, type IntentEnvelope } from "./envelope.js";
 import type { Decision } from "./decision.js";
 import type { DecisionBasis } from "./basis-codes.js";
@@ -249,7 +250,11 @@ export function verifyAuditRecord(
   // re-deriving (the hash was computed over the record sans these fields).
   const { auditHash: stored, signature: _signature, ...rest } = record;
   const derived = sha256Canonical(rest);
-  if (derived !== stored) {
+  // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare
+  // short-circuits on the first differing hex char, leaking via timing how
+  // many leading digits of a forged auditHash matched. timingSafeHexEqual is
+  // boolean-identical to `===` for all inputs and never throws.
+  if (!timingSafeHexEqual(derived, stored)) {
     return { verified: false, reason: "tampered", derived, stored };
   }
   return { verified: true };

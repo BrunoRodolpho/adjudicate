@@ -134,4 +134,15 @@ describe("kill switch", () => {
     // Reading with the env saying "active" doesn't override the manual choice.
     expect(isKilled({ IBX_KILL_SWITCH: "1" } as NodeJS.ProcessEnv)).toBe(false);
   });
+
+  it("mutating the object returned by getKillSwitchState does not corrupt kernel state (LogicReviewer-011)", () => {
+    setKillSwitch(true, "incident-x");
+    const state = getKillSwitchState({});
+    expect(state.active).toBe(true);
+    // Attempt to mutate the returned object (cast needed because interface is readonly).
+    (state as { active: boolean }).active = false;
+    // The module-level state must be unchanged.
+    expect(isKilled({})).toBe(true);
+    expect(getKillSwitchState({}).active).toBe(true);
+  });
 });

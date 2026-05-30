@@ -124,7 +124,11 @@ function makeKillSwitchControl(
     },
     state() {
       ensureSeeded(envSeed);
-      return inner.state;
+      // Return a shallow copy so external callers cannot mutate the internal
+      // state object. The interface is declared readonly, but JS readonly is
+      // shallow — a cast + property assignment would corrupt subsequent reads
+      // (isKilled, adjudicate hot path).
+      return { ...inner.state };
     },
     set(active: boolean, reason: string) {
       // Manual toggle: prevent the env seed from re-overriding the choice

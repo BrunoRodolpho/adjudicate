@@ -290,3 +290,16 @@ describe("getDefaultRuntimeContext", () => {
     expect(a).not.toBe(b);
   });
 });
+
+describe("RuntimeContext — kill switch state() shallow-copy (LogicReviewer-011)", () => {
+  it("mutating the object returned by state() does not corrupt subsequent reads", () => {
+    const ctx = createRuntimeContext({ id: "test" });
+    ctx.killSwitch.set(true, "test-incident");
+    const s = ctx.killSwitch.state();
+    expect(s.active).toBe(true);
+    // External mutation of the returned snapshot must not affect the internal state.
+    (s as { active: boolean }).active = false;
+    expect(ctx.killSwitch.isKilled()).toBe(true);
+    expect(ctx.killSwitch.state().active).toBe(true);
+  });
+});

@@ -66,6 +66,28 @@ describe("adjudicateWithDeadline", () => {
     expect(decision.refusal.code).toBe("kernel_deadline_exceeded");
   });
 
+  it("returns SECURITY refusal for NaN deadline (NaN<=0 is false, guard must catch it)", async () => {
+    const decision = await adjudicateWithDeadline(envFixture(), {}, fastBundle, {
+      deadlineMs: NaN,
+    });
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("kernel_deadline_exceeded");
+  });
+
+  it("returns SECURITY refusal for Infinity deadline (non-finite guard)", async () => {
+    // Infinity would create a timer that never fires in practice, defeating
+    // the purpose. The guard treats non-finite as an invalid budget.
+    const decision = await adjudicateWithDeadline(envFixture(), {}, fastBundle, {
+      deadlineMs: Infinity,
+    });
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("kernel_deadline_exceeded");
+  });
+
   it("never blocks longer than deadlineMs (smoke)", async () => {
     const start = Date.now();
     await adjudicateWithDeadline(envFixture(), {}, fastBundle, {

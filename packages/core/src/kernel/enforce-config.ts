@@ -218,7 +218,11 @@ export function isKilled(env: NodeJS.ProcessEnv = KILL_SWITCH_ENV_SNAPSHOT): boo
  */
 export function getKillSwitchState(env: NodeJS.ProcessEnv = KILL_SWITCH_ENV_SNAPSHOT): KillSwitchState {
   ensureKillSwitchSeeded(env)
-  return _killSwitch
+  // Return a shallow copy so external callers cannot mutate the module-level
+  // singleton via the returned reference. The KillSwitchState interface is
+  // readonly, but JS readonly is shallow — a cast + direct mutation would
+  // otherwise corrupt subsequent `isKilled()` / adjudicate() reads.
+  return { ..._killSwitch }
 }
 
 /** @internal — reset for tests. */

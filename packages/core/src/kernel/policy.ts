@@ -196,8 +196,19 @@ export function withMetadata<G extends (...args: never[]) => unknown>(
   // Per-field defineProperty: enumerable so readGuardMetadata returns a
   // useful object; non-configurable + non-writable so individual fields
   // cannot be mutated post-attachment.
+  //
+  // Empty-string `name` is skipped rather than attached: an empty name is
+  // indistinguishable from "no name set" at read-time (both produce an
+  // empty/absent guardName in trace entries and LearningEvents) and would
+  // silently shadow a meaningful Function.name. Throws TypeError on explicit
+  // empty string to match the surrounding strict-overwrite style.
   for (const [key, value] of Object.entries(metadata)) {
     if (value === undefined) continue;
+    if (key === "name" && value === "") {
+      throw new TypeError(
+        "withMetadata: 'name' must be a non-empty string (empty string passed).",
+      );
+    }
     const existing = slot[key];
     if (existing !== undefined) {
       if (existing === value) continue; // idempotent reattachment

@@ -49,13 +49,19 @@ afterAll(async () => {
   await fs.rm(FIXTURES_DIR, { recursive: true, force: true });
 });
 
+// Deterministic, replay-distinct nonce source. A stable incrementing
+// counter keeps each minted envelope's nonce unique within the run while
+// staying byte-identical across runs (unlike Math.random()), so the
+// replay fixtures these envelopes feed are reproducible.
+let nonceCounter = 0;
+
 function envelope(kind: string, payload: unknown): ReturnType<typeof buildEnvelope> {
   return buildEnvelope({
     kind,
     payload,
     actor: { principal: "llm", sessionId: "test-replay" },
     taint: "UNTRUSTED",
-    nonce: `n-${Math.random()}`,
+    nonce: `n-${++nonceCounter}`,
   });
 }
 

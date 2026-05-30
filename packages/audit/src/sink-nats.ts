@@ -74,6 +74,14 @@ export function createNatsSink(opts: NatsSinkOptions): AuditSink {
   const threshold = opts.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
   let consecutiveFailures = 0;
   let state: BreakerState = "closed";
+  // ConcurrencyReviewer-003: half-open admits exactly one probe. Without a
+  // guard, two concurrent emits arriving while the breaker is open would
+  // BOTH flip to half-open and BOTH publish — defeating the single-test
+  // contract and double-hammering a NATS server that is already struggling.
+  // `inFlightTest` marks that a probe is executing; any other emit that
+  // arrives meanwhile fails fast and loud (NatsSinkError) instead of
+  // launching a second probe.
+  let inFlightTest = false;
 
   function fail(error: Error): void {
     consecutiveFailures++;
@@ -86,9 +94,21 @@ export function createNatsSink(opts: NatsSinkOptions): AuditSink {
 
   return {
     async emit(record: AuditRecord) {
-      // ── Open circuit: transition to half-open and let one through ──────
-      if (state === "open") {
+      // ── Tripped circuit (open / half-open): single-probe gate ──────────
+      let isProbe = false;
+      if (state === "open" || state === "half-open") {
+        if (inFlightTest) {
+          // A probe is already in flight — do not launch a second one.
+          throw new NatsSinkError(
+            subject,
+            consecutiveFailures,
+            new Error("circuit half-open: probe already in flight"),
+          );
+        }
+        // This emit becomes the sole half-open probe.
         state = "half-open";
+        inFlightTest = true;
+        isProbe = true;
       }
 
       try {
@@ -98,7 +118,8 @@ export function createNatsSink(opts: NatsSinkOptions): AuditSink {
 
         // Half-open path: a single test failed. Re-open and throw NatsSinkError
         // immediately so every emit during sustained outage is loud.
-        if (state === "half-open") {
+        if (isProbe) {
+          inFlightTest = false;
           fail(error);
           state = "open";
           const failuresSnapshot = consecutiveFailures;
@@ -119,6 +140,7 @@ export function createNatsSink(opts: NatsSinkOptions): AuditSink {
 
       // ── Success ──────────────────────────────────────────────────────
       // Whether closed or half-open, a success resets the breaker to closed.
+      if (isProbe) inFlightTest = false;
       consecutiveFailures = 0;
       state = "closed";
     },

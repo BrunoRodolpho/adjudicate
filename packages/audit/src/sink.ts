@@ -157,27 +157,54 @@ export interface BufferedSinkOptions {
  */
 export function bufferedSink(opts: BufferedSinkOptions): AuditSink {
   const queue: AuditRecord[] = [];
+  // ConcurrencyReviewer-004: the replay queue is mutated across `await`
+  // points (drain then emit). Concurrent emits would interleave those
+  // mutations — two callers could both read `queue[0]`, both `shift()`, and
+  // drop or duplicate a record. Serialize all emits onto a per-instance
+  // promise chain so the queue is only ever touched by one emit at a time.
+  const serialize = makeSerializer();
   return {
-    async emit(record) {
-      // Try to drain backlog first — even if `record` itself succeeds, we
-      // want the buffer to clear in FIFO order.
-      while (queue.length > 0) {
-        const head = queue[0]!;
-        try {
-          await opts.inner.emit(head);
-          queue.shift();
-        } catch (drainErr) {
-          enqueue(queue, record, opts);
-          throw drainErr;
+    emit(record) {
+      return serialize(async () => {
+        // Try to drain backlog first — even if `record` itself succeeds, we
+        // want the buffer to clear in FIFO order.
+        while (queue.length > 0) {
+          const head = queue[0]!;
+          try {
+            await opts.inner.emit(head);
+            queue.shift();
+          } catch (drainErr) {
+            enqueue(queue, record, opts);
+            throw drainErr;
+          }
         }
-      }
-      try {
-        await opts.inner.emit(record);
-      } catch (err) {
-        enqueue(queue, record, opts);
-        throw err;
-      }
+        try {
+          await opts.inner.emit(record);
+        } catch (err) {
+          enqueue(queue, record, opts);
+          throw err;
+        }
+      });
     },
+  };
+}
+
+/**
+ * ConcurrencyReviewer-004: build a per-instance serializer. Each call chains
+ * onto the previous one so the supplied work runs strictly one-at-a-time,
+ * regardless of how many callers invoke `emit` concurrently. Callers still
+ * receive their own task's resolution/rejection; the internal chain swallows
+ * rejections so one failed emit does not wedge every subsequent emit.
+ */
+function makeSerializer(): (fn: () => Promise<void>) => Promise<void> {
+  let tail: Promise<void> = Promise.resolve();
+  return (fn) => {
+    const run = tail.then(fn, fn);
+    tail = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
   };
 }
 

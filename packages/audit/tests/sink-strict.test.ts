@@ -198,4 +198,56 @@ describe("bufferedSink", () => {
     // the head of the queue (s-1) and failed there before trying s-2.
     expect(attempts).toBe(2);
   });
+
+  // ── ConcurrencyReviewer-004: serialized emits ────────────────────────────
+  // Records differ by suffix → distinct sessionId, so reordering or
+  // duplication is observable.
+  it("serializes concurrent emits without reordering or re-entrancy", async () => {
+    const seen: string[] = [];
+    let active = 0;
+    let maxConcurrent = 0;
+    const inner: AuditSink = {
+      async emit(r) {
+        active++;
+        maxConcurrent = Math.max(maxConcurrent, active);
+        // Yield twice so any unserialized interleaving would surface as
+        // overlap and/or as reordered records.
+        await Promise.resolve();
+        await Promise.resolve();
+        seen.push(r.envelope.actor.sessionId);
+        active--;
+      },
+    };
+    const sink = bufferedSink({ inner, capacity: 100 });
+    const records = [record("1"), record("2"), record("3"), record("4"), record("5")];
+    // Fire all emits without awaiting between them — maximally concurrent.
+    await Promise.all(records.map((r) => sink.emit(r)));
+
+    // Every record landed exactly once, in submission order.
+    expect(seen).toEqual(["s-1", "s-2", "s-3", "s-4", "s-5"]);
+    // The serializer ensured the inner sink was never entered re-entrantly.
+    expect(maxConcurrent).toBe(1);
+  });
+
+  it("serializes concurrent emits across a failure+recovery boundary (FIFO)", async () => {
+    const seen: string[] = [];
+    let healthy = false;
+    const inner: AuditSink = {
+      async emit(r) {
+        await Promise.resolve();
+        if (!healthy) throw new Error("down");
+        seen.push(r.envelope.actor.sessionId);
+      },
+    };
+    const sink = bufferedSink({ inner, capacity: 100 });
+    // Two concurrent emits while down — both reject, both buffered in order.
+    const r1 = sink.emit(record("1"));
+    const r2 = sink.emit(record("2"));
+    await expect(r1).rejects.toThrow();
+    await expect(r2).rejects.toThrow();
+    // Recover and emit a third — drains s-1, s-2 (FIFO) then s-3.
+    healthy = true;
+    await sink.emit(record("3"));
+    expect(seen).toEqual(["s-1", "s-2", "s-3"]);
+  });
 });

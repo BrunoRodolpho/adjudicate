@@ -78,6 +78,11 @@ export function persistentBufferedSink(
   opts: PersistentBufferedSinkOptions,
 ): AuditSink {
   const memQueue: AuditRecord[] = [];
+  // ConcurrencyReviewer-004: `memQueue` (and the spill drain) are mutated
+  // across multiple `await` points per emit. Concurrent emits would
+  // interleave those mutations and corrupt FIFO order / drop records.
+  // Serialize every emit onto a per-instance promise chain.
+  const serialize = makeSerializer();
 
   async function drainStorage(): Promise<void> {
     // Drain the spill before anything else. A failure here means the
@@ -106,18 +111,38 @@ export function persistentBufferedSink(
   }
 
   return {
-    async emit(record) {
-      try {
-        await drainStorage();
-        await drainMemory();
-        await opts.inner.emit(record);
-      } catch (err) {
-        // Inner failed. Buffer the new record (memory if room, spill
-        // otherwise) and rethrow so strict callers see the failure.
-        await bufferOrSpill(record, memQueue, opts, "failure");
-        throw err;
-      }
+    emit(record) {
+      return serialize(async () => {
+        try {
+          await drainStorage();
+          await drainMemory();
+          await opts.inner.emit(record);
+        } catch (err) {
+          // Inner failed. Buffer the new record (memory if room, spill
+          // otherwise) and rethrow so strict callers see the failure.
+          await bufferOrSpill(record, memQueue, opts, "failure");
+          throw err;
+        }
+      });
     },
+  };
+}
+
+/**
+ * ConcurrencyReviewer-004: per-instance serializer. Chains each unit of work
+ * onto the previous so emits run strictly one-at-a-time. Callers get their
+ * own task's resolution/rejection; the internal chain swallows rejections so
+ * a single failed emit does not wedge subsequent emits.
+ */
+function makeSerializer(): (fn: () => Promise<void>) => Promise<void> {
+  let tail: Promise<void> = Promise.resolve();
+  return (fn) => {
+    const run = tail.then(fn, fn);
+    tail = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
   };
 }
 

@@ -227,4 +227,55 @@ describe("startDistributedKillSwitch", () => {
     expect(warnings.some((w) => w.reason.includes("offline"))).toBe(true);
     await handle.stop();
   });
+
+  it("stop() awaits an in-flight pollOnce before resolving (ConcurrencyReviewer-007)", async () => {
+    // A redis whose `get` hangs until released, so we can call stop() while a
+    // poll is genuinely mid-flight and prove stop() waits for it to finish.
+    let releaseGet!: () => void;
+    const getGate = new Promise<void>((resolve) => {
+      releaseGet = resolve;
+    });
+    let getCalls = 0;
+    const gatedRedis: RedisLedgerClient = {
+      async get() {
+        getCalls++;
+        await getGate;
+        return JSON.stringify({ active: true, reason: "remote-trip" });
+      },
+      async set() {
+        return "OK";
+      },
+    };
+
+    const ctx = createRuntimeContext({ id: "tenant" });
+    const handle = startDistributedKillSwitch({
+      redis: gatedRedis,
+      key: "ENV:adjudicate:kill",
+      pollMs: 1000,
+      context: ctx,
+    });
+
+    // Let the first poll start and block inside `get`.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getCalls).toBe(1);
+    // The poll is mid-flight, so the kill switch has NOT been applied yet.
+    expect(ctx.killSwitch.isKilled()).toBe(false);
+
+    // Call stop(); it must not resolve while the poll is still in flight.
+    let stopResolved = false;
+    const stopPromise = handle.stop().then(() => {
+      stopResolved = true;
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(stopResolved).toBe(false);
+
+    // Release the in-flight get; the poll completes, applies state, and only
+    // then does stop() resolve.
+    releaseGet();
+    await stopPromise;
+    expect(stopResolved).toBe(true);
+    // The in-flight poll ran to completion (its side effect landed) before
+    // stop() resolved — i.e. stop() awaited it rather than abandoning it.
+    expect(ctx.killSwitch.isKilled()).toBe(true);
+  });
 });

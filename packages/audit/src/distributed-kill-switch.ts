@@ -71,6 +71,22 @@ export function startDistributedKillSwitch(
   const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // ConcurrencyReviewer-007: track the currently-executing poll so `stop()`
+  // can await it. Without this, `stop()` returns while a `pollOnce()` is
+  // mid-flight, and that poll can still call `killSwitch.set()` *after* the
+  // caller believed the poller was fully stopped — a torn shutdown in tests
+  // and graceful-drain paths.
+  let inFlightPoll: Promise<void> | null = null;
+
+  // Wrap a poll so the in-flight handle is set for its full duration and
+  // cleared when it settles (only if a newer poll hasn't replaced it).
+  function runPoll(): Promise<void> {
+    const p = pollOnce().finally(() => {
+      if (inFlightPoll === p) inFlightPoll = null;
+    });
+    inFlightPoll = p;
+    return p;
+  }
 
   // Lazy resolve — the adopter may install a context after constructing
   // the poller. This also lets tests reset the default context between
@@ -136,14 +152,14 @@ export function startDistributedKillSwitch(
   function loop(): void {
     if (stopped) return;
     timer = setTimeout(() => {
-      void pollOnce().finally(loop);
+      void runPoll().finally(loop);
     }, pollMs);
   }
 
   // Schedule the first poll for the next tick — gives adopters time to
   // wire the context before reads start.
   timer = setTimeout(() => {
-    void pollOnce().finally(loop);
+    void runPoll().finally(loop);
   }, 0);
 
   async function trip(reason: string): Promise<void> {
@@ -165,6 +181,13 @@ export function startDistributedKillSwitch(
     if (timer !== null) {
       clearTimeout(timer);
       timer = null;
+    }
+    // ConcurrencyReviewer-007: await any poll already in flight so the
+    // poller is fully quiescent (no pending `killSwitch.set()`) by the time
+    // `stop()` resolves. The in-flight poll already swallows its own errors
+    // via recordSinkFailure, so awaiting it cannot reject here.
+    if (inFlightPoll !== null) {
+      await inFlightPoll;
     }
   }
 

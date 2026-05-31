@@ -185,6 +185,27 @@ describe("adjudicateAndAudit", () => {
     const result = await adjudicateAndAudit(envFixture(), {}, passBundle, { sink });
     expect(result.decision.kind).toBe("EXECUTE");
   });
+
+  it("routes a swallowed learning-sink failure to recordSinkFailure (ErrorReviewer-005)", async () => {
+    const failures: Array<{ sink: string; errorClass: string }> = [];
+    setMetricsSink({
+      ...noopMetricsSink(),
+      recordSinkFailure(e) {
+        failures.push({ sink: e.sink, errorClass: e.errorClass });
+      },
+    });
+    setLearningSink({
+      recordOutcome() {
+        throw new TypeError("learning sink down");
+      },
+    });
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const result = await adjudicateAndAudit(envFixture(), {}, passBundle, { sink });
+    // Kernel still returns the Decision (telemetry never blocks) …
+    expect(result.decision.kind).toBe("EXECUTE");
+    // … AND the swallowed failure is now observable, with a stable errorClass.
+    expect(failures).toContainEqual({ sink: "learning", errorClass: "TypeError" });
+  });
 });
 
 describe("adjudicateAndAudit — Ledger consult", () => {

@@ -62,6 +62,7 @@ import {
   recordDecision,
   recordLedgerOp,
   recordRefusal,
+  recordSinkFailure,
 } from "./metrics.js";
 import type { PolicyBundle } from "./policy.js";
 import type { RuntimeContext } from "./runtime-context.js";
@@ -181,6 +182,14 @@ export interface AdjudicateAndAuditResult {
  *
  * Sink failures propagate to the caller — adopters compose lossy sinks
  * upstream if fail-open is desired for non-critical paths.
+ *
+ * Minimum required wiring (APIReviewer-020): `{ sink }` alone is sufficient —
+ * every other dep is optional. With only a sink the kernel adjudicates, emits
+ * the AuditRecord, and routes metrics/learning to the module-level defaults.
+ * `ledger` adds dedup/REPLAY_SUPPRESSED; `context` (RuntimeContext) routes
+ * metrics/learning/kill-switch per tenant; `rateLimitRollback`,
+ * `resolveResourceVersion`, `plan`, `supersedes`, `kernelIdentity`, and `clock`
+ * are all opt-in.
  */
 export async function adjudicateAndAudit<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,
@@ -207,6 +216,9 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   const emitOutcome = ctx
     ? (e: Parameters<typeof recordOutcome>[0]) => ctx.learning.current().recordOutcome(e)
     : recordOutcome;
+  const emitSinkFailure = ctx
+    ? (e: Parameters<typeof recordSinkFailure>[0]) => ctx.metrics.recordSinkFailure(e)
+    : recordSinkFailure;
 
   // ── 0. Tenant kill switch (in addition to the process-wide one in adjudicate()) ──
   if (ctx?.killSwitch.isKilled()) {
@@ -258,8 +270,15 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       if (deps.rateLimitRollback) {
         try {
           await deps.rateLimitRollback();
-        } catch {
-          // Counter rollback failures are not the kernel's problem.
+        } catch (err) {
+          // Rollback must not crash the kernel; surface the swallowed failure
+          // to the metrics sink rather than dropping it (ErrorReviewer-005).
+          emitSinkFailure({
+            sink: "rate-limit",
+            subject: envelope.intentHash,
+            errorClass: err instanceof Error ? err.name : "Error",
+            consecutiveFailures: 1,
+          });
         }
       }
     }
@@ -329,6 +348,11 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     // ── 3. EXECUTE-race fix: claim the ledger key ───────────────────
     if (decision.kind === "EXECUTE" && deps.ledger) {
       const recordStart = clock.nowMs();
+      // LogicReviewer-013: `""` is the load-bearing sentinel for "no resolver
+      // wired, or resolver returned nothing" — recordExecution stores it as the
+      // empty resourceVersion and the ledger treats it as the version-agnostic
+      // claim. It is NOT a placeholder for a real version; downstream readers
+      // distinguish `""` (no version known) from a concrete row version.
       const resourceVersion =
         deps.resolveResourceVersion?.(envelope as IntentEnvelope, state) ?? "";
       const outcome = await deps.ledger.recordExecution({
@@ -404,8 +428,15 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         : {}),
       at: clock.nowIso(),
     });
-  } catch {
-    // Telemetry failures are not the kernel's problem.
+  } catch (err) {
+    // Telemetry must never block the kernel — but a swallowed LearningSink
+    // failure should still be observable, not vanish silently (ErrorReviewer-005).
+    emitSinkFailure({
+      sink: "learning",
+      subject: envelope.intentHash,
+      errorClass: err instanceof Error ? err.name : "Error",
+      consecutiveFailures: 1,
+    });
   }
 
   // ── 6. Audit emission ──────────────────────────────────────────────
@@ -435,8 +466,15 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     if (decision.kind !== "EXECUTE" && deps.rateLimitRollback) {
       try {
         await deps.rateLimitRollback();
-      } catch {
-        // Counter rollback failures are not the kernel's problem.
+      } catch (err) {
+        // Rollback must not crash the kernel, but a swallowed failure poisons a
+        // user's rate-limit budget — surface it to the metrics sink (ErrorReviewer-005).
+        emitSinkFailure({
+          sink: "rate-limit",
+          subject: envelope.intentHash,
+          errorClass: err instanceof Error ? err.name : "Error",
+          consecutiveFailures: 1,
+        });
       }
     }
   }

@@ -28,6 +28,36 @@ import {
 import { createLazyRedisLedgerAdapter } from "@/lib/redis-client";
 import { createReferenceReplayInvoker } from "@/lib/replay-invoker";
 import { PackRegistry } from "@/lib/packs/registry";
+import { isProductionEnv } from "@/lib/runtime-mode";
+
+/**
+ * Reference auth gate (AuthReviewer-007 / ConfigReviewer-004). The admin SDK now
+ * REQUIRES a `requireAuth` hook — without one it refuses to mount in production.
+ * This reference gate enforces a shared-secret bearer token from
+ * `ADMIN_API_TOKEN`; a real deployment swaps in `withClerkAuth` / `withOidcAuth`
+ * (see the toNextRouteHandler JSDoc). It is fail-CLOSED in production: with no
+ * token configured every request is rejected rather than trusting the forgeable
+ * `x-adjudicate-actor-*` headers. Local dev (non-production, no token) leaves the
+ * gate open for convenience — insecure by design, for demos only.
+ */
+function requireConsoleAdminAuth(req: Request): void | Response {
+  const expected = process.env.ADMIN_API_TOKEN;
+  if (expected) {
+    if (req.headers.get("authorization") !== `Bearer ${expected}`) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    return;
+  }
+  if (isProductionEnv()) {
+    // No auth configured in production → refuse rather than serve the admin API
+    // on header-trust alone.
+    return new Response(
+      "Admin API auth not configured (set ADMIN_API_TOKEN or wire withClerkAuth/withOidcAuth)",
+      { status: 503 },
+    );
+  }
+  // Local dev: open gate (documented insecure-by-design).
+}
 
 /**
  * tRPC route — mounts the @adjudicate/admin-sdk admin router under
@@ -56,10 +86,11 @@ import { PackRegistry } from "@/lib/packs/registry";
  * kernel polls Redis, not Postgres, so a Postgres-backed live state
  * would be a "hallucination of control."
  *
- * Auth: NONE at this layer. Adopters MUST gate this route with auth
- * middleware that populates `x-adjudicate-actor-*` headers AFTER
- * verifying the OIDC/SAML/Clerk session. The SDK trusts whatever the
- * headers contain.
+ * Auth: a `requireAuth` gate (`requireConsoleAdminAuth`, below) is now passed
+ * to `toNextRouteHandler` — the SDK refuses to mount in production without one.
+ * The reference gate is a fail-closed shared-secret bearer check; adopters swap
+ * in `withClerkAuth` / `withOidcAuth` that verify a real OIDC/SAML/Clerk session
+ * before `extractActor` reads the `x-adjudicate-actor-*` headers.
  */
 function createStores(): {
   auditStore: AuditStore;
@@ -130,6 +161,7 @@ const policyDescriptor: PolicyBundleDescriptor | undefined = firstPack
 export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
+  requireAuth: requireConsoleAdminAuth,
   createContext: (req) => ({
     store: auditStore,
     emergencyStore,

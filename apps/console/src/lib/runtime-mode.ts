@@ -29,7 +29,7 @@ export type GatewayMode = "mock" | "live";
  * NEXT_PUBLIC_ADJUDICATE_MODE=live is caught here rather than silently
  * shipping the in-process ALL_MOCKS gateway to real operators.
  */
-function isProductionEnv(): boolean {
+export function isProductionEnv(): boolean {
   return (
     process.env.ADJUDICATE_ENV === "production" ||
     process.env.NODE_ENV === "production"

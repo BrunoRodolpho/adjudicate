@@ -201,3 +201,83 @@ describe("verifyAuditRecord", () => {
     expect(v.verified).toBe(true);
   });
 });
+
+// CryptoReviewer-006 / LogicReviewer-012: verifyAuditRecord now also re-derives
+// envelope.intentHash from the envelope's content-addressed fields and refuses
+// a record whose stored intentHash doesn't match its own content — independent
+// of the v4 auditHash. Catches a record built with a forged/drifted envelope
+// hash even when the surrounding auditHash is itself valid.
+describe("verifyAuditRecord envelope self-consistency", () => {
+  it("returns verified=false / envelope_intent_mismatch for a forged envelope.intentHash", () => {
+    const r = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+    });
+    // Overwrite the envelope's intentHash with a same-length wrong value; the
+    // surrounding record is otherwise untouched (auditHash still over this
+    // record, so the auditHash branch would NOT fire — the envelope check must).
+    const forged = {
+      ...r,
+      envelope: { ...r.envelope, intentHash: "b".repeat(64) },
+    };
+    const v = verifyAuditRecord(forged);
+    expect(v.verified).toBe(false);
+    if (v.verified === false) {
+      expect(v.reason).toBe("envelope_intent_mismatch");
+      expect(v.stored).toBe("b".repeat(64));
+      expect(v.derived).toMatch(/^[a-f0-9]{64}$/);
+    }
+  });
+
+  it("catches a corrupted envelope payload (stored intentHash now stale)", () => {
+    const r = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+    });
+    // Mutate payload but keep the original intentHash — now self-inconsistent.
+    const corrupted = {
+      ...r,
+      envelope: { ...r.envelope, payload: { x: 999 } },
+    };
+    const v = verifyAuditRecord(corrupted);
+    expect(v.verified).toBe(false);
+    if (v.verified === false) {
+      expect(v.reason).toBe("envelope_intent_mismatch");
+    }
+  });
+
+  it("does not false-positive on a consistent record (still verified=true)", () => {
+    const r = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+    });
+    expect(verifyAuditRecord(r).verified).toBe(true);
+  });
+
+  it("runs before the missing_hash check (pre-v4 record with forged envelope is flagged, not skipped)", () => {
+    const r = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+    });
+    // Strip auditHash (pre-v4 shape) AND forge the envelope hash.
+    const preV4Forged = {
+      ...r,
+      envelope: { ...r.envelope, intentHash: "c".repeat(64) },
+    };
+    delete (preV4Forged as { auditHash?: string }).auditHash;
+    const v = verifyAuditRecord(preV4Forged as typeof r);
+    // The envelope check fires first → envelope_intent_mismatch, NOT missing_hash.
+    expect(v.verified).toBe(false);
+    if (v.verified === false) {
+      expect(v.reason).toBe("envelope_intent_mismatch");
+    }
+  });
+});

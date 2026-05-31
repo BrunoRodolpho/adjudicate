@@ -142,4 +142,34 @@ describe("replayEnvelopeFromAudit", () => {
     const replayed = replayEnvelopeFromAudit(roundTripped);
     expect(replayed.intentHash).toBe(original.intentHash);
   });
+
+  // CryptoReviewer-006 / LogicReviewer-012: faithful-replay guard. If the stored
+  // envelope.intentHash doesn't match a fresh re-derivation of its content, the
+  // record can't be faithfully replayed — refuse rather than hand back an
+  // envelope claiming a hash it doesn't have.
+  it("throws on a record whose stored envelope.intentHash is forged/drifted", () => {
+    const r = buildAuditRecord({
+      envelope: envFixture(),
+      decision: decisionFixture(),
+      durationMs: 1,
+      at: "2026-04-23T12:00:01.000Z",
+    });
+    const forged: AuditRecord = {
+      ...r,
+      envelope: { ...r.envelope, intentHash: "d".repeat(64) },
+    };
+    expect(() => replayEnvelopeFromAudit(forged)).toThrow(
+      /envelope_intent_mismatch/,
+    );
+  });
+
+  it("does not throw for a well-formed record", () => {
+    const r = buildAuditRecord({
+      envelope: envFixture(),
+      decision: decisionFixture(),
+      durationMs: 1,
+      at: "2026-04-23T12:00:01.000Z",
+    });
+    expect(() => replayEnvelopeFromAudit(r)).not.toThrow();
+  });
 });

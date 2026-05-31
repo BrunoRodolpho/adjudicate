@@ -148,9 +148,14 @@ export class GuardFireStats implements LearningSink {
     // bucket can grow the map, so compaction after a merge is a cheap no-op.
     if (prior === undefined) this.compact()
     if (this.store) {
+      // Write the per-event DELTA (`bucket`, count: 1), NOT the running total
+      // (`merged`). The store is an additive accumulator — its upsert does
+      // `count = count + EXCLUDED.count` (see audit-postgres UPSERT_GUARD_STAT_SQL,
+      // whose param is literally `countDelta`). Writing the cumulative `merged`
+      // here made the store accumulate triangular sums (1, 1+2, 3+3, … = N(N+1)/2).
       // Best-effort write; telemetry must not block adjudication.
       try {
-        const maybe = this.store.write(merged)
+        const maybe = this.store.write(bucket)
         if (maybe && typeof (maybe as Promise<void>).catch === "function") {
           ;(maybe as Promise<void>).catch(() => {})
         }
@@ -174,34 +179,24 @@ export class GuardFireStats implements LearningSink {
   }
 
   /**
-   * Union of persistent-store reads and in-memory state. Used by the
-   * admin-sdk query handler.
+   * Durable view of the stats. Used by the admin-sdk query handler.
+   *
+   * When a `store` is configured it is the source of truth: every `record()`
+   * writes a +1 delta through to it, and its additive upsert aggregates the
+   * total (across replicas, too). The in-memory `memo` is a per-replica
+   * write-through copy of the SAME events, so unioning the two would
+   * double-count — hence we return the store's reads directly. Memory is the
+   * fallback only when no store is configured.
+   *
+   * Caveat: a store write is best-effort (it must never block adjudication),
+   * so an event whose write failed is reflected in `memo` but not the store
+   * and will be absent here — an acceptable gap for best-effort telemetry,
+   * and the opposite of the prior over-count.
    */
   async queryAsync(
     q: GuardFireStatsQuery,
   ): Promise<readonly GuardFireBucket[]> {
-    const memBuckets = this.query(q)
-    if (!this.store) return memBuckets
-    const storeBuckets = await this.store.readSince(q.since, q.packId)
-    return mergeBuckets(storeBuckets, memBuckets)
+    if (!this.store) return this.query(q)
+    return await this.store.readSince(q.since, q.packId)
   }
-}
-
-/**
- * Sum counts across two bucket lists by (guardName, guardPhase, decisionKind, day).
- * The persistent-store representation may have already coalesced rows that
- * the in-memory accumulator is still tracking individually — adding both
- * preserves the invariant "store wins when present, memory adds delta".
- */
-function mergeBuckets(
-  a: readonly GuardFireBucket[],
-  b: readonly GuardFireBucket[],
-): readonly GuardFireBucket[] {
-  const memo = new Map<string, GuardFireBucket>()
-  for (const x of [...a, ...b]) {
-    const k = makeMemoKey(x)
-    const prior = memo.get(k)
-    memo.set(k, prior ? { ...prior, count: prior.count + x.count } : x)
-  }
-  return Array.from(memo.values())
 }

@@ -19,6 +19,7 @@ import {
   type PostgresWriter,
 } from "../src/postgres-sink.js";
 import { rowToRecord } from "../src/replay.js";
+import { normalizeTimestamptz } from "../src/pg-types.js";
 
 function record(overrides: { decision?: "EXECUTE" | "REFUSE" } = {}) {
   const env = buildEnvelope({
@@ -537,6 +538,35 @@ describe("v4 tamper-evidence persistence (RC-K1)", () => {
     const recovered = rowToRecord(recordToRow(v4Record()));
     const tampered = { ...recovered, durationMs: recovered.durationMs + 1000 };
     expect(verifyAuditRecord(tampered).verified).toBe(false);
+  });
+
+  // DataReviewer-013 (option B): `record.at` is in the v4 auditHash pre-image,
+  // and the real read path (audit-store.ts) coerces the driver's TIMESTAMPTZ
+  // `recorded_at` through normalizeTimestamptz before rowToRecord. A wire-format
+  // string returned verbatim would diverge from the hashed ISO `at` and trip a
+  // false-positive tamper. These pin the faithful read-side round-trip.
+  it("a Postgres wire-format recorded_at round-trips so verifyAuditRecord stays verified", () => {
+    const r = record(); // at = "2026-04-23T12:00:01.000Z"
+    const row = recordToRow(r);
+    // postgres.js shape: space separator + `+00` offset, NOT canonical ISO.
+    const driverRecordedAt = "2026-04-23 12:00:01+00";
+    const coerced = {
+      ...row,
+      recorded_at: normalizeTimestamptz(driverRecordedAt, "intent_audit.recorded_at"),
+    };
+    const recovered = rowToRecord(coerced);
+    expect(recovered.at).toBe(r.at);
+    expect(verifyAuditRecord(recovered).verified).toBe(true);
+  });
+
+  it("a native Date recorded_at (node-postgres shape) also round-trips verified", () => {
+    const r = record();
+    const row = recordToRow(r);
+    // node-postgres parses TIMESTAMPTZ into a native Date.
+    const coerced = { ...row, recorded_at: normalizeTimestamptz(new Date(r.at)) };
+    const recovered = rowToRecord(coerced);
+    expect(recovered.at).toBe(r.at);
+    expect(verifyAuditRecord(recovered).verified).toBe(true);
   });
 });
 

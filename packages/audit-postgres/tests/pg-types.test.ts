@@ -15,13 +15,39 @@ describe("normalizeTimestamptz", () => {
     expect(normalizeTimestamptz(d)).toBe("2026-05-21T10:00:00.000Z");
   });
 
-  it("string shape is accepted even if not strictly ISO-8601 — the helper trusts pg-driver output", () => {
-    // Postgres TIMESTAMPTZ canonical wire format differs slightly from
-    // JavaScript ISO-8601 (space vs T separator). The helper does NOT
-    // validate the string shape — callers may rely on whatever the
-    // driver produces.
+  // DataReviewer-013 (option B): a Postgres TIMESTAMPTZ wire string (space
+  // separator, `+00` offset, possible microsecond precision) is NOT byte-equal
+  // to the canonical JS ISO-8601 `at` that was hashed at write time. Returning
+  // it verbatim makes `record.at` diverge from the hashed value and
+  // verifyAuditRecord report a false-positive tamper on read-back. The helper
+  // now parse-and-reemits to canonical ISO so the round-trip is faithful.
+  it("coerces a Postgres wire-format string to canonical ISO-8601", () => {
     expect(normalizeTimestamptz("2026-05-21 10:00:00+00")).toBe(
-      "2026-05-21 10:00:00+00",
+      "2026-05-21T10:00:00.000Z",
+    );
+  });
+
+  it("coerces the `+00:00` offset wire form to canonical ISO-8601", () => {
+    expect(normalizeTimestamptz("2026-05-21 10:00:00+00:00")).toBe(
+      "2026-05-21T10:00:00.000Z",
+    );
+  });
+
+  it("truncates microsecond precision to milliseconds (the hashed `at` is ms-precision)", () => {
+    expect(normalizeTimestamptz("2026-05-21 10:00:00.123456+00")).toBe(
+      "2026-05-21T10:00:00.123Z",
+    );
+  });
+
+  it("is idempotent for a canonical ISO-8601 string (golden vectors do not move)", () => {
+    expect(normalizeTimestamptz("2026-05-18T00:00:00.000Z")).toBe(
+      "2026-05-18T00:00:00.000Z",
+    );
+  });
+
+  it("throws when a string is not a parseable timestamp (driver bug / contract misuse)", () => {
+    expect(() => normalizeTimestamptz("not-a-timestamp", "intent_audit.recorded_at")).toThrow(
+      /unexpected TIMESTAMPTZ value.*\(column: intent_audit\.recorded_at\)/,
     );
   });
 

@@ -170,7 +170,9 @@ export interface ResumeDeferredIntentArgs {
    *   a warning and proceeds (back-compat with v0.1 parked blobs).
    * `"off"` — no verification (NOT recommended for production).
    *
-   * Default: `"warn"` in v0.2; will become `"strict"` in v0.5.
+   * Default: `"strict"` (SecurityReviewer-010). A legacy blob lacking
+   * verification fields fails closed (`park_blob_unverifiable`); opt into
+   * `"warn"` explicitly for back-compat with v0.1 parked blobs.
    */
   readonly verifyHash?: "strict" | "warn" | "off"
 }
@@ -205,7 +207,7 @@ export async function resumeDeferredIntent(
   // assert byte-equality with the stored value. Detects blob tampering at
   // resume time (the threat: a malicious actor with Redis write access
   // mutates the parked payload between park and resume).
-  const verifyMode = args.verifyHash ?? "warn"
+  const verifyMode = args.verifyHash ?? "strict"
   if (verifyMode !== "off") {
     const verification = verifyParkedEnvelopeHash(parked)
     if (verification.verified === false) {

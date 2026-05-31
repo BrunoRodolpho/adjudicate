@@ -377,7 +377,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         redis: options.deferStore,
         rk,
         log: options.log,
-        verifyHash: options.verifyParkedHash ?? "warn",
+        verifyHash: options.verifyParkedHash ?? "strict",
       });
       if (!result.resumed || !result.parked) {
         throw new AdapterError(
@@ -449,7 +449,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         );
       }
 
-      const verifyMode = options.verifyParkedHash ?? "warn";
+      // SecurityReviewer-010: default strict (here warn/strict are equivalent —
+      // this confirmation path has no missing-fields branch, only off-vs-verify).
+      const verifyMode = options.verifyParkedHash ?? "strict";
       if (verifyMode !== "off") {
         const derived = sha256Canonical({
           version: pending.envelope.version,

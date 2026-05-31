@@ -28,6 +28,17 @@ const redis: DeferRedis = {
 
 const rk = (s: string) => `ENV:${s}`
 
+// SecurityReviewer-010: these suites exercise idempotent SET-NX resume/dedup
+// semantics, NOT hash verification — their parked blobs are intentionally
+// minimal/legacy-shaped. Pin verifyHash:"off" so the strict-by-default
+// verification doesn't refuse them.
+const resume = (
+  args: Omit<Parameters<typeof resumeDeferredIntent>[0], "verifyHash">,
+) => {
+  const merged = { ...args, verifyHash: "off" as const }
+  return resumeDeferredIntent(merged)
+}
+
 describe("deferResumeHash (pure)", () => {
   it("produces sha256 hex", () => {
     expect(deferResumeHash("abc", "payment.confirmed")).toMatch(/^[0-9a-f]{64}$/)
@@ -72,7 +83,7 @@ describe("resumeDeferredIntent — idempotent SET NX semantics", () => {
 
   it("returns no_parked_envelope when key is missing", async () => {
     mockGet.mockResolvedValue(null)
-    const result = await resumeDeferredIntent({
+    const result = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis,
@@ -84,7 +95,7 @@ describe("resumeDeferredIntent — idempotent SET NX semantics", () => {
 
   it("returns malformed_envelope on bad JSON", async () => {
     mockGet.mockResolvedValue("not-json{}{")
-    const result = await resumeDeferredIntent({
+    const result = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis,
@@ -96,7 +107,7 @@ describe("resumeDeferredIntent — idempotent SET NX semantics", () => {
 
   it("returns signal_mismatch when parked signal differs", async () => {
     mockGet.mockResolvedValue(parkedEnvelope("h1"))
-    const result = await resumeDeferredIntent({
+    const result = await resume({
       sessionId: "s-1",
       signal: "different.signal",
       redis,
@@ -109,7 +120,7 @@ describe("resumeDeferredIntent — idempotent SET NX semantics", () => {
   it("first call wins — returns resumed: true", async () => {
     mockGet.mockResolvedValue(parkedEnvelope("h1"))
     mockSet.mockResolvedValue("OK")
-    const result = await resumeDeferredIntent({
+    const result = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis,
@@ -123,7 +134,7 @@ describe("resumeDeferredIntent — idempotent SET NX semantics", () => {
   it("second call suppressed — returns duplicate_resume_suppressed", async () => {
     mockGet.mockResolvedValue(parkedEnvelope("h1"))
     mockSet.mockResolvedValue(null) // SET NX rejected — already exists
-    const result = await resumeDeferredIntent({
+    const result = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis,
@@ -138,7 +149,7 @@ describe("resumeDeferredIntent — idempotent SET NX semantics", () => {
   it("invariant: SET NX is called with the resume token key", async () => {
     mockGet.mockResolvedValue(parkedEnvelope("h1"))
     mockSet.mockResolvedValue("OK")
-    await resumeDeferredIntent({
+    await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis,
@@ -182,7 +193,7 @@ describe("invariant: N concurrent webhook deliveries → exactly 1 resume", () =
 
     const results = await Promise.all(
       Array.from({ length: n }, () =>
-        resumeDeferredIntent({
+        resume({
           sessionId: "s",
           signal: "payment.confirmed",
           redis,

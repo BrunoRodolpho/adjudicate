@@ -159,7 +159,9 @@ export interface GuardMetadata {
  * **Identity-preserving.** Returns the same function object — the returned
  * guard is `===`-equal to the input guard, so stack traces, referential
  * equality, memoization, and registry semantics are all preserved.
- * Wrapping is prohibited; analyzer correctness depends on this.
+ * `withMetadata` does not wrap: it attaches metadata to the same function
+ * reference rather than returning a new closure. Analyzer correctness
+ * depends on this — it relies on the returned guard being the same object.
  *
  * **Per-field immutable, additively composable.** The metadata slot itself
  * is attached on first call and remains non-configurable thereafter; each

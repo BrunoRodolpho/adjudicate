@@ -254,6 +254,41 @@ describe("RuntimeContext — adjudicateAndAudit routing", () => {
     expect(result.decision.basis[0]!.detail!.tenant).toBe("tenant-a");
   });
 
+  it("tenant kill switch emits a LearningSink event (LogicReviewer-005)", async () => {
+    const tenant = createRuntimeContext({ id: "tenant-a" });
+    tenant.killSwitch.set(true, "tenant incident");
+    const tenantEvents: LearningEvent[] = [];
+    tenant.learning.set({ recordOutcome: (e) => tenantEvents.push(e) });
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    await adjudicateAndAudit(envFixture(), {}, passBundle, {
+      sink,
+      context: tenant,
+    });
+    // The kill-switch early return now mirrors the main path's LearningSink
+    // emit, so the analytics pipeline observes tenant-killed refusals.
+    expect(tenantEvents).toHaveLength(1);
+    expect(tenantEvents[0]!.decisionKind).toBe("REFUSE");
+  });
+
+  it("tenant kill switch: a failing LearningSink never blocks the kernel (LogicReviewer-005)", async () => {
+    const tenant = createRuntimeContext({ id: "tenant-a" });
+    tenant.killSwitch.set(true, "tenant incident");
+    tenant.learning.set({
+      recordOutcome() {
+        throw new Error("learning sink down");
+      },
+    });
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    // Telemetry is wrapped in try/catch — the kernel still returns the
+    // REFUSE decision and emits its audit record.
+    const result = await adjudicateAndAudit(envFixture(), {}, passBundle, {
+      sink,
+      context: tenant,
+    });
+    expect(result.decision.kind).toBe("REFUSE");
+    expect(sink.emit).toHaveBeenCalledTimes(1);
+  });
+
   it("default context kill switch is unaffected by tenant flips", async () => {
     const tenant = createRuntimeContext({ id: "tenant-a" });
     tenant.killSwitch.set(true, "tenant incident");

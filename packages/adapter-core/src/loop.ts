@@ -543,6 +543,12 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
           confirmationReceipt: {
             intentHash: envelope.intentHash,
             at: new Date().toISOString(),
+            // AuthReviewer-005: forward the single-use confirmation token into
+            // the audit trail (Supersession.token) — a forensic record that
+            // this confirmation came from a real token-exchange flow. The
+            // adapter already verified it above via confirmationStore.take();
+            // the kernel does not re-verify.
+            token: args.confirmationToken,
           },
         },
       );

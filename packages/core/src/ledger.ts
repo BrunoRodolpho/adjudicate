@@ -73,4 +73,15 @@ export interface Ledger {
    * left to type-check.
    */
   recordExecution(entry: LedgerRecordInput): Promise<LedgerRecordOutcome>;
+  /**
+   * Best-effort rollback of a previously acquired ledger key. Called when
+   * the post-EXECUTE audit-sink emission fails — the key was claimed but no
+   * audit row landed, so the entry is an orphan that would suppress retries
+   * for the full TTL. Implementations use DEL (or equivalent) on the key.
+   *
+   * Optional: ledger adapters that cannot safely delete (e.g. append-only
+   * stores) omit this method; the caller falls back to surfacing the orphan
+   * via recordSinkFailure so operators can intervene manually before TTL.
+   */
+  release?(intentHash: string): Promise<void>;
 }

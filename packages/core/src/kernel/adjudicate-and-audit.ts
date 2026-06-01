@@ -151,6 +151,34 @@ export interface AdjudicateAndAuditDeps {
     readonly intentHash: string;
     /** ISO-8601 wall-clock of the user's confirmation. */
     readonly at: string;
+    /**
+     * Optional (LogicReviewer-004): the `at` timestamp of the original
+     * REQUEST_CONFIRMATION audit row. When provided, stored as
+     * `supersedes.predecessorAt` so audit-chain queries can JOIN on
+     * (predecessorIntentHash, predecessorAt) to locate the predecessor row.
+     * When omitted, falls back to `at` (pre-existing behaviour — use only
+     * when the predecessor row's `at` is unavailable to the caller).
+     *
+     * STRICTLY ADDITIVE: a caller that omits `originalAt` produces a
+     * byte-identical `supersedes` (and therefore identical auditHash) as
+     * before this field existed.
+     */
+    readonly originalAt?: string;
+    /**
+     * Optional (AuthReviewer-005): opaque single-use token from the
+     * confirmation store. When supplied, the kernel writes it into
+     * `Supersession.token` of the auto-derived `confirmation_resolved`
+     * supersedes link, providing a forensic trail that the confirmation
+     * came from a real token-exchange flow rather than a bare hash
+     * assertion. The kernel does NOT verify the token — that is the
+     * adapter's responsibility (the adapter calls
+     * `confirmationStore.take(token)` before passing this receipt).
+     *
+     * STRICTLY ADDITIVE: a caller that omits `token` produces a
+     * byte-identical `supersedes` (and therefore identical auditHash) as
+     * before this field existed.
+     */
+    readonly token?: string;
   };
   /**
    * Optional explicit supersession link (AuditRecord v3). When supplied,
@@ -253,6 +281,33 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         intentHash: envelope.intentHash,
       });
     }
+    // ── LearningSink on the kill-switch path (LogicReviewer-005) ────────
+    // The main path emits an outcome (line ~415); the kill-switch early
+    // return previously skipped it, so the analytics pipeline never saw the
+    // refusals a tenant kill switch produced. Mirror the main-path structure.
+    // Telemetry must NEVER block the kernel — emit inside try/catch so a
+    // failing LearningSink cannot change the Decision, the AuditRecord, or
+    // any hash. guardId/guardPhase/planFingerprint are intentionally omitted:
+    // the kill-switch path bypasses guard evaluation entirely, so there is no
+    // matched guard to record (matches main-path matchedGuardIdFromTrace([])).
+    try {
+      emitOutcome({
+        intentKind: envelope.kind,
+        decisionKind: decision.kind,
+        basisCodes: flattenBasis(decision.basis),
+        taint: envelope.taint,
+        durationMs,
+        intentHash: envelope.intentHash,
+        at: clock.nowIso(),
+      });
+    } catch (err) {
+      emitSinkFailure({
+        sink: "learning",
+        subject: envelope.intentHash,
+        errorClass: err instanceof Error ? err.name : "Error",
+        consecutiveFailures: 1,
+      });
+    }
     const record = buildAuditRecord({
       envelope,
       decision,
@@ -305,6 +360,13 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // `deps.supersedes` (set by adapters for defer_resumed / rewrite_executed /
   // replay) always wins over this auto-derivation.
   let confirmationSupersedes: Supersession | undefined;
+  // ConcurrencyReviewer-002: track whether THIS call claimed the ledger key
+  // (recordExecution returned "acquired"). Set true only inside the
+  // recordExecution block below. Never set on the REPLAY_SUPPRESSED racing
+  // path (outcome === "exists") — releasing there would delete another live
+  // caller's claim. Used in the audit-emit catch to best-effort release an
+  // orphaned key when sink.emit throws after an EXECUTE claim.
+  let ledgerAcquired = false;
   if (ledgerHit) {
     decision = replaySuppressedRefusal(envelope.intentHash, ledgerHit);
   } else {
@@ -338,10 +400,25 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       // Auto-derive supersedes for confirmation_resolved when the caller
       // did not pass one explicitly. This links the post-confirmation
       // EXECUTE record back to the original REQUEST_CONFIRMATION audit row.
+      //
+      // Both additions below are STRICTLY OPT-IN / ADDITIVE (determinism
+      // fence): when the caller passes neither `originalAt` nor `token`, the
+      // derived `supersedes` is byte-identical to the pre-existing shape
+      // ({ predecessorIntentHash, predecessorAt: at, reason }) — so the
+      // auditHash is unchanged.
+      //   - LogicReviewer-004: predecessorAt prefers `originalAt` (the
+      //     predecessor audit row's `at`) and falls back to the confirmation
+      //     `at` when the caller did not supply it.
+      //   - AuthReviewer-005: token is included only when supplied; an
+      //     omitted token leaves the key off the object entirely.
       confirmationSupersedes = {
         predecessorIntentHash: deps.confirmationReceipt.intentHash,
-        predecessorAt: deps.confirmationReceipt.at,
+        predecessorAt:
+          deps.confirmationReceipt.originalAt ?? deps.confirmationReceipt.at,
         reason: "confirmation_resolved" as const,
+        ...(deps.confirmationReceipt.token !== undefined
+          ? { token: deps.confirmationReceipt.token }
+          : {}),
       };
     }
 
@@ -368,6 +445,11 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         latencyMs: clock.nowMs() - recordStart,
         intentHash: envelope.intentHash,
       });
+      if (outcome === "acquired") {
+        // This call won the SET-NX — record that so the audit-emit catch can
+        // release the key if the durable AuditRecord never lands.
+        ledgerAcquired = true;
+      }
       if (outcome === "exists") {
         // Another adjudicateAndAudit call beat us between checkLedger and
         // recordExecution. Suppress the EXECUTE so side effects do not
@@ -462,6 +544,39 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // load-bearing one). try/finally guarantees the rollback.
   try {
     await deps.sink.emit(record);
+  } catch (emitErr) {
+    // ConcurrencyReviewer-002: if THIS call claimed the ledger key and the
+    // durable AuditRecord then failed to land, the key is an orphan that would
+    // suppress retries for the full TTL with no audit trail. Best-effort
+    // release it so a retry of the same envelope can proceed. A missing
+    // `release` method (it is optional on the Ledger interface) is acceptable —
+    // surface the orphan via telemetry so operators can intervene before TTL.
+    // This is error-path-only cleanup: the success path is untouched, so no
+    // Decision / AuditRecord / hash byte moves.
+    if (ledgerAcquired && deps.ledger) {
+      if (typeof deps.ledger.release === "function") {
+        try {
+          await deps.ledger.release(envelope.intentHash);
+        } catch (releaseErr) {
+          emitSinkFailure({
+            sink: "ledger",
+            subject: envelope.intentHash,
+            errorClass:
+              releaseErr instanceof Error ? releaseErr.name : "Error",
+            consecutiveFailures: 1,
+          });
+        }
+      } else {
+        // Ledger does not support release — emit an observable orphan signal.
+        emitSinkFailure({
+          sink: "ledger",
+          subject: envelope.intentHash,
+          errorClass: "ledger_orphaned",
+          consecutiveFailures: 1,
+        });
+      }
+    }
+    throw emitErr;
   } finally {
     if (decision.kind !== "EXECUTE" && deps.rateLimitRollback) {
       try {

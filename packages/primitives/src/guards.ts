@@ -229,6 +229,9 @@ export interface RewriteGuardOptions<K extends string, P, S> {
   ) => ReadonlyArray<DecisionBasis>;
 }
 
+/**
+ * @experimental Awaiting Pack #4–#6 feedback; freeze at v1.1 per V1_FREEZE_MATRIX §row-187.
+ */
 export function createRewriteGuard<K extends string, P, S>(
   options: RewriteGuardOptions<K, P, S>,
 ): Guard<K, P, S> {
@@ -310,6 +313,9 @@ export interface ConfirmGuardOptions<K extends string, P, S> {
   ) => ReadonlyArray<DecisionBasis>;
 }
 
+/**
+ * @experimental Awaiting Pack #4–#6 feedback; freeze at v1.1 per V1_FREEZE_MATRIX §row-184.
+ */
 export function createConfirmGuard<K extends string, P, S>(
   options: ConfirmGuardOptions<K, P, S>,
 ): Guard<K, P, S> {
@@ -375,6 +381,9 @@ export interface EscalateGuardOptions<K extends string, P, S> {
   ) => ReadonlyArray<DecisionBasis>;
 }
 
+/**
+ * @experimental Awaiting Pack #4–#6 feedback; freeze at v1.1 per V1_FREEZE_MATRIX §row-185.
+ */
 export function createEscalateGuard<K extends string, P, S>(
   options: EscalateGuardOptions<K, P, S>,
 ): Guard<K, P, S> {
@@ -455,6 +464,9 @@ export interface IdempotencyGuardOptions<K extends string, P, S> {
   ) => Decision;
 }
 
+/**
+ * @experimental Domain-level dedup; intersects with ledger semantics — awaiting Pack #4 evidence per V1_FREEZE_MATRIX §row-186.
+ */
 export function createIdempotencyGuard<K extends string, P, S>(
   options: IdempotencyGuardOptions<K, P, S>,
 ): Guard<K, P, S> {

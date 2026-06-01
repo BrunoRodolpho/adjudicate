@@ -13,6 +13,7 @@
  */
 
 import { z } from "zod";
+import { recordSinkFailure } from "./metrics.js";
 
 export type ObservedOutcome = "succeeded" | "failed" | "withdrawn";
 
@@ -76,11 +77,28 @@ function noopOutcomeSink(): OutcomeSink {
 /**
  * Module-level helper — adopters compose `setOutcomeSink(yourSink)` once at
  * boot, then forward retrospective observations through this function.
+ *
+ * ConcurrencyReviewer-008: outcome-sink failures are swallowed and routed to
+ * `recordSinkFailure` telemetry (sink: "outcome") rather than propagated to
+ * the caller. This mirrors the learning-sink and guard-stats best-effort
+ * pattern — telemetry must never crash the path that records it, and a
+ * transient sink outage (e.g. a Postgres blip) must not surface as a thrown
+ * error at every operator-driven call site. Operators observe the failure on
+ * the metrics dashboard; the helper always resolves.
  */
 export async function recordRetrospectiveOutcome(
   outcome: RetrospectiveOutcome,
 ): Promise<void> {
-  await _sink.recordOutcome(outcome);
+  try {
+    await _sink.recordOutcome(outcome);
+  } catch (err) {
+    recordSinkFailure({
+      sink: "outcome",
+      subject: outcome.intentHash,
+      errorClass: err instanceof Error ? err.name : "Error",
+      consecutiveFailures: 1,
+    });
+  }
 }
 
 /**

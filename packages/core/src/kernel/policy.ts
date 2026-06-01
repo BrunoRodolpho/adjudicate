@@ -26,12 +26,42 @@ import type { Decision } from "../decision.js";
 import type { IntentEnvelope } from "../envelope.js";
 import type { TaintPolicy } from "../taint.js";
 
+/**
+ * A single adjudication rule.
+ *
+ * **Type trust boundary — read before writing guards.**
+ *
+ * When a guard is invoked from the adapter-core loop (e.g. `createAgentLoop`),
+ * the `envelope` argument is typed `IntentEnvelope<K, P>` but its `kind` was
+ * validated only by string equality against `CapabilityPlan.allowedIntents`,
+ * and its `payload` is the raw `tool_use.input` value from the LLM. The
+ * TypeScript types narrowed from `K` and `P` reflect the *declared* shape, not
+ * a structurally verified runtime value.
+ *
+ * **Implication:** guards that destructure `envelope.payload` and assume it
+ * matches `P` without runtime validation create exploitable holes. You MUST
+ * validate `envelope.payload` structurally (e.g. with Zod or a type-guard
+ * function) before relying on its fields for security decisions.
+ *
+ * Example safe pattern:
+ * ```ts
+ * const guard: Guard<"order.place", OrderPayload, State> = (envelope, state) => {
+ *   const parsed = OrderPayloadSchema.safeParse(envelope.payload);
+ *   if (!parsed.success) return refuse("SECURITY", "order.place.bad_payload", "Invalid input.");
+ *   const payload = parsed.data; // now structurally safe
+ *   // ... rest of guard logic
+ * };
+ * ```
+ */
 export type Guard<K extends string, P, S> = (
   envelope: IntentEnvelope<K, P>,
   state: S,
 ) => Decision | null;
 
 export interface PolicyBundle<K extends string, P, S> {
+  /**
+   * @see Guard for the runtime trust-boundary note on `envelope.payload`.
+   */
   readonly stateGuards: ReadonlyArray<Guard<K, P, S>>;
   readonly authGuards: ReadonlyArray<Guard<K, P, S>>;
   /** Declares the minimum Taint required per intent kind. */

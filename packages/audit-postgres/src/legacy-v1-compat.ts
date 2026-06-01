@@ -28,6 +28,7 @@
 
 import {
   buildEnvelope,
+  type IntentActor,
   type IntentEnvelope,
   type Taint,
 } from "@adjudicate/core";
@@ -45,7 +46,7 @@ export function legacyV1ToV2(row: IntentAuditRow): IntentEnvelope {
   const stored = JSON.parse(row.envelope_jsonb) as {
     readonly kind: string;
     readonly payload: unknown;
-    readonly actor: { readonly principal: "llm" | "user" | "system"; readonly sessionId: string };
+    readonly actor: { readonly principal: IntentActor["principal"]; readonly sessionId: string };
     readonly taint: Taint;
     readonly createdAt: string;
     readonly nonce?: string;

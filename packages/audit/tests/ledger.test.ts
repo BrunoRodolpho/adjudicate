@@ -1,6 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  _resetMetricsSink,
+  setMetricsSink,
+  type MetricsSink,
+  type SinkFailureEvent,
+} from "@adjudicate/core/kernel";
 import { createMemoryLedger } from "../src/ledger-memory.js";
 import { createRedisLedger, type RedisLedgerClient } from "../src/ledger-redis.js";
+
+function spyMetricsSink(failures: SinkFailureEvent[]): MetricsSink {
+  return {
+    recordLedgerOp() {},
+    recordDecision() {},
+    recordRefusal() {},
+    recordSinkFailure(e) {
+      failures.push(e);
+    },
+    recordShadowDivergence() {},
+    recordResourceLimit() {},
+  };
+}
 
 describe("ExecutionLedger — memory implementation", () => {
   it("returns null for unknown intents", async () => {
@@ -42,6 +61,10 @@ describe("ExecutionLedger — memory implementation", () => {
 });
 
 describe("ExecutionLedger — Redis implementation", () => {
+  afterEach(() => {
+    _resetMetricsSink();
+  });
+
   function mockRedis(): {
     client: RedisLedgerClient;
     store: Map<string, string>;
@@ -111,6 +134,32 @@ describe("ExecutionLedger — Redis implementation", () => {
     };
     const ledger = createRedisLedger({ client, keyFor: (s) => s });
     expect(await ledger.checkLedger("x")).toBe(null);
+  });
+
+  it("checkLedger calls recordSinkFailure when stored value is not valid JSON", async () => {
+    const failures: SinkFailureEvent[] = [];
+    setMetricsSink(spyMetricsSink(failures));
+
+    const store = new Map<string, string>();
+    store.set("ledger:intent:corrupt", "CORRUPT");
+    const client: RedisLedgerClient = {
+      async set() {
+        return "OK";
+      },
+      async get(key) {
+        return store.get(key) ?? null;
+      },
+    };
+    const ledger = createRedisLedger({ client, keyFor: (s) => s });
+
+    // Behavior unchanged: a JSON.parse throw is still surfaced as a cache miss.
+    expect(await ledger.checkLedger("corrupt")).toBe(null);
+
+    // ErrorReviewer-001: the parse failure is now visible to operators.
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.sink).toBe("buffered");
+    expect(failures[0]!.subject).toBe("ledger:intent:corrupt");
+    expect(failures[0]!.errorClass).toBe("SyntaxError");
   });
 
   it("SET NX prevents overwrite — first writer wins", async () => {

@@ -8,6 +8,8 @@
  * This is NOT a durable audit sink. Use AuditSink for that.
  */
 
+import { recordSinkFailure } from "@adjudicate/core/kernel";
+
 import type {
   Ledger,
   LedgerHit,
@@ -65,7 +67,16 @@ export function createRedisLedger(opts: CreateRedisLedgerOptions): Ledger {
           return null;
         }
         return parsed as LedgerHit;
-      } catch {
+      } catch (err) {
+        // ErrorReviewer-001: a JSON.parse throw means a corrupt/truncated
+        // ledger row. Surface it via recordSinkFailure so operators see the
+        // event; behavior is unchanged (still treated as a cache miss).
+        recordSinkFailure({
+          sink: "buffered",
+          subject: `ledger:intent:${intentHash}`,
+          errorClass: err instanceof Error ? err.name : "non_error",
+          consecutiveFailures: 1,
+        });
         return null;
       }
     },

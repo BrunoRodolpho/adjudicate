@@ -31,14 +31,24 @@ import {
 } from "@adjudicate/core";
 import { adjudicate } from "../../../src/kernel/adjudicate.js";
 import type { PolicyBundle } from "../../../src/kernel/policy.js";
+import { jsonSafePayloadArb } from "../../helpers/json-safe-arb.js";
 
 const taintArb = fc.constantFrom<Taint>("SYSTEM", "TRUSTED", "UNTRUSTED");
 const defaultArb = fc.constantFrom<"REFUSE" | "EXECUTE">("REFUSE", "EXECUTE");
 
-function env(taint: Taint, seed: string): IntentEnvelope<string, { x: string }> {
-  return buildEnvelope<string, { x: string }>({
+// TestReviewer-008: fuzz with deeply-nested JSON-safe payloads instead of the
+// flat scalar `{ x: seed }`; coverage comes from payload SHAPE. The replay
+// invariant requires the stored and replayed envelopes to share the SAME nonce
+// AND payload (same content → same intentHash), so the generated payload is
+// threaded into a single env() per property iteration. numRuns capped at 1_000
+// (recursive payloads are heavier — same cap as v2-hash-stability).
+function env(
+  taint: Taint,
+  payload: Record<string, unknown>,
+): IntentEnvelope<string, unknown> {
+  return buildEnvelope<string, unknown>({
     kind: "order.tool.propose",
-    payload: { x: seed },
+    payload,
     actor: { principal: "llm", sessionId: "s" },
     taint,
     nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
@@ -165,10 +175,10 @@ describe("invariant: replay matches the stored Decision when policy is unchanged
         taintArb,
         defaultArb,
         guardArb,
-        fc.string({ minLength: 1, maxLength: 12 }),
-        (taint, def, guard, seed) => {
+        jsonSafePayloadArb,
+        (taint, def, guard, payload) => {
           const policy = bundle(def, guard);
-          const envelope = env(taint, seed);
+          const envelope = env(taint, payload);
           const decision = adjudicate(envelope, {}, policy);
           const stored = buildAuditRecord({
             envelope,
@@ -180,7 +190,7 @@ describe("invariant: replay matches the stored Decision when policy is unchanged
           expect(decisionsMatch(decision, replayed)).toBe(true);
         },
       ),
-      { numRuns: 5_000 },
+      { numRuns: 1_000 },
     );
   });
 });

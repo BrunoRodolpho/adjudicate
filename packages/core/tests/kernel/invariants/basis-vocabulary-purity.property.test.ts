@@ -20,6 +20,7 @@ import {
 } from "@adjudicate/core";
 import { adjudicate } from "../../../src/kernel/adjudicate.js";
 import type { PolicyBundle } from "../../../src/kernel/policy.js";
+import { jsonSafePayloadArb } from "../../helpers/json-safe-arb.js";
 
 const taintArb = fc.constantFrom<Taint>("SYSTEM", "TRUSTED", "UNTRUSTED");
 
@@ -34,13 +35,18 @@ const taintPolicy: TaintPolicy = {
   minimumFor: (k) => (k === "payment.send" ? "SYSTEM" : "UNTRUSTED"),
 };
 
+// TestReviewer-008: fuzz with deeply-nested JSON-safe payloads instead of the
+// trivial { x: 1 }; coverage comes from payload SHAPE. numRuns capped at 1_000
+// (recursive payloads are heavier than a flat scalar — same cap as
+// v2-hash-stability).
 function env(
   kind: string,
   taint: Taint,
-): IntentEnvelope<string, { x: number }> {
-  return buildEnvelope<string, { x: number }>({
+  payload: Record<string, unknown>,
+): IntentEnvelope<string, unknown> {
+  return buildEnvelope<string, unknown>({
     kind,
-    payload: { x: 1 },
+    payload,
     actor: { principal: "llm", sessionId: "s" },
     taint,
     nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
@@ -58,21 +64,21 @@ const emptyBundle: PolicyBundle<string, unknown, unknown> = {
 describe("invariant: every basis.code is in BASIS_CODES", () => {
   it("holds for EXECUTE decisions", () => {
     fc.assert(
-      fc.property(kindArb, taintArb, (kind, taint) => {
-        const decision = adjudicate(env(kind, taint), {}, emptyBundle);
+      fc.property(kindArb, taintArb, jsonSafePayloadArb, (kind, taint, payload) => {
+        const decision = adjudicate(env(kind, taint, payload), {}, emptyBundle);
         for (const b of decision.basis) {
           expect(isKnownBasisCode(b)).toBe(true);
         }
       }),
-      { numRuns: 10_000 },
+      { numRuns: 1_000 },
     );
   });
 
   it("holds for REFUSE decisions from every failure path", () => {
     fc.assert(
-      fc.property(kindArb, taintArb, (kind, taint) => {
+      fc.property(kindArb, taintArb, jsonSafePayloadArb, (kind, taint, payload) => {
         const decision = adjudicate(
-          env(kind, taint),
+          env(kind, taint, payload),
           {},
           { ...emptyBundle, default: "REFUSE" },
         );
@@ -80,7 +86,7 @@ describe("invariant: every basis.code is in BASIS_CODES", () => {
           expect(isKnownBasisCode(b)).toBe(true);
         }
       }),
-      { numRuns: 10_000 },
+      { numRuns: 1_000 },
     );
   });
 
@@ -89,8 +95,9 @@ describe("invariant: every basis.code is in BASIS_CODES", () => {
       fc.property(
         fc.integer({ min: 2, max: 1000 }),
         kindArb,
-        (badVersion, kind) => {
-          const base = env(kind, "SYSTEM");
+        jsonSafePayloadArb,
+        (badVersion, kind, payload) => {
+          const base = env(kind, "SYSTEM", payload);
           const decision = adjudicate(
             { ...base, version: badVersion as 1 },
             {},
@@ -101,7 +108,7 @@ describe("invariant: every basis.code is in BASIS_CODES", () => {
           }
         },
       ),
-      { numRuns: 10_000 },
+      { numRuns: 1_000 },
     );
   });
 });

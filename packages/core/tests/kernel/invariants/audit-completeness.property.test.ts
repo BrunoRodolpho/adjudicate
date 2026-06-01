@@ -20,14 +20,22 @@ import {
 } from "@adjudicate/core";
 import { adjudicate } from "../../../src/kernel/adjudicate.js";
 import type { PolicyBundle } from "../../../src/kernel/policy.js";
+import { jsonSafePayloadArb } from "../../helpers/json-safe-arb.js";
 
 const taintArb = fc.constantFrom<Taint>("SYSTEM", "TRUSTED", "UNTRUSTED");
 const defaultArb = fc.constantFrom<"REFUSE" | "EXECUTE">("REFUSE", "EXECUTE");
 
-function env(taint: Taint): IntentEnvelope<string, { x: number }> {
-  return buildEnvelope<string, { x: number }>({
+// TestReviewer-008: fuzz with deeply-nested JSON-safe payloads instead of the
+// trivial { x: 1 }. The envelope builder takes the generated payload; numRuns is
+// capped at 1_000 (recursive payloads are heavier than a flat scalar — same cap
+// as v2-hash-stability) and coverage comes from payload SHAPE.
+function env(
+  taint: Taint,
+  payload: Record<string, unknown>,
+): IntentEnvelope<string, unknown> {
+  return buildEnvelope<string, unknown>({
     kind: "order.tool.propose",
-    payload: { x: 1 },
+    payload,
     actor: { principal: "llm", sessionId: "s" },
     taint,
     nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
@@ -51,11 +59,11 @@ function bundle(
 describe("invariant: every decision carries a non-empty basis", () => {
   it("holds across taint × default matrix", () => {
     fc.assert(
-      fc.property(taintArb, defaultArb, (taint, def) => {
-        const decision = adjudicate(env(taint), {}, bundle(def));
+      fc.property(taintArb, defaultArb, jsonSafePayloadArb, (taint, def, payload) => {
+        const decision = adjudicate(env(taint, payload), {}, bundle(def));
         expect(decision.basis.length).toBeGreaterThan(0);
       }),
-      { numRuns: 10_000 },
+      { numRuns: 1_000 },
     );
   });
 });
@@ -63,16 +71,16 @@ describe("invariant: every decision carries a non-empty basis", () => {
 describe("invariant: audit record basis matches decision basis", () => {
   it("decision_basis === decision.basis for every produced record", () => {
     fc.assert(
-      fc.property(taintArb, defaultArb, (taint, def) => {
-        const decision = adjudicate(env(taint), {}, bundle(def));
+      fc.property(taintArb, defaultArb, jsonSafePayloadArb, (taint, def, payload) => {
+        const decision = adjudicate(env(taint, payload), {}, bundle(def));
         const record = buildAuditRecord({
-          envelope: env(taint),
+          envelope: env(taint, payload),
           decision,
           durationMs: 1,
         });
         expect(record.decision_basis).toEqual(decision.basis);
       }),
-      { numRuns: 10_000 },
+      { numRuns: 1_000 },
     );
   });
 });

@@ -20,7 +20,7 @@ describe("canonicalJson", () => {
     expect(canonicalJson([1, 2, 3])).not.toBe(canonicalJson([3, 2, 1]));
   });
 
-  it("is deterministic on arbitrary JSON-safe objects", () => {
+  it("is deterministic on arbitrary JSON-safe objects (key-order independent)", () => {
     // JSON-safe = finite numbers only. fc.object()'s default fc.double() emits
     // NaN/Infinity, which canonicalize() (correctly, per RFC 8785 §3.2.2.3)
     // throws on — so the default generator is NOT JSON-safe and made this
@@ -34,10 +34,24 @@ describe("canonicalJson", () => {
       fc.string(),
       fc.constant(null),
     ];
+
+    function reverseKeys(v: unknown): unknown {
+      if (v === null || typeof v !== "object" || Array.isArray(v)) return v;
+      const obj = v as Record<string, unknown>;
+      const reversed: Record<string, unknown> = {};
+      for (const k of Object.keys(obj).reverse()) {
+        reversed[k] = reverseKeys(obj[k]);
+      }
+      return reversed;
+    }
+
     fc.assert(
       fc.property(fc.object({ maxDepth: 3, values: jsonSafeValues }), (obj) => {
-        expect(canonicalJson(obj)).toBe(canonicalJson(obj));
+        // Structural key shuffle — different insertion order, identical content.
+        const shuffled = reverseKeys(obj) as typeof obj;
+        expect(canonicalJson(obj)).toBe(canonicalJson(shuffled));
       }),
+      { numRuns: 2_000 },
     );
   });
 });

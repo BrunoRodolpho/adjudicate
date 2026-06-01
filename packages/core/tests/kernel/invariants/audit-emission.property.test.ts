@@ -30,15 +30,23 @@ import {
   _resetShadowTelemetrySink,
 } from "../../../src/kernel/index.js";
 import type { PolicyBundle } from "../../../src/kernel/policy.js";
+import { jsonSafePayloadArb } from "../../helpers/json-safe-arb.js";
 
 const taintArb = fc.constantFrom<Taint>("SYSTEM", "TRUSTED", "UNTRUSTED");
 const defaultArb = fc.constantFrom<"REFUSE" | "EXECUTE">("REFUSE", "EXECUTE");
 const ledgerHitArb = fc.boolean();
 
-function env(taint: Taint, nonce: string): IntentEnvelope<string, { x: number }> {
-  return buildEnvelope<string, { x: number }>({
+// TestReviewer-008: fuzz with deeply-nested JSON-safe payloads instead of the
+// trivial { x: 1 }; coverage comes from payload SHAPE. numRuns stays at the
+// existing 1_000 cap (recursive payloads are heavier than a flat scalar).
+function env(
+  taint: Taint,
+  nonce: string,
+  payload: Record<string, unknown>,
+): IntentEnvelope<string, unknown> {
+  return buildEnvelope<string, unknown>({
     kind: "order.tool.propose",
-    payload: { x: 1 },
+    payload,
     actor: { principal: "llm", sessionId: "s" },
     taint,
     // T8: vary `nonce` so distinct fc shrinks produce distinct hashes.
@@ -77,7 +85,8 @@ describe("invariant: every adjudicateAndAudit call emits exactly one AuditRecord
         defaultArb,
         ledgerHitArb,
         fc.string({ minLength: 1, maxLength: 8 }),
-        async (taint, def, hitLedger, nonce) => {
+        jsonSafePayloadArb,
+        async (taint, def, hitLedger, nonce, payload) => {
           const emit = vi.fn().mockResolvedValue(undefined);
           const sink: AuditSink = { emit };
           const ledger = hitLedger
@@ -91,14 +100,14 @@ describe("invariant: every adjudicateAndAudit call emits exactly one AuditRecord
                 recordExecution: async () => "exists" as const,
               }
             : undefined;
-          const result = await adjudicateAndAudit(env(taint, nonce), {}, bundle(def), {
+          const result = await adjudicateAndAudit(env(taint, nonce, payload), {}, bundle(def), {
             sink,
             ...(ledger ? { ledger } : {}),
           });
           expect(emit).toHaveBeenCalledTimes(1);
           const record = emit.mock.calls[0]![0] as AuditRecord;
           expect(record.decision.kind).toBe(result.decision.kind);
-          expect(record.intentHash).toBe(env(taint, nonce).intentHash);
+          expect(record.intentHash).toBe(env(taint, nonce, payload).intentHash);
           expect(record.decision_basis).toEqual(result.decision.basis);
         },
       ),

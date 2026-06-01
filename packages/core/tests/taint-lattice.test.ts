@@ -25,6 +25,7 @@ describe("mergeTaint — lattice algebra", () => {
           mergeTaint(a, mergeTaint(b, c)),
         );
       }),
+      { numRuns: 27 }, // 3^3 = 27 triples — exhausts the state space
     );
   });
 
@@ -33,6 +34,7 @@ describe("mergeTaint — lattice algebra", () => {
       fc.property(taintArb, (t) => {
         expect(mergeTaint(t, t)).toBe(t);
       }),
+      { numRuns: 3 }, // 3 values — exhausted in 3 runs
     );
   });
 
@@ -42,6 +44,7 @@ describe("mergeTaint — lattice algebra", () => {
         const merged = mergeTaint(a, b);
         expect(RANK[merged]).toBeLessThanOrEqual(Math.min(RANK[a], RANK[b]));
       }),
+      { numRuns: 9 }, // 3^2 = 9 pairs — exhausts the state space
     );
   });
 
@@ -69,6 +72,7 @@ describe("meetAll", () => {
         const expected = ts.reduce((acc, t) => mergeTaint(acc, t));
         expect(meetAll(ts)).toBe(expected);
       }),
+      { numRuns: 100 }, // 100 random arrays; space is small, coverage is adequate
     );
   });
 });

@@ -5,6 +5,8 @@
 import { describe, expect, it } from "vitest";
 import {
   AUDIT_RECORD_VERSION,
+  basis,
+  BASIS_CODES,
   buildAuditRecord,
   buildEnvelope,
   decisionExecute,
@@ -278,6 +280,76 @@ describe("verifyAuditRecord envelope self-consistency", () => {
     expect(v.verified).toBe(false);
     if (v.verified === false) {
       expect(v.reason).toBe("envelope_intent_mismatch");
+    }
+  });
+});
+
+// TestReviewer-003: the v4 auditHash is computed over the canonical baseRecord
+// (audit.ts buildAuditRecord), which binds every canonical field — not just
+// `decision` (the only field the pre-existing tamper test mutated). This
+// parametric block mutates exactly ONE canonical field per case on an otherwise
+// untouched baseline and asserts verifyAuditRecord flags it `tampered`. If any
+// case returns verified=true, a canonical field is NOT bound by the auditHash —
+// a genuine production regression in audit.ts, not a test to weaken.
+//
+// `envelope` tampering is intentionally NOT covered here — it is exercised by
+// the "verifyAuditRecord envelope self-consistency" describe block above (it
+// surfaces as `envelope_intent_mismatch`, a distinct branch).
+describe("verifyAuditRecord — field-level tamper detection (parametric)", () => {
+  // Build a baseline record once; each case mutates exactly one canonical field.
+  const BASE = buildAuditRecord({
+    envelope: ENV,
+    decision: decisionExecute([basis("business", BASIS_CODES.business.RULE_SATISFIED)]),
+    durationMs: 5,
+    at: "2026-05-18T00:00:01.000Z",
+    policyVersion: "1.0.0",
+    kernelVersion: "0.4.0",
+    resourceVersion: "rv-1",
+    plan: { visibleReadTools: ["read_catalog"], allowedIntents: ["order.tool.propose"] },
+    supersedes: {
+      predecessorIntentHash: "a".repeat(64),
+      predecessorAt: "2026-05-18T00:00:00.000Z",
+      reason: "replay",
+    },
+    kernelIdentity: { id: "k-1", version: "0.4.0" },
+  });
+
+  // Each mutation is a same-typed but byte-different value for its field, so the
+  // canonical re-hash diverges from the stored auditHash → "tampered".
+  it.each<[string, Partial<typeof BASE>]>([
+    ["at", { at: "2000-01-01T00:00:00.000Z" }],
+    ["durationMs", { durationMs: 9999 }],
+    ["policyVersion", { policyVersion: "9.9.9" }],
+    ["kernelVersion", { kernelVersion: "9.9.9" }],
+    ["resourceVersion", { resourceVersion: "rv-tampered" }],
+    [
+      "plan",
+      {
+        plan: {
+          visibleReadTools: ["read_tampered"],
+          allowedIntents: ["order.tool.propose"],
+          planFingerprint: BASE.plan!.planFingerprint,
+        },
+      },
+    ],
+    [
+      "supersedes",
+      {
+        supersedes: {
+          predecessorIntentHash: "b".repeat(64),
+          predecessorAt: "2026-05-18T00:00:00.000Z",
+          reason: "replay",
+        },
+      },
+    ],
+    ["kernelIdentity", { kernelIdentity: { id: "k-tampered", version: "0.4.0" } }],
+    ["decision_basis", { decision_basis: [] }],
+  ])("detects tamper on field '%s'", (_field, mutation) => {
+    const tampered = { ...BASE, ...mutation };
+    const v = verifyAuditRecord(tampered);
+    expect(v.verified).toBe(false);
+    if (v.verified === false) {
+      expect(v.reason).toBe("tampered");
     }
   });
 });

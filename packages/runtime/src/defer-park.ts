@@ -87,6 +87,13 @@ export interface ParkLogger {
 }
 
 export interface ParkDeferredIntentArgs {
+  /**
+   * The envelope to park. Stored verbatim to Redis as JSON unless
+   * `transformEnvelopeBeforePark` is supplied. Payload fields (including
+   * any PII) are durable for `ttlSeconds`. Adopters handling sensitive
+   * payloads (e.g., CPF/SSN/card data) MUST provide a redaction transform
+   * or use field-level encryption at the Redis layer.
+   */
   readonly envelope: {
     readonly intentHash: string
     readonly kind: string
@@ -122,6 +129,22 @@ export interface ParkDeferredIntentArgs {
    */
   readonly quotaPerSession?: number
   readonly log?: ParkLogger
+  /**
+   * SecurityReviewer-005: optional transform applied to the envelope before
+   * it is JSON-serialised into Redis. Use for payload redaction, field-level
+   * encryption, or stripping PII before durable park storage.
+   *
+   * The returned value is stored verbatim; it MUST preserve the fields
+   * required for `verifyParkedEnvelopeHash` (intentHash, kind, actor,
+   * version, nonce, taint, actorPrincipal if hash verification is wired).
+   *
+   * When omitted the envelope is stored as-is. Production deployments that
+   * park envelopes containing PII MUST supply this hook or use field-level
+   * encryption in the Redis client.
+   */
+  readonly transformEnvelopeBeforePark?: (
+    envelope: ParkDeferredIntentArgs["envelope"],
+  ) => ParkDeferredIntentArgs["envelope"]
 }
 
 export type ParkDeferredIntentResult =
@@ -217,10 +240,17 @@ export async function parkDeferredIntent(
     }
   }
 
+  // SecurityReviewer-005: apply the optional redaction/encryption transform
+  // before the envelope is serialised into durable Redis storage. When the
+  // hook is omitted the envelope is stored verbatim (back-compat).
+  const storedEnvelope = args.transformEnvelopeBeforePark
+    ? args.transformEnvelopeBeforePark(args.envelope)
+    : args.envelope
+
   await args.redis.set(
     parkKey,
     JSON.stringify({
-      envelope: args.envelope,
+      envelope: storedEnvelope,
       signal: args.signal,
       // parkedAt is metadata for the audit-trail only; it is NOT part of any
       // hash-derivation and never enters the resume-side intentHash check.

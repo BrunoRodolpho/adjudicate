@@ -23,6 +23,7 @@ import chalk from "chalk";
 import { errorMessage } from "../lib/error-message.js";
 import {
   adjudicate,
+  assertPackConformance,
   classify,
   replayEnvelopeFromAudit,
   type AuditRecord,
@@ -50,7 +51,12 @@ interface LoadedPack {
   readonly rehydrateState?: (raw: unknown) => unknown;
 }
 
-export interface ReplayReport {
+/**
+ * CLI-side replay report. Extends the `@adjudicate/audit` `ReplayReport`
+ * shape with `pack` (which Pack was replayed) and `errored` (records that
+ * threw during adjudication, distinct from decision mismatches).
+ */
+export interface CliReplayReport {
   readonly pack: string;
   readonly total: number;
   readonly matched: number;
@@ -83,7 +89,7 @@ export async function runReplay(options: ReplayOptions): Promise<void> {
 function runRecords(
   pack: LoadedPack,
   records: ReadonlyArray<AuditRecord>,
-): ReplayReport {
+): CliReplayReport {
   const mismatches: ReplayMismatch[] = [];
   const errored: Array<{ intentHash: string; error: string }> = [];
   let matched = 0;
@@ -121,7 +127,7 @@ function runRecords(
   };
 }
 
-function renderText(report: ReplayReport): string {
+function renderText(report: CliReplayReport): string {
   const lines: string[] = [];
   lines.push(chalk.bold("adjudicate replay"));
   lines.push("");
@@ -189,6 +195,16 @@ async function loadPack(
   }
   if (!isLoadedPack(pack)) {
     out(chalk.red("✗") + ` No Pack export found in "${spec}".`);
+    process.exit(1);
+  }
+  // SecurityReviewer-006: kernel conformance check (mirrors pack-lint.ts).
+  // `isLoadedPack` is a structural shape check only; this rejects Packs
+  // that pass that shape but violate kernel conformance before any
+  // adjudication runs.
+  try {
+    assertPackConformance(pack as never);
+  } catch (err) {
+    out(chalk.red("✗") + ` Pack conformance failed: ${errorMessage(err)}`);
     process.exit(1);
   }
   return pack;

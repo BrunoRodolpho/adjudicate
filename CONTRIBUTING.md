@@ -44,6 +44,9 @@ pnpm test
 
 Requires Node ≥ 20 and pnpm ≥ 10.
 
+See [`docs/release/licensing.md`](./docs/release/licensing.md) for license notes on
+transitive dependencies in `apps/` and `examples/`.
+
 ## Workflow
 
 ```bash

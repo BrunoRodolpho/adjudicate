@@ -374,11 +374,15 @@ export interface CreateRuntimeContextOptions {
   readonly learning?: LearningSink;
   readonly shadowTelemetry?: ShadowTelemetrySink;
   readonly envSeed?: NodeJS.ProcessEnv;
-  /** Custom env-var name for the kill switch. Default: `"IBX_KILL_SWITCH"`. */
+  /**
+   * Custom env-var name for the kill switch.
+   * Default: `"IBX_KILL_SWITCH"` (IBX_ prefix is a framework-origin artifact;
+   * override this with your own prefix in production).
+   */
   readonly killSwitchEnvVar?: string;
-  /** Custom shadow-list env var. Default: `"IBX_KERNEL_SHADOW"`. */
+  /** Custom shadow-list env var. Default: `"IBX_KERNEL_SHADOW"` (see killSwitchEnvVar note). */
   readonly shadowEnvVar?: string;
-  /** Custom enforce-list env var. Default: `"IBX_KERNEL_ENFORCE"`. */
+  /** Custom enforce-list env var. Default: `"IBX_KERNEL_ENFORCE"` (see killSwitchEnvVar note). */
   readonly enforceEnvVar?: string;
 }
 

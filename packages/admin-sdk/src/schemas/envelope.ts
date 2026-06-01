@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { IntentActor, IntentEnvelope, Taint } from "@adjudicate/core";
+import { IntentHashSchema } from "./common.js";
 
 /**
  * Wire-side schemas for `IntentEnvelope`, `IntentActor`, and `Taint`.
@@ -30,7 +31,7 @@ export const IntentEnvelopeSchema = z.object({
   actor: IntentActorSchema,
   taint: TaintSchema,
   /** sha256(canonical(envelope minus intentHash)). Computed by buildEnvelope. */
-  intentHash: z.string(),
+  intentHash: IntentHashSchema,
 });
 
 // ─── Build-time drift guards ────────────────────────────────────────────────

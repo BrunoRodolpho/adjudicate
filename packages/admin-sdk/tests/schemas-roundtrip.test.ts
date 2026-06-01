@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { AuditRecordSchema } from "../src/schemas/audit.js";
 import { DecisionSchema } from "../src/schemas/decision.js";
-import { IsoTimestampSchema } from "../src/schemas/common.js";
+import { IntentHashSchema, IsoTimestampSchema } from "../src/schemas/common.js";
 import { OutcomeDistributionQuerySchema } from "../src/schemas/outcome-distribution.js";
+import { AuditQuerySchema } from "../src/schemas/query.js";
+import { RetrospectiveOutcomeSchema } from "../src/schemas/outcome-reconciliation.js";
 import { ALL } from "./fixtures.js";
+
+const VALID_HASH = "a".repeat(64);
 
 /**
  * Roundtrip — every kernel-emitted Decision kind must parse cleanly
@@ -124,5 +128,75 @@ describe("AuditRecordSchema field-level validation", () => {
     const bad = { ...base, envelope: { ...base.envelope, version: 99 } };
     const result = AuditRecordSchema.safeParse(bad);
     expect(result.success).toBe(false);
+  });
+});
+
+describe("IntentHashSchema — sha256 hex enforcement (APIReviewer-013)", () => {
+  it("accepts a 64-char lowercase hex string", () => {
+    expect(IntentHashSchema.safeParse(VALID_HASH).success).toBe(true);
+    // A real kernel-emitted hash from the fixtures must pass.
+    expect(IntentHashSchema.safeParse(ALL[0]!.intentHash).success).toBe(true);
+  });
+
+  it("rejects empty, truncated, uppercase, and non-hex", () => {
+    expect(IntentHashSchema.safeParse("").success).toBe(false);
+    expect(IntentHashSchema.safeParse("not-a-hash").success).toBe(false);
+    expect(IntentHashSchema.safeParse("abc123").success).toBe(false); // too short
+    expect(IntentHashSchema.safeParse("A".repeat(64)).success).toBe(false); // uppercase
+    expect(IntentHashSchema.safeParse("g".repeat(64)).success).toBe(false); // non-hex char
+    expect(IntentHashSchema.safeParse("a".repeat(65)).success).toBe(false); // too long
+  });
+
+  it("AuditQuery.intentHash: empty / non-hex are wire errors, not empty results", () => {
+    expect(() => AuditQuerySchema.parse({ intentHash: "", limit: 10 })).toThrow();
+    expect(() =>
+      AuditQuerySchema.parse({ intentHash: "not-a-hash", limit: 10 }),
+    ).toThrow();
+    expect(
+      AuditQuerySchema.safeParse({ intentHash: VALID_HASH, limit: 10 }).success,
+    ).toBe(true);
+    // intentHash is optional — omitting it still parses.
+    expect(AuditQuerySchema.safeParse({ limit: 10 }).success).toBe(true);
+  });
+});
+
+describe("RetrospectiveOutcomeSchema — note length cap (APIReviewer-011)", () => {
+  it("rejects a note longer than 2000 chars", () => {
+    expect(() =>
+      RetrospectiveOutcomeSchema.parse({
+        intentHash: VALID_HASH,
+        observed: "succeeded",
+        at: "2026-01-01T00:00:00.000Z",
+        note: "x".repeat(2001),
+      }),
+    ).toThrow();
+  });
+
+  it("accepts a note at exactly the 2000-char cap and an absent note", () => {
+    expect(
+      RetrospectiveOutcomeSchema.safeParse({
+        intentHash: VALID_HASH,
+        observed: "succeeded",
+        at: "2026-01-01T00:00:00.000Z",
+        note: "x".repeat(2000),
+      }).success,
+    ).toBe(true);
+    expect(
+      RetrospectiveOutcomeSchema.safeParse({
+        intentHash: VALID_HASH,
+        observed: "failed",
+        at: "2026-01-01T00:00:00.000Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a non-hex intentHash (APIReviewer-013, same file)", () => {
+    expect(() =>
+      RetrospectiveOutcomeSchema.parse({
+        intentHash: "not-a-hash",
+        observed: "succeeded",
+        at: "2026-01-01T00:00:00.000Z",
+      }),
+    ).toThrow();
   });
 });

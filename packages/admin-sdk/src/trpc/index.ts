@@ -19,6 +19,7 @@ import {
   AuditQuerySchema,
   AuditQueryResultSchema,
 } from "../schemas/query.js";
+import { IntentHashSchema } from "../schemas/common.js";
 import {
   OutcomeDistributionQuerySchema,
   OutcomeDistributionResultSchema,
@@ -107,13 +108,28 @@ const auditRouter = t.router({
     .input(AuditQuerySchema)
     .output(AuditQueryResultSchema)
     .query(async ({ input, ctx }) => {
+      // Audit reads expose tenant-scoped governance data — require an
+      // authenticated actor (AuthReviewer-004), consistent with the mutating
+      // procedures. Missing actor is UNAUTHORIZED, not an empty result.
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "x-adjudicate-actor-id header required for audit queries",
+        });
+      }
       const handler = createAuditQueryHandler({ store: ctx.store });
       return handler(input);
     }),
   byHash: t.procedure
-    .input(z.object({ intentHash: z.string().min(1) }))
+    .input(z.object({ intentHash: IntentHashSchema }))
     .output(AuditRecordSchema.nullable())
     .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "x-adjudicate-actor-id header required for audit queries",
+        });
+      }
       return ctx.store.getByIntentHash(input.intentHash);
     }),
 });
@@ -164,9 +180,19 @@ const replayRouter = t.router({
    *   - We don't want it to auto-run on mount via React Query defaults
    */
   run: t.procedure
-    .input(z.object({ intentHash: z.string().min(1) }))
+    .input(z.object({ intentHash: IntentHashSchema }))
     .output(ReplayResultSchema)
     .mutation(async ({ input, ctx }) => {
+      // Replay re-adjudicates a historical record — an explicit operator
+      // action that must be attributable (AuthReviewer-004). Guard before
+      // the replayer feature-detection so an unauthenticated caller gets
+      // UNAUTHORIZED rather than PRECONDITION_FAILED.
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "x-adjudicate-actor-id header required for replay mutations",
+        });
+      }
       if (!ctx.replayer) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",

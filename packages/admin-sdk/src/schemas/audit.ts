@@ -3,7 +3,7 @@ import type { AuditPlanSnapshot, AuditRecord } from "@adjudicate/core";
 import { DecisionBasisSchema } from "./basis.js";
 import { DecisionSchema } from "./decision.js";
 import { IntentEnvelopeSchema } from "./envelope.js";
-import { IsoTimestampSchema } from "./common.js";
+import { IntentHashSchema, IsoTimestampSchema } from "./common.js";
 
 /**
  * Wire-side schemas for `AuditPlanSnapshot` and `AuditRecord`.
@@ -30,7 +30,7 @@ export const SupersessionReasonSchema = z.enum([
 ]);
 
 export const SupersessionSchema = z.object({
-  predecessorIntentHash: z.string(),
+  predecessorIntentHash: IntentHashSchema,
   predecessorAt: z.string(),
   reason: SupersessionReasonSchema,
   token: z.string().optional(),
@@ -38,7 +38,7 @@ export const SupersessionSchema = z.object({
 
 export const AuditRecordSchema = z.object({
   version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
-  intentHash: z.string(),
+  intentHash: IntentHashSchema,
   envelope: IntentEnvelopeSchema,
   decision: DecisionSchema,
   decision_basis: z.array(DecisionBasisSchema).readonly(),

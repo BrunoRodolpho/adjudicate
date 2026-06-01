@@ -15,3 +15,21 @@ import { z } from "zod";
  */
 export const IsoTimestampSchema = z.string().datetime();
 export type IsoTimestamp = z.infer<typeof IsoTimestampSchema>;
+
+/**
+ * sha256 hex digest — 64 lowercase hex characters. Used for `intentHash`
+ * fields on both request inputs and wire response shapes (APIReviewer-013).
+ *
+ * Rejects empty strings, truncated hashes, uppercase hex, and non-hex content
+ * that the looser `z.string()` / `z.string().min(1)` previously let through —
+ * an `intentHash: ""` filter on `audit.query` is now a wire-level bad request,
+ * not a silent "empty result".
+ *
+ * Note: `z.infer` of this schema is `string` (identical to `z.string()`), so
+ * core→schema drift guards that assign a core `string` hash into a
+ * schema-inferred field continue to compile unchanged.
+ */
+export const IntentHashSchema = z.string().regex(/^[0-9a-f]{64}$/, {
+  message: "intentHash must be a 64-character lowercase hex string (sha256)",
+});
+export type IntentHash = z.infer<typeof IntentHashSchema>;

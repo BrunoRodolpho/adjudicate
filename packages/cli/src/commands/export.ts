@@ -8,9 +8,10 @@
  * it). Parquet is out of scope — the writer libraries are heavy and
  * not justified for v0.5.
  *
- * Filtering:
+ * Filtering (inclusive `[since, until]` — APIReviewer-003 boundary
+ * convention; matches the admin-sdk audit read surface):
  *   --since <iso>     keep records with recordedAt >= since
- *   --until <iso>     keep records with recordedAt < until
+ *   --until <iso>     keep records with recordedAt <= until
  *
  * Output columns (CSV):
  *   intent_hash, kind, decision_kind, recorded_at, duration_ms
@@ -34,7 +35,7 @@ export interface ExportOptions {
   readonly output?: string;
   /** ISO-8601 lower bound on `recordedAt` (inclusive). */
   readonly since?: string;
-  /** ISO-8601 upper bound on `recordedAt` (exclusive). */
+  /** ISO-8601 upper bound on `recordedAt` (inclusive). */
   readonly until?: string;
   /** Test injection. Defaults to `process.stdout.write`. */
   readonly stdout?: (line: string) => void;
@@ -81,7 +82,9 @@ function applyFilters(
   const untilMs = until ? Date.parse(until) : Infinity;
   return records.filter((r) => {
     const t = Date.parse(r.at);
-    return t >= sinceMs && t < untilMs;
+    // Inclusive on both ends (APIReviewer-003): a record whose `at` equals
+    // `until` IS included — consistent with the admin-sdk audit query window.
+    return t >= sinceMs && t <= untilMs;
   });
 }
 

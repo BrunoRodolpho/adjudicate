@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { TRPCError } from "@trpc/server";
 import { createAuditQueryHandler } from "../src/handlers/audit-query.js";
-import type { AuditQuery } from "../src/schemas/query.js";
+import type { AuditQuery, AuditQueryResult } from "../src/schemas/query.js";
+import type { AuditStore } from "../src/store/index.js";
 import { createInMemoryAuditStore } from "../src/store/index.js";
 import {
   ALL,
@@ -90,5 +92,50 @@ describe("createAuditQueryHandler", () => {
     for (let i = 1; i < result.records.length; i++) {
       expect(result.records[i - 1]!.at >= result.records[i]!.at).toBe(true);
     }
+  });
+});
+
+/**
+ * APIReviewer-007 (item 3) — a malformed pagination cursor surfaces from the
+ * store as an `InvalidCursorError` (audit-postgres' typed error, matched here
+ * structurally by `name` to avoid a package cycle). The handler must remap it
+ * to a tRPC BAD_REQUEST (client error / 400), not let it bubble as a 500.
+ */
+describe("createAuditQueryHandler — InvalidCursorError → BAD_REQUEST", () => {
+  // Mirror of audit-postgres' InvalidCursorError shape: an Error whose
+  // `.name` is "InvalidCursorError". The handler matches on name.
+  class FakeInvalidCursorError extends Error {
+    constructor(message = "Cursor is malformed or has been tampered with.") {
+      super(message);
+      this.name = "InvalidCursorError";
+    }
+  }
+
+  const throwingStore = (err: unknown): AuditStore => ({
+    async query(): Promise<AuditQueryResult> {
+      throw err;
+    },
+    async getByIntentHash() {
+      return null;
+    },
+  });
+
+  it("remaps InvalidCursorError to TRPCError BAD_REQUEST and preserves the message", async () => {
+    const h = createAuditQueryHandler({
+      store: throwingStore(new FakeInvalidCursorError()),
+    });
+    await expect(h(q({ cursor: "garbage" }))).rejects.toBeInstanceOf(TRPCError);
+    await h(q({ cursor: "garbage" })).catch((e: unknown) => {
+      expect(e).toBeInstanceOf(TRPCError);
+      const trpc = e as TRPCError;
+      expect(trpc.code).toBe("BAD_REQUEST");
+      expect(trpc.message).toMatch(/malformed|tampered/i);
+    });
+  });
+
+  it("rethrows non-cursor errors unchanged (a real persistence failure is still a 500)", async () => {
+    const boom = new Error("connection reset");
+    const h = createAuditQueryHandler({ store: throwingStore(boom) });
+    await expect(h(q())).rejects.toBe(boom);
   });
 });

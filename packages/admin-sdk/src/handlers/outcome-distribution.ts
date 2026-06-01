@@ -34,6 +34,12 @@ export interface CreateOutcomeDistributionHandlerDeps {
    * `query.limit` cap of 500.
    */
   readonly fallbackQueryLimit?: number;
+  /**
+   * Clock injection for the `until`-defaults-to-"now" behavior
+   * (APIReviewer-005). Defaults to `() => new Date().toISOString()`. Override
+   * in tests to produce a deterministic window.
+   */
+  readonly clock?: () => string;
 }
 
 const EMPTY_COUNTS: OutcomeBucket = Object.freeze({
@@ -78,18 +84,24 @@ export function createOutcomeDistributionHandler(
   deps: CreateOutcomeDistributionHandlerDeps,
 ): (input: OutcomeDistributionQuery) => Promise<OutcomeDistributionResult> {
   const limit = deps.fallbackQueryLimit ?? 500;
+  const clock = deps.clock ?? (() => new Date().toISOString());
   return async (input) => {
+    // Resolve the documented `until`-defaults-to-"now" behavior at request
+    // time (APIReviewer-005). Both the native and fallback paths see the
+    // same resolved upper bound, so the window is identical regardless of
+    // which aggregator the store provides.
+    const until = input.until ?? clock();
     if (hasNativeAggregator(deps.store)) {
-      return deps.store.outcomeDistribution(input);
+      return deps.store.outcomeDistribution({ ...input, until });
     }
     // Fallback: iterate audit records in the window. The AuditStore cap is
     // a real ceiling — callers needing more should plug in
     // OutcomeDistributionStore.
     const { records } = await deps.store.query({
       since: input.since,
-      ...(input.until ? { until: input.until } : {}),
+      until,
       limit,
     });
-    return aggregateRecords(records, input);
+    return aggregateRecords(records, { ...input, until });
   };
 }

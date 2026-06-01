@@ -23,7 +23,16 @@ import type { AuditQuery, AuditQueryResult } from "../schemas/query.js";
  */
 export interface AuditStore {
   query(query: AuditQuery): Promise<AuditQueryResult>;
-  getByIntentHash(intentHash: string): Promise<AuditRecord | null>;
+  /**
+   * Resolve a single record by hash. The optional `tenantScope`
+   * (AuthReviewer-004) is an injection point for host-enforced tenant
+   * isolation: multi-tenant implementations MUST NOT return a record outside
+   * the supplied scope. Single-tenant reference implementations ignore it.
+   */
+  getByIntentHash(
+    intentHash: string,
+    tenantScope?: string,
+  ): Promise<AuditRecord | null>;
 }
 
 export interface InMemoryAuditStoreOptions {
@@ -63,7 +72,12 @@ export function createInMemoryAuditStore(
       const filtered = sorted.filter((r) => matchesFilter(r, q));
       return { records: filtered.slice(0, q.limit) };
     },
-    async getByIntentHash(intentHash: string): Promise<AuditRecord | null> {
+    async getByIntentHash(
+      intentHash: string,
+      _tenantScope?: string,
+    ): Promise<AuditRecord | null> {
+      // Single-tenant reference impl: tenantScope is a no-op. Multi-tenant
+      // adopters override this method to enforce isolation (AuthReviewer-004).
       return sorted.find((r) => r.intentHash === intentHash) ?? null;
     },
   };

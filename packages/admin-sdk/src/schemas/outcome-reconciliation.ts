@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { IsoTimestampSchema } from "./common.js";
+import { IntentHashSchema, IsoTimestampSchema } from "./common.js";
 
 /**
  * Wire schemas for the `governance.recordOutcome` mutation and
@@ -14,15 +14,22 @@ export const ObservedOutcomeSchema = z.enum([
 ]);
 
 export const RetrospectiveOutcomeSchema = z.object({
-  intentHash: z.string().min(1),
+  intentHash: IntentHashSchema,
   observed: ObservedOutcomeSchema,
   at: IsoTimestampSchema,
-  note: z.string().optional(),
+  // 2000-char cap mirrors core's RetrospectiveOutcomeWireSchema exactly
+  // (APIReviewer-011) — an unbounded note must not pass SDK wire validation
+  // when the core sink rejects it.
+  note: z.string().max(2000).optional(),
 });
 export type RetrospectiveOutcomeParsed = z.infer<
   typeof RetrospectiveOutcomeSchema
 >;
 
+/**
+ * `decisionAccuracy({ since, until })` window. Inclusive bounds `[since,
+ * until]` (APIReviewer-003 boundary convention — same as `AuditQuerySchema`).
+ */
 export const DecisionAccuracyQuerySchema = z.object({
   since: IsoTimestampSchema,
   until: IsoTimestampSchema.optional(),

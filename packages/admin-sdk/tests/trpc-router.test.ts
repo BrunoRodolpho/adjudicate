@@ -2,11 +2,21 @@ import { describe, expect, it } from "vitest";
 import { createInMemoryAuditStore } from "../src/store/index.js";
 import { createInMemoryEmergencyStateStore } from "../src/store/emergency-store.js";
 import { createAdminCaller } from "../src/trpc/index.js";
+import type { Actor } from "../src/schemas/emergency.js";
 import { ALL, fixtureExecute, fixtureRefuse } from "./fixtures.js";
+
+const operator: Actor = { id: "op-1", displayName: "Test Operator" };
 
 const store = createInMemoryAuditStore({ records: ALL });
 const emergencyStore = createInMemoryEmergencyStateStore();
-const caller = createAdminCaller({ store, emergencyStore, actor: null });
+// audit.query / audit.byHash now require an authenticated actor
+// (AuthReviewer-004) — supply one for the happy-path suites.
+const caller = createAdminCaller({ store, emergencyStore, actor: operator });
+
+// A syntactically valid sha256 hex that matches no fixture — exercises the
+// "not found" path now that IntentHashSchema (APIReviewer-013) rejects
+// non-hex placeholders like "0xdeadbeef" at the wire.
+const UNKNOWN_HASH = "f".repeat(64);
 
 describe("adminRouter — audit.query", () => {
   it("returns paginated records", async () => {
@@ -58,7 +68,7 @@ describe("adminRouter — audit.byHash", () => {
   });
 
   it("returns null for unknown hash", async () => {
-    const result = await caller.audit.byHash({ intentHash: "0xdeadbeef" });
+    const result = await caller.audit.byHash({ intentHash: UNKNOWN_HASH });
     expect(result).toBeNull();
   });
 
@@ -66,6 +76,32 @@ describe("adminRouter — audit.byHash", () => {
     await expect(
       caller.audit.byHash({ intentHash: "" }),
     ).rejects.toThrow();
+  });
+
+  it("rejects a non-hex intentHash at the wire (APIReviewer-013)", async () => {
+    await expect(
+      caller.audit.byHash({ intentHash: "0xdeadbeef" }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("adminRouter — audit read actor guard (AuthReviewer-004)", () => {
+  const unauthCaller = createAdminCaller({
+    store,
+    emergencyStore,
+    actor: null,
+  });
+
+  it("audit.query returns UNAUTHORIZED (not an empty array) without an actor", async () => {
+    await expect(
+      unauthCaller.audit.query({ limit: 3 }),
+    ).rejects.toThrow(/actor-id header required/i);
+  });
+
+  it("audit.byHash returns UNAUTHORIZED without an actor", async () => {
+    await expect(
+      unauthCaller.audit.byHash({ intentHash: fixtureRefuse.intentHash }),
+    ).rejects.toThrow(/actor-id header required/i);
   });
 });
 

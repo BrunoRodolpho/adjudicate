@@ -24,9 +24,11 @@ export interface AuditQueryFnWindow {
 
 export interface AuditQueryFn {
   /**
-   * Return rows whose `recorded_at` falls within [fromIso, toIso). Optional
-   * filter by `intentKind`. Limit caps the result set; adopters may stream
-   * via repeated calls if needed.
+   * Return rows whose `recorded_at` falls within the inclusive window
+   * [fromIso, toIso] (APIReviewer-003 boundary convention — both ends
+   * inclusive, matching the admin-sdk audit query window). Optional filter by
+   * `intentKind`. Limit caps the result set; adopters may stream via repeated
+   * calls if needed.
    */
   fetchRows(window: AuditQueryFnWindow): Promise<readonly IntentAuditRow[]>;
 }

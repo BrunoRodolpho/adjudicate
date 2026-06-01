@@ -5,6 +5,7 @@ import type {
 } from "@adjudicate/core";
 import { AuditRecordSchema } from "./audit.js";
 import { DecisionSchema } from "./decision.js";
+import { IntentHashSchema } from "./common.js";
 
 /**
  * Wire-side schemas for the replay verification surface.
@@ -33,7 +34,7 @@ export const ReplayBasisDeltaSchema = z.object({
 });
 
 export const ReplayMismatchSchema = z.object({
-  intentHash: z.string(),
+  intentHash: IntentHashSchema,
   kind: ReplayMismatchKindSchema,
   expected: DecisionSchema,
   actual: DecisionSchema,

@@ -98,10 +98,10 @@ export function classifyDivergence(
   return "BASIS_ONLY"
 }
 
-export interface AdjudicateWithShadowInput<S> {
-  readonly envelope: IntentEnvelope
+export interface AdjudicateWithShadowInput<K extends string, P, S> {
+  readonly envelope: IntentEnvelope<K, P>
   readonly state: S
-  readonly policy: PolicyBundle<string, unknown, S>
+  readonly policy: PolicyBundle<K, P, S>
   readonly legacy: () => boolean
 }
 
@@ -111,8 +111,8 @@ export interface AdjudicateWithShadowInput<S> {
  * decisions plus the classification — the caller decides which is
  * authoritative based on `IBX_KERNEL_ENFORCE` config.
  */
-export function adjudicateWithShadow<S>(
-  input: AdjudicateWithShadowInput<S>,
+export function adjudicateWithShadow<K extends string, P, S>(
+  input: AdjudicateWithShadowInput<K, P, S>,
 ): ShadowResult {
   const adjudicateDecision = adjudicate(
     input.envelope,

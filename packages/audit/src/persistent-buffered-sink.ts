@@ -23,6 +23,8 @@
  * lambda). Tests use an in-memory Map-backed implementation.
  */
 
+import { recordSinkFailure } from "@adjudicate/core/kernel";
+
 import type { AuditRecord } from "@adjudicate/core";
 import type { AuditSink } from "./sink.js";
 
@@ -162,15 +164,31 @@ async function bufferOrSpill(
     try {
       await opts.storage.append(evicted);
       opts.onSpill?.(evicted, "capacity");
-    } catch {
-      // Storage append failed too — invoke onOverflow so the operator
-      // sees that the record is at risk. Push the original record into
-      // the queue anyway; if the storage clears later, recovery drains.
+    } catch (err) {
+      // ErrorReviewer-002: storage append failed — the evicted record is
+      // lost. Signal via recordSinkFailure so the operator knows the spill
+      // storage is also broken. onOverflow below still fires unconditionally.
+      recordSinkFailure({
+        sink: "buffered",
+        subject: "persistentBufferedSink.storage.append",
+        errorClass: err instanceof Error ? err.name : "non_error",
+        consecutiveFailures: 1,
+      });
     }
     try {
       opts.onOverflow(evicted);
-    } catch {
-      // onOverflow may not throw; swallow defensively.
+    } catch (err) {
+      // ErrorReviewer-008: onOverflow must not throw (contract:
+      // PersistentBufferedSinkOptions.onOverflow). Route the adopter bug
+      // through recordSinkFailure so it is visible via the metrics pipeline
+      // rather than silently lost. The swallow is preserved so a buggy
+      // callback cannot wedge the emit path.
+      recordSinkFailure({
+        sink: "buffered",
+        subject: "persistentBufferedSink.onOverflow",
+        errorClass: err instanceof Error ? err.name : "non_error",
+        consecutiveFailures: 1,
+      });
     }
   }
   memQueue.push(record);

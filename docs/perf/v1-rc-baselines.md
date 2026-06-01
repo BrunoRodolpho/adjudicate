@@ -20,6 +20,25 @@ and SDK marshalling.
 | EXECUTE (valid refund) | 2,190,471 | 0.5 | 0.6 | 1.5 | The headline number — full guard chain reaches EXECUTE in sub-µs. |
 | REWRITE (refund clamp) | 239,958 | 4.0 | 6.7 | 37 | Hash dominates: the rewritten envelope's `intentHash` is the cost. |
 | REFUSE (charge not found) | 3,012,854 | 0.3 | 0.5 | 1.3 | Short-circuits at the state guard; cheapest path. |
+| EXECUTE (valid refund, installPack-wrapped) | 210,754 | 4.7 | 7.5 | 61.5 | `withBasisAudit` wrapper cost; matches production default. Re-captured (see note). |
+| REFUSE (charge not found, installPack-wrapped) | 258,319 | 3.9 | 6.5 | 45.8 | Wrapped REFUSE path; matches production default. Re-captured (see note). |
+
+> The bare-policy rows above reflect the underlying kernel cost. Rows marked
+> "installPack-wrapped" reflect the framework's recommended boot
+> (`installPack(pack)` with `auditBasisDrift: true`, returning the
+> `withBasisAudit`-wrapped policy).
+>
+> **Capture note.** The four bare-policy rows were captured on
+> `claude/unruffled-bassi-305034` at `bddf704`. The two installPack-wrapped
+> rows were captured separately on the `fix/audit-2026-05-27` bench host at
+> `9bfab26` — a slower machine, so their **absolute** numbers are not
+> comparable to the bare rows above. What *is* comparable is the like-for-like
+> delta measured in the same run on that host: bare EXECUTE 218,538 hz vs
+> wrapped 210,754 hz, and bare REFUSE 262,130 hz vs wrapped 258,319 hz. The
+> `withBasisAudit` wrapper costs **~1–4% on the hot path** — it interposes only
+> to record `basis_code_drift`, leaving the adjudication work unchanged.
+> Re-run `pnpm -F @adjudicate/bench bench:kernel` on the reference host to
+> refresh the wrapped rows to that hardware's scale.
 
 `adjudicateWithTrace()` on the same EXECUTE path adds ~600 ns for the
 per-phase trace record allocation: 1,079,003 ops/s, p99 1.1 µs.
@@ -35,11 +54,23 @@ loop pay this; the kernel itself doesn't.
 | Path | hz (ops/s) | p50 (µs) | p99 (µs) | p99.9 (µs) | Notes |
 |---|---|---|---|---|---|
 | REFUSE (no EXECUTE → no ledger claim) | 51,471 | 19.4 | 26.3 | 88 | Includes the ledger consult, metrics dispatch, learning emission, AuditRecord build. |
+| REFUSE (no EXECUTE → no ledger claim, installPack-wrapped) | 3,489 | 287 | 733 | 1,770 | `withBasisAudit` wrapper; matches production default. Re-captured (see note). |
 
 The full-path REFUSE is ~50× the pure-kernel REFUSE because every
 adjudicateAndAudit call builds a complete `AuditRecord` (sha256 of the
 canonicalized record for the `auditHash` field) and dispatches to the
 sink. Operators planning SLO budgets allocate against this number.
+
+> **Capture note.** The bare-policy row was captured on
+> `claude/unruffled-bassi-305034` at `bddf704`. The installPack-wrapped row
+> was captured separately on the `fix/audit-2026-05-27` bench host at
+> `9bfab26` (slower hardware — absolute numbers not comparable to the bare
+> row). Like-for-like in the same run on that host: bare REFUSE 3,052 hz vs
+> wrapped 3,489 hz (wrapped lands within run-to-run noise, even marginally
+> faster). The `withBasisAudit` wrapper adds no material cost on the
+> audit-emitting path, where the `AuditRecord` sha256 + sink dispatch
+> dominate. Re-run `pnpm -F @adjudicate/bench bench:audit` on the reference
+> host to refresh the wrapped row to that hardware's scale.
 
 ---
 

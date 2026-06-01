@@ -89,7 +89,7 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 ## Key concepts
 
 - **IntentEnvelope v2.** Wire-format frozen. JSON Schema at `docs/specs/intent-envelope-v2.schema.json`. `intentHash` = RFC 8785 JCS over `{version, kind, payload, nonce, actor, taint}` — `createdAt` is **excluded** from the hash; `nonce` is the load-bearing idempotency key.
-- **Taint lattice.** `UNTRUSTED < SYSTEM_TAINTED < TRUSTED`. The taint policy declares which intent kinds are *system-only* (e.g., webhook callbacks). LLM-proposed envelopes are always `UNTRUSTED`.
+- **Taint lattice.** `SYSTEM > TRUSTED > UNTRUSTED` (closed enum `Taint = "SYSTEM" | "TRUSTED" | "UNTRUSTED"`; ranks 3 > 2 > 1). The taint policy declares which intent kinds are *system-only* (e.g., webhook callbacks). LLM-proposed envelopes are always `UNTRUSTED`.
 - **Pack (`PackV0`).** A self-contained domain bundle: `id`, `version`, `contract: "v0"`, `intents`, `policy: PolicyBundle`, `planner: CapabilityPlanner`, `basisCodes`, optional `signals` (DEFER resume triggers), optional `handlers` (post-EXECUTE side-effects).
 - **GuardMetadata.** Guards attach metadata via `withMetadata(guard, { name, scenario, description })`. The analyzer (`@adjudicate/analyze`) and visualizer consume `readGuardMetadata(guard)`. Hand-written guards may leave `{ kind: "opaque" }`.
 - **`AuditRecord` v4.** Additive over v3: `policyVersion`, `kernelVersion`, `auditHash`, `signature` seam. `verifyAuditRecord` re-derives the hash; pre-v4 records return `{ verified: null, reason: "missing_hash" }`.

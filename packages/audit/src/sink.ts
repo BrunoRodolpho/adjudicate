@@ -61,7 +61,7 @@ function fanOutStrict(sinks: readonly AuditSink[]): AuditSink {
           // visible via recordSinkFailure even when the throw is swallowed
           // upstream.
           recordSinkFailure({
-            sink: "console",
+            sink: "multi",
             subject: `multiSink[${index}]`,
             errorClass: error.name,
             consecutiveFailures: 1,
@@ -120,7 +120,7 @@ export function multiSinkLossy(...sinks: readonly AuditSink[]): AuditSink {
               ? r.reason
               : new Error(String(r.reason));
           recordSinkFailure({
-            sink: "console",
+            sink: "multi",
             subject: `multiSinkLossy[${index}]`,
             errorClass: error.name,
             consecutiveFailures: 1,

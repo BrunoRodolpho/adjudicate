@@ -9,13 +9,17 @@
  *   - missing guardName/guardPhase → event is dropped (no bucket for default-phase decisions)
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   GuardFireStats,
   type GuardFireBucket,
   type GuardFireStatsStore,
   type LearningEvent,
 } from "../../src/kernel/index.js";
+import {
+  _resetMetricsSink,
+  setMetricsSink,
+} from "../../src/kernel/metrics.js";
 
 function event(overrides: Partial<LearningEvent> = {}): LearningEvent {
   return {
@@ -158,5 +162,80 @@ describe("GuardFireStats — in-memory accumulator", () => {
     // 4 prior + 2 new deltas = 6. The OLD code wrote the cumulative `merged`
     // to the additive store (4+1+2 = 7) AND summed in-memory (2) → 9.
     expect(out[0]!.count).toBe(6);
+  });
+});
+
+describe("GuardFireStats — store write failure telemetry (ConcurrencyReviewer-009)", () => {
+  afterEach(() => _resetMetricsSink());
+
+  it("routes async store.write rejection to recordSinkFailure", async () => {
+    const failures: Array<{ sink: string; subject: string }> = [];
+    setMetricsSink({
+      recordLedgerOp() {},
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure(e) {
+        failures.push({ sink: e.sink, subject: e.subject });
+      },
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    });
+    const store: GuardFireStatsStore = {
+      write: () => Promise.reject(new Error("pg down")),
+      readSince: () => [],
+    };
+    const stats = new GuardFireStats({ store });
+    stats.recordOutcome(event()); // must not throw
+    // Give the microtask queue one tick so the async .catch fires.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.sink).toBe("guard-fire-stats");
+    expect(failures[0]!.subject).toBe("amount-threshold");
+  });
+
+  it("routes sync store.write throw to recordSinkFailure (no throw to caller)", () => {
+    const failures: Array<{ sink: string; subject: string }> = [];
+    setMetricsSink({
+      recordLedgerOp() {},
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure(e) {
+        failures.push({ sink: e.sink, subject: e.subject });
+      },
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    });
+    const store: GuardFireStatsStore = {
+      write: () => {
+        throw new Error("sync throw");
+      },
+      readSince: () => [],
+    };
+    const stats = new GuardFireStats({ store });
+    expect(() => stats.recordOutcome(event())).not.toThrow();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.sink).toBe("guard-fire-stats");
+    expect(failures[0]!.subject).toBe("amount-threshold");
+  });
+
+  it("does not emit telemetry when the store write succeeds", () => {
+    let calls = 0;
+    setMetricsSink({
+      recordLedgerOp() {},
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure() {
+        calls += 1;
+      },
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    });
+    const store: GuardFireStatsStore = {
+      write: () => {},
+      readSince: () => [],
+    };
+    const stats = new GuardFireStats({ store });
+    stats.recordOutcome(event());
+    expect(calls).toBe(0);
   });
 });

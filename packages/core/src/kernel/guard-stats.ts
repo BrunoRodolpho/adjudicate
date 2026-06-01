@@ -19,6 +19,7 @@
  */
 
 import type { LearningEvent, LearningSink } from "./learning.js"
+import { recordSinkFailure } from "./metrics.js"
 
 export type GuardPhase = "state" | "taint" | "auth" | "business"
 
@@ -157,10 +158,26 @@ export class GuardFireStats implements LearningSink {
       try {
         const maybe = this.store.write(bucket)
         if (maybe && typeof (maybe as Promise<void>).catch === "function") {
-          ;(maybe as Promise<void>).catch(() => {})
+          // ConcurrencyReviewer-009: async write failure is best-effort but
+          // observable — route to telemetry instead of discarding silently.
+          ;(maybe as Promise<void>).catch((err: unknown) => {
+            recordSinkFailure({
+              sink: "guard-fire-stats",
+              subject: bucket.guardName,
+              errorClass: err instanceof Error ? err.name : "Error",
+              consecutiveFailures: 1,
+            })
+          })
         }
-      } catch {
-        // ignore — store writes are best-effort
+      } catch (err) {
+        // Sync store.write() throw — route to telemetry, do not block
+        // adjudication (ConcurrencyReviewer-009).
+        recordSinkFailure({
+          sink: "guard-fire-stats",
+          subject: bucket.guardName,
+          errorClass: err instanceof Error ? err.name : "Error",
+          consecutiveFailures: 1,
+        })
       }
     }
   }

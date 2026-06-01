@@ -20,6 +20,7 @@
  */
 
 import {
+  buildEnvelope,
   noopAuditSink,
   sha256Canonical,
   timingSafeHexEqual,
@@ -338,9 +339,20 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         historySnapshot: args.historySnapshot,
         rk,
         log: options.log,
-        generateToken: () =>
-          globalThis.crypto?.randomUUID?.() ??
-          `ct-${Math.random().toString(36).slice(2)}-${Date.now()}`,
+        // SecurityReviewer-003: the confirmation token is a single-use
+        // credential authorizing REQUEST_CONFIRMATION → EXECUTE substitution.
+        // Never fall back to Math.random() (V8 xorshift-128+ is reversible) —
+        // fail hard if a CSPRNG is unavailable.
+        generateToken: (): string => {
+          if (typeof globalThis.crypto?.randomUUID !== "function") {
+            throw new Error(
+              "[adjudicate] crypto.randomUUID is unavailable. " +
+                "Node ≥ 14.17 or a standards-compliant browser is required. " +
+                "Do not polyfill with Math.random() for confirmation tokens.",
+            );
+          }
+          return globalThis.crypto.randomUUID();
+        },
       });
       return {
         events: [...t.extraEvents],
@@ -387,19 +399,25 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         );
       }
 
-      const envelope: IntentEnvelope<K, P> = {
-        version: 2,
+      // AuthReviewer-003: build the resume envelope via `buildEnvelope` so its
+      // `intentHash` is re-derived from the elevated `{actor: system, taint:
+      // TRUSTED}` fields. A hand-built literal that copied the stale parked
+      // hash is rejected by the kernel's content-addressing check
+      // (SECURITY / intent_hash_mismatch) on every resume. The `nonce` stays
+      // the original parked hash so retried resumes hit ledger dedup, and the
+      // original hash is preserved as the `supersedes` link below.
+      const predecessorIntentHash = result.parked.envelope.intentHash;
+      const envelope = buildEnvelope({
         kind: result.parked.envelope.kind as K,
         payload: result.parked.envelope.payload as P,
-        createdAt: new Date().toISOString(),
-        nonce: result.parked.envelope.intentHash,
+        nonce: predecessorIntentHash,
         actor: {
           principal: "system",
           sessionId: result.parked.envelope.actor.sessionId,
         },
         taint: "TRUSTED",
-        intentHash: result.parked.envelope.intentHash,
-      };
+        // createdAt defaults to now() — fine for resume (not hash-derived).
+      });
       const resumePlan = options.pack.planner.plan(args.state, args.context);
       const { decision } = await adjudicateAndAudit(
         envelope,
@@ -413,6 +431,14 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
             visibleReadTools: resumePlan.visibleReadTools,
             allowedIntents: resumePlan.allowedIntents,
           }),
+          supersedes: {
+            predecessorIntentHash,
+            // The parked-blob envelope shape (runtime ParkedEnvelope) carries
+            // no `createdAt`; `parkedAt` is the ISO timestamp of the
+            // predecessor park event — the correct supersession anchor.
+            predecessorAt: result.parked.parkedAt,
+            reason: "defer_resumed" as const,
+          },
         },
       );
 

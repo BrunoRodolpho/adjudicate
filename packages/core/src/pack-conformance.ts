@@ -48,6 +48,19 @@ import type { Guard, PolicyBundle } from "./kernel/policy.js";
 import type { PackV0 } from "./pack.js";
 import { taintRank } from "./taint.js";
 
+/**
+ * PerformanceReviewer-008: idempotency tag for `wrapGuard`. A guard the
+ * wrapper has already decorated carries this symbol so a second
+ * `withBasisAudit` pass (or re-`installPack` on shared module state) is a
+ * no-op instead of double-nesting wrappers and running `auditDecision`
+ * twice per decision. `Symbol.for` uses the global registry so the tag
+ * survives module reloads in test environments that hot-swap modules.
+ *
+ * Internal only — never exported, never a hashed byte, never on a value
+ * that flows into `intentHash`/`auditHash`.
+ */
+const BASIS_AUDIT_WRAPPED = Symbol.for("@adjudicate/core/basis-audit-wrapped");
+
 export class PackConformanceError extends Error {
   constructor(
     public readonly packId: string,
@@ -263,13 +276,20 @@ function wrapGuard<K extends string, P, S>(
   declaredSignals: ReadonlySet<string> | null,
   packId: string,
 ): Guard<K, P, S> {
-  return (envelope: IntentEnvelope<K, P>, state: S) => {
+  // Idempotency: if this guard is already wrapped, return it unchanged.
+  if ((guard as unknown as Record<symbol, unknown>)[BASIS_AUDIT_WRAPPED] === true) {
+    return guard;
+  }
+  const wrapped = (envelope: IntentEnvelope<K, P>, state: S): Decision | null => {
     const decision: Decision | null = guard(envelope, state);
     if (decision !== null) {
       auditDecision(decision, envelope, declaredCodes, declaredSignals, packId);
     }
     return decision;
   };
+  // Tag the wrapper so a second withBasisAudit pass is a no-op.
+  (wrapped as unknown as Record<symbol, unknown>)[BASIS_AUDIT_WRAPPED] = true;
+  return wrapped;
 }
 
 function auditDecision<K extends string, P>(

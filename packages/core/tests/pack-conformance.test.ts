@@ -389,6 +389,34 @@ describe("withBasisAudit — runtime drift detection", () => {
     expect(KERNEL_REFUSAL_CODES.has("taint_level_insufficient")).toBe(true);
     expect(KERNEL_REFUSAL_CODES.has("default_deny")).toBe(true);
   });
+
+  // ── PerformanceReviewer-008: idempotent wrapping ─────────────────────
+  it("withBasisAudit is idempotent — double-wrapping does not double-audit", () => {
+    // A guard emitting an undeclared refusal code triggers exactly one
+    // basis_code_drift per auditDecision pass. Under the double-wrap bug,
+    // wrapping twice nested the wrapper and ran auditDecision twice (2 calls);
+    // with the idempotency tag, a second withBasisAudit pass is a no-op.
+    const driftingGuard: Guard<K, unknown, unknown> = () =>
+      decisionRefuse(refuse("BUSINESS_RULE", "undeclared.idem.code", "drift"), [
+        basis("business", BASIS_CODES.business.RULE_VIOLATED),
+      ]);
+    const wrapped1 = withBasisAudit(
+      makePack({
+        policy: {
+          stateGuards: [],
+          authGuards: [],
+          taint: taintPolicy,
+          business: [driftingGuard],
+          default: "REFUSE",
+        },
+      }),
+    );
+    const wrapped2 = withBasisAudit(wrapped1);
+    adjudicate(makeEnv(), {}, wrapped2.policy);
+    // Exactly one drift record — not two from a double-nested wrapper.
+    expect(recordedFailures).toHaveLength(1);
+    expect(recordedFailures[0]!.errorClass).toBe("basis_code_drift");
+  });
 });
 
 // Suppress unused vi import warning by using it once.

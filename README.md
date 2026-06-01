@@ -195,9 +195,9 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
 - **Status & next steps** — [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md): authoritative open-work list.
 - **Per-package READMEs** — reference docs. Start in [`packages/core/README.md`](./packages/core/README.md) and [`packages/anthropic/README.md`](./packages/anthropic/README.md).
 - **Test your policy** — [`docs/guides/testing-your-policy.md`](./docs/guides/testing-your-policy.md): scenario fixtures + `adjudicate simulate` as a decision-regression gate.
-- **Load-bearing decisions** — [`docs/architecture/decisions.md`](./docs/architecture/decisions.md) (8-layer defense + invariants) and the ADR series at [`docs/architecture/adr/`](./docs/architecture/adr/).
+- **Load-bearing decisions** — [`docs/architecture/WHY_THE_INVARIANTS_EXIST.md`](./docs/architecture/WHY_THE_INVARIANTS_EXIST.md) (the 11 constitutional invariants and why they are load-bearing) and the ADR series at [`docs/architecture/adr/`](./docs/architecture/adr/).
 - **Wire format & hash spec** — [`docs/specs/intent-envelope-v2.schema.json`](./docs/specs/intent-envelope-v2.schema.json) (JSON Schema 2020-12) and [`docs/specs/canonical-json-hash.md`](./docs/specs/canonical-json-hash.md) (RFC 8785 JCS, golden vectors, Python cross-runtime check).
-- **Staged rollout playbook** — [`docs/ops/runbooks/`](./docs/ops/runbooks/) — 4-stage shadow → enforce ramp.
+- **Staged rollout playbook** — [`docs/ops/runbooks/`](./docs/ops/runbooks/) — 4-stage shadow → enforce ramp (IbateXas example runbooks; generalize the intent kinds and deployment CLI for your domain).
 
 ## Contributing
 

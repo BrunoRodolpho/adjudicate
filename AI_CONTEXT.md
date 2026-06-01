@@ -51,7 +51,7 @@ docs/
   guides/                  Testing your policy. (Scenario fixtures + simulate.)
   release/                 Semver, API surface, deprecations.
   perf/                    v0.2 microbench baselines (>200× SLO headroom).
-  ops/runbooks/            4-stage shadow → enforce rollout playbook.
+  ops/runbooks/            4-stage shadow → enforce rollout playbook (IbateXas example; generalize for your domain).
   security/                Threat model + review checklist.
   compliance/              SOC 2 mapping + shared responsibility matrix.
   pack-ecosystem/          Registry foundations + signing design (design only, not built).

@@ -265,11 +265,14 @@ The reusable asset is **decision semantics**, not business logic. That's the lin
    └────────────────────────────────────────────────────────┘
 ```
 
-**Where we are today (v0.5):**
+**Where we are today (v1.0-rc / @adjudicate/core@1.1.0):**
 
 - **L1 — kernel:** shipped, API frozen. `adjudicate`, `adjudicateAndAudit`, `PolicyBundle`, taint lattice, replay safety, `verifyAuditRecord`, OTLP-shaped observability sinks.
-- **L2 — `@adjudicate/primitives`:** shipped with 7 factories. `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy` (Phase 5), plus `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard` (ADR-108).
+- **L2 — `@adjudicate/primitives`:** shipped with 7 factories. `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy` are **frozen**; `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard` are **experimental** per ADR-108 pending Pack #4–#6 feedback.
 - **L3 — domain Packs:** three published (`pack-payments-pix`, `pack-identity-kyc`, `pack-deployments-approval`). Two examples (`vacation-approval`, `commerce-reference`) remain handwritten as onboarding surfaces.
+- **L4 — `@adjudicate/adapter-core`:** shipped. Provider-neutral tool-use loop + bridge + decision translator + persistence shims + error taxonomy (ADR-113). Anthropic and OpenAI adapters are thin SDK shims over it.
+- **L4 — `@adjudicate/observability`:** partial. OTLP sinks + `SEMCONV` (16 stable attributes); `@adjudicate/admin-sdk` read-only AQI + tRPC router.
+- **L5 — Anthropic + OpenAI adapters:** shipped. `createAdjudicatedAgent` in each adapter package, wired to the provider-neutral loop.
 
 ### L2 surface today
 

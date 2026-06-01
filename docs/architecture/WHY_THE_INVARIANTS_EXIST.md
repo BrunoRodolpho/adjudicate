@@ -5,7 +5,8 @@
 > notice, how badly, and on what time horizon.
 >
 > Companion to
-> [`docs/architecture/decisions.md`](./decisions.md) (the ADR index),
+> [`docs/architecture/decisions.md`](./decisions.md) (kernel load-bearing
+> decisions) and the ADR index at [`docs/architecture/adr/`](./adr/),
 > [`docs/release/V1_FREEZE_MATRIX.md`](../release/V1_FREEZE_MATRIX.md) (the
 > *what* is frozen), [`docs/release/EXTENSION_POLICY.md`](../release/EXTENSION_POLICY.md)
 > (the *how* it evolves), and

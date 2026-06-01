@@ -8,7 +8,12 @@
  * directly.
  */
 
-import type { Actor, GovernanceEvent } from "@adjudicate/admin-sdk";
+import {
+  ActorSchema,
+  EmergencyStatusSchema,
+  type Actor,
+  type GovernanceEvent,
+} from "@adjudicate/admin-sdk";
 import { normalizeTimestamptz } from "./pg-types.js";
 
 /** Shape of one row in the `governance_events` table. */
@@ -46,16 +51,41 @@ export function governanceEventToRow(e: GovernanceEvent): GovernanceEventRow {
 export function rowToGovernanceEvent(
   row: GovernanceEventRow,
 ): GovernanceEvent {
-  // The schema (migration 004) constrains kind = 'emergency.update' for
-  // Phase 2a; future kinds extend this. The `as` narrowing matches the
-  // SDK's literal type for the current vocabulary.
+  // Zod is the canonical gate at this trust boundary (migration 004 docstring):
+  // `kind`, `actor` (raw JSONB), and the status TEXT columns arrive unvalidated
+  // from Postgres. Validate each instead of blind-casting — same fail-loud
+  // contract as `normalizeTimestamptz` (pg-types.ts).
+  const kindLiteral = row.kind;
+  if (kindLiteral !== "emergency.update") {
+    throw new Error(
+      `audit-postgres: unexpected governance_events.kind — expected "emergency.update", got: ${JSON.stringify(kindLiteral)}`,
+    );
+  }
+  const actorResult = ActorSchema.safeParse(row.actor);
+  if (!actorResult.success) {
+    throw new Error(
+      `audit-postgres: governance_events.actor failed validation: ${actorResult.error.message}`,
+    );
+  }
+  const prevResult = EmergencyStatusSchema.safeParse(row.previous_status);
+  if (!prevResult.success) {
+    throw new Error(
+      `audit-postgres: governance_events.previous_status failed validation: got ${JSON.stringify(row.previous_status)}`,
+    );
+  }
+  const newResult = EmergencyStatusSchema.safeParse(row.new_status);
+  if (!newResult.success) {
+    throw new Error(
+      `audit-postgres: governance_events.new_status failed validation: got ${JSON.stringify(row.new_status)}`,
+    );
+  }
   return {
     id: row.id,
     at: normalizeTimestamptz(row.at, "governance_events.at"),
-    kind: row.kind as "emergency.update",
-    actor: row.actor,
-    previousStatus: row.previous_status as GovernanceEvent["previousStatus"],
-    newStatus: row.new_status as GovernanceEvent["newStatus"],
+    kind: kindLiteral,
+    actor: actorResult.data,
+    previousStatus: prevResult.data,
+    newStatus: newResult.data,
     reason: row.reason,
   };
 }

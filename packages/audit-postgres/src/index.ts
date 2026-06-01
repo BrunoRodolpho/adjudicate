@@ -27,6 +27,7 @@ export { legacyV1ToV2 } from "./legacy-v1-compat.js";
 // writing don't pay for the SDK at runtime.
 
 export {
+  InvalidCursorError,
   buildWhereClauses,
   createPostgresAuditStore,
   decodeCursor,

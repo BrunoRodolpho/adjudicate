@@ -45,7 +45,7 @@ export function createKernelIdentity(
   return {
     id,
     version,
-    attest: () => {
+    attest: async () => {
       throw new Error(
         "KernelIdentity.attest is reserved for v0.2 (sigstore/in-toto). Not implemented in v0.1.",
       );

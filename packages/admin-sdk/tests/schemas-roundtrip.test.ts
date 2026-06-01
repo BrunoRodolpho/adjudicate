@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { AuditRecordSchema } from "../src/schemas/audit.js";
 import { DecisionSchema } from "../src/schemas/decision.js";
+import { IsoTimestampSchema } from "../src/schemas/common.js";
+import { OutcomeDistributionQuerySchema } from "../src/schemas/outcome-distribution.js";
 import { ALL } from "./fixtures.js";
 
 /**
@@ -26,6 +28,34 @@ describe("AuditRecordSchema accepts every kernel-emitted fixture", () => {
       expect(result.success).toBe(true);
     });
   }
+});
+
+describe("IsoTimestampSchema — unified wire timestamp validation (APIReviewer-004/-010)", () => {
+  it("accepts canonical ISO-8601", () => {
+    expect(IsoTimestampSchema.safeParse("2026-04-28T20:00:00.000Z").success).toBe(true);
+  });
+  it("rejects non-ISO strings the old z.string().min(1) let through", () => {
+    expect(IsoTimestampSchema.safeParse("yesterday").success).toBe(false);
+    expect(IsoTimestampSchema.safeParse("").success).toBe(false);
+    expect(IsoTimestampSchema.safeParse("2024-13-01").success).toBe(false);
+  });
+  it("tightens query inputs: OutcomeDistributionQuery rejects a non-ISO since", () => {
+    expect(
+      OutcomeDistributionQuerySchema.safeParse({ since: "yesterday", bucket: "day" }).success,
+    ).toBe(false);
+    expect(
+      OutcomeDistributionQuerySchema.safeParse({
+        since: "2026-04-28T20:00:00.000Z",
+        bucket: "day",
+      }).success,
+    ).toBe(true);
+  });
+  it("tightens AuditRecord.at: a non-ISO at is rejected at the wire", () => {
+    const good = ALL[0];
+    expect(AuditRecordSchema.safeParse(good).success).toBe(true);
+    const bad = { ...good, at: "not-a-date" };
+    expect(AuditRecordSchema.safeParse(bad).success).toBe(false);
+  });
 });
 
 describe("DecisionSchema discriminator validation", () => {

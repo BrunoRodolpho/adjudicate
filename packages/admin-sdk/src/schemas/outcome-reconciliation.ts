@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { IsoTimestampSchema } from "./common.js";
 
 /**
  * Wire schemas for the `governance.recordOutcome` mutation and
@@ -15,7 +16,7 @@ export const ObservedOutcomeSchema = z.enum([
 export const RetrospectiveOutcomeSchema = z.object({
   intentHash: z.string().min(1),
   observed: ObservedOutcomeSchema,
-  at: z.string().min(1),
+  at: IsoTimestampSchema,
   note: z.string().optional(),
 });
 export type RetrospectiveOutcomeParsed = z.infer<
@@ -23,8 +24,8 @@ export type RetrospectiveOutcomeParsed = z.infer<
 >;
 
 export const DecisionAccuracyQuerySchema = z.object({
-  since: z.string().min(1),
-  until: z.string().optional(),
+  since: IsoTimestampSchema,
+  until: IsoTimestampSchema.optional(),
 });
 export type DecisionAccuracyQuery = z.infer<typeof DecisionAccuracyQuerySchema>;
 

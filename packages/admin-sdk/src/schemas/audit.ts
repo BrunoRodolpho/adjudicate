@@ -3,6 +3,7 @@ import type { AuditPlanSnapshot, AuditRecord } from "@adjudicate/core";
 import { DecisionBasisSchema } from "./basis.js";
 import { DecisionSchema } from "./decision.js";
 import { IntentEnvelopeSchema } from "./envelope.js";
+import { IsoTimestampSchema } from "./common.js";
 
 /**
  * Wire-side schemas for `AuditPlanSnapshot` and `AuditRecord`.
@@ -43,7 +44,7 @@ export const AuditRecordSchema = z.object({
   decision_basis: z.array(DecisionBasisSchema).readonly(),
   resourceVersion: z.string().optional(),
   /** ISO-8601 decision timestamp. */
-  at: z.string(),
+  at: IsoTimestampSchema,
   durationMs: z.number(),
   plan: AuditPlanSnapshotSchema.optional(),
   supersedes: SupersessionSchema.optional(),

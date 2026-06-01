@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DecisionKindSchema } from "./decision.js";
+import { IsoTimestampSchema } from "./common.js";
 
 /**
  * Input schema for the `outcomeDistribution` procedure.
@@ -12,8 +13,8 @@ import { DecisionKindSchema } from "./decision.js";
  *   for a 31-day window; "day" returns up to ~31.
  */
 export const OutcomeDistributionQuerySchema = z.object({
-  since: z.string().min(1),
-  until: z.string().optional(),
+  since: IsoTimestampSchema,
+  until: IsoTimestampSchema.optional(),
   bucket: z.enum(["hour", "day"]),
 });
 

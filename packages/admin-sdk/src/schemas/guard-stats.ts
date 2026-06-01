@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { DecisionKindSchema } from "./decision.js";
+import { IsoTimestampSchema } from "./common.js";
 
 export const GuardPhaseSchema = z.enum(["state", "taint", "auth", "business"]);
 export type GuardPhase = z.infer<typeof GuardPhaseSchema>;
 
 export const GuardFireStatsQuerySchema = z.object({
-  since: z.string().min(1),
+  since: IsoTimestampSchema,
   packId: z.string().optional(),
 });
 export type GuardFireStatsQuery = z.infer<typeof GuardFireStatsQuerySchema>;

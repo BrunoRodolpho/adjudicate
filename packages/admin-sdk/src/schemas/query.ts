@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AuditRecordSchema } from "./audit.js";
 import { DecisionKindSchema } from "./decision.js";
 import { TaintSchema } from "./envelope.js";
+import { IsoTimestampSchema } from "./common.js";
 
 /**
  * Wire schemas for the `audit.query` request and response.
@@ -22,9 +23,9 @@ export const AuditQuerySchema = z.object({
   taint: TaintSchema.optional(),
   intentHash: z.string().optional(),
   /** ISO-8601 inclusive lower bound on `AuditRecord.at`. */
-  since: z.string().datetime().optional(),
+  since: IsoTimestampSchema.optional(),
   /** ISO-8601 inclusive upper bound on `AuditRecord.at`. */
-  until: z.string().datetime().optional(),
+  until: IsoTimestampSchema.optional(),
   /** Forward-compat slot. The in-memory store ignores it; Postgres impls use it. */
   cursor: z.string().optional(),
   limit: z.number().int().min(1).max(500).default(100),

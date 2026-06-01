@@ -30,7 +30,7 @@
 import type { AuditRecord } from "@adjudicate/core";
 import {
   classify,
-  sha256Canonical,
+  deriveIntentHash,
   verifyAuditRecord,
   type AuditRecordVerification,
   type ReplayMismatch,
@@ -67,26 +67,6 @@ export interface ReplayIntegrityReport {
 }
 
 /**
- * Re-derive `sha256Canonical` over the envelope's hash-input subset and
- * compare to the stored `intentHash`. This catches an envelope where
- * payload/actor/nonce/taint was modified after the audit was written.
- *
- * Mirrors `packages/core/src/hash.ts` recipe: envelope fields included
- * in the hash are `{version, kind, payload, nonce, actor, taint}`.
- * `createdAt` is excluded by design.
- */
-function deriveEnvelopeIntentHash(envelope: AuditRecord["envelope"]): string {
-  return sha256Canonical({
-    version: envelope.version,
-    kind: envelope.kind,
-    payload: envelope.payload,
-    nonce: envelope.nonce,
-    actor: envelope.actor,
-    taint: envelope.taint,
-  });
-}
-
-/**
  * Run replay and integrity verification across the record set. The
  * order within the record array is preserved; the report aggregates by
  * axis (matched / mismatches / integrityFailures) and is otherwise
@@ -105,8 +85,11 @@ export function replayWithIntegrity(
   let preV4 = 0;
 
   for (const record of records) {
-    // Integrity axis 1: envelope intentHash.
-    const derivedEnvHash = deriveEnvelopeIntentHash(record.envelope);
+    // Integrity axis 1: envelope intentHash. Re-derive via the single
+    // authoritative `deriveIntentHash` from @adjudicate/core so the recipe
+    // (version, kind, payload, nonce, actor, taint) can never drift from the
+    // kernel's own derivation.
+    const derivedEnvHash = deriveIntentHash(record.envelope);
     const intentHashOk = derivedEnvHash === record.envelope.intentHash;
     if (!intentHashOk) {
       integrityFailures.push({

@@ -65,6 +65,13 @@ interface Entry {
 }
 
 /**
+ * Opportunistic sweep batch size for `createInMemoryDeferStore` — evict at
+ * most this many expired entries per write so the Map shrinks passively
+ * without a background timer (MemoryReviewer-002, mirrors MemoryReviewer-001).
+ */
+const SWEEP_BATCH = 50;
+
+/**
  * Combined in-memory implementation of `DeferRedis` AND `ParkRedis`.
  * Suitable for tests and the quickstart. NOT suitable for production —
  * lacks persistence, fan-out, and cross-process coordination.
@@ -76,16 +83,36 @@ export function createInMemoryDeferStore(): DeferRedis & ParkRedis {
   const isAlive = (entry: Entry | undefined): entry is Entry =>
     entry !== undefined && entry.expiresAt > Date.now();
 
+  /**
+   * MemoryReviewer-002: opportunistic eviction of expired `store` entries.
+   * Entries never read again after expiry would otherwise persist for the
+   * process lifetime; sweeping on each write keeps the Map bounded without a
+   * timer. Bounded to `SWEEP_BATCH` per call so a large store doesn't make a
+   * single `set` O(n). Live entries are never touched.
+   */
+  function sweepExpired(now: number): void {
+    let evicted = 0;
+    for (const [k, e] of store) {
+      if (evicted >= SWEEP_BATCH) break;
+      if (e.expiresAt <= now) {
+        store.delete(k);
+        evicted++;
+      }
+    }
+  }
+
   function setRaw(
     key: string,
     value: string,
     options: { NX?: true; EX: number },
   ): "OK" | null {
+    const now = Date.now();
+    sweepExpired(now);
     const existing = store.get(key);
     if (options.NX && isAlive(existing)) return null;
     store.set(key, {
       value,
-      expiresAt: Date.now() + options.EX * 1000,
+      expiresAt: now + options.EX * 1000,
     });
     return "OK";
   }
@@ -118,10 +145,23 @@ export function createInMemoryDeferStore(): DeferRedis & ParkRedis {
     },
     async decr(key) {
       const next = (counters.get(key) ?? 0) - 1;
+      // MemoryReviewer-002: auto-delete the counter at zero. The defer-counter
+      // is a reference count (incr on park, decr on resume); zero means no
+      // parked defers remain for this session, so the key must not linger.
+      if (next <= 0) {
+        counters.delete(key);
+        return 0;
+      }
       counters.set(key, next);
       return next;
     },
-    async expire(_key: string, _seconds: number, _mode?: "NX") {
+    async expire(key: string, seconds: number, _mode?: "NX") {
+      // MemoryReviewer-002: previously a no-op returning 1. Now refreshes the
+      // TTL on the existing entry (Redis EXPIRE semantics). Missing key → 0.
+      // The NX nuance is safely ignored: single-process TTL is advisory.
+      const entry = store.get(key);
+      if (entry === undefined) return 0;
+      entry.expiresAt = Date.now() + seconds * 1000;
       return 1;
     },
   };

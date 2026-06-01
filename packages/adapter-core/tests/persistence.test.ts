@@ -41,13 +41,15 @@ describe("createInMemoryDeferStore — DeferRedis surface", () => {
 });
 
 describe("createInMemoryDeferStore — ParkRedis surface", () => {
-  it("incr returns the new value; decr brings it back", async () => {
+  it("incr returns the new value; decr brings it back, clamping at zero", async () => {
     const store = createInMemoryDeferStore();
     expect(await store.incr("c")).toBe(1);
     expect(await store.incr("c")).toBe(2);
     expect(await store.decr("c")).toBe(1);
+    // MemoryReviewer-002: decr to <= 0 clamps to 0 and evicts the counter key
+    // (reference-count semantics) rather than going negative.
     expect(await store.decr("c")).toBe(0);
-    expect(await store.decr("c")).toBe(-1); // negative is allowed by spec
+    expect(await store.decr("c")).toBe(0);
   });
 
   it("set with EX (no NX) writes unconditionally", async () => {
@@ -55,6 +57,64 @@ describe("createInMemoryDeferStore — ParkRedis surface", () => {
     const result = await store.set("p", "envelope-blob", { EX: 60 });
     expect(result).toBe("OK");
     expect(await store.get("p")).toBe("envelope-blob");
+  });
+});
+
+describe("createInMemoryDeferStore — MemoryReviewer-002", () => {
+  it("expire() updates the TTL of an existing entry", async () => {
+    const store = createInMemoryDeferStore();
+    await store.set("k", "v", { EX: 1 }); // expires in 1s
+    const result = await store.expire("k", 60); // refresh to 60s
+    expect(result).toBe(1);
+    // The refresh keeps the entry alive and readable.
+    expect(await store.get("k")).toBe("v");
+  });
+
+  it("expire() actually extends the lifetime (entry survives past original TTL)", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createInMemoryDeferStore();
+      await store.set("k", "v", { EX: 1 }); // would expire at +1s
+      await store.expire("k", 60); // refresh to +60s from now
+      vi.advanceTimersByTime(5_000); // 5s — past the ORIGINAL 1s TTL
+      expect(await store.get("k")).toBe("v"); // still alive thanks to refresh
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("expire() returns 0 for a missing key", async () => {
+    const store = createInMemoryDeferStore();
+    const result = await store.expire("missing", 10);
+    expect(result).toBe(0);
+  });
+
+  it("decr to zero deletes the counter key", async () => {
+    const store = createInMemoryDeferStore();
+    await store.incr("counter:session-1");
+    const result = await store.decr("counter:session-1");
+    expect(result).toBe(0);
+    // Second decr returns 0 (key gone → starts from 0, decr → <= 0, deleted again).
+    const result2 = await store.decr("counter:session-1");
+    expect(result2).toBe(0);
+  });
+
+  it("expired store entries are swept on set", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createInMemoryDeferStore();
+      for (let i = 0; i < 10; i++) {
+        await store.set(`k:${i}`, "v", { EX: 1 });
+      }
+      // Advance past the TTL so all entries are expired.
+      vi.advanceTimersByTime(2_000);
+      // Writing a new key triggers the opportunistic sweep.
+      await store.set("k:new", "v", { EX: 60 });
+      const old = await store.get("k:0");
+      expect(old).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

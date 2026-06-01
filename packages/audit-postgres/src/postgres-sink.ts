@@ -7,7 +7,13 @@
 //
 // Schema: see ./schema.ts and ./migrations/001-create-intent-audit.sql.
 
-import type { AuditRecord, IntentActor, Taint } from "@adjudicate/core";
+import type {
+  AuditRecord,
+  Decision,
+  IntentActor,
+  RefusalKind,
+  Taint,
+} from "@adjudicate/core";
 import type { AuditSink } from "@adjudicate/audit";
 
 /**
@@ -38,8 +44,8 @@ export interface IntentAuditRow {
   readonly kind: string;
   readonly principal: IntentActor["principal"];
   readonly taint: Taint;
-  readonly decision_kind: string;
-  readonly refusal_kind: string | null;
+  readonly decision_kind: Decision["kind"];
+  readonly refusal_kind: RefusalKind | null;
   readonly refusal_code: string | null;
   readonly decision_basis: string[]; // jsonb-castable array of "category:code"
   readonly resource_version: string | null;
@@ -150,6 +156,10 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
     decision_kind: record.decision.kind,
     refusal_kind: refusal?.kind ?? null,
     refusal_code: refusal?.code ?? null,
+    // decision_basis TEXT[] is a query-projection of decision.basis. Both carry the
+    // same information; divergence is a writer bug. The canonical reader (rowToRecord)
+    // reconstructs AuditRecord.decision_basis from decision_jsonb — the TEXT[] is
+    // only for SQL-side filtering (WHERE 'category:code' = ANY(decision_basis)).
     decision_basis: record.decision_basis.map((b) => `${b.category}:${b.code}`),
     resource_version: record.resourceVersion ?? null,
     envelope_jsonb: JSON.stringify(record.envelope),

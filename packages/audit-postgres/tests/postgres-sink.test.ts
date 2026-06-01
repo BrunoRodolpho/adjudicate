@@ -161,6 +161,26 @@ describe("recordToRow", () => {
       // Same length as the kernel's structured basis too (no silent drop).
       expect(row.decision_basis).toHaveLength(r.decision.basis.length);
     });
+
+    // DataReviewer-012: full write→read round-trip. recordToRow writes the
+    // TEXT[] projection; rowToRecord reconstructs decision_basis from JSONB
+    // (decision.basis), NOT the TEXT[]. Pin that the column equals the
+    // flattening of the original basis AND that the reconstructed basis
+    // flattens back to the same column — so the dual encoding stays in sync.
+    it("decision_basis TEXT[] is consistent with decision_jsonb.basis on round-trip", () => {
+      const sampleAuditRecord = record();
+      const row = recordToRow(sampleAuditRecord);
+      const expected = sampleAuditRecord.decision_basis.map(
+        (b) => `${b.category}:${b.code}`,
+      );
+      expect(row.decision_basis).toEqual(expected);
+
+      // After round-trip, rowToRecord reads from JSONB — must equal original.
+      const reconstructed = rowToRecord(row);
+      expect(
+        reconstructed.decision_basis.map((b) => `${b.category}:${b.code}`),
+      ).toEqual(row.decision_basis);
+    });
   });
 
   it("envelope_jsonb is parseable JSON of the original envelope", () => {

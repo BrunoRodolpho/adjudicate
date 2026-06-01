@@ -33,10 +33,15 @@ export interface AuditQueryFn {
 
 /**
  * Reconstruct an AuditRecord from a stored row. Inverse of recordToRow().
- * The envelope and decision are JSON-deserialized; `decision_basis` is
- * regenerated from the flattened "category:code" strings (the basis detail
- * is preserved inside `decision_jsonb`, so the deserialized Decision carries
- * the full structured basis).
+ *
+ * `decision_basis`: the TEXT[] column (`decision_basis`) is a query-optimized
+ * projection (written by `recordToRow` as `category:code` strings for SQL-side
+ * `WHERE … = ANY(decision_basis)` filtering). The reader reconstructs
+ * `AuditRecord.decision_basis` from `decision_jsonb.basis`, NOT the TEXT[]
+ * column — the JSONB carries the full structured `DecisionBasis[]` including
+ * `detail`. If the TEXT[] and JSONB ever diverge (writer bug / malicious row),
+ * this reader silently prefers JSONB. See `recordToRow` for the dual-encoding
+ * invariant: TEXT[] must equal `decision.basis.map(b => "${b.category}:${b.code}")`.
  *
  * Version dispatch:
  *   - `record_version` NULL or 1 → v1 row (no plan field, no nonce).

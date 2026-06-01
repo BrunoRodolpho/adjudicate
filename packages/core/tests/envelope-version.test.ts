@@ -53,6 +53,26 @@ describe("IntentEnvelope — version gating", () => {
     expect(isIntentEnvelope(missingTaint)).toBe(false);
   });
 
+  // DataReviewer-003 — principal must be the closed enum {llm,user,system}
+  it("isIntentEnvelope rejects an envelope with an invalid principal", () => {
+    const env = buildEnvelope(baseline);
+    expect(isIntentEnvelope({ ...env, actor: { principal: "admin", sessionId: "s-1" } })).toBe(false);
+    expect(isIntentEnvelope({ ...env, actor: { principal: "", sessionId: "s-1" } })).toBe(false);
+  });
+
+  // DataReviewer-009 — additionalProperties:false; extras would hash into intentHash
+  it("isIntentEnvelope rejects an envelope with extra keys", () => {
+    const env = buildEnvelope(baseline);
+    expect(isIntentEnvelope({ ...env, debug: "extra" })).toBe(false);
+    expect(isIntentEnvelope({ ...env, _tracing: true })).toBe(false);
+  });
+
+  it("isIntentEnvelope rejects an envelope with missing keys", () => {
+    const env = buildEnvelope(baseline);
+    const { payload: _dropped, ...noPayload } = env;
+    expect(isIntentEnvelope(noPayload)).toBe(false);
+  });
+
   it("hasUnknownEnvelopeVersion identifies version-shaped objects with wrong version", () => {
     expect(hasUnknownEnvelopeVersion({ version: 999 })).toBe(true);
     expect(hasUnknownEnvelopeVersion({ version: 1 })).toBe(true); // v1 envelopes are now legacy

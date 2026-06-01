@@ -58,12 +58,16 @@ live in `@adjudicate/core`.
 
 - **S1 — Forged `IntentActor`.** Envelope claims a privileged role
   the caller does not own. *Mitigation:* the kernel does not
-  authenticate actors; the adopter's auth boundary (capability
-  planner, request middleware) sets `actor` from a validated
-  session. The kernel propagates `actor` into `AuditRecord`, making
-  any spoof durably attributable. Combined with ADR-103 per-tenant
-  context, tenant A's envelopes cannot reach tenant B's runtime
-  slots because the context is bound to the executor wiring.
+  authenticate actors (KERNEL-RESPONSIBILITY-DEFERRED to v0.2); the
+  adopter's auth boundary (capability planner, request middleware)
+  sets `actor` from a validated session. The kernel propagates
+  `actor` into `AuditRecord`, making any spoof durably attributable.
+  `IntentActor.attestation` is a reserved v0.2 seam — a future
+  `Pack.verifyActorAttestation` policy slot will gate on it; today it
+  round-trips through the audit record for forensic use. Combined
+  with ADR-103 per-tenant context, tenant A's envelopes cannot reach
+  tenant B's runtime slots because the context is bound to the
+  executor wiring.
 - **S2 — Forged taint label.** Envelope arrives with
   `taint: "TRUSTED"` from an UNTRUSTED ingestion path. *Mitigation:*
   taint is stamped at the ingestion boundary (adapter, webhook

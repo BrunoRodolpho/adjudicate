@@ -17,17 +17,28 @@ export const TaintSchema = z.enum(["SYSTEM", "TRUSTED", "UNTRUSTED"]);
 
 export const IntentActorSchema = z.object({
   principal: z.enum(["llm", "user", "system"]),
-  sessionId: z.string(),
+  sessionId: z.string().min(1),
+  /**
+   * Reserved v0.2 actor-attestation seam (AuthReviewer-002). Optional and
+   * absent on v0.1 envelopes; round-trips through audit records without a
+   * schema break. Mirrors `IntentActor.attestation` in @adjudicate/core.
+   */
+  attestation: z
+    .object({
+      keyId: z.string(),
+      sig: z.string(),
+    })
+    .optional(),
 });
 
 export const IntentEnvelopeSchema = z.object({
   version: z.literal(2),
-  kind: z.string(),
+  kind: z.string().min(1),
   payload: z.unknown(),
   /** ISO-8601 wall-clock timestamp. Metadata only; not part of intentHash. */
   createdAt: z.string(),
   /** Adopter-supplied idempotency key. Hash input. */
-  nonce: z.string(),
+  nonce: z.string().min(1),
   actor: IntentActorSchema,
   taint: TaintSchema,
   /** sha256(canonical(envelope minus intentHash)). Computed by buildEnvelope. */

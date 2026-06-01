@@ -37,6 +37,18 @@ export type IntentEnvelopeVersion = typeof INTENT_ENVELOPE_VERSION;
 export interface IntentActor {
   readonly principal: "llm" | "user" | "system";
   readonly sessionId: string;
+  /**
+   * Reserved seam for v0.2 actor attestation. v0.1 envelopes omit this
+   * field — absent `attestation` is canonical-JSON-dropped and does NOT
+   * alter the intentHash. A future policy slot (`Pack.verifyActorAttestation`)
+   * will gate on this when the host supplies a verifier; until then the
+   * field is a structural reservation so adopters can round-trip it through
+   * audit records without a schema break.
+   */
+  readonly attestation?: {
+    readonly keyId: string;
+    readonly sig: string;
+  };
 }
 
 export interface IntentEnvelope<K extends string = string, P = unknown> {
@@ -155,12 +167,40 @@ export function deriveIntentHash(envelope: IntentEnvelope): string {
 }
 
 /**
+ * The exactly-eight documented top-level envelope fields. `isIntentEnvelope`
+ * rejects any object whose key set is not precisely this set, mirroring
+ * `additionalProperties: false` in `docs/specs/intent-envelope-v2.schema.json`.
+ * Module-level so the guard does not reallocate the Set on every call.
+ */
+const EXPECTED_ENVELOPE_KEYS = new Set([
+  "version",
+  "kind",
+  "payload",
+  "createdAt",
+  "nonce",
+  "actor",
+  "taint",
+  "intentHash",
+]);
+
+/**
  * Narrow an unknown value to an IntentEnvelope of the current version.
  * Consumed by the schema-version invariant test and by adjudicate() before
  * it inspects payload fields.
  */
 export function isIntentEnvelope(value: unknown): value is IntentEnvelope {
   if (value === null || typeof value !== "object") return false;
+  // Reject extras AND missing fields (spec: additionalProperties:false on
+  // intent-envelope-v2.schema.json). An accepted envelope carrying an extra
+  // key would otherwise hash differently (canonicalize iterates all entries),
+  // silently breaking retry dedup.
+  const keys = Object.keys(value as object);
+  if (
+    keys.length !== EXPECTED_ENVELOPE_KEYS.size ||
+    keys.some((k) => !EXPECTED_ENVELOPE_KEYS.has(k))
+  ) {
+    return false;
+  }
   const v = value as Partial<IntentEnvelope>;
   return (
     v.version === INTENT_ENVELOPE_VERSION &&
@@ -169,7 +209,9 @@ export function isIntentEnvelope(value: unknown): value is IntentEnvelope {
     typeof v.nonce === "string" &&
     typeof v.intentHash === "string" &&
     v.actor !== undefined &&
-    typeof v.actor.principal === "string" &&
+    (v.actor.principal === "llm" ||
+      v.actor.principal === "user" ||
+      v.actor.principal === "system") &&
     typeof v.actor.sessionId === "string" &&
     (v.taint === "SYSTEM" || v.taint === "TRUSTED" || v.taint === "UNTRUSTED")
   );

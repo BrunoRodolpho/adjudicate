@@ -78,7 +78,17 @@ export type EmergencyCoordinationMode = "in-memory" | "redis";
 
 export function getEmergencyCoordinationMode(): EmergencyCoordinationMode {
   const env = process.env.NEXT_PUBLIC_ADJUDICATE_EMERGENCY_COORDINATION;
-  return env === "redis" ? "redis" : "in-memory";
+  const mode: EmergencyCoordinationMode = env === "redis" ? "redis" : "in-memory";
+  if (mode === "in-memory" && isProductionEnv()) {
+    throw new Error(
+      "[runtime-mode] Emergency coordination resolved to IN-MEMORY in a production " +
+        "environment. In-memory state is volatile and local to this console process — " +
+        "kill-switch toggles do NOT propagate to the kernel runtime. Set " +
+        "NEXT_PUBLIC_ADJUDICATE_EMERGENCY_COORDINATION=redis (and corresponding " +
+        "REDIS_URL + EMERGENCY_REDIS_KEY on the server) for production deployments.",
+    );
+  }
+  return mode;
 }
 
 export function coordinationLabel(mode: EmergencyCoordinationMode): string {

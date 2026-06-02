@@ -1,24 +1,41 @@
 /**
  * Integration tests against a real Postgres instance.
  *
- * Gated on `INTEGRATION_TEST=1` — by default this suite is skipped so
- * the workspace `pnpm -r test` doesn't require Docker. To run locally:
+ * Gated on `INTEGRATION_TEST=1` — by default this suite is skipped so the
+ * workspace `pnpm -r test` doesn't require Docker.
  *
- *   docker run -d --rm -p 5432:5432 -e POSTGRES_PASSWORD=test \
- *     --name adjudicate-test-pg postgres:16
+ * ── cycle-32 activation finding (the gap this stub must eventually close) ──
+ * The unit suite (postgres-sink.test.ts) asserts the `INSERT_AUDIT_SQL` *string*
+ * but never EXECUTES it against the migrated schema. That blind spot hid a real
+ * activation blocker: `INSERT_AUDIT_SQL` uses
+ *   ON CONFLICT (intent_hash, recorded_at) DO NOTHING
+ * (idempotent audit writes) but migration 001 created
+ * `idx_intent_audit_intent_hash` as a NON-unique index, so no arbiter matched
+ * and every real sink write failed with Postgres 42P10 ("no unique or exclusion
+ * constraint matching the ON CONFLICT specification"). Post-activation that
+ * fails CLOSED on every audited mutation. Fixed by migration
+ * `009-unique-intent-hash-recorded-at.sql` (makes the index UNIQUE).
  *
- *   PG_TEST_URL=postgres://postgres:test@localhost:5432/postgres \
- *   INTEGRATION_TEST=1 pnpm --filter @adjudicate/audit-postgres test
+ * The fix is proven live: the cycle-32 E2E harness ran `createPostgresSink` +
+ * `INSERT_AUDIT_SQL` against the live migrated DB (with 009 applied) and the
+ * audited write succeeded (intent_audit 0→1, one row before the side-effect).
  *
- * Asserts:
- *   - Migrations 001-004 apply cleanly (schema + indexes + constraints)
- *   - End-to-end write→read consistency (existing PostgresSink seeds; new
- *     PostgresAuditStore reads back equivalently)
- *   - Keyset pagination over a 1000-record dataset returns non-overlapping,
- *     complete coverage across pages
- *   - EXPLAIN on the query plan shows index scan, not sequential scan
- *   - governance_events table accepts inserts and enforces the
- *     status-changed CHECK constraint
+ * ── follow-up: wire this as an executing regression test ──
+ * `@adjudicate/audit-postgres` intentionally has NO `pg` dependency (the sink
+ * takes an injected `PostgresWriter`), so an executing test needs `pg` added as
+ * a devDependency here. With that, populate this suite (gated INTEGRATION_TEST=1,
+ * PG_TEST_URL pointing at a migrated DB with a partition for the write window):
+ *
+ *   const pool = new Pool({ connectionString: process.env.PG_TEST_URL });
+ *   const sink = createPostgresSink({ writer: { insertAudit: (r) =>
+ *     pool.query(INSERT_AUDIT_SQL, auditInsertParams(r)) } });
+ *   // 1. sink.emit(record)            → resolves (the 42P10 regression);
+ *   // 2. sink.emit(SAME record)       → still ONE row (ON CONFLICT dedup);
+ *   // 3. sink.emit(SAME hash, LATER recorded_at) → TWO rows (parked-resume);
+ *   //    clean up the probe rows by intent_hash afterward.
+ *
+ * Until that lands, the unit suite covers the SQL shape and migration 009 +
+ * the live E2E cover execution. Skipped by default: INTEGRATION_TEST != "1".
  */
 
 import { describe, it } from "vitest";
@@ -27,25 +44,8 @@ const INTEGRATION = process.env.INTEGRATION_TEST === "1";
 const describeIntegration = INTEGRATION ? describe : describe.skip;
 
 describeIntegration("integration — Postgres real DB", () => {
-  it("placeholder — wire up actual DB tests when INTEGRATION_TEST=1", () => {
-    // Implementation note: this file is a stub gated on the env flag so
-    // CI doesn't require a Docker'd Postgres. When INTEGRATION_TEST=1,
-    // populate this suite with:
-    //
-    //   - applyMigrations(pool) — runs 001-004 in order
-    //   - seed via createPostgresSink + a 1000-record fixture
-    //   - readAll via createPostgresAuditStore.query — assert ordering
-    //   - paginate via cursor — assert no overlaps, complete coverage
-    //   - EXPLAIN ANALYZE the parameterized query — assert "Index Scan"
-    //     appears in the plan, not "Seq Scan"
-    //   - governance_events: insert two events; assert
-    //     status-changed CHECK rejects same-status; verify history order
-    //
-    // The unit tests in audit-store.test.ts and governance-log.test.ts
-    // cover the SQL shape and pagination semantics against mocked pg.
-    // This integration suite is for the additional invariants that
-    // require a real Postgres planner.
-    //
-    // Skipped by default: INTEGRATION_TEST != "1".
+  it("placeholder — wire up actual DB tests when INTEGRATION_TEST=1 (see file header)", () => {
+    // See the file header for the exact suite to populate and why the executing
+    // ON CONFLICT-arbiter assertion is the load-bearing one (cycle-32 finding).
   });
 });

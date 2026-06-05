@@ -1,5 +1,9 @@
 # Stage 4 — Financial Reversals & Money-Moving (Risk: Critical)
 
+> **Note:** This runbook uses IbateXas commerce intent kinds as examples.
+> Substitute your domain's intent kinds and deployment CLI. The 4-stage
+> shadow → enforce pattern applies to any adjudicate adopter.
+
 > **TL;DR** — the irreversible money-flow stage. Order confirmation against PIX, cancellations that trigger refunds, payment-instrument re-issuance. **14-day** shadow window per `intent-shadow.ts` operational policy. Ledger enforcement engages here.
 
 ## Scope

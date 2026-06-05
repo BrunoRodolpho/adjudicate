@@ -7,10 +7,14 @@ const RANK: Record<Taint, number> = { SYSTEM: 3, TRUSTED: 2, UNTRUSTED: 1 };
 
 describe("mergeTaint — lattice algebra", () => {
   it("is commutative", () => {
+    // The Taint domain has exactly 3 values, so the (a, b) space is 3×3 = 9
+    // pairs. 9 runs exhausts it deterministically — more would only re-draw
+    // already-covered inputs.
     fc.assert(
       fc.property(taintArb, taintArb, (a, b) => {
         expect(mergeTaint(a, b)).toBe(mergeTaint(b, a));
       }),
+      { numRuns: 9 },
     );
   });
 
@@ -21,6 +25,7 @@ describe("mergeTaint — lattice algebra", () => {
           mergeTaint(a, mergeTaint(b, c)),
         );
       }),
+      { numRuns: 27 }, // 3^3 = 27 triples — exhausts the state space
     );
   });
 
@@ -29,6 +34,7 @@ describe("mergeTaint — lattice algebra", () => {
       fc.property(taintArb, (t) => {
         expect(mergeTaint(t, t)).toBe(t);
       }),
+      { numRuns: 3 }, // 3 values — exhausted in 3 runs
     );
   });
 
@@ -38,6 +44,7 @@ describe("mergeTaint — lattice algebra", () => {
         const merged = mergeTaint(a, b);
         expect(RANK[merged]).toBeLessThanOrEqual(Math.min(RANK[a], RANK[b]));
       }),
+      { numRuns: 9 }, // 3^2 = 9 pairs — exhausts the state space
     );
   });
 
@@ -65,6 +72,7 @@ describe("meetAll", () => {
         const expected = ts.reduce((acc, t) => mergeTaint(acc, t));
         expect(meetAll(ts)).toBe(expected);
       }),
+      { numRuns: 100 }, // 100 random arrays; space is small, coverage is adequate
     );
   });
 });

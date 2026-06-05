@@ -10,7 +10,7 @@
 //   1. emit a structured console.warn line (operator triage during incidents)
 //   2. invoke a pluggable MetricsSink for analytics (PostHog) + Sentry
 //
-// IbateXas wiring (in `apps/api/src/plugins/sentry.ts` extension or similar)
+// Adopter wiring (e.g. in an app-level boot plugin or equivalent)
 // installs a real sink at boot. Tests can install a mock sink for assertions.
 
 import type { Decision } from "../decision.js"
@@ -66,6 +66,13 @@ export interface LedgerOpEvent {
   readonly outcome: "hit" | "miss" | "ok" | "duplicate" | "error"
   readonly intentKind: string
   readonly latencyMs: number
+  /**
+   * SHA-256 hex hash of the envelope. Observability-only — not part of the
+   * hashed audit record. Enables cross-referencing a ledger hit/miss event
+   * with its corresponding DecisionEvent, RefusalEvent, and AuditRecord in
+   * dashboards and incident tooling (SecurityReviewer-015).
+   */
+  readonly intentHash: string
 }
 
 export interface DecisionEvent {
@@ -84,7 +91,19 @@ export interface RefusalEvent {
 }
 
 export interface SinkFailureEvent {
-  readonly sink: "console" | "nats" | "postgres"
+  /**
+   * Well-known sink identifiers for `SinkFailureEvent.sink`:
+   *   - `"console"` — the built-in console sink (dev / fallback)
+   *   - `"nats"`    — NATS JetStream audit sink
+   *   - `"postgres"` — Postgres audit sink
+   *   - `"multi"`   — composite `multiSink` / `multiSinkLossy` wrapper
+   *   - `"buffered"` — `bufferedSink` wrapper (async fan-out with replay)
+   *
+   * Custom sinks may supply any string label; the union is widened to
+   * string for forward-compatibility while the well-known values serve
+   * as canonical labels for dashboards and alerts.
+   */
+  readonly sink: "console" | "nats" | "postgres" | "multi" | "buffered" | (string & {})
   readonly subject: string
   readonly errorClass: string
   readonly consecutiveFailures: number
@@ -215,6 +234,19 @@ export function recordResourceLimit(event: ResourceLimitEvent): void {
  * that emits Sentry breadcrumbs and posts to the analytics pipeline. Useful
  * out-of-the-box: `setMetricsSink(createConsoleMetricsSink())` at boot gives
  * full operator visibility with no extra dependencies.
+ *
+ * ⚠️ PII WARNING (SecurityReviewer-016): this DEV-ONLY sink logs whole event
+ * objects verbatim via `JSON.stringify`. Two fields are a session-id PII
+ * proxy and are emitted in clear: `LedgerOpEvent`/`SinkFailureEvent`/
+ * `ResourceLimitEvent.subject` (documented as "typically a session id") and
+ * `ResourceLimitEvent.subject` for quota events. `intentHash` is NOT PII (it
+ * is a content digest, deliberately truncated to 8 chars on the decision/
+ * refusal lines). Do NOT ship this sink to a production log pipeline that
+ * leaves logs at rest: a real MetricsSink MUST redact or hash `subject`
+ * before egress (e.g. `hash(subject)` or a tenant-scoped pseudonym). Changing
+ * the bytes emitted here is intentionally avoided — the metrics contract and
+ * field set are unchanged; this is the documented convention every adopter
+ * sink is expected to honour. See also the `subject` field docs above.
  */
 export function createConsoleMetricsSink(): MetricsSink {
   return {

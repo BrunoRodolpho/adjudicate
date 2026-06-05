@@ -236,6 +236,37 @@ describe("T-008: park + resume with hash verification", () => {
     })
     expect(result.resumed).toBe(true) // bypass: NOT recommended
   })
+
+  it("SecurityReviewer-010: default is strict — a legacy blob is refused when verifyHash is omitted", async () => {
+    const redis = createMemoryRedis()
+    // Legacy blob (no version/nonce/taint/actorPrincipal) → unverifiable.
+    const legacyBlob: ParkedEnvelope = {
+      envelope: {
+        intentHash: ENVELOPE.intentHash,
+        kind: ENVELOPE.kind,
+        actor: { sessionId: ENVELOPE.actor.sessionId },
+        payload: ENVELOPE.payload,
+      },
+      signal: "pix.confirmed",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    await redis.set(
+      `defer:pending:${ENVELOPE.actor.sessionId}`,
+      JSON.stringify(legacyBlob),
+      { EX: 600 },
+    )
+
+    const result = await resumeDeferredIntent({
+      sessionId: ENVELOPE.actor.sessionId,
+      signal: "pix.confirmed",
+      redis,
+      rk: RK,
+      // verifyHash intentionally OMITTED — exercises the default (now "strict").
+    })
+    // Under the old "warn" default this resumed:true; strict-by-default fails closed.
+    expect(result.resumed).toBe(false)
+    expect(result.reason).toBe("park_blob_unverifiable")
+  })
 })
 
 describe("verifyParkedEnvelopeHash unit tests", () => {

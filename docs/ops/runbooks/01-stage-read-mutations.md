@@ -1,5 +1,9 @@
 # Stage 1 — Read-like Mutations (Risk: Low)
 
+> **Note:** This runbook uses IbateXas commerce intent kinds as examples.
+> Substitute your domain's intent kinds and deployment CLI. The 4-stage
+> shadow → enforce pattern applies to any adjudicate adopter.
+
 > **TL;DR** — first kernel-authoritative stage. Idempotent / reversible mutations that don't commit money or block flows. 7-day zero-divergence window before flipping ENFORCE.
 
 ## Scope

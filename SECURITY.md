@@ -29,4 +29,4 @@ We aim to acknowledge reports within 72 hours and to provide a fix or workaround
 
 ## Versions
 
-`v0.x` is pre-stable; security fixes apply to the latest minor only. Once `v1.0` ships, we'll backport critical fixes to the previous minor.
+The project is in **v1.0-RC** posture. Security fixes are applied to the current release candidate. Once `v1.0` is tagged, critical fixes will be backported to the previous minor. Pre-RC (`v0.x`) releases are no longer supported.

@@ -9,6 +9,11 @@
  * Phase 2's `@adjudicate/tools` (when it lands) will wrap handlers in
  * versioned, schema-defined, signed `ToolDefinition` objects. PackV0
  * doesn't require that yet.
+ *
+ * LGPD / PII note: real PIX implementations receive `payerDocument` (CPF).
+ * Do NOT embed CPF in the qrCode or any string returned to the LLM context —
+ * it will persist in model history, provider logs, and audit records. Use an
+ * opaque charge ID or a provider-generated token as the QR code reference.
  */
 
 import type { PackHandler } from "@adjudicate/core";
@@ -25,10 +30,14 @@ export const inMemoryPixHandlers: Readonly<
 > = {
   "pix.charge.create": async (payload) => {
     const p = payload as PixChargeCreatePayload;
+    const chargeId = `cha-${Date.now().toString(36)}`;
     return {
-      chargeId: `cha-${Date.now().toString(36)}`,
+      chargeId,
       amountCentavos: p.amountCentavos,
-      qrCode: `pix-qr-${p.payerDocument}-${p.amountCentavos}`,
+      // SecurityReviewer-018: qrCode must NOT embed payerDocument (CPF) — it
+      // bubbles into LLM context, provider logs, and audit records. Use the
+      // opaque charge ID as the QR reference instead.
+      qrCode: `pix-qr-${chargeId}-${p.amountCentavos}`,
       status: "pending" as const,
     };
   },

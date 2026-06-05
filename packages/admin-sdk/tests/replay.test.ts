@@ -16,7 +16,15 @@ import {
   type ReplayInvoker,
 } from "../src/index.js";
 import { createAdminCaller } from "../src/trpc/index.js";
+import type { Actor } from "../src/schemas/emergency.js";
 import { ALL, fixtureExecute, fixtureRefuse } from "./fixtures.js";
+
+const operator: Actor = { id: "op-1", displayName: "Test Operator" };
+
+// Syntactically valid sha256 hex that matches no fixture — reaches the
+// NOT_FOUND path now that IntentHashSchema (APIReviewer-013) rejects
+// non-hex placeholders at the wire.
+const UNKNOWN_HASH = "a".repeat(64);
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Mock invokers                                                              */
@@ -59,13 +67,16 @@ const basisDriftInvoker: ReplayInvoker = {
 /* Caller helper                                                              */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-const callerWithReplayer = (replayer: ReplayInvoker | undefined) => {
+const callerWithReplayer = (
+  replayer: ReplayInvoker | undefined,
+  actor: Actor | null = operator,
+) => {
   const store = createInMemoryAuditStore({ records: ALL });
   const emergencyStore = createInMemoryEmergencyStateStore();
   return createAdminCaller({
     store,
     emergencyStore,
-    actor: null,
+    actor,
     replayer,
   });
 };
@@ -75,6 +86,13 @@ const callerWithReplayer = (replayer: ReplayInvoker | undefined) => {
 /* ────────────────────────────────────────────────────────────────────────── */
 
 describe("replay.run — preconditions", () => {
+  it("throws UNAUTHORIZED without an actor (AuthReviewer-004)", async () => {
+    const caller = callerWithReplayer(reproducingInvoker, null);
+    await expect(
+      caller.replay.run({ intentHash: fixtureExecute.intentHash }),
+    ).rejects.toThrow(/actor-id header required/i);
+  });
+
   it("throws PRECONDITION_FAILED when replayer is not configured", async () => {
     const caller = callerWithReplayer(undefined);
     await expect(
@@ -82,16 +100,23 @@ describe("replay.run — preconditions", () => {
     ).rejects.toThrow(/Replay capability not configured/);
   });
 
-  it("throws NOT_FOUND for unknown intentHash", async () => {
+  it("throws NOT_FOUND for unknown (but well-formed) intentHash", async () => {
     const caller = callerWithReplayer(reproducingInvoker);
     await expect(
-      caller.replay.run({ intentHash: "0xnonexistent" }),
+      caller.replay.run({ intentHash: UNKNOWN_HASH }),
     ).rejects.toThrow();
   });
 
   it("rejects empty intentHash at the wire", async () => {
     const caller = callerWithReplayer(reproducingInvoker);
     await expect(caller.replay.run({ intentHash: "" })).rejects.toThrow();
+  });
+
+  it("rejects a non-hex intentHash at the wire (APIReviewer-013)", async () => {
+    const caller = callerWithReplayer(reproducingInvoker);
+    await expect(
+      caller.replay.run({ intentHash: "0xnonexistent" }),
+    ).rejects.toThrow();
   });
 });
 

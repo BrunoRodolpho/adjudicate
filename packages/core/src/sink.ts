@@ -19,6 +19,23 @@ export interface AuditSink {
    * Emit one record. Implementations rejecting their inner promise signal
    * a durable-write failure. Fan-out helpers in `@adjudicate/audit` decide
    * whether to swallow (lossy) or propagate (strict).
+   *
+   * Implementation requirements:
+   *
+   *   - Idempotency: the same record (keyed by its `auditHash`) may be
+   *     emitted more than once — on retries, buffer flushes, or fan-out
+   *     re-delivery. Implementations MUST treat re-emission of an
+   *     already-persisted record as a no-op (e.g. upsert on `auditHash`)
+   *     rather than appending a duplicate row.
+   *   - Ordering: emission order is NOT guaranteed to be causal or
+   *     monotonic. Buffered and multi-sink wrappers may reorder or
+   *     interleave records. Implementations MUST NOT assume records arrive
+   *     in decision order; reconstruct ordering from record fields (e.g.
+   *     timestamps / supersession links), never from arrival order.
+   *   - Durability: resolve the promise ONLY after the record is durably
+   *     committed (fsync'd / acknowledged by the backing store). Resolving
+   *     early defeats the strict fan-out path, which relies on a rejected
+   *     promise to detect and surface durable-write failures.
    */
   emit(record: AuditRecord): Promise<void>;
 }

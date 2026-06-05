@@ -26,6 +26,8 @@ const SAMPLE_CATALOG: ReadonlyMap<string, CatalogEntry> = new Map([
   ["sku-shirt", { sku: "sku-shirt", maxPerOrder: 3, priceCentavos: 8900 }],
 ]);
 
+let nonceCounter = 0;
+
 function envelope(
   kind: OrderIntentKind,
   payload: Record<string, unknown>,
@@ -36,6 +38,7 @@ function envelope(
     payload,
     actor: { principal: "llm", sessionId: "s-1" },
     taint,
+    nonce: `com-${++nonceCounter}`,
     createdAt: DET_TIME,
   });
 }

@@ -60,6 +60,7 @@ export {
 export { matchedGuardPhaseFromTrace } from "./learning.js";
 export {
   InMemoryOutcomeSink,
+  RetrospectiveOutcomeWireSchema,
   hasOutcomeSink,
   recordRetrospectiveOutcome,
   setOutcomeSink,

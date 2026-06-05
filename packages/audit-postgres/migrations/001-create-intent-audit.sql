@@ -11,7 +11,13 @@
 
 CREATE TABLE IF NOT EXISTS intent_audit (
   id                BIGSERIAL,
-  intent_hash       TEXT NOT NULL,
+  -- intent_hash is the kernel's sha256 over the canonical IntentEnvelope —
+  -- always 64 lowercase hex chars. The format CHECK rejects truncated,
+  -- upper-cased, or non-hex values at write time (DB-side integrity floor
+  -- mirroring the kernel's hash shape). Inline like the principal/taint
+  -- CHECKs below; this is a pre-release migration so the constraint is
+  -- added in-place rather than as a follow-up ALTER.
+  intent_hash       TEXT NOT NULL CHECK (intent_hash ~ '^[a-f0-9]{64}$'),
   session_id        TEXT NOT NULL,
   kind              TEXT NOT NULL,
   principal         TEXT NOT NULL CHECK (principal IN ('llm', 'user', 'system')),

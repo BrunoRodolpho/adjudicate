@@ -17,6 +17,7 @@ import {
   adjudicate,
   adjudicateWithTrace,
   buildEnvelope,
+  installPack,
   type IntentEnvelope,
   type PolicyBundle,
 } from "@adjudicate/core";
@@ -28,6 +29,11 @@ const PIX_POLICY: PolicyBundle<string, unknown, unknown> = paymentsPixPack.polic
   unknown,
   unknown
 >;
+
+// installPack-wrapped policy (matches production default: auditBasisDrift: true).
+// warn is suppressed so the default-sink notice does not pollute bench output.
+const { pack: INSTALLED_PACK } = installPack(paymentsPixPack, { warn: () => {} });
+const PIX_POLICY_WRAPPED = INSTALLED_PACK.policy as PolicyBundle<string, unknown, unknown>;
 
 const PIX_STATE = {
   charges: new Map([
@@ -136,6 +142,29 @@ describe("buildEnvelope()", () => {
         taint: "UNTRUSTED",
         nonce: "n",
       });
+    },
+    { iterations: 1000 },
+  );
+});
+
+// ── adjudicate() with installPack-wrapped policy (production default) ────────
+// The bare-policy blocks above reflect the underlying kernel cost. These rows
+// reflect the framework's recommended boot — installPack(pack) defaults to
+// auditBasisDrift: true, returning the withBasisAudit-wrapped policy.
+
+describe("adjudicate() with installPack-wrapped policy (production default)", () => {
+  bench(
+    "EXECUTE path (valid refund)",
+    () => {
+      adjudicate(EXECUTE_ENVELOPE, PIX_STATE, PIX_POLICY_WRAPPED);
+    },
+    { iterations: 1000 },
+  );
+
+  bench(
+    "REFUSE path (charge not found)",
+    () => {
+      adjudicate(REFUSE_ENVELOPE, PIX_STATE, PIX_POLICY_WRAPPED);
     },
     { iterations: 1000 },
   );

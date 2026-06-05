@@ -119,6 +119,13 @@ describe("withMetadata + readGuardMetadata (ADR-105)", () => {
     expect(readGuardMetadata(g)?.name).toBe("first");
   });
 
+  it("withMetadata throws TypeError for empty-string name (LogicReviewer-010)", () => {
+    const g: Guard<string, unknown, unknown> = () => null;
+    expect(() => withMetadata(g, { name: "" })).toThrow(TypeError);
+    // The name field must NOT have been attached (the guard has no valid name metadata).
+    expect(readGuardMetadata(g)?.name).toBeUndefined();
+  });
+
   it("withMetadata is idempotent on identical-value reattachment of the same field", () => {
     const g: Guard<string, unknown, unknown> = () => null;
     withMetadata(g, { name: "stable" });

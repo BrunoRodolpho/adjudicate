@@ -1,5 +1,10 @@
 # Maintenance Sweep Report V2 — 2026-05-21
 
+> **Historical record — point-in-time snapshot (2026-05-21).** This is an
+> archived audit report, not a description of current repo state; counts,
+> file paths, and findings reflect the repo as of that date. See `README.md`
+> for current status.
+>
 > Second engineering-quality pass on the post-v1 governance-frozen repo.
 > Builds on [`FINAL_RELIABILITY_AUDIT.md`](./FINAL_RELIABILITY_AUDIT.md).
 > All work is **additive** or **diagnostic-only** — no architectural,

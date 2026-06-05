@@ -32,12 +32,15 @@ import {
   buildEnvelope,
   decisionDefer,
   decisionEscalate,
+  decisionRefuse,
   decisionRequestConfirmation,
   decisionRewrite,
+  refuse,
 } from "@adjudicate/core";
 import type {
   Decision,
   DecisionBasis,
+  IntentActor,
   IntentEnvelope,
 } from "@adjudicate/core";
 import { withMetadata, type Guard } from "@adjudicate/core/kernel";
@@ -226,6 +229,9 @@ export interface RewriteGuardOptions<K extends string, P, S> {
   ) => ReadonlyArray<DecisionBasis>;
 }
 
+/**
+ * @experimental Awaiting Pack #4–#6 feedback; freeze at v1.1 per V1_FREEZE_MATRIX §row-187.
+ */
 export function createRewriteGuard<K extends string, P, S>(
   options: RewriteGuardOptions<K, P, S>,
 ): Guard<K, P, S> {
@@ -307,6 +313,9 @@ export interface ConfirmGuardOptions<K extends string, P, S> {
   ) => ReadonlyArray<DecisionBasis>;
 }
 
+/**
+ * @experimental Awaiting Pack #4–#6 feedback; freeze at v1.1 per V1_FREEZE_MATRIX §row-184.
+ */
 export function createConfirmGuard<K extends string, P, S>(
   options: ConfirmGuardOptions<K, P, S>,
 ): Guard<K, P, S> {
@@ -372,6 +381,9 @@ export interface EscalateGuardOptions<K extends string, P, S> {
   ) => ReadonlyArray<DecisionBasis>;
 }
 
+/**
+ * @experimental Awaiting Pack #4–#6 feedback; freeze at v1.1 per V1_FREEZE_MATRIX §row-185.
+ */
 export function createEscalateGuard<K extends string, P, S>(
   options: EscalateGuardOptions<K, P, S>,
 ): Guard<K, P, S> {
@@ -452,6 +464,9 @@ export interface IdempotencyGuardOptions<K extends string, P, S> {
   ) => Decision;
 }
 
+/**
+ * @experimental Domain-level dedup; intersects with ledger semantics — awaiting Pack #4 evidence per V1_FREEZE_MATRIX §row-186.
+ */
 export function createIdempotencyGuard<K extends string, P, S>(
   options: IdempotencyGuardOptions<K, P, S>,
 ): Guard<K, P, S> {
@@ -465,4 +480,36 @@ export function createIdempotencyGuard<K extends string, P, S>(
   return withMetadata(guard, {
     description: { kind: "opaque", note: "domain-level idempotency check" },
   });
+}
+
+// ─── requireTenantBinding (AuthReviewer-009 / RC-A1 D-12) ───────────────────
+
+/**
+ * Pack-level tenant authGuard. Enforces that the envelope's actor is bound to the
+ * tenant carried by `state`. Authz flows through the guard + adopter-supplied `state`,
+ * NOT through the kernel RuntimeContext (a Guard never receives it) — the principal
+ * stays provenance-only. The guard reads `(envelope.actor, state)` and returns a REFUSE
+ * on a binding violation, touching NEITHER the principal shape NOR any hashed byte
+ * (cycle-19 D-12). Browser-safe: pure logic, no node:crypto / Buffer.
+ *
+ * The `isActorBoundToTenant` predicate is adopter-supplied: a single-tenant adopter
+ * passes a trivially-true predicate (the guard is then a no-op scaffold, wired ahead of
+ * the multi-tenant actor model); a multi-tenant adopter compares the actor's resolved
+ * tenant to the tenant in `state`.
+ */
+export function requireTenantBinding<K extends string, P, S>(
+  isActorBoundToTenant: (actor: IntentActor, state: S) => boolean,
+): Guard<K, P, S> {
+  return (envelope, state) =>
+    isActorBoundToTenant(envelope.actor, state)
+      ? null
+      : decisionRefuse(
+          refuse(
+            "SECURITY",
+            "tenant_binding_violation",
+            "Não consigo concluir essa ação.",
+            "actor is not bound to the tenant in state",
+          ),
+          [basis("auth", BASIS_CODES.auth.SCOPE_INSUFFICIENT)],
+        );
 }

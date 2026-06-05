@@ -26,17 +26,25 @@ const taintPolicy: TaintPolicy = {
 };
 
 function baseEnvelope(
-  overrides?: Partial<IntentEnvelope<Kind, Payload>>,
+  overrides: Partial<IntentEnvelope<Kind, Payload>> = {},
 ): IntentEnvelope<Kind, Payload> {
+  // Hash-relevant overrides flow into buildEnvelope inputs so intentHash
+  // matches canonical content (the kernel now verifies it). Only
+  // version/intentHash are spread on top, for deliberately-malformed cases.
+  const { version, intentHash, createdAt, ...hashRelevant } = overrides;
   const env = buildEnvelope<Kind, Payload>({
-    kind: "order.tool.propose",
-    payload: { toolName: "add_item" },
-    actor: { principal: "llm", sessionId: "s-1" },
-    taint: "UNTRUSTED",
-    nonce: "n-test",
-    createdAt: "2026-04-23T12:00:00.000Z",
+    kind: (hashRelevant.kind ?? "order.tool.propose") as Kind,
+    payload: hashRelevant.payload ?? { toolName: "add_item" },
+    actor: hashRelevant.actor ?? { principal: "llm", sessionId: "s-1" },
+    taint: hashRelevant.taint ?? "UNTRUSTED",
+    nonce: hashRelevant.nonce ?? "n-test",
+    createdAt: createdAt ?? "2026-04-23T12:00:00.000Z",
   });
-  return { ...env, ...overrides } as IntentEnvelope<Kind, Payload>;
+  return {
+    ...env,
+    ...(version !== undefined ? { version } : {}),
+    ...(intentHash !== undefined ? { intentHash } : {}),
+  } as IntentEnvelope<Kind, Payload>;
 }
 
 function bundle(

@@ -161,7 +161,11 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
     payload: unknown;
   }) => string;
   readonly log?: AgentLogger;
-  /** Hash-verification policy for parked envelope blobs at resume. */
+  /**
+   * Hash-verification policy for parked envelope blobs at resume.
+   * Defaults to `"strict"` (SecurityReviewer-010): a legacy blob lacking
+   * verification fields fails closed rather than resuming with a warning.
+   */
   readonly verifyParkedHash?: "strict" | "warn" | "off";
   /**
    * Optional low-cardinality trace sink. The loop emits one event per

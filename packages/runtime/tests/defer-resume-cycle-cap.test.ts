@@ -16,6 +16,16 @@ import {
 
 const rk = (s: string) => `ENV:${s}`;
 
+// SecurityReviewer-010: this suite exercises the resume cycle-cap, NOT hash
+// verification — its PARKED blob is intentionally minimal/legacy-shaped. Pin
+// verifyHash:"off" so the strict-by-default verification doesn't refuse it.
+const resume = (
+  args: Omit<Parameters<typeof resumeDeferredIntent>[0], "verifyHash">,
+) => {
+  const merged = { ...args, verifyHash: "off" as const };
+  return resumeDeferredIntent(merged);
+};
+
 const PARKED = JSON.stringify({
   envelope: {
     intentHash: "deadbeef",
@@ -79,7 +89,7 @@ describe("resumeDeferredIntent — cycle cap (T5)", () => {
       pending: { "ENV:defer:pending:s-1": PARKED },
     });
     // Cycle 1 — succeeds.
-    const r1 = await resumeDeferredIntent({
+    const r1 = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis: fake.redis,
@@ -90,7 +100,7 @@ describe("resumeDeferredIntent — cycle cap (T5)", () => {
     fake.state.pending.set("ENV:defer:pending:s-1", PARKED);
     fake.state.resumed.clear();
     // Cycle 2 — succeeds.
-    const r2 = await resumeDeferredIntent({
+    const r2 = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis: fake.redis,
@@ -101,7 +111,7 @@ describe("resumeDeferredIntent — cycle cap (T5)", () => {
     fake.state.pending.set("ENV:defer:pending:s-1", PARKED);
     fake.state.resumed.clear();
     // Cycle 3 — succeeds (at the cap).
-    const r3 = await resumeDeferredIntent({
+    const r3 = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis: fake.redis,
@@ -112,7 +122,7 @@ describe("resumeDeferredIntent — cycle cap (T5)", () => {
     fake.state.pending.set("ENV:defer:pending:s-1", PARKED);
     fake.state.resumed.clear();
     // Cycle 4 — exceeded.
-    const r4 = await resumeDeferredIntent({
+    const r4 = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis: fake.redis,
@@ -127,7 +137,7 @@ describe("resumeDeferredIntent — cycle cap (T5)", () => {
     const fake = makeFakeRedis({
       pending: { "ENV:defer:pending:s-1": PARKED },
     });
-    const r1 = await resumeDeferredIntent({
+    const r1 = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis: fake.redis,
@@ -137,7 +147,7 @@ describe("resumeDeferredIntent — cycle cap (T5)", () => {
     expect(r1.resumed).toBe(true);
     fake.state.pending.set("ENV:defer:pending:s-1", PARKED);
     fake.state.resumed.clear();
-    const r2 = await resumeDeferredIntent({
+    const r2 = await resume({
       sessionId: "s-1",
       signal: "payment.confirmed",
       redis: fake.redis,
@@ -155,7 +165,7 @@ describe("resumeDeferredIntent — cycle cap (T5)", () => {
     for (let i = 0; i < 5; i++) {
       fake.state.pending.set("ENV:defer:pending:s-1", PARKED);
       fake.state.resumed.clear();
-      const r = await resumeDeferredIntent({
+      const r = await resume({
         sessionId: "s-1",
         signal: "payment.confirmed",
         redis: fake.redis,
@@ -189,7 +199,7 @@ describe("resumeDeferredIntent — cycle cap (T5)", () => {
     for (let i = 0; i < 5; i++) {
       pending.set("ENV:defer:pending:s-1", PARKED);
       resumed.clear();
-      const r = await resumeDeferredIntent({
+      const r = await resume({
         sessionId: "s-1",
         signal: "payment.confirmed",
         redis,

@@ -1,5 +1,9 @@
 # Stage 3 — Checkout / Order Submission (Risk: High)
 
+> **Note:** This runbook uses IbateXas commerce intent kinds as examples.
+> Substitute your domain's intent kinds and deployment CLI. The 4-stage
+> shadow → enforce pattern applies to any adjudicate adopter.
+
 > **TL;DR** — committing the order: address, fulfillment method, payment instrument, slot reservation. Last reversible step before money moves. 7-day window; on-call watches in real-time during Stage 3 hours per `docs/ops/analytics-dashboards.md` Stage 3 chart.
 
 ## Scope

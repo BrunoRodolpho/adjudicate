@@ -137,4 +137,47 @@ describe("NatsSink — T3 half-open close (no 9-failure blind spot)", () => {
     await expect(sink.emit(record())).rejects.toThrow("offline-again");
     await expect(sink.emit(record())).rejects.toThrow("offline-again");
   });
+
+  it("admits only one probe in half-open under concurrent emits (ConcurrencyReviewer-003)", async () => {
+    // The half-open probe's publish hangs on `probeGate` so a second emit
+    // arrives while the probe is genuinely in flight. We count how many
+    // publish calls actually reach the wire.
+    let publishCalls = 0;
+    let releaseProbe!: () => void;
+    const probeGate = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+    const publisher: NatsPublisher = {
+      async publish() {
+        publishCalls++;
+        const callNo = publishCalls;
+        // Call #1 is the breaker-tripping emit (fails immediately).
+        // Call #2 is the half-open probe — it hangs, then fails.
+        if (callNo >= 2) await probeGate;
+        throw new Error("nats still down");
+      },
+    };
+
+    // failureThreshold 1 → the first failing emit trips straight to OPEN.
+    const sink = createNatsSink({ publisher, failureThreshold: 1 });
+    await expect(sink.emit(record())).rejects.toThrow(NatsSinkError);
+    expect(publishCalls).toBe(1);
+
+    // Now OPEN. Fire two concurrent emits. The first becomes the sole probe
+    // (publishes call #2 and hangs on probeGate). The second must NOT launch
+    // a publish — it fails fast with NatsSinkError.
+    const probe = sink.emit(record());
+    const concurrent = sink.emit(record());
+
+    await expect(concurrent).rejects.toThrow(NatsSinkError);
+    // The probe has published (call #2) and is suspended; the concurrent emit
+    // was rejected WITHOUT a third publish.
+    expect(publishCalls).toBe(2);
+
+    // Release the probe; it fails and re-opens. Still exactly two publishes —
+    // the concurrent emit never reached the wire.
+    releaseProbe();
+    await expect(probe).rejects.toThrow(NatsSinkError);
+    expect(publishCalls).toBe(2);
+  });
 });

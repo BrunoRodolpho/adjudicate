@@ -3,7 +3,6 @@
  *
  *   allOf(g1, g2, g3)    — returns the first non-null Decision, or null if all pass
  *   firstMatch(...)      — alias for allOf with clearer semantics at call site
- *   negate(guard, ...)   — inverts a pass/fail semantic for REWRITE-style logic
  *   constant(decision)   — always returns the given Decision (useful in tests)
  */
 

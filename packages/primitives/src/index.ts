@@ -44,6 +44,7 @@ export {
   createRewriteGuard,
   createStateDeferGuard,
   createThresholdGuard,
+  requireTenantBinding,
   type ConfirmGuardOptions,
   type EscalateGuardOptions,
   type IdempotencyGuardOptions,

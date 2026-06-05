@@ -21,9 +21,39 @@
 
 export type GatewayMode = "mock" | "live";
 
+/**
+ * True when the build/deploy is targeting production. Checked against both
+ * `ADJUDICATE_ENV` (the framework's explicit env switch) and the standard
+ * `NODE_ENV` so either signal trips the guard. `next build` sets
+ * NODE_ENV=production, so a production bundle that forgot to set
+ * NEXT_PUBLIC_ADJUDICATE_MODE=live is caught here rather than silently
+ * shipping the in-process ALL_MOCKS gateway to real operators.
+ */
+export function isProductionEnv(): boolean {
+  return (
+    process.env.ADJUDICATE_ENV === "production" ||
+    process.env.NODE_ENV === "production"
+  );
+}
+
 export function getClientGatewayMode(): GatewayMode {
   const env = process.env.NEXT_PUBLIC_ADJUDICATE_MODE;
-  return env === "live" ? "live" : "mock";
+  const mode: GatewayMode = env === "live" ? "live" : "mock";
+  // Production guard: "mock" is the dev-only default. Resolving to "mock" in
+  // a production environment means the client-side gateway would read the
+  // static ALL_MOCKS fixtures instead of hitting the real AuditStore — a
+  // misconfiguration that silently serves fake governance data. Fail loudly
+  // so the deploy is caught, never a live operator. "mock" stays the default
+  // everywhere else (local dev, tests, CI).
+  if (mode === "mock" && isProductionEnv()) {
+    throw new Error(
+      "[runtime-mode] Gateway resolved to MOCK in a production environment. " +
+        "The mock gateway serves static ALL_MOCKS fixtures, not real audit " +
+        "data. Set NEXT_PUBLIC_ADJUDICATE_MODE=live for production builds, or " +
+        "unset ADJUDICATE_ENV/NODE_ENV=production for a local mock demo.",
+    );
+  }
+  return mode;
 }
 
 export function modeLabel(mode: GatewayMode): string {
@@ -48,7 +78,17 @@ export type EmergencyCoordinationMode = "in-memory" | "redis";
 
 export function getEmergencyCoordinationMode(): EmergencyCoordinationMode {
   const env = process.env.NEXT_PUBLIC_ADJUDICATE_EMERGENCY_COORDINATION;
-  return env === "redis" ? "redis" : "in-memory";
+  const mode: EmergencyCoordinationMode = env === "redis" ? "redis" : "in-memory";
+  if (mode === "in-memory" && isProductionEnv()) {
+    throw new Error(
+      "[runtime-mode] Emergency coordination resolved to IN-MEMORY in a production " +
+        "environment. In-memory state is volatile and local to this console process — " +
+        "kill-switch toggles do NOT propagate to the kernel runtime. Set " +
+        "NEXT_PUBLIC_ADJUDICATE_EMERGENCY_COORDINATION=redis (and corresponding " +
+        "REDIS_URL + EMERGENCY_REDIS_KEY on the server) for production deployments.",
+    );
+  }
+  return mode;
 }
 
 export function coordinationLabel(mode: EmergencyCoordinationMode): string {

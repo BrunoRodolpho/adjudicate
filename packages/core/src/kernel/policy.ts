@@ -26,12 +26,42 @@ import type { Decision } from "../decision.js";
 import type { IntentEnvelope } from "../envelope.js";
 import type { TaintPolicy } from "../taint.js";
 
+/**
+ * A single adjudication rule.
+ *
+ * **Type trust boundary — read before writing guards.**
+ *
+ * When a guard is invoked from the adapter-core loop (e.g. `createAgentLoop`),
+ * the `envelope` argument is typed `IntentEnvelope<K, P>` but its `kind` was
+ * validated only by string equality against `CapabilityPlan.allowedIntents`,
+ * and its `payload` is the raw `tool_use.input` value from the LLM. The
+ * TypeScript types narrowed from `K` and `P` reflect the *declared* shape, not
+ * a structurally verified runtime value.
+ *
+ * **Implication:** guards that destructure `envelope.payload` and assume it
+ * matches `P` without runtime validation create exploitable holes. You MUST
+ * validate `envelope.payload` structurally (e.g. with Zod or a type-guard
+ * function) before relying on its fields for security decisions.
+ *
+ * Example safe pattern:
+ * ```ts
+ * const guard: Guard<"order.place", OrderPayload, State> = (envelope, state) => {
+ *   const parsed = OrderPayloadSchema.safeParse(envelope.payload);
+ *   if (!parsed.success) return refuse("SECURITY", "order.place.bad_payload", "Invalid input.");
+ *   const payload = parsed.data; // now structurally safe
+ *   // ... rest of guard logic
+ * };
+ * ```
+ */
 export type Guard<K extends string, P, S> = (
   envelope: IntentEnvelope<K, P>,
   state: S,
 ) => Decision | null;
 
 export interface PolicyBundle<K extends string, P, S> {
+  /**
+   * @see Guard for the runtime trust-boundary note on `envelope.payload`.
+   */
   readonly stateGuards: ReadonlyArray<Guard<K, P, S>>;
   readonly authGuards: ReadonlyArray<Guard<K, P, S>>;
   /** Declares the minimum Taint required per intent kind. */
@@ -159,7 +189,9 @@ export interface GuardMetadata {
  * **Identity-preserving.** Returns the same function object — the returned
  * guard is `===`-equal to the input guard, so stack traces, referential
  * equality, memoization, and registry semantics are all preserved.
- * Wrapping is prohibited; analyzer correctness depends on this.
+ * `withMetadata` does not wrap: it attaches metadata to the same function
+ * reference rather than returning a new closure. Analyzer correctness
+ * depends on this — it relies on the returned guard being the same object.
  *
  * **Per-field immutable, additively composable.** The metadata slot itself
  * is attached on first call and remains non-configurable thereafter; each
@@ -196,8 +228,19 @@ export function withMetadata<G extends (...args: never[]) => unknown>(
   // Per-field defineProperty: enumerable so readGuardMetadata returns a
   // useful object; non-configurable + non-writable so individual fields
   // cannot be mutated post-attachment.
+  //
+  // Empty-string `name` is skipped rather than attached: an empty name is
+  // indistinguishable from "no name set" at read-time (both produce an
+  // empty/absent guardName in trace entries and LearningEvents) and would
+  // silently shadow a meaningful Function.name. Throws TypeError on explicit
+  // empty string to match the surrounding strict-overwrite style.
   for (const [key, value] of Object.entries(metadata)) {
     if (value === undefined) continue;
+    if (key === "name" && value === "") {
+      throw new TypeError(
+        "withMetadata: 'name' must be a non-empty string (empty string passed).",
+      );
+    }
     const existing = slot[key];
     if (existing !== undefined) {
       if (existing === value) continue; // idempotent reattachment

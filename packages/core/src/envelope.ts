@@ -37,6 +37,18 @@ export type IntentEnvelopeVersion = typeof INTENT_ENVELOPE_VERSION;
 export interface IntentActor {
   readonly principal: "llm" | "user" | "system";
   readonly sessionId: string;
+  /**
+   * Reserved seam for v0.2 actor attestation. v0.1 envelopes omit this
+   * field — absent `attestation` is canonical-JSON-dropped and does NOT
+   * alter the intentHash. A future policy slot (`Pack.verifyActorAttestation`)
+   * will gate on this when the host supplies a verifier; until then the
+   * field is a structural reservation so adopters can round-trip it through
+   * audit records without a schema break.
+   */
+  readonly attestation?: {
+    readonly keyId: string;
+    readonly sig: string;
+  };
 }
 
 export interface IntentEnvelope<K extends string = string, P = unknown> {
@@ -84,6 +96,32 @@ export interface BuildEnvelopeInput<K extends string, P> {
 }
 
 /**
+ * The content-addressed fields that feed `intentHash` (v2 recipe):
+ * `(version, kind, payload, nonce, actor, taint)`. `createdAt` is descriptive
+ * metadata and is deliberately excluded. Single source of truth so
+ * `buildEnvelope` (construction) and `deriveIntentHash` (kernel verification)
+ * can never drift — a divergence between the two would silently break ledger
+ * dedup and let forged hashes through.
+ */
+function intentHashInput<K extends string, P>(e: {
+  readonly version: IntentEnvelopeVersion;
+  readonly kind: K;
+  readonly payload: P;
+  readonly nonce: string;
+  readonly actor: IntentActor;
+  readonly taint: Taint;
+}): Record<string, unknown> {
+  return {
+    version: e.version,
+    kind: e.kind,
+    payload: e.payload,
+    nonce: e.nonce,
+    actor: e.actor,
+    taint: e.taint,
+  };
+}
+
+/**
  * Construct a fully-formed IntentEnvelope with a computed intentHash.
  * Hash is derived from `(version, kind, payload, nonce, actor, taint)` —
  * NOT `createdAt`. Reconstructing an envelope from its fields with the
@@ -93,15 +131,16 @@ export function buildEnvelope<K extends string, P>(
   input: BuildEnvelopeInput<K, P>,
 ): IntentEnvelope<K, P> {
   const createdAt = input.createdAt ?? new Date().toISOString();
-  const hashInput = {
-    version: INTENT_ENVELOPE_VERSION,
-    kind: input.kind,
-    payload: input.payload,
-    nonce: input.nonce,
-    actor: input.actor,
-    taint: input.taint,
-  };
-  const intentHash = sha256Canonical(hashInput);
+  const intentHash = sha256Canonical(
+    intentHashInput({
+      version: INTENT_ENVELOPE_VERSION,
+      kind: input.kind,
+      payload: input.payload,
+      nonce: input.nonce,
+      actor: input.actor,
+      taint: input.taint,
+    }),
+  );
   return {
     version: INTENT_ENVELOPE_VERSION,
     kind: input.kind,
@@ -115,12 +154,53 @@ export function buildEnvelope<K extends string, P>(
 }
 
 /**
+ * Re-derive the content-addressed `intentHash` for an existing envelope.
+ *
+ * The kernel calls this to VERIFY that `envelope.intentHash` actually matches
+ * the canonical content — content-addressing is only meaningful if the hash is
+ * verified, not trusted. Adopters who build envelopes via `buildEnvelope` get a
+ * matching hash for free; a forged or drifted hash is caught by the kernel and
+ * refused with `schema:intent_hash_mismatch`.
+ */
+export function deriveIntentHash(envelope: IntentEnvelope): string {
+  return sha256Canonical(intentHashInput(envelope));
+}
+
+/**
+ * The exactly-eight documented top-level envelope fields. `isIntentEnvelope`
+ * rejects any object whose key set is not precisely this set, mirroring
+ * `additionalProperties: false` in `docs/specs/intent-envelope-v2.schema.json`.
+ * Module-level so the guard does not reallocate the Set on every call.
+ */
+const EXPECTED_ENVELOPE_KEYS = new Set([
+  "version",
+  "kind",
+  "payload",
+  "createdAt",
+  "nonce",
+  "actor",
+  "taint",
+  "intentHash",
+]);
+
+/**
  * Narrow an unknown value to an IntentEnvelope of the current version.
  * Consumed by the schema-version invariant test and by adjudicate() before
  * it inspects payload fields.
  */
 export function isIntentEnvelope(value: unknown): value is IntentEnvelope {
   if (value === null || typeof value !== "object") return false;
+  // Reject extras AND missing fields (spec: additionalProperties:false on
+  // intent-envelope-v2.schema.json). An accepted envelope carrying an extra
+  // key would otherwise hash differently (canonicalize iterates all entries),
+  // silently breaking retry dedup.
+  const keys = Object.keys(value as object);
+  if (
+    keys.length !== EXPECTED_ENVELOPE_KEYS.size ||
+    keys.some((k) => !EXPECTED_ENVELOPE_KEYS.has(k))
+  ) {
+    return false;
+  }
   const v = value as Partial<IntentEnvelope>;
   return (
     v.version === INTENT_ENVELOPE_VERSION &&
@@ -129,7 +209,9 @@ export function isIntentEnvelope(value: unknown): value is IntentEnvelope {
     typeof v.nonce === "string" &&
     typeof v.intentHash === "string" &&
     v.actor !== undefined &&
-    typeof v.actor.principal === "string" &&
+    (v.actor.principal === "llm" ||
+      v.actor.principal === "user" ||
+      v.actor.principal === "system") &&
     typeof v.actor.sessionId === "string" &&
     (v.taint === "SYSTEM" || v.taint === "TRUSTED" || v.taint === "UNTRUSTED")
   );

@@ -35,8 +35,23 @@ const SELECT_COLUMNS = `
   intent_hash, session_id, kind, principal, taint, decision_kind,
   refusal_kind, refusal_code, decision_basis, resource_version,
   envelope_jsonb, decision_jsonb, recorded_at, duration_ms,
-  partition_month, record_version, plan_jsonb
+  partition_month, record_version, plan_jsonb, nonce, supersedes_jsonb,
+  kernel_identity_jsonb, policy_version, kernel_version, audit_hash,
+  signature_jsonb
 `.trim();
+
+/**
+ * Thrown when a non-empty `cursor` fails to decode (malformed / truncated /
+ * tampered). Silently restarting from page 1 — the previous behavior — hands
+ * the caller a `nextCursor` for the SAME first page, an infinite loop for any
+ * client that retries. The tRPC layer should map this to a `BAD_REQUEST`.
+ */
+export class InvalidCursorError extends Error {
+  constructor(message = "Cursor is malformed or has been tampered with.") {
+    super(message);
+    this.name = "InvalidCursorError";
+  }
+}
 
 interface CursorPayload {
   readonly at: string;
@@ -126,7 +141,15 @@ export function createPostgresAuditStore(
       // Keyset pagination — strict-less-than on (recorded_at, intent_hash).
       // Tuple comparison is lexicographic in Postgres, which is exactly
       // what we want: walks the index in DESC order without OFFSET.
-      const cursor = q.cursor ? decodeCursor(q.cursor) : null;
+      //
+      // A non-empty cursor that fails to decode is a hard error (not a silent
+      // restart from page 1): returning the first page plus a fresh nextCursor
+      // would loop any client retrying with the bad cursor.
+      const rawCursor = q.cursor ? decodeCursor(q.cursor) : null;
+      if (q.cursor && rawCursor === null) {
+        throw new InvalidCursorError();
+      }
+      const cursor = rawCursor;
       let cursorClause = "";
       if (cursor) {
         cursorClause = `(recorded_at, intent_hash) < ($${i++}, $${i++})`;

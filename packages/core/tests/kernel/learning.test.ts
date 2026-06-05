@@ -24,6 +24,12 @@ import {
   setLearningSink,
   _resetLearningSink,
 } from "../../src/kernel/learning.js";
+import {
+  _resetMetricsSink,
+  setMetricsSink,
+  type MetricsSink,
+  type SinkFailureEvent,
+} from "../../src/kernel/metrics.js";
 
 const taintPolicy: TaintPolicy = { minimumFor: () => "UNTRUSTED" };
 
@@ -60,6 +66,14 @@ function envFixture() {
     nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
   });
 }
+
+// adjudicateAndLearn requires an explicit clock (SecurityReviewer-002): the
+// kernel barrel advertises determinism, so the function never reaches for an
+// implicit Date.now. Tests inject a deterministic clock.
+const fixedClock = {
+  now: () => 0,
+  clockIso: () => "2026-04-23T12:00:00.000Z",
+} as const;
 
 describe("flattenBasis", () => {
   it("renders DecisionBasis as category:code strings", () => {
@@ -132,12 +146,12 @@ describe("adjudicateAndLearn", () => {
   });
 
   it("returns the same Decision adjudicate would have returned (EXECUTE)", () => {
-    const decision = adjudicateAndLearn(envFixture(), {}, passBundle);
+    const decision = adjudicateAndLearn(envFixture(), {}, passBundle, fixedClock);
     expect(decision.kind).toBe("EXECUTE");
   });
 
   it("returns the same Decision adjudicate would have returned (REFUSE)", () => {
-    const decision = adjudicateAndLearn(envFixture(), {}, refuseBundle);
+    const decision = adjudicateAndLearn(envFixture(), {}, refuseBundle, fixedClock);
     expect(decision.kind).toBe("REFUSE");
   });
 
@@ -149,8 +163,8 @@ describe("adjudicateAndLearn", () => {
       },
     };
     setLearningSink(sink);
-    adjudicateAndLearn(envFixture(), {}, passBundle);
-    adjudicateAndLearn(envFixture(), {}, passBundle);
+    adjudicateAndLearn(envFixture(), {}, passBundle, fixedClock);
+    adjudicateAndLearn(envFixture(), {}, passBundle, fixedClock);
     expect(events).toHaveLength(2);
   });
 
@@ -183,6 +197,7 @@ describe("adjudicateAndLearn", () => {
       },
     });
     adjudicateAndLearn(envFixture(), {}, passBundle, {
+      ...fixedClock,
       planFingerprint: "abc123",
     });
     expect(events[0]!.planFingerprint).toBe("abc123");
@@ -194,7 +209,36 @@ describe("adjudicateAndLearn", () => {
         throw new Error("sink down");
       },
     });
-    const decision = adjudicateAndLearn(envFixture(), {}, passBundle);
+    const decision = adjudicateAndLearn(envFixture(), {}, passBundle, fixedClock);
     expect(decision.kind).toBe("EXECUTE");
+  });
+
+  it("surfaces a LearningSink failure via recordSinkFailure (ErrorReviewer-006)", () => {
+    const failures: SinkFailureEvent[] = [];
+    const metrics: MetricsSink = {
+      recordLedgerOp() {},
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure(e) {
+        failures.push(e);
+      },
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    };
+    setMetricsSink(metrics);
+    setLearningSink({
+      recordOutcome() {
+        throw new Error("sink down");
+      },
+    });
+    const env = envFixture();
+    const decision = adjudicateAndLearn(env, {}, passBundle, fixedClock);
+    // Decision still returns (telemetry never blocks the customer).
+    expect(decision.kind).toBe("EXECUTE");
+    // ...but the swallowed failure is now observable.
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.subject).toBe(env.intentHash);
+    expect(failures[0]!.errorClass).toContain("learning_sink_failure");
+    _resetMetricsSink();
   });
 });

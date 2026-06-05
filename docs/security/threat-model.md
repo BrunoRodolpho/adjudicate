@@ -58,12 +58,16 @@ live in `@adjudicate/core`.
 
 - **S1 — Forged `IntentActor`.** Envelope claims a privileged role
   the caller does not own. *Mitigation:* the kernel does not
-  authenticate actors; the adopter's auth boundary (capability
-  planner, request middleware) sets `actor` from a validated
-  session. The kernel propagates `actor` into `AuditRecord`, making
-  any spoof durably attributable. Combined with ADR-103 per-tenant
-  context, tenant A's envelopes cannot reach tenant B's runtime
-  slots because the context is bound to the executor wiring.
+  authenticate actors (KERNEL-RESPONSIBILITY-DEFERRED to v0.2); the
+  adopter's auth boundary (capability planner, request middleware)
+  sets `actor` from a validated session. The kernel propagates
+  `actor` into `AuditRecord`, making any spoof durably attributable.
+  `IntentActor.attestation` is a reserved v0.2 seam — a future
+  `Pack.verifyActorAttestation` policy slot will gate on it; today it
+  round-trips through the audit record for forensic use. Combined
+  with ADR-103 per-tenant context, tenant A's envelopes cannot reach
+  tenant B's runtime slots because the context is bound to the
+  executor wiring.
 - **S2 — Forged taint label.** Envelope arrives with
   `taint: "TRUSTED"` from an UNTRUSTED ingestion path. *Mitigation:*
   taint is stamped at the ingestion boundary (adapter, webhook
@@ -229,9 +233,11 @@ live in `@adjudicate/core`.
 - **I4 — Audit records expose PII to ops staff.** *Mitigation:*
   framework recommends row-level access control (e.g., a
   `governance_events_redacted` view masking payload fields).
-  Partial adopter responsibility — framework provides
-  ADR-111's `policyVersion` and `actor.tenant` columns; adopter
-  applies the ACL.
+  Partial adopter responsibility — framework provides ADR-111's
+  `policyVersion` column (migration 008); there is no `actor.tenant`
+  column — tenant scoping of audit rows is fully delegated to the
+  host's ACL (e.g., a `governance_events_redacted` view). Adopter
+  responsibility.
 - **I5 — Sink-failure events leak payload context.** *Mitigation:*
   `recordSinkFailure` carries `errorClass` and sink identity, not
   envelope payload. Payload lives in `AuditRecord` (controlled
@@ -335,9 +341,12 @@ live in `@adjudicate/core`.
 **Information disclosure**
 
 - **I7 — Admin-sdk leaks tenant-scoped audit to wrong operator.**
-  *Mitigation:* schemas accept a tenant filter; host enforces
-  tenant scoping at auth layer. ADR-103 `RuntimeContext.id` and
-  ADR-111 `policyVersion` provide join keys for scoped views.
+  *Mitigation:* `audit.query`, `audit.byHash`, and `replay.run` require an
+  authenticated actor (UNAUTHORIZED on missing header). `AuditQuerySchema.tenantScope`
+  and `AuditStore.getByIntentHash(hash, tenantScope)` provide an injection
+  point for host-enforced tenant scoping. ADR-103 `RuntimeContext.id` and
+  ADR-111 `policyVersion` provide join keys for scoped views. Full
+  cross-tenant isolation requires host implementation of a scoped `AuditStore`.
 
 **Denial of service**
 

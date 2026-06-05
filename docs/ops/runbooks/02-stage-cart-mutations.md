@@ -1,5 +1,9 @@
 # Stage 2 — Cart / Order Updates (Risk: Medium)
 
+> **Note:** This runbook uses IbateXas commerce intent kinds as examples.
+> Substitute your domain's intent kinds and deployment CLI. The 4-stage
+> shadow → enforce pattern applies to any adjudicate adopter.
+
 > **TL;DR** — cart-state mutations. User-reversible (can re-add/re-remove) but multi-step state machine and cross-cutting promotions logic make divergence more likely than Stage 1. 7-day window.
 
 ## Scope

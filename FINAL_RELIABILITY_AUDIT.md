@@ -1,5 +1,10 @@
 # Final Reliability Audit — 2026-05-21
 
+> **Historical record — point-in-time snapshot (2026-05-21).** This is an
+> archived audit report, not a description of current repo state; counts,
+> file paths, and findings reflect the repo as of that date. See `README.md`
+> for current status.
+>
 > Maintenance and reliability pass on the post-v1 governance-frozen repo.
 > All work is **additive** or **diagnostic-only**: no architectural changes, no
 > public API changes, no wire-format changes, no kernel-determinism changes,
@@ -33,7 +38,7 @@ the field as REQUIRED. The source is correct; the cached artifact was lying.
 **Resolution.** A clean `pnpm -r build` rebuilds the SDK first (topological
 order) and the downstream package now compiles. No source change was needed
 once the artifact was refreshed. Verified via repeated `pnpm -r build` —
-fully green across the 23 workspace projects.
+fully green across all workspace projects.
 
 **Why this matters.** A maintainer pulling the repo on a fresh laptop builds
 cleanly. A maintainer with stale `dist` from before the field-removal commit
@@ -304,7 +309,7 @@ unfavorable. **Not fixed**: prefer documentation over scripted ceremony.
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm -r build      # 23 workspace projects, all green
+pnpm -r build      # all workspace projects, all green
 pnpm test          # 1111 passing, 1 skipped (audit-postgres live-DB), 0 failing
 pnpm rc:audit      # pnpm audit --prod --audit-level high — clean
 ```

@@ -14,6 +14,14 @@ import {
 
 const DET_TIME = "2026-04-23T12:00:00.000Z";
 
+// buildEnvelope defaults a missing nonce to "" for back-compat, but the
+// envelope contract asks adopters to pass an explicit nonce for
+// replay-distinct intents. A stable incrementing counter gives each of
+// the six outcome envelopes a distinct, deterministic nonce so the
+// example demonstrates the real contract without sacrificing
+// reproducibility.
+let nonceCounter = 0;
+
 function envelope(
   kind: VacationIntentKind,
   payload: Record<string, unknown>,
@@ -24,6 +32,7 @@ function envelope(
     payload,
     actor: { principal: "llm", sessionId: "s-1" },
     taint,
+    nonce: `vac-${++nonceCounter}`,
     createdAt: DET_TIME,
   });
 }

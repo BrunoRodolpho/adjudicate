@@ -201,7 +201,7 @@ describe("adjudicateAndLearn parity — guardId flows the same way", () => {
       taint: permissive,
       business: [guard],
       default: "REFUSE",
-    });
+    }, { now: () => 0, clockIso: () => "2026-04-23T12:00:00.000Z" });
 
     expect(events[0]!.guardId).toBe("learnTestGuard");
   });

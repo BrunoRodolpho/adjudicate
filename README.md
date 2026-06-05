@@ -123,13 +123,13 @@ pnpm --filter @example/quickstart-anthropic dev
    ║   │     ordered guards: state → taint → auth → business                 │ ║
    ║   └────────────────────────────────────────────────────────────────────┘ ║
    ║                                  │                                        ║
-   ║              ┌───────┬───────────┼───────────┬────────────┐               ║
-   ║              ▼       ▼           ▼           ▼            ▼               ║
-   ║         ┌────────┐┌────────┐┏━━━━━━━━━━┓┌──────────┐┏━━━━━━━━━━━┓        ║
-   ║         │EXECUTE ││ REFUSE │┃  DEFER   ┃│ ESCALATE │┃  REWRITE  ┃        ║
-   ║         └────────┘└────────┘┃ (park &  ┃└──────────┘┃ (sanitize ┃        ║
-   ║                             ┃  resume) ┃            ┃  & retry) ┃        ║
-   ║                             ┗━━━━━━━━━━┛            ┗━━━━━━━━━━━┛        ║
+   ║        ┌──────┬────────┬───────────┼───────────┬────────────┐              ║
+   ║        ▼      ▼        ▼           ▼           ▼            ▼              ║
+   ║   ┌────────┐┌──────┐┏━━━━━━━━┓┌──────────┐┏━━━━━━━━━━━┓┌──────────────┐  ║
+   ║   │EXECUTE ││REFUSE│┃  DEFER ┃│ ESCALATE │┃  REWRITE  ┃│  REQUEST_    │  ║
+   ║   └────────┘└──────┘┃(park & ┃└──────────┘┃(sanitize  ┃│  CONFIRMATION│  ║
+   ║                     ┃resume) ┃            ┃ & retry)  ┃└──────────────┘  ║
+   ║                     ┗━━━━━━━━┛            ┗━━━━━━━━━━━┛                  ║
    ║                                  │                                        ║
    ║              ┌───────────────────┴─────────────────────┐                  ║
    ║              ▼                                          ▼                 ║
@@ -170,14 +170,14 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
 
 ## Status
 
-> **`v1.0-rc`** — release-candidate posture. Kernel API frozen, 1121 tests passing (1 skipped — live-DB integration), 19 workspace packages, scale-harness operational evidence captured ([`docs/perf/scale-baselines.json`](./docs/perf/scale-baselines.json)). v1.0 cut gates on the two adopter-evidence items in [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md) §Priority 1.
+> **`v1.0-rc`** — release-candidate posture. Kernel API frozen, full suite green across all packages (1 skipped — live-DB integration; run `pnpm test`), 19 workspace packages, scale-harness operational evidence captured ([`docs/perf/scale-baselines.json`](./docs/perf/scale-baselines.json)). v1.0 cut gates on the two adopter-evidence items in [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md) §Priority 1.
 
 **Maturity ladder** (per [`docs/concepts.md §9`](./docs/concepts.md#9-architectural-direction-intended-evolution)):
 
 | Layer | Status | What's there |
 |---|---|---|
 | **L1 — Kernel** | shipped, frozen | `adjudicate()`, `adjudicateAndAudit()`, `PolicyBundle`, taint lattice, replay safety, `verifyAuditRecord`. The 5 headline interfaces (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) are API-stable and tracked in [`docs/release/V1_FREEZE_MATRIX.md`](./docs/release/V1_FREEZE_MATRIX.md). |
-| **L2 — Risk primitives** | 3 frozen, 4 experimental | `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy` frozen. `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard` ship as `@experimental` per [ADR-108](./docs/architecture/adr/) pending Pack #4–#6 feedback. All carry `GuardMetadata`. |
+| **L2 — Risk primitives** | 3 frozen, 4 experimental | `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy` frozen. `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard` are experimental per [ADR-108](./docs/architecture/adr/) pending Pack #4–#6 feedback. All carry `GuardMetadata`. |
 | **L3 — Domain Packs** | partial | Three published: `@adjudicate/pack-payments-pix` (lighthouse), `@adjudicate/pack-identity-kyc` (async + AML + taint defense), `@adjudicate/pack-deployments-approval` (deploy gates). `vacation-approval` and `commerce-reference` examples remain handwritten as onboarding surfaces. |
 | **L4 — Adapter core** | shipped | [`@adjudicate/adapter-core`](./packages/adapter-core) — provider-neutral loop + bridge + decision translator + persistence shims + error taxonomy ([ADR-113](./docs/architecture/adr/)). Anthropic + OpenAI adapters are thin SDK shims over it. |
 | **L4 — Observability / governance** | partial | `@adjudicate/observability` ships OTLP sinks + `SEMCONV` (16 stable attributes); `@adjudicate/admin-sdk` ships read-only AQI + tRPC router. Console real-time tail migration pending (primitives shipped). |
@@ -195,9 +195,9 @@ Function-calling has two states: ran or threw. Agent frameworks add ergonomic gl
 - **Status & next steps** — [`PROJECT_STATUS_AND_NEXT_STEPS.md`](./PROJECT_STATUS_AND_NEXT_STEPS.md): authoritative open-work list.
 - **Per-package READMEs** — reference docs. Start in [`packages/core/README.md`](./packages/core/README.md) and [`packages/anthropic/README.md`](./packages/anthropic/README.md).
 - **Test your policy** — [`docs/guides/testing-your-policy.md`](./docs/guides/testing-your-policy.md): scenario fixtures + `adjudicate simulate` as a decision-regression gate.
-- **Load-bearing decisions** — [`docs/architecture/decisions.md`](./docs/architecture/decisions.md) (8-layer defense + invariants) and the ADR series at [`docs/architecture/adr/`](./docs/architecture/adr/).
+- **Load-bearing decisions** — [`docs/architecture/WHY_THE_INVARIANTS_EXIST.md`](./docs/architecture/WHY_THE_INVARIANTS_EXIST.md) (the 11 constitutional invariants and why they are load-bearing) and the ADR series at [`docs/architecture/adr/`](./docs/architecture/adr/).
 - **Wire format & hash spec** — [`docs/specs/intent-envelope-v2.schema.json`](./docs/specs/intent-envelope-v2.schema.json) (JSON Schema 2020-12) and [`docs/specs/canonical-json-hash.md`](./docs/specs/canonical-json-hash.md) (RFC 8785 JCS, golden vectors, Python cross-runtime check).
-- **Staged rollout playbook** — [`docs/ops/runbooks/`](./docs/ops/runbooks/) — 4-stage shadow → enforce ramp.
+- **Staged rollout playbook** — [`docs/ops/runbooks/`](./docs/ops/runbooks/) — 4-stage shadow → enforce ramp (IbateXas example runbooks; generalize the intent kinds and deployment CLI for your domain).
 
 ## Contributing
 

@@ -108,6 +108,40 @@ describe("assertPackConformance", () => {
     ).toThrow(/duplicate basis code/);
   });
 
+  // ── SecurityReviewer-014: refusal-taxonomy-stable invariant ──────────────
+  it("rejects basisCodes that collide with KERNEL_REFUSAL_CODES", () => {
+    // Packs must not claim kernel-reserved refusal codes — doing so lets
+    // a Pack guard emit a kernel-vocabulary refusal with user-controlled detail.
+    expect(() =>
+      assertPackConformance(
+        makePack({ basisCodes: ["thing.do.invalid", "kill_switch_active"] }),
+      ),
+    ).toThrow(/kernel-reserved/);
+  });
+
+  it("rejects basisCodes colliding with multiple kernel codes and lists them", () => {
+    let caught: PackConformanceError | undefined;
+    try {
+      assertPackConformance(
+        makePack({ basisCodes: ["kill_switch_active", "default_deny"] }),
+      );
+    } catch (err) {
+      caught = err as PackConformanceError;
+    }
+    expect(caught).toBeInstanceOf(PackConformanceError);
+    expect(caught!.violations.some((v) => v.includes("kill_switch_active"))).toBe(true);
+    expect(caught!.violations.some((v) => v.includes("default_deny"))).toBe(true);
+  });
+
+  it("accepts basisCodes that do not collide with KERNEL_REFUSAL_CODES", () => {
+    // Ensure non-colliding codes still pass.
+    expect(() =>
+      assertPackConformance(
+        makePack({ basisCodes: ["domain.custom.code", "pack.rule.violated"] }),
+      ),
+    ).not.toThrow();
+  });
+
   it("aggregates multiple violations into a single error", () => {
     let caught: PackConformanceError | undefined;
     try {
@@ -354,6 +388,34 @@ describe("withBasisAudit — runtime drift detection", () => {
     expect(KERNEL_REFUSAL_CODES.has("schema_version_unsupported")).toBe(true);
     expect(KERNEL_REFUSAL_CODES.has("taint_level_insufficient")).toBe(true);
     expect(KERNEL_REFUSAL_CODES.has("default_deny")).toBe(true);
+  });
+
+  // ── PerformanceReviewer-008: idempotent wrapping ─────────────────────
+  it("withBasisAudit is idempotent — double-wrapping does not double-audit", () => {
+    // A guard emitting an undeclared refusal code triggers exactly one
+    // basis_code_drift per auditDecision pass. Under the double-wrap bug,
+    // wrapping twice nested the wrapper and ran auditDecision twice (2 calls);
+    // with the idempotency tag, a second withBasisAudit pass is a no-op.
+    const driftingGuard: Guard<K, unknown, unknown> = () =>
+      decisionRefuse(refuse("BUSINESS_RULE", "undeclared.idem.code", "drift"), [
+        basis("business", BASIS_CODES.business.RULE_VIOLATED),
+      ]);
+    const wrapped1 = withBasisAudit(
+      makePack({
+        policy: {
+          stateGuards: [],
+          authGuards: [],
+          taint: taintPolicy,
+          business: [driftingGuard],
+          default: "REFUSE",
+        },
+      }),
+    );
+    const wrapped2 = withBasisAudit(wrapped1);
+    adjudicate(makeEnv(), {}, wrapped2.policy);
+    // Exactly one drift record — not two from a double-nested wrapper.
+    expect(recordedFailures).toHaveLength(1);
+    expect(recordedFailures[0]!.errorClass).toBe("basis_code_drift");
   });
 });
 

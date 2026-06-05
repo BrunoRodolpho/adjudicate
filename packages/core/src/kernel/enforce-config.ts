@@ -28,43 +28,18 @@ function parseList(raw: string | undefined): { wildcard: boolean; kinds: Readonl
   return { wildcard: false, kinds: new Set(parts) }
 }
 
-let _shadow: { wildcard: boolean; kinds: ReadonlySet<string> } | null = null
-let _enforce: { wildcard: boolean; kinds: ReadonlySet<string> } | null = null
-let _envSnapshot: { shadow: string | undefined; enforce: string | undefined } | null = null
-
-function ensureLoaded(env: NodeJS.ProcessEnv): void {
-  const shadow = env["IBX_KERNEL_SHADOW"]
-  const enforce = env["IBX_KERNEL_ENFORCE"]
-  if (
-    _envSnapshot &&
-    _envSnapshot.shadow === shadow &&
-    _envSnapshot.enforce === enforce
-  ) {
-    return
-  }
-  _shadow = parseList(shadow)
-  _enforce = parseList(enforce)
-  _envSnapshot = { shadow, enforce }
-}
-
-/** Is this intent kind covered by `IBX_KERNEL_SHADOW`? */
-export function isShadowed(intentKind: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  ensureLoaded(env)
-  return _shadow!.wildcard || _shadow!.kinds.has(intentKind)
-}
-
-/** Is this intent kind covered by `IBX_KERNEL_ENFORCE`? */
-export function isEnforced(intentKind: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  ensureLoaded(env)
-  return _enforce!.wildcard || _enforce!.kinds.has(intentKind)
-}
-
-/** @internal — reset the cached env snapshot (for tests). */
-export function _resetEnforceConfig(): void {
-  _shadow = null
-  _enforce = null
-  _envSnapshot = null
-}
+// ── Per-intent shadow/enforce lookup ─────────────────────────────────────────
+//
+// ConfigReviewer-001: the module-level `isShadowed` / `isEnforced` wrappers
+// previously defaulted `env` to `process.env` and re-read it per call. That
+// is a footgun for any future "kernel authoritative per intent" wiring — a
+// commit dropping them into the decision path would silently read env inside
+// adjudicate(), violating the deterministic-core invariant. They have been
+// removed. Callers route through `RuntimeContext.enforceConfig.{isShadowed,
+// isEnforced}` instead, which is seeded once from a captured `envSeed` at
+// context creation and never reaches for live `process.env`. The wildcard /
+// comma-list parsing lives in `parseList` (still used by
+// `validateEnforceConfig` below and re-implemented in `runtime-context.ts`).
 
 // ── T7 (#17): typo guard for IBX_KERNEL_SHADOW / IBX_KERNEL_ENFORCE. ──
 
@@ -158,23 +133,48 @@ let _killSwitch: KillSwitchState = {
   reason: "",
   toggledAt: "1970-01-01T00:00:00.000Z",
 }
+// LOAD-BEARING (ConfigReviewer-003): one-shot memo. Once true, neither the
+// env snapshot nor a later explicit env re-reads the kill state — this is
+// what gives `setKillSwitch()` precedence over the env pre-seed and what
+// keeps `isKilled()` from re-reading on the adjudicate() hot path. Only
+// `_resetKillSwitch()` (tests) and an explicit env arg (reseed) clear it.
 let _killSwitchSeededFromEnv = false
 
-function killSwitchEnvActive(env: NodeJS.ProcessEnv = process.env): boolean {
+// ConfigReviewer-003: capture process.env ONCE at module load rather than
+// defaulting the read functions to live `process.env`. The previous default
+// (`env = process.env`) meant the module-level `isKilled()` /
+// `getKillSwitchState()` — which `adjudicate()` calls with no argument on the
+// hot path — held a live reference to `process.env`. Seeding is already
+// one-shot via the memo above, so live env was never actually re-read after
+// the first call; snapshotting makes that explicit and removes the footgun of
+// a future change reading mutable env mid-decision. Callers that genuinely
+// need to re-seed (tests, operator reseed) still pass an explicit env arg.
+const KILL_SWITCH_ENV_SNAPSHOT: NodeJS.ProcessEnv = { ...process.env }
+
+function killSwitchEnvActive(env: NodeJS.ProcessEnv): boolean {
   const raw = env["IBX_KILL_SWITCH"]
   if (raw === undefined) return false
   const v = raw.toLowerCase().trim()
   return v === "1" || v === "true" || v === "yes" || v === "on"
 }
 
-function ensureKillSwitchSeeded(env: NodeJS.ProcessEnv = process.env): void {
+// Determinism sentinel for env-seeded kills. The kill `toggledAt` flows into
+// the Decision basis detail, and `adjudicate()` must be deterministic over
+// (envelope, state, policy). If env-seeding stamped `new Date()`, two replicas
+// booting at different times would emit different Decision bytes for the same
+// envelope — audit-hash drift, and the replay-determinism property test breaks.
+// Operator toggles via `setKillSwitch()` happen OUTSIDE adjudicate(), so they
+// keep a real wall-clock timestamp.
+const KILL_SWITCH_ENV_SEED_AT = "1970-01-01T00:00:00.000Z"
+
+function ensureKillSwitchSeeded(env: NodeJS.ProcessEnv = KILL_SWITCH_ENV_SNAPSHOT): void {
   if (_killSwitchSeededFromEnv) return
   _killSwitchSeededFromEnv = true
   if (killSwitchEnvActive(env)) {
     _killSwitch = {
       active: true,
       reason: "env: IBX_KILL_SWITCH",
-      toggledAt: new Date().toISOString(),
+      toggledAt: KILL_SWITCH_ENV_SEED_AT,
     }
   }
 }
@@ -198,8 +198,12 @@ export function setKillSwitch(active: boolean, reason: string): void {
 
 /**
  * Is the kill switch currently active?
+ *
+ * `env` defaults to a one-time module snapshot of `process.env` (captured at
+ * import), NOT live `process.env` — see `KILL_SWITCH_ENV_SNAPSHOT`. Pass an
+ * explicit env to force a (one-shot) re-seed; the memo still gates it.
  */
-export function isKilled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isKilled(env: NodeJS.ProcessEnv = KILL_SWITCH_ENV_SNAPSHOT): boolean {
   ensureKillSwitchSeeded(env)
   return _killSwitch.active
 }
@@ -208,10 +212,17 @@ export function isKilled(env: NodeJS.ProcessEnv = process.env): boolean {
  * Read the current kill-switch state (active flag, reason, toggle timestamp).
  * Used by adopters that want to surface the reason in user-facing messages,
  * or to emit a synthetic AuditRecord on toggle.
+ *
+ * `env` defaults to the one-time module snapshot (not live `process.env`),
+ * matching `isKilled` — keeps the adjudicate() hot path off mutable env.
  */
-export function getKillSwitchState(env: NodeJS.ProcessEnv = process.env): KillSwitchState {
+export function getKillSwitchState(env: NodeJS.ProcessEnv = KILL_SWITCH_ENV_SNAPSHOT): KillSwitchState {
   ensureKillSwitchSeeded(env)
-  return _killSwitch
+  // Return a shallow copy so external callers cannot mutate the module-level
+  // singleton via the returned reference. The KillSwitchState interface is
+  // readonly, but JS readonly is shallow — a cast + direct mutation would
+  // otherwise corrupt subsequent `isKilled()` / adjudicate() reads.
+  return { ..._killSwitch }
 }
 
 /** @internal — reset for tests. */

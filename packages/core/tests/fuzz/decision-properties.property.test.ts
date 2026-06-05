@@ -6,8 +6,8 @@
  * mistakes: arbitrary envelope payloads and arbitrary guard
  * compositions.
  *
- * Each property runs the fast-check default of 100 trials per test
- * (set higher for production CI by overriding via vitest config).
+ * Each property runs 1000 trials per test (see the `RUNS` constant
+ * below; raise it for deeper production CI sweeps via vitest config).
  */
 
 import * as fc from "fast-check";

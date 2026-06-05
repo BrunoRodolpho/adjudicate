@@ -144,11 +144,40 @@ function nodeOf(record: AuditRecord): SupersessionChainNode {
  * the guard is real (not just a comment) so adversarial input or hash
  * collisions don't silently vanish from the report.
  */
+/**
+ * LogicReviewer-003: resolve a predecessor record from the multi-valued
+ * `byHash` index. When a single record carries the hash, return it. When two
+ * or more share it (the confirmation-resolved case: REQUEST_CONFIRMATION and
+ * its EXECUTE successor share the envelope intentHash), prefer the one whose
+ * `at` matches `predecessorAt`; fall back to the first-inserted record
+ * (chronologically the predecessor) when no `at` match is found.
+ */
+function findRecord(
+  byHash: Map<string, AuditRecord[]>,
+  hash: string,
+  predecessorAt?: string,
+): AuditRecord | undefined {
+  const bucket = byHash.get(hash);
+  if (bucket === undefined) return undefined;
+  if (bucket.length === 1 || predecessorAt === undefined) return bucket[0];
+  return bucket.find((r) => r.at === predecessorAt) ?? bucket[0];
+}
+
 export function buildSupersessionChains(
   records: ReadonlyArray<AuditRecord>,
 ): SupersessionChainReport {
-  const byHash = new Map<string, AuditRecord>();
-  for (const r of records) byHash.set(r.intentHash, r);
+  // LogicReviewer-003: a confirmation-resolved EXECUTE record and its
+  // predecessor REQUEST_CONFIRMATION record share the same `intentHash`
+  // (the envelope's intentHash). Keying `byHash` on intentHash alone made the
+  // last writer silently overwrite the first, which then made the back-walk
+  // see `predecessorIntentHash === head.intentHash` and flag a false cycle.
+  // Store ALL records per intentHash and disambiguate by `at` at lookup time.
+  const byHash = new Map<string, AuditRecord[]>();
+  for (const r of records) {
+    const bucket = byHash.get(r.intentHash);
+    if (bucket === undefined) byHash.set(r.intentHash, [r]);
+    else bucket.push(r);
+  }
 
   const successorsOf = new Map<string, string[]>();
   const dangling: { intentHash: string; missingPredecessor: string }[] = [];
@@ -171,12 +200,27 @@ export function buildSupersessionChains(
     }
   }
 
-  // Heads = records that are not a predecessor of any other record.
-  // (A predecessor with one or more successors is not a head; that's
-  // true regardless of how many successors it has.)
+  // Heads = records that no OTHER record supersedes. We resolve each
+  // supersedes link to the concrete predecessor *record* (identity, via
+  // findRecord) and mark it superseded — but only when the predecessor is a
+  // distinct record from the successor. LogicReviewer-003: in the
+  // confirmation-resolved flow the EXECUTE successor and its
+  // REQUEST_CONFIRMATION predecessor share `intentHash`, so a hash-keyed
+  // `successorsOf.has(r.intentHash)` test wrongly excludes the genuine head.
+  // Reference-identity disambiguation keeps the EXECUTE record as the head.
+  const superseded = new Set<AuditRecord>();
+  for (const r of records) {
+    if (r.supersedes === undefined) continue;
+    const prev = findRecord(
+      byHash,
+      r.supersedes.predecessorIntentHash,
+      r.supersedes.predecessorAt,
+    );
+    if (prev !== undefined && prev !== r) superseded.add(prev);
+  }
   const heads: AuditRecord[] = [];
   for (const r of records) {
-    if (!successorsOf.has(r.intentHash)) heads.push(r);
+    if (!superseded.has(r)) heads.push(r);
   }
 
   const chains: SupersessionChain[] = [];
@@ -188,23 +232,27 @@ export function buildSupersessionChains(
     const headNode = nodeOf(head);
     const tail: SupersessionChainNode[] = [];
     const reasonCounts = emptyReasonCounts();
-    const visited = new Set<string>([head.intentHash]);
+    // LogicReviewer-003: track visited *records* by reference, not by
+    // intentHash. Two records can legitimately share a hash (confirmation
+    // flow), so a hash-keyed visited set produces a false cycle on the first
+    // back-step. Reference identity only fires on a genuine record revisit.
+    const visited = new Set<AuditRecord>([head]);
 
     let cursor: AuditRecord | undefined = head;
     let cycleDetected = false;
     while (cursor?.supersedes !== undefined) {
       const r = cursor.supersedes.reason;
       const prevHash = cursor.supersedes.predecessorIntentHash;
-      const prev = byHash.get(prevHash);
+      const prev = findRecord(byHash, prevHash, cursor.supersedes.predecessorAt);
       if (prev === undefined) break; // dangling — separately reported, not counted
-      if (visited.has(prevHash)) {
-        // Cycle: the predecessor was already in this walk. Emit the
+      if (visited.has(prev)) {
+        // Cycle: the predecessor record was already in this walk. Emit the
         // partial chain to `cycles` (operators investigate); do NOT
         // increment aggregate counters for the looping edge.
         cycleDetected = true;
         break;
       }
-      visited.add(prevHash);
+      visited.add(prev);
       reasonCounts[r]++;
       aggregateReasonCounts[r]++;
       tail.push(nodeOf(prev));
@@ -260,14 +308,16 @@ export function buildSupersessionChains(
     // r is part of a pure-cycle component. Walk it.
     const tail: SupersessionChainNode[] = [];
     const reasonCounts = emptyReasonCounts();
-    const visited = new Set<string>([r.intentHash]);
+    // Identity-keyed visited set (see main walker): hash-keying would
+    // mis-close a walk when two records share an intentHash.
+    const visited = new Set<AuditRecord>([r]);
     let cursor: AuditRecord | undefined = r;
     while (cursor?.supersedes !== undefined) {
       const prevHash = cursor.supersedes.predecessorIntentHash;
-      const prev = byHash.get(prevHash);
+      const prev = findRecord(byHash, prevHash, cursor.supersedes.predecessorAt);
       if (prev === undefined) break;
-      if (visited.has(prevHash)) break; // cycle closes
-      visited.add(prevHash);
+      if (visited.has(prev)) break; // cycle closes
+      visited.add(prev);
       reasonCounts[cursor.supersedes.reason]++;
       aggregateReasonCounts[cursor.supersedes.reason]++;
       tail.push(nodeOf(prev));

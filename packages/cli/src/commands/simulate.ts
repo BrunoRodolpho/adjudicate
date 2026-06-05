@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import {
   adjudicateWithTrace,
+  assertPackConformance,
   buildEnvelope,
   type PolicyBundle,
 } from "@adjudicate/core";
@@ -112,6 +113,16 @@ async function loadAndAssertPack(
     fail(
       `No Pack export found in "${spec}". The CLI looks for a default export OR a named export with intents+policy+contract.`,
     );
+  }
+  // SecurityReviewer-006: kernel conformance check (mirrors pack-lint.ts).
+  // `isLoadedPack` is a structural shape check only; this rejects Packs
+  // that pass that shape but violate kernel conformance before any
+  // adjudication runs.
+  try {
+    assertPackConformance(pack as never);
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    fail(`Pack conformance failed: ${e.message}`);
   }
   return pack;
 }

@@ -105,10 +105,15 @@ function makeKillSwitchControl(
     if (inner.envSeeded) return;
     inner.envSeeded = true;
     if (envIsActive(env[envVar])) {
+      // Determinism: env-seeded kills use a fixed sentinel toggledAt (not
+      // new Date()) so the value folded into the kill basis is identical
+      // across replicas regardless of boot time. Manual set() runs outside
+      // adjudicate() and keeps a real wall-clock timestamp. Mirrors
+      // enforce-config.ts KILL_SWITCH_ENV_SEED_AT.
       inner.state = {
         active: true,
         reason: `env: ${envVar}`,
-        toggledAt: new Date().toISOString(),
+        toggledAt: "1970-01-01T00:00:00.000Z",
       };
     }
   }
@@ -119,7 +124,11 @@ function makeKillSwitchControl(
     },
     state() {
       ensureSeeded(envSeed);
-      return inner.state;
+      // Return a shallow copy so external callers cannot mutate the internal
+      // state object. The interface is declared readonly, but JS readonly is
+      // shallow — a cast + property assignment would corrupt subsequent reads
+      // (isKilled, adjudicate hot path).
+      return { ...inner.state };
     },
     set(active: boolean, reason: string) {
       // Manual toggle: prevent the env seed from re-overriding the choice
@@ -365,11 +374,15 @@ export interface CreateRuntimeContextOptions {
   readonly learning?: LearningSink;
   readonly shadowTelemetry?: ShadowTelemetrySink;
   readonly envSeed?: NodeJS.ProcessEnv;
-  /** Custom env-var name for the kill switch. Default: `"IBX_KILL_SWITCH"`. */
+  /**
+   * Custom env-var name for the kill switch.
+   * Default: `"IBX_KILL_SWITCH"` (IBX_ prefix is a framework-origin artifact;
+   * override this with your own prefix in production).
+   */
   readonly killSwitchEnvVar?: string;
-  /** Custom shadow-list env var. Default: `"IBX_KERNEL_SHADOW"`. */
+  /** Custom shadow-list env var. Default: `"IBX_KERNEL_SHADOW"` (see killSwitchEnvVar note). */
   readonly shadowEnvVar?: string;
-  /** Custom enforce-list env var. Default: `"IBX_KERNEL_ENFORCE"`. */
+  /** Custom enforce-list env var. Default: `"IBX_KERNEL_ENFORCE"` (see killSwitchEnvVar note). */
   readonly enforceEnvVar?: string;
 }
 

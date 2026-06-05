@@ -31,6 +31,7 @@ import { basis, BASIS_CODES } from "../basis-codes.js";
 import { decisionRefuse, type Decision } from "../decision.js";
 import type { IntentEnvelope } from "../envelope.js";
 import { refuse } from "../refusal.js";
+import { recordSinkFailure } from "./metrics.js";
 import type { Guard } from "./policy.js";
 
 // ── Store contract ─────────────────────────────────────────────────────────
@@ -104,7 +105,16 @@ export async function checkRateLimit(
       if (rolledBack) return;
       rolledBack = true;
       if (typeof args.store.decrement === "function") {
-        await args.store.decrement(args.key).catch(() => {});
+        // A failed decrement leaves the counter inflated — don't crash the
+        // caller, but surface the swallowed failure to metrics (ErrorReviewer-004).
+        await args.store.decrement(args.key).catch((err: unknown) => {
+          recordSinkFailure({
+            sink: "rate-limit",
+            subject: args.key,
+            errorClass: err instanceof Error ? err.name : "Error",
+            consecutiveFailures: 1,
+          });
+        });
       }
     },
   };

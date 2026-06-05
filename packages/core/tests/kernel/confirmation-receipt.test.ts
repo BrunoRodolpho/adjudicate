@@ -108,7 +108,8 @@ describe("confirmationReceipt override (fix for confirm() loop)", () => {
         sink,
         confirmationReceipt: {
           intentHash: env.intentHash,
-          at: "2026-05-13T12:00:01.000Z",
+          at: "2026-05-13T12:00:01.000Z", // confirmation wall-clock
+          originalAt: "2026-05-13T11:59:00.000Z", // predecessor row's at
         },
       },
     );
@@ -121,12 +122,111 @@ describe("confirmationReceipt override (fix for confirm() loop)", () => {
     expect(records).toHaveLength(1);
     expect(records[0]!.decision.kind).toBe("EXECUTE");
     // v3 — the post-confirmation EXECUTE record links back to the original
-    // REQUEST_CONFIRMATION via `supersedes`.
+    // REQUEST_CONFIRMATION via `supersedes`. LogicReviewer-004: predecessorAt
+    // is the ORIGINAL audit row's `at` (originalAt), NOT the confirmation `at`.
+    expect(records[0]!.supersedes).toEqual({
+      predecessorIntentHash: env.intentHash,
+      predecessorAt: "2026-05-13T11:59:00.000Z", // must be originalAt, not at
+      reason: "confirmation_resolved",
+    });
+  });
+
+  it("LogicReviewer-004: predecessorAt falls back to receipt.at when originalAt omitted (back-compat)", async () => {
+    const env = envOf("test.confirm", "n-fallback");
+    const { sink, records } = captureSink();
+
+    const result = await adjudicateAndAudit(
+      env,
+      {},
+      {
+        stateGuards: [],
+        authGuards: [],
+        taint: permissive,
+        business: [askConfirm],
+        default: "REFUSE",
+      },
+      {
+        sink,
+        confirmationReceipt: {
+          intentHash: env.intentHash,
+          at: "2026-05-13T12:00:01.000Z",
+          // originalAt intentionally omitted — pre-existing behaviour.
+        },
+      },
+    );
+
+    expect(result.decision.kind).toBe("EXECUTE");
+    // With no originalAt, predecessorAt falls back to the confirmation `at`,
+    // byte-identical to the pre-fix derivation (no token key present).
     expect(records[0]!.supersedes).toEqual({
       predecessorIntentHash: env.intentHash,
       predecessorAt: "2026-05-13T12:00:01.000Z",
       reason: "confirmation_resolved",
     });
+  });
+
+  it("AuthReviewer-005: confirmationReceipt.token propagates to supersedes.token", async () => {
+    const env = envOf("test.confirm", "n-token");
+    const { sink, records } = captureSink();
+
+    const result = await adjudicateAndAudit(
+      env,
+      {},
+      {
+        stateGuards: [],
+        authGuards: [],
+        taint: permissive,
+        business: [askConfirm],
+        default: "REFUSE",
+      },
+      {
+        sink,
+        confirmationReceipt: {
+          intentHash: env.intentHash,
+          at: "2026-05-13T12:00:01.000Z",
+          token: "tok-abc",
+        },
+      },
+    );
+
+    expect(result.decision.kind).toBe("EXECUTE");
+    expect(records[0]!.supersedes?.token).toBe("tok-abc");
+    expect(records[0]!.supersedes?.reason).toBe("confirmation_resolved");
+  });
+
+  it("AuthReviewer-005: supersedes has no token key when receipt omits it (opt-in)", async () => {
+    const env = envOf("test.confirm", "n-no-token");
+    const { sink, records } = captureSink();
+
+    const result = await adjudicateAndAudit(
+      env,
+      {},
+      {
+        stateGuards: [],
+        authGuards: [],
+        taint: permissive,
+        business: [askConfirm],
+        default: "REFUSE",
+      },
+      {
+        sink,
+        confirmationReceipt: {
+          intentHash: env.intentHash,
+          at: "2026-05-13T12:00:01.000Z",
+        },
+      },
+    );
+
+    expect(result.decision.kind).toBe("EXECUTE");
+    // Determinism fence: omitting token leaves the key off the object
+    // entirely (not `token: undefined`), so the supersedes shape — and the
+    // auditHash over it — is byte-identical to pre-AuthReviewer-005.
+    expect(records[0]!.supersedes).not.toHaveProperty("token");
+    expect(Object.keys(records[0]!.supersedes!).sort()).toEqual([
+      "predecessorAt",
+      "predecessorIntentHash",
+      "reason",
+    ]);
   });
 
   it("REQUEST_CONFIRMATION + receipt for a DIFFERENT hash → no override", async () => {

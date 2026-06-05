@@ -19,7 +19,12 @@
  */
 
 import { sha256Canonical } from "./hash.js";
-import { buildEnvelope, type IntentEnvelope } from "./envelope.js";
+import { timingSafeHexEqual } from "./timing-safe.js";
+import {
+  buildEnvelope,
+  deriveIntentHash,
+  type IntentEnvelope,
+} from "./envelope.js";
 import type { Decision } from "./decision.js";
 import type { DecisionBasis } from "./basis-codes.js";
 
@@ -237,11 +242,45 @@ export type AuditRecordVerification =
       readonly derived: string;
       readonly stored: string;
     }
+  | {
+      // CryptoReviewer-006 / LogicReviewer-012: the stored envelope.intentHash
+      // does not re-derive from the envelope's content-addressed fields — the
+      // record was built with a forged or drifted envelope hash. Distinct from
+      // "tampered" (which is the v4 auditHash over the whole record).
+      readonly verified: false;
+      readonly reason: "envelope_intent_mismatch";
+      readonly derived: string;
+      readonly stored: string;
+    }
   | { readonly verified: null; readonly reason: "missing_hash" };
 
 export function verifyAuditRecord(
   record: AuditRecord,
 ): AuditRecordVerification {
+  // Envelope self-consistency (CryptoReviewer-006 / LogicReviewer-012):
+  // re-derive `envelope.intentHash` from the envelope's content-addressed
+  // fields (version, kind, payload, nonce, actor, taint) and compare. This is
+  // independent of the v4 `auditHash` (which binds the whole record): it catches
+  // a record built with a forged or drifted envelope hash even when the
+  // surrounding auditHash is itself valid, and applies to pre-v4 records too
+  // (envelope.intentHash predates v4). `deriveIntentHash` is the single source
+  // of truth shared with `buildEnvelope`, so the recipe can never drift.
+  // timingSafeHexEqual is boolean-identical to `===` and never throws.
+  //
+  // A malformed record carrying no envelope at all (e.g. a defensive `{}` probe
+  // the fail-safe bridges feed in) cannot be envelope-verified — skip straight
+  // to the auditHash check, which fails it safe as missing_hash.
+  if (record.envelope != null) {
+    const derivedIntent = deriveIntentHash(record.envelope);
+    if (!timingSafeHexEqual(derivedIntent, record.envelope.intentHash)) {
+      return {
+        verified: false,
+        reason: "envelope_intent_mismatch",
+        derived: derivedIntent,
+        stored: record.envelope.intentHash,
+      };
+    }
+  }
   if (record.auditHash === undefined) {
     return { verified: null, reason: "missing_hash" };
   }
@@ -249,7 +288,11 @@ export function verifyAuditRecord(
   // re-deriving (the hash was computed over the record sans these fields).
   const { auditHash: stored, signature: _signature, ...rest } = record;
   const derived = sha256Canonical(rest);
-  if (derived !== stored) {
+  // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare
+  // short-circuits on the first differing hex char, leaking via timing how
+  // many leading digits of a forged auditHash matched. timingSafeHexEqual is
+  // boolean-identical to `===` for all inputs and never throws.
+  if (!timingSafeHexEqual(derived, stored)) {
     return { verified: false, reason: "tampered", derived, stored };
   }
   return { verified: true };
@@ -281,5 +324,19 @@ export function replayEnvelopeFromAudit(record: AuditRecord): IntentEnvelope {
     nonce: record.envelope.nonce ?? record.envelope.createdAt,
     createdAt: record.envelope.createdAt,
   });
+  // Faithful-replay guard (CryptoReviewer-006 / LogicReviewer-012): the
+  // reconstructed envelope's intentHash MUST match the stored
+  // `envelope.intentHash`. A mismatch means the audit record's envelope hash was
+  // forged or drifted from its content — replaying it would silently adjudicate
+  // a different envelope than the stored hash claims. Refuse rather than hand
+  // back an inconsistent envelope. (The sole non-test caller, cli replay, already
+  // try/catches and surfaces the throw as a per-record replay error.)
+  if (!timingSafeHexEqual(env.intentHash, record.envelope.intentHash)) {
+    throw new Error(
+      `replayEnvelopeFromAudit: envelope_intent_mismatch — reconstructed ` +
+        `intentHash ${env.intentHash} does not match stored ` +
+        `${record.envelope.intentHash}`,
+    );
+  }
   return env;
 }

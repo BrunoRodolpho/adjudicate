@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -369,5 +369,73 @@ describe("simulate — output formats", () => {
     expect(text).toMatch(/EXECUTE/);
     expect(text).toMatch(/Trace/);
     expect(text).toMatch(/Basis/);
+  });
+});
+
+// ─── Conformance gate (SecurityReviewer-006) ───────────────────────────────
+
+describe("simulate — kernel conformance gate", () => {
+  it("rejects a structurally-valid but non-conformant pack with a conformance error", async () => {
+    // This pack passes the loader's `isLikelyPack` (intents+policy+contract)
+    // and `isLoadedPack` (id+policy string id) structural checks, but fails
+    // `assertPackConformance`: no `version`, no `planner`, empty `basisCodes`.
+    const badPackPath = path.join(FIXTURES_DIR, "bad-pack-simulate.ts");
+    await fs.writeFile(
+      badPackPath,
+      `export const badPack = {
+        id: "bad-simulate",
+        contract: "v0",
+        intents: ["x.do"],
+        basisCodes: [],
+        policy: {
+          stateGuards: [],
+          authGuards: [],
+          taint: undefined,
+          business: [],
+          default: "REFUSE",
+        },
+      };
+`,
+      "utf8",
+    );
+
+    const scenario = {
+      intent: {
+        kind: "x.do",
+        payload: {},
+        actor: pixActor,
+        taint: "UNTRUSTED",
+        nonce: "n-bad",
+      },
+      state: {},
+    };
+    const scenarioPath = await writeScenario("bad-scenario.json", scenario);
+
+    const errLines: string[] = [];
+    const errSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation((...args: unknown[]) => {
+        errLines.push(args.map((a) => String(a)).join(" "));
+      });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((code?: number) => {
+        throw new Error(`process.exit:${code ?? 0}`);
+      }) as never);
+
+    try {
+      await expect(
+        runSimulate({
+          pack: badPackPath,
+          scenario: scenarioPath,
+          format: "json",
+          stdout: () => {},
+        }),
+      ).rejects.toThrow(/process.exit:1/);
+      expect(errLines.join("\n")).toMatch(/Pack conformance failed/);
+    } finally {
+      exitSpy.mockRestore();
+      errSpy.mockRestore();
+    }
   });
 });

@@ -47,11 +47,14 @@ export async function adjudicateWithDeadline<K extends string, P, S>(
   policy: PolicyBundle<K, P, S>,
   options: AdjudicateWithDeadlineOptions,
 ): Promise<Decision> {
-  // Non-positive budgets are a deterministic deadline miss — the caller
-  // explicitly declared "no time available" and the wrapper must honour it.
-  // Without this short-circuit, a microtask-scheduled kernel call would
-  // resolve before any setTimeout-backed sentinel fires.
-  if (options.deadlineMs <= 0) {
+  // Non-positive and non-finite budgets are a deterministic deadline miss —
+  // the caller explicitly declared "no time available" and the wrapper must
+  // honour it. NaN fails the `<= 0` test (NaN comparisons are always false),
+  // so we must guard for finiteness first. Without this short-circuit, a
+  // microtask-scheduled kernel call would resolve before any setTimeout-backed
+  // sentinel fires; `setTimeout(NaN)` is implementation-defined (typically
+  // treated as 0, but not portable).
+  if (!Number.isFinite(options.deadlineMs) || options.deadlineMs <= 0) {
     return deadlineRefusal(options.deadlineMs);
   }
 

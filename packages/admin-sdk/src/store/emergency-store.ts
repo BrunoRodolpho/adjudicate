@@ -59,8 +59,23 @@ const DEFAULT_STATE: EmergencyState = {
   toggledBy: SYSTEM_ACTOR,
 };
 
+/**
+ * Default cap on retained governance events for the in-memory store. High
+ * enough that a real incident timeline is never truncated in practice, low
+ * enough that a long-lived process toggling state cannot grow the array
+ * without bound. Override via {@link InMemoryEmergencyStateStoreOptions.maxEvents}.
+ */
+export const DEFAULT_MAX_EMERGENCY_EVENTS = 10_000;
+
 export interface InMemoryEmergencyStateStoreOptions {
   readonly initialState?: EmergencyState;
+  /**
+   * MemoryReviewer-006: hard cap on the retained governance-event history.
+   * Events are kept newest-first; when a new event pushes the count past
+   * this cap, the oldest events (tail) are trimmed. Defaults to
+   * {@link DEFAULT_MAX_EMERGENCY_EVENTS}.
+   */
+  readonly maxEvents?: number;
 }
 
 /**
@@ -75,6 +90,9 @@ export function createInMemoryEmergencyStateStore(
 ): EmergencyStateStore {
   let currentState: EmergencyState = opts.initialState ?? DEFAULT_STATE;
   const events: GovernanceEvent[] = [];
+  const requestedMax = opts.maxEvents ?? DEFAULT_MAX_EMERGENCY_EVENTS;
+  // A non-positive cap would discard every event on write; clamp to >= 1.
+  const maxEvents = requestedMax > 0 ? Math.floor(requestedMax) : 1;
 
   return {
     async getState(): Promise<EmergencyState> {
@@ -108,6 +126,9 @@ export function createInMemoryEmergencyStateStore(
       };
 
       events.unshift(event);
+      // MemoryReviewer-006: trim oldest (tail) events beyond the cap. Events
+      // are newest-first, so history(limit) for any sane limit is unaffected.
+      if (events.length > maxEvents) events.length = maxEvents;
       return { state: currentState, event };
     },
 

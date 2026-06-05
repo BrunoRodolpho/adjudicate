@@ -1,19 +1,25 @@
 import { z } from "zod";
 import { DecisionKindSchema } from "./decision.js";
+import { IsoTimestampSchema } from "./common.js";
 
 /**
  * Input schema for the `outcomeDistribution` procedure.
  *
- * - `since` is a required ISO-8601 lower bound. The handler interprets it as
- *   inclusive: records with `at >= since` count.
- * - `until` defaults to "now" at handler-call time (computed inside the
- *   handler — keeps the schema clock-free for deterministic testing).
+ * Inclusive `[since, until]` window (APIReviewer-003 boundary convention —
+ * same as `AuditQuerySchema`).
+ *
+ * - `since` is a required ISO-8601 inclusive lower bound: records with
+ *   `at >= since` count.
+ * - `until` is an inclusive upper bound (`at <= until`). When omitted, the
+ *   handler resolves "now" via its injected `clock` at request time
+ *   (APIReviewer-005) — the schema itself stays clock-free for deterministic
+ *   testing.
  * - `bucket` is the bucket granularity. "hour" returns up to ~744 entries
  *   for a 31-day window; "day" returns up to ~31.
  */
 export const OutcomeDistributionQuerySchema = z.object({
-  since: z.string().min(1),
-  until: z.string().optional(),
+  since: IsoTimestampSchema,
+  until: IsoTimestampSchema.optional(),
   bucket: z.enum(["hour", "day"]),
 });
 

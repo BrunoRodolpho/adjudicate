@@ -86,7 +86,10 @@ import {
 - `setKillSwitch(active, reason)` / `isKilled()` — runtime authority
   revocation; engages BEFORE the schema-version gate.
 - Per-intent enforcement config (`IBX_KERNEL_SHADOW`, `IBX_KERNEL_ENFORCE`,
-  `IBX_KILL_SWITCH`) for the 4-stage runbook.
+  `IBX_KILL_SWITCH`) for the 4-stage runbook. The `IBX_` prefix reflects the
+  framework's IbateXas origin; all three are fully overridable via
+  `CreateRuntimeContextOptions` (`killSwitchEnvVar`, `shadowEnvVar`,
+  `enforceEnvVar`) so adopters can use any env-var name.
 
 **`@adjudicate/core/llm`**
 - `CapabilityPlanner<S, C>` — security-sensitive surface that decides

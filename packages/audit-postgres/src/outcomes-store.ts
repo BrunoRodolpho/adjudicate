@@ -64,8 +64,6 @@ export function createPostgresOutcomeSink(
 export function createPostgresOutcomeLookup(deps: {
   readonly reader: PostgresReader;
 }): { get(intentHash: string): RetrospectiveOutcome | undefined } {
-  const cache = new Map<string, RetrospectiveOutcome>();
-  void cache; // placeholder for adopters wanting a memoized variant
   return {
     get(_intentHash: string): RetrospectiveOutcome | undefined {
       // The synchronous get() contract matches the admin-sdk's
@@ -83,9 +81,13 @@ export function createPostgresOutcomeLookup(deps: {
 
 /**
  * Bulk preload for the accuracy handler: fetch all outcomes whose
- * `observed_at` falls in [sinceIso, untilIso) and return them indexed by
- * intentHash (latest observation wins). The admin-sdk handler can build
- * the in-memory lookup from this.
+ * `observed_at` falls in the inclusive window [sinceIso, untilIso] and return
+ * them indexed by intentHash (latest observation wins). The admin-sdk handler
+ * can build the in-memory lookup from this.
+ *
+ * Inclusive bounds on both ends (APIReviewer-003 boundary convention): an
+ * observation whose `observed_at` equals `untilIso` IS included, so the
+ * `decisionAccuracy` window join stays consistent with the audit query window.
  */
 export async function loadOutcomesWindow(
   reader: PostgresReader,
@@ -95,7 +97,7 @@ export async function loadOutcomesWindow(
   let where = "observed_at >= $1";
   if (args.untilIso) {
     params.push(args.untilIso);
-    where += ` AND observed_at < $2`;
+    where += ` AND observed_at <= $2`;
   }
   const rows = await reader.query<AuditOutcomeRow>(
     `SELECT intent_hash, observed, observed_at, note

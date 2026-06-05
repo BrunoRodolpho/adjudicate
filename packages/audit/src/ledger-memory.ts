@@ -31,5 +31,12 @@ export function createMemoryLedger(): Ledger {
       });
       return "acquired";
     },
+    // ConcurrencyReviewer-002: best-effort release of an orphaned claim.
+    // The kernel calls this when sink.emit fails after recordExecution
+    // acquired the key, so a retry of the same envelope is not suppressed
+    // for the (here non-existent) TTL.
+    async release(intentHash: string): Promise<void> {
+      store.delete(intentHash);
+    },
   };
 }

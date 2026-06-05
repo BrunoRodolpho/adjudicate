@@ -71,6 +71,30 @@ const steps: Step[] = [
     },
   },
   {
+    name: "kernel dep allowlist (@adjudicate/core)",
+    async run() {
+      const ALLOWED_DEPS = new Set([
+        "@adjudicate/canonical",
+        "@noble/hashes",
+        "zod",
+      ]);
+      const corePkgPath = join(ROOT, "packages", "core", "package.json");
+      const raw = readFileSync(corePkgPath, "utf-8");
+      const pkg = JSON.parse(raw) as { dependencies?: Record<string, string> };
+      const deps = Object.keys(pkg.dependencies ?? {});
+      const violations = deps.filter((d) => !ALLOWED_DEPS.has(d));
+      if (violations.length > 0) {
+        return {
+          ok: false,
+          details: `@adjudicate/core has unlisted dependencies: ${violations.join(", ")}. ` +
+            `Update the ALLOWED_DEPS set in scripts/rc-checks.ts only after deliberate kernel review.`,
+        };
+      }
+      console.log(`  kernel deps clean: ${deps.join(", ")}`);
+      return { ok: true };
+    },
+  },
+  {
     name: "cross-runtime hash vectors spec presence",
     async run() {
       try {

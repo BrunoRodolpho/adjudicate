@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AuditQuery } from "@adjudicate/admin-sdk";
 import {
+  InvalidCursorError,
   buildWhereClauses,
   createPostgresAuditStore,
   decodeCursor,
@@ -287,13 +288,50 @@ describe("AuditStore.query — pagination", () => {
     ]);
   });
 
-  it("malformed cursor → falls back to first-page semantics, no exception", async () => {
+  // APIReviewer-007: a non-empty cursor that fails to decode is now a hard
+  // error (InvalidCursorError) rather than a silent restart from page 1. The
+  // old behavior returned the first page + a fresh nextCursor, which loops any
+  // client that retries with the bad cursor.
+  it("malformed cursor → throws InvalidCursorError (no silent first-page restart)", async () => {
     const { reader, calls } = createMockReader([]);
     const store = createPostgresAuditStore({ reader });
     await expect(
       store.query(q({ limit: 100, cursor: "garbage-string" })),
+    ).rejects.toBeInstanceOf(InvalidCursorError);
+    // It must fail before issuing any SQL — no page-1 fallback query.
+    expect(calls).toHaveLength(0);
+  });
+
+  it("tampered/truncated base64url cursor → throws InvalidCursorError", async () => {
+    const { reader } = createMockReader([]);
+    const store = createPostgresAuditStore({ reader });
+    // Valid-looking base64url that decodes to JSON missing required fields.
+    const halfCursor = Buffer.from('{"at":"x"}').toString("base64url");
+    await expect(
+      store.query(q({ limit: 100, cursor: "notvalidbase64!!!" })),
+    ).rejects.toBeInstanceOf(InvalidCursorError);
+    await expect(
+      store.query(q({ limit: 100, cursor: halfCursor })),
+    ).rejects.toBeInstanceOf(InvalidCursorError);
+  });
+
+  it("undefined cursor → no throw, first-page semantics", async () => {
+    const { reader, calls } = createMockReader([]);
+    const store = createPostgresAuditStore({ reader });
+    await expect(
+      store.query(q({ limit: 100, cursor: undefined })),
     ).resolves.toBeDefined();
     expect(calls[0]!.sql).not.toContain("(recorded_at, intent_hash)");
+  });
+
+  it("valid encoded cursor → no throw, emits the keyset predicate", async () => {
+    const cursor = encodeCursor({ at: "2026-04-28T20:00:01.000Z", hash: "h3" });
+    const { reader, calls } = createMockReader([]);
+    const store = createPostgresAuditStore({ reader });
+    await expect(
+      store.query(q({ limit: 3, cursor })),
+    ).resolves.toBeDefined();
+    expect(calls[0]!.sql).toContain("(recorded_at, intent_hash) < ($1, $2)");
   });
 
   it("LIMIT honors schema cap — limit:500 → SQL LIMIT 501", async () => {

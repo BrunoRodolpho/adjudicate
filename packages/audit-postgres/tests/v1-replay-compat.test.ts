@@ -104,3 +104,79 @@ describe("legacyV1ToV2", () => {
     expect(env2.intentHash).toBe(env.intentHash);
   });
 });
+
+describe("legacyV1ToV2 — v2+ nonce integrity guard (DataReviewer-010)", () => {
+  // A v2+ envelope (envelope_jsonb) WITHOUT a stored nonce, used to force
+  // the "no usable nonce anywhere" path. createdAt is present but must NOT
+  // be substituted for v2+ rows.
+  const v2EnvelopeNoNonce = JSON.stringify({
+    version: 2,
+    kind: "order.confirm",
+    payload: { orderId: "ord_1" },
+    actor: { principal: "llm", sessionId: "s-1" },
+    taint: "TRUSTED",
+    createdAt: "2026-04-01T10:00:00.000Z",
+    intentHash: "h",
+  });
+
+  it("throws for a v2 row whose nonce column AND stored nonce are both null", () => {
+    const row = v1Row({
+      record_version: 2,
+      nonce: null,
+      envelope_jsonb: v2EnvelopeNoNonce,
+    });
+    expect(() => legacyV1ToV2(row)).toThrow(/missing a nonce/);
+  });
+
+  it("throws for a v2 row whose nonce column is an empty string and stored nonce is absent", () => {
+    const row = v1Row({
+      record_version: 2,
+      nonce: "",
+      envelope_jsonb: v2EnvelopeNoNonce,
+    });
+    expect(() => legacyV1ToV2(row)).toThrow(/v2\+ record MUST carry the nonce/);
+  });
+
+  it("throws for v3 and v4 rows with no usable nonce (guard covers all v2+ versions)", () => {
+    for (const v of [3, 4] as const) {
+      const row = v1Row({
+        record_version: v,
+        nonce: null,
+        envelope_jsonb: v2EnvelopeNoNonce,
+      });
+      expect(() => legacyV1ToV2(row)).toThrow(/missing a nonce/);
+    }
+  });
+
+  it("does NOT throw for a v2 row that carries a real nonce column (round-trips)", () => {
+    const row = v1Row({ record_version: 2, nonce: "real-nonce-abc" });
+    const env = legacyV1ToV2(row);
+    expect(env.nonce).toBe("real-nonce-abc");
+  });
+
+  it("does NOT throw for a v2 row when the stored envelope nonce is present (column null)", () => {
+    const row = v1Row({
+      record_version: 2,
+      nonce: null,
+      envelope_jsonb: JSON.stringify({
+        version: 2,
+        kind: "x.do",
+        payload: {},
+        actor: { principal: "llm", sessionId: "s" },
+        taint: "TRUSTED",
+        createdAt: "2026-04-01T10:00:00.000Z",
+        nonce: "envelope-stored-nonce",
+        intentHash: "h",
+      }),
+    });
+    const env = legacyV1ToV2(row);
+    expect(env.nonce).toBe("envelope-stored-nonce");
+  });
+
+  it("a v1 row with no nonce anywhere still uses the legacy createdAt fallback (no throw)", () => {
+    // record_version defaults to 1 in v1Row(); the guard is keyed on >= 2,
+    // so genuine pre-T8 v1 rows keep synthesizing nonce from createdAt.
+    const env = legacyV1ToV2(v1Row());
+    expect(env.nonce).toBe("2026-04-01T10:00:00.000Z");
+  });
+});

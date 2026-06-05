@@ -230,11 +230,15 @@ export function createRedisEmergencyStateStore(
         try {
           await opts.historyLog.insert(event);
         } catch (err) {
+          // errorClass must be a STABLE string — embedding the raw error
+          // message would create an unbounded cardinality label in metric
+          // pipelines (one label value per distinct error text). Move the
+          // raw message into `subject` as a detail field instead.
           const message = err instanceof Error ? err.message : String(err);
           recordSinkFailure({
             sink: "console",
-            subject: "redis-emergency-store",
-            errorClass: `history_insert: ${message}`,
+            subject: `redis-emergency-store: history_insert: ${message}`,
+            errorClass: "history_insert",
             consecutiveFailures: 1,
           });
         }

@@ -6,7 +6,7 @@
  * drained FIFO).
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   basis,
   BASIS_CODES,
@@ -17,9 +17,30 @@ import {
   type AuditSink,
 } from "@adjudicate/core";
 import {
+  _resetMetricsSink,
+  setMetricsSink,
+  type MetricsSink,
+  type SinkFailureEvent,
+} from "@adjudicate/core/kernel";
+import {
   createInMemorySpillStorage,
   persistentBufferedSink,
+  type InMemorySpillStorageOptions,
+  type PersistentSpillStorage,
 } from "../src/persistent-buffered-sink.js";
+
+function spyMetricsSink(failures: SinkFailureEvent[]): MetricsSink {
+  return {
+    recordLedgerOp() {},
+    recordDecision() {},
+    recordRefusal() {},
+    recordSinkFailure(e) {
+      failures.push(e);
+    },
+    recordShadowDivergence() {},
+    recordResourceLimit() {},
+  };
+}
 
 function record(seed: string): AuditRecord {
   const env = buildEnvelope({
@@ -196,5 +217,202 @@ describe("persistentBufferedSink", () => {
     // No runtime assertion needed — the type signature requires onOverflow.
     // This test documents the contract for readers.
     expect(true).toBe(true);
+  });
+});
+
+describe("persistentBufferedSink — spill-path telemetry", () => {
+  afterEach(() => {
+    _resetMetricsSink();
+  });
+
+  // capacity:1 + two emits reliably drives the capacity-eviction branch in
+  // bufferOrSpill: emit#1 buffers record "1"; emit#2's drainMemory replays
+  // "1" (fails), then bufferOrSpill evicts "1" via storage.append + onOverflow.
+  // (capacity:0 would NOT exercise this path — the memQueue is empty on the
+  // first emit, so `evicted` is undefined and neither callback runs.)
+
+  it("bufferOrSpill calls recordSinkFailure when storage.append throws (ErrorReviewer-002)", async () => {
+    const failures: SinkFailureEvent[] = [];
+    setMetricsSink(spyMetricsSink(failures));
+
+    const overflowed: AuditRecord[] = [];
+    const inner: AuditSink = {
+      emit: vi.fn(async () => {
+        throw new Error("inner down");
+      }),
+    };
+    const storage: PersistentSpillStorage = {
+      append: vi.fn(async () => {
+        throw new Error("DISK_FULL");
+      }),
+      readAll: createInMemorySpillStorage().readAll,
+      ack: vi.fn(async () => {}),
+    };
+    const sink = persistentBufferedSink({
+      inner,
+      storage,
+      capacity: 1,
+      onOverflow: (r) => overflowed.push(r),
+    });
+
+    await expect(sink.emit(record("1"))).rejects.toThrow("inner down");
+    await expect(sink.emit(record("2"))).rejects.toThrow("inner down");
+
+    // Storage-append failure is now visible to operators.
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.sink).toBe("buffered");
+    expect(failures[0]!.subject).toBe("persistentBufferedSink.storage.append");
+    expect(failures[0]!.errorClass).toBe("Error");
+    // onOverflow is still invoked unconditionally after the append attempt
+    // (behavior preserved).
+    expect(overflowed).toHaveLength(1);
+  });
+
+  it("calls recordSinkFailure when onOverflow throws (ErrorReviewer-008)", async () => {
+    const failures: SinkFailureEvent[] = [];
+    setMetricsSink(spyMetricsSink(failures));
+
+    const inner: AuditSink = {
+      emit: vi.fn(async () => {
+        throw new Error("inner down");
+      }),
+    };
+    const sink = persistentBufferedSink({
+      inner,
+      // Storage append succeeds here so the only failure is onOverflow.
+      storage: createInMemorySpillStorage(),
+      capacity: 1,
+      onOverflow: () => {
+        throw new Error("CALLBACK_BUG");
+      },
+    });
+
+    // The emit still rejects with the inner error — a thrown onOverflow does
+    // NOT additionally wedge or change the caller-visible failure.
+    await expect(sink.emit(record("1"))).rejects.toThrow("inner down");
+    await expect(sink.emit(record("2"))).rejects.toThrow("inner down");
+
+    // The adopter-callback bug is routed through the metrics pipeline.
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.sink).toBe("buffered");
+    expect(failures[0]!.subject).toBe("persistentBufferedSink.onOverflow");
+    expect(failures[0]!.errorClass).toBe("Error");
+  });
+});
+
+// ── ConcurrencyReviewer-005 + MemoryReviewer-007: createInMemorySpillStorage ─
+
+describe("createInMemorySpillStorage", () => {
+  // Helper: build a minimal record with a specific intentHash.
+  function spillRecord(intentHash: string): AuditRecord {
+    return record(intentHash.slice(-2).padStart(2, "0"));
+  }
+
+  it("ack removes the SPECIFIC record, not the first match on intentHash (ConcurrencyReviewer-005)", async () => {
+    const storage = createInMemorySpillStorage();
+
+    // Append two records with the SAME intentHash — possible under retried
+    // emits or other deduplication-bypassed paths.
+    const r1 = record("01");
+    const r2 = record("02");
+
+    // Force them to have the same intentHash to trigger the old bug.
+    const sameHash = "duplicate-hash-for-test";
+    const dup1 = { ...r1, intentHash: sameHash };
+    const dup2 = { ...r2, intentHash: sameHash };
+
+    await storage.append(dup1);
+    await storage.append(dup2);
+
+    // Read both — they each get a unique seqId tag.
+    const yielded: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      yielded.push(r);
+    }
+    expect(yielded).toHaveLength(2);
+
+    // Ack the SECOND one by its tagged reference.
+    await storage.ack(yielded[1]!);
+
+    // Only the first one should remain.
+    const remaining: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      remaining.push(r);
+    }
+    expect(remaining).toHaveLength(1);
+    // The remaining record is the first appended (same hash, but seqId 0).
+    // We verify by checking it's a different object than the one we acked.
+    expect(remaining[0]).not.toBe(yielded[1]);
+  });
+
+  it("ack after readAll is O(1) — does not remove a sibling with the same intentHash", async () => {
+    const storage = createInMemorySpillStorage();
+
+    const base = record("01");
+    const sharedHash = "shared-hash-x";
+    const copy1 = { ...base, intentHash: sharedHash };
+    const copy2 = { ...base, intentHash: sharedHash };
+    const copy3 = { ...base, intentHash: sharedHash };
+
+    await storage.append(copy1);
+    await storage.append(copy2);
+    await storage.append(copy3);
+
+    const all: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      all.push(r);
+    }
+    expect(all).toHaveLength(3);
+
+    // Ack the middle entry.
+    await storage.ack(all[1]!);
+
+    const after: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      after.push(r);
+    }
+    // Exactly two remain — not zero (old bug would remove first match
+    // from the front).
+    expect(after).toHaveLength(2);
+  });
+
+  // ── MemoryReviewer-007: bounded store / drop-oldest policy ───────────────
+  it("maxSize: evicts oldest when capacity is exceeded (drop-oldest policy)", async () => {
+    const opts: InMemorySpillStorageOptions = { maxSize: 2 };
+    const storage = createInMemorySpillStorage(opts);
+
+    const r1 = record("01");
+    const r2 = record("02");
+    const r3 = record("03");
+
+    await storage.append(r1);
+    await storage.append(r2);
+    await storage.append(r3); // r1 should be evicted
+
+    const all: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      all.push(r);
+    }
+    expect(all).toHaveLength(2);
+    // r1 was evicted — only r2 and r3 remain.
+    const hashes = all.map((r) => (r.envelope.payload as { seed: string }).seed);
+    expect(hashes).not.toContain("01");
+    expect(hashes).toContain("02");
+    expect(hashes).toContain("03");
+  });
+
+  it("maxSize: appending up to the limit does not evict any record", async () => {
+    const opts: InMemorySpillStorageOptions = { maxSize: 3 };
+    const storage = createInMemorySpillStorage(opts);
+
+    await storage.append(record("01"));
+    await storage.append(record("02"));
+    await storage.append(record("03"));
+
+    const all: AuditRecord[] = [];
+    for await (const r of storage.readAll()) {
+      all.push(r);
+    }
+    expect(all).toHaveLength(3);
   });
 });

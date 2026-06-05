@@ -18,8 +18,9 @@ welcome.
 - **Property tests** that strengthen the kernel's load-bearing invariants
   in [packages/core/tests/kernel/invariants/](./packages/core/tests/kernel/invariants/).
 - **Documentation** — the README, the per-package READMEs, and the
-  runbooks in [docs/ops/runbooks/](./docs/ops/runbooks/) all benefit
-  from drive-by improvements.
+  runbooks in [docs/ops/runbooks/](./docs/ops/runbooks/) (IbateXas example
+  rollout playbooks; generalize for your domain) all benefit from drive-by
+  improvements.
 
 ## What we're NOT looking for
 
@@ -42,6 +43,9 @@ pnpm test
 ```
 
 Requires Node ≥ 20 and pnpm ≥ 10.
+
+See [`docs/release/licensing.md`](./docs/release/licensing.md) for license notes on
+transitive dependencies in `apps/` and `examples/`.
 
 ## Workflow
 

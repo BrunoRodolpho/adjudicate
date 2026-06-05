@@ -79,6 +79,30 @@ describe("buildSupersessionChains", () => {
     expect(r.aggregateReasonCounts.confirmation_resolved).toBe(1);
   });
 
+  it("confirmation-resolved pair sharing intentHash reports as a chain, not a cycle", () => {
+    // LogicReviewer-003: the EXECUTE record emitted after a confirmation
+    // receipt shares the envelope's intentHash with its predecessor
+    // REQUEST_CONFIRMATION record. The walker must keep both distinguishable
+    // (disambiguate by `at`) instead of collapsing them and flagging a cycle.
+    const sharedHash = "a".repeat(64);
+    const sharedAt = "2026-05-01T00:00:00.000Z";
+    const requestRecord = { ...makeRecord("n-req"), intentHash: sharedHash, at: sharedAt };
+    const executeRecord = {
+      ...makeRecord("n-exe"),
+      intentHash: sharedHash,
+      at: "2026-05-01T00:01:00.000Z",
+      supersedes: {
+        predecessorIntentHash: sharedHash,
+        predecessorAt: sharedAt,
+        reason: "confirmation_resolved" as const,
+      },
+    };
+    const report = buildSupersessionChains([requestRecord, executeRecord]);
+    expect(report.cycles).toHaveLength(0);
+    expect(report.chains).toHaveLength(1);
+    expect(report.chains[0]!.reasonCounts.confirmation_resolved).toBe(1);
+  });
+
   it("walks a multi-step chain (rewrite → defer → execute) head-first", () => {
     const original = makeRecord("n-1");
     const rewrite = makeRecord(

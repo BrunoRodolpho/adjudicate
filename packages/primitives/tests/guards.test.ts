@@ -11,6 +11,7 @@ import { readGuardMetadata } from "@adjudicate/core/kernel";
 import {
   createStateDeferGuard,
   createThresholdGuard,
+  requireTenantBinding,
 } from "../src/index.js";
 
 const at = "2026-04-29T12:00:00.000Z";
@@ -227,5 +228,39 @@ describe("L2 factories auto-attach GuardMetadata.description (ADR-105)", () => {
     }
     const meta = readGuardMetadata(guard);
     expect(meta?.description?.kind).toBe("threshold");
+  });
+});
+
+describe("requireTenantBinding (AuthReviewer-009 / D-12)", () => {
+  const env = buildEnvelope({
+    kind: "test.mutation",
+    payload: {},
+    actor: { principal: "user", sessionId: "sess-a" },
+    taint: "UNTRUSTED",
+    nonce: "n-tenant",
+    createdAt: at,
+  });
+
+  it("passes (null) when the actor is bound to the state's tenant", () => {
+    const guard = requireTenantBinding<string, unknown, { tenantId: string }>(
+      (actor, state) => state.tenantId === "t-a",
+    );
+    expect(guard(env, { tenantId: "t-a" })).toBeNull();
+  });
+
+  it("REFUSEs (tenant_binding_violation) on a cross-tenant mismatch", () => {
+    const guard = requireTenantBinding<string, unknown, { tenantId: string }>(
+      (actor, state) => state.tenantId === "t-a",
+    );
+    const decision = guard(env, { tenantId: "t-OTHER" });
+    expect(decision?.kind).toBe("REFUSE");
+    if (decision?.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+  });
+
+  it("trivially-true predicate is a no-op scaffold (single-tenant)", () => {
+    const guard = requireTenantBinding<string, unknown, unknown>(() => true);
+    expect(guard(env, {})).toBeNull();
   });
 });

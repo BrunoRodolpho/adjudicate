@@ -15,6 +15,7 @@ import type { DecisionBasis } from "../basis-codes.js"
 import type { IntentEnvelope } from "../envelope.js"
 import type { Taint } from "../taint.js"
 import { adjudicateWithTrace, type AdjudicationTraceEntry } from "./adjudicate.js"
+import { recordSinkFailure } from "./metrics.js"
 import type { PolicyBundle } from "./policy.js"
 
 export interface LearningEvent {
@@ -191,11 +192,19 @@ export interface AdjudicateAndLearnOptions {
   /** Optional plan fingerprint to cross-reference with the AuditRecord. */
   readonly planFingerprint?: string
   /**
-   * Override for the wall-clock used to compute durationMs and emission
-   * timestamps. Tests inject a fake; production uses the defaults.
+   * Wall-clock source used to compute `durationMs`. REQUIRED — this function
+   * is exported from the kernel barrel, which advertises determinism, so it
+   * must never reach for an implicit `Date.now`. Production wires a real
+   * clock at the call site (`() => Date.now()`); replay/property harnesses
+   * inject a fake (SecurityReviewer-002).
    */
-  readonly now?: () => number
-  readonly clockIso?: () => string
+  readonly now: () => number
+  /**
+   * ISO-8601 timestamp source for the emitted `LearningEvent.at`. REQUIRED
+   * for the same reason as `now` — no implicit `new Date()` inside a
+   * kernel-barrel export.
+   */
+  readonly clockIso: () => string
 }
 
 /**
@@ -204,17 +213,19 @@ export interface AdjudicateAndLearnOptions {
  * the learning surface call this entry point; adopters who don't care
  * (or who run in a property-testing harness) keep using `adjudicate()`.
  *
- * Returns the same Decision the pure kernel would have returned. Sink
- * failures are absorbed — telemetry must never become a customer outage.
+ * Returns the same Decision the pure kernel would have returned. A failing
+ * LearningSink never blocks the Decision (telemetry must not become a
+ * customer outage), but the failure is no longer swallowed silently — it is
+ * surfaced via `recordSinkFailure` so operators can dashboard it
+ * (ErrorReviewer-006).
  */
 export function adjudicateAndLearn<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,
   state: S,
   policy: PolicyBundle<K, P, S>,
-  options: AdjudicateAndLearnOptions = {},
+  options: AdjudicateAndLearnOptions,
 ): Decision {
-  const now = options.now ?? Date.now
-  const clockIso = options.clockIso ?? (() => new Date().toISOString())
+  const { now, clockIso } = options
   const start = now()
   const { decision, trace } = adjudicateWithTrace(envelope, state, policy)
   const durationMs = now() - start
@@ -235,8 +246,21 @@ export function adjudicateAndLearn<K extends string, P, S>(
         : {}),
       at: clockIso(),
     })
-  } catch {
-    // Sink failures are not the kernel's problem.
+  } catch (err) {
+    // Telemetry must never become a customer outage — the Decision is still
+    // returned. But a swallowed LearningSink failure is invisible to
+    // operators, so surface it through the metrics sink the same way the
+    // rest of the kernel reports sink failures (recordSinkFailure, cf.
+    // enforce-config typo guard / ledger parse failures). ErrorReviewer-006.
+    recordSinkFailure({
+      sink: "console",
+      subject: envelope.intentHash,
+      errorClass:
+        err instanceof Error
+          ? `learning_sink_failure:${err.name}`
+          : "learning_sink_failure",
+      consecutiveFailures: 1,
+    })
   }
   return decision
 }

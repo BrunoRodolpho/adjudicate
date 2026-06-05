@@ -18,7 +18,8 @@
 // has no `@ibatexas/tools` dependency and is testable at the framework level.
 
 import { createHash } from "node:crypto"
-import { sha256Canonical } from "@adjudicate/core"
+import type { IntentActor, Taint } from "@adjudicate/core"
+import { sha256Canonical, timingSafeHexEqual } from "@adjudicate/core"
 
 export const DEFER_PENDING_TTL_GRACE_SECONDS = 14 * 24 * 60 * 60 // 14d resume-token retention
 
@@ -44,8 +45,8 @@ export interface ParkedEnvelope {
      */
     readonly version?: number
     readonly nonce?: string
-    readonly taint?: "SYSTEM" | "TRUSTED" | "UNTRUSTED"
-    readonly actorPrincipal?: "llm" | "user" | "system"
+    readonly taint?: Taint
+    readonly actorPrincipal?: IntentActor["principal"]
   }
   readonly signal: string
   readonly parkedAt: string
@@ -83,7 +84,11 @@ export function verifyParkedEnvelopeHash(parked: ParkedEnvelope): ParkVerificati
     actor: { principal: e.actorPrincipal, sessionId: e.actor.sessionId },
     taint: e.taint,
   })
-  if (derived !== e.intentHash) {
+  // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare leaks
+  // via timing how many leading hex chars of a tampered intentHash matched the
+  // re-derived digest. timingSafeHexEqual is boolean-identical to `!==` here
+  // (length-mismatch / non-hex → not equal) and never throws.
+  if (!timingSafeHexEqual(derived, e.intentHash)) {
     return { verified: false, reason: "tampered", derived, stored: e.intentHash }
   }
   return { verified: true }
@@ -165,7 +170,9 @@ export interface ResumeDeferredIntentArgs {
    *   a warning and proceeds (back-compat with v0.1 parked blobs).
    * `"off"` — no verification (NOT recommended for production).
    *
-   * Default: `"warn"` in v0.2; will become `"strict"` in v0.5.
+   * Default: `"strict"` (SecurityReviewer-010). A legacy blob lacking
+   * verification fields fails closed (`park_blob_unverifiable`); opt into
+   * `"warn"` explicitly for back-compat with v0.1 parked blobs.
    */
   readonly verifyHash?: "strict" | "warn" | "off"
 }
@@ -200,7 +207,7 @@ export async function resumeDeferredIntent(
   // assert byte-equality with the stored value. Detects blob tampering at
   // resume time (the threat: a malicious actor with Redis write access
   // mutates the parked payload between park and resume).
-  const verifyMode = args.verifyHash ?? "warn"
+  const verifyMode = args.verifyHash ?? "strict"
   if (verifyMode !== "off") {
     const verification = verifyParkedEnvelopeHash(parked)
     if (verification.verified === false) {

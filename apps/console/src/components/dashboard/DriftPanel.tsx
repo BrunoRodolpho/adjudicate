@@ -124,7 +124,11 @@ export function DriftPanel() {
               </tr>
             ) : (
               DRIFT_TYPES.map((type) => {
+                // `stats` is built from DRIFT_TYPES (see buildStats), so every
+                // code is present; the guard satisfies noUncheckedIndexedAccess
+                // and renders nothing for an impossible-missing code.
                 const s = stats[type.code];
+                if (!s) return null;
                 const hot = s.last24h > 0;
                 return (
                   <tr

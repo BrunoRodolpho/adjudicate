@@ -46,12 +46,12 @@ examples/
 
 bench/                     Vitest microbenchmarks (kernel.bench.ts, audit.bench.ts).
 docs/
-  architecture/            ADRs (ADR-101..ADR-112), 8-layer defense, hosted topology.
+  architecture/            ADRs (ADR-101..ADR-116), 8-layer defense, hosted topology.
   concepts.md              Mental model. Start here.
   guides/                  Testing your policy. (Scenario fixtures + simulate.)
   release/                 Semver, API surface, deprecations.
   perf/                    v0.2 microbench baselines (>200× SLO headroom).
-  ops/runbooks/            4-stage shadow → enforce rollout playbook.
+  ops/runbooks/            4-stage shadow → enforce rollout playbook (IbateXas example; generalize for your domain).
   security/                Threat model + review checklist.
   compliance/              SOC 2 mapping + shared responsibility matrix.
   pack-ecosystem/          Registry foundations + signing design (design only, not built).
@@ -89,7 +89,7 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 ## Key concepts
 
 - **IntentEnvelope v2.** Wire-format frozen. JSON Schema at `docs/specs/intent-envelope-v2.schema.json`. `intentHash` = RFC 8785 JCS over `{version, kind, payload, nonce, actor, taint}` — `createdAt` is **excluded** from the hash; `nonce` is the load-bearing idempotency key.
-- **Taint lattice.** `UNTRUSTED < SYSTEM_TAINTED < TRUSTED`. The taint policy declares which intent kinds are *system-only* (e.g., webhook callbacks). LLM-proposed envelopes are always `UNTRUSTED`.
+- **Taint lattice.** `SYSTEM > TRUSTED > UNTRUSTED` (closed enum `Taint = "SYSTEM" | "TRUSTED" | "UNTRUSTED"`; ranks 3 > 2 > 1). The taint policy declares which intent kinds are *system-only* (e.g., webhook callbacks). LLM-proposed envelopes are always `UNTRUSTED`.
 - **Pack (`PackV0`).** A self-contained domain bundle: `id`, `version`, `contract: "v0"`, `intents`, `policy: PolicyBundle`, `planner: CapabilityPlanner`, `basisCodes`, optional `signals` (DEFER resume triggers), optional `handlers` (post-EXECUTE side-effects).
 - **GuardMetadata.** Guards attach metadata via `withMetadata(guard, { name, scenario, description })`. The analyzer (`@adjudicate/analyze`) and visualizer consume `readGuardMetadata(guard)`. Hand-written guards may leave `{ kind: "opaque" }`.
 - **`AuditRecord` v4.** Additive over v3: `policyVersion`, `kernelVersion`, `auditHash`, `signature` seam. `verifyAuditRecord` re-derives the hash; pre-v4 records return `{ verified: null, reason: "missing_hash" }`.
@@ -111,7 +111,7 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 
 - **Kernel call sites:** `packages/core/src/kernel/adjudicate.ts` (pure) and `packages/core/src/kernel/adjudicate-and-audit.ts` (wraps with ledger + sinks).
 - **Pack registration:** `installPack(pack)` in `packages/core/src/install.ts` — validates contract, extracts signal map, freezes policy.
-- **CLI:** `pnpm adjudicate <command>` → `packages/cli/src/bin.ts`. Commands: `pack init`, `pack lint`, `analyze`, `simulate`, `repl`, `replay`, `export`, `visualize`, `doctor`, `dev`, `reap`, `scenarios generate`.
+- **CLI:** `pnpm adjudicate <command>` → `packages/cli/src/bin.ts`. Commands: `pack init`, `pack lint`, `pack verify`, `analyze`, `simulate`, `repl`, `replay`, `export`, `visualize`, `doctor`, `dev`, `reap`, `scenarios generate`.
 - **Admin tRPC:** `apps/console/src/app/api/admin/trpc/[trpc]/route.ts` proxies to `@adjudicate/admin-sdk`. Audit query, kill switch, replay verification.
 - **Playground HTTP:** `apps/web/src/app/api/playground/{adjudicate,policy,outcome-distribution}/route.ts`.
 - **Adapter loop:** `createAdjudicatedAgent` in `packages/adapter-core/src/loop.ts`. Provider-neutral tool-use loop + DEFER/CONFIRMATION stores. Anthropic and OpenAI adapters are thin SDK shims that supply a `ProviderBridge<H>`.
@@ -228,7 +228,7 @@ CI: `pnpm rc:check` runs the full pipeline locally; `.github/workflows/release-c
 
 ## Testing posture
 
-**1121 passing, 1 skipped (audit-postgres needs a live DB), 0 failing.** Plus 6 freeze-matrix surface tests in `@adjudicate/core` and 4 scale-harness smoke tests in `@adjudicate/bench`. CI runs `lint + typecheck + test + check:versions + check:freeze-matrix + audit` on push. Integration coverage:
+**Full suite green (1 skipped — audit-postgres needs a live DB), 0 failing.** Plus 6 freeze-matrix surface tests in `@adjudicate/core` and 4 scale-harness smoke tests in `@adjudicate/bench`. CI runs `lint + typecheck + test + check:versions + check:freeze-matrix + audit` on push. Integration coverage:
 
 - Decision regression gates via `adjudicate simulate` scenarios per Pack.
 - Property tests for replay determinism, plan conformance, canonical-JSON hash.

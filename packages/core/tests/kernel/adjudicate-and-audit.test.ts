@@ -66,7 +66,8 @@ function envFixture(overrides?: { nonce?: string }) {
     payload: { x: 1 },
     actor: { principal: "llm", sessionId: "s-1" },
     taint: "UNTRUSTED",
-    createdAt: overrides?.nonce ?? "2026-04-23T12:00:00.000Z",
+    nonce: overrides?.nonce ?? "n-fixture",
+    createdAt: "2026-04-23T12:00:00.000Z",
   });
 }
 
@@ -185,6 +186,27 @@ describe("adjudicateAndAudit", () => {
     const result = await adjudicateAndAudit(envFixture(), {}, passBundle, { sink });
     expect(result.decision.kind).toBe("EXECUTE");
   });
+
+  it("routes a swallowed learning-sink failure to recordSinkFailure (ErrorReviewer-005)", async () => {
+    const failures: Array<{ sink: string; errorClass: string }> = [];
+    setMetricsSink({
+      ...noopMetricsSink(),
+      recordSinkFailure(e) {
+        failures.push({ sink: e.sink, errorClass: e.errorClass });
+      },
+    });
+    setLearningSink({
+      recordOutcome() {
+        throw new TypeError("learning sink down");
+      },
+    });
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const result = await adjudicateAndAudit(envFixture(), {}, passBundle, { sink });
+    // Kernel still returns the Decision (telemetry never blocks) …
+    expect(result.decision.kind).toBe("EXECUTE");
+    // … AND the swallowed failure is now observable, with a stable errorClass.
+    expect(failures).toContainEqual({ sink: "learning", errorClass: "TypeError" });
+  });
 });
 
 describe("adjudicateAndAudit — Ledger consult", () => {
@@ -299,5 +321,186 @@ describe("adjudicateAndAudit — clock and resource version", () => {
     expect(result.record.plan).toBeDefined();
     expect(result.record.plan!.visibleReadTools).toContain("list_things");
     expect(result.record.plan!.planFingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("adjudicateAndAudit — async-tail rate-limit rollback (consolidated-async-tail)", () => {
+  it("fires rateLimitRollback for a non-EXECUTE decision even when sink.emit throws", async () => {
+    const rollback = vi.fn(async () => {});
+    const throwingSink: AuditSink = {
+      async emit() {
+        throw new Error("sink down");
+      },
+    };
+    await expect(
+      adjudicateAndAudit(envFixture(), {}, refuseBundle, {
+        sink: throwingSink,
+        rateLimitRollback: rollback,
+      }),
+    ).rejects.toThrow("sink down");
+    // Pre-fix the rollback ran after a bare `await sink.emit`, so the throw
+    // skipped it. try/finally now guarantees it for non-EXECUTE decisions.
+    expect(rollback).toHaveBeenCalledOnce();
+  });
+
+  it("does not roll back on an EXECUTE decision when the sink succeeds", async () => {
+    const rollback = vi.fn(async () => {});
+    const okSink: AuditSink = { async emit() {} };
+    const result = await adjudicateAndAudit(envFixture(), {}, passBundle, {
+      sink: okSink,
+      rateLimitRollback: rollback,
+    });
+    expect(result.decision.kind).toBe("EXECUTE");
+    expect(rollback).not.toHaveBeenCalled();
+  });
+});
+
+describe("adjudicateAndAudit — ledger release on EXECUTE + sink failure (ConcurrencyReviewer-002)", () => {
+  const throwingSink: AuditSink = {
+    async emit() {
+      throw new Error("sink down");
+    },
+  };
+
+  it("calls ledger.release when recordExecution acquired and sink.emit throws", async () => {
+    const release = vi.fn(async (_intentHash: string) => {});
+    const ledger: Ledger = {
+      async checkLedger() {
+        return null;
+      },
+      async recordExecution(): Promise<LedgerRecordOutcome> {
+        return "acquired";
+      },
+      release,
+    };
+    const env = envFixture();
+    await expect(
+      adjudicateAndAudit(env, {}, passBundle, { sink: throwingSink, ledger }),
+    ).rejects.toThrow("sink down");
+    // The orphaned claim is released with the envelope's intentHash …
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(env.intentHash);
+  });
+
+  it("emits recordSinkFailure(ledger_orphaned) when release is not implemented", async () => {
+    const failures: Array<{ sink: string; errorClass: string }> = [];
+    setMetricsSink({
+      ...noopMetricsSink(),
+      recordSinkFailure(e) {
+        failures.push({ sink: e.sink, errorClass: e.errorClass });
+      },
+    });
+    // Ledger WITHOUT a release method — kernel must surface the orphan.
+    const ledger: Ledger = {
+      async checkLedger() {
+        return null;
+      },
+      async recordExecution(): Promise<LedgerRecordOutcome> {
+        return "acquired";
+      },
+    };
+    await expect(
+      adjudicateAndAudit(envFixture(), {}, passBundle, {
+        sink: throwingSink,
+        ledger,
+      }),
+    ).rejects.toThrow("sink down");
+    expect(failures).toContainEqual({
+      sink: "ledger",
+      errorClass: "ledger_orphaned",
+    });
+  });
+
+  it("does NOT call release when recordExecution returned 'exists' and sink throws", async () => {
+    const release = vi.fn(async (_intentHash: string) => {});
+    const ledger: Ledger = {
+      async checkLedger() {
+        return null;
+      },
+      // The racing-loser path: another writer already claimed the key. The
+      // kernel flips to REPLAY_SUPPRESSED; releasing here would delete the
+      // WINNER's live claim, so release must NOT fire.
+      async recordExecution(): Promise<LedgerRecordOutcome> {
+        return "exists";
+      },
+      release,
+    };
+    await expect(
+      adjudicateAndAudit(envFixture(), {}, passBundle, {
+        sink: throwingSink,
+        ledger,
+      }),
+    ).rejects.toThrow("sink down");
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it("surfaces recordSinkFailure(ledger) when release itself throws", async () => {
+    const failures: Array<{ sink: string; errorClass: string }> = [];
+    setMetricsSink({
+      ...noopMetricsSink(),
+      recordSinkFailure(e) {
+        failures.push({ sink: e.sink, errorClass: e.errorClass });
+      },
+    });
+    const ledger: Ledger = {
+      async checkLedger() {
+        return null;
+      },
+      async recordExecution(): Promise<LedgerRecordOutcome> {
+        return "acquired";
+      },
+      async release() {
+        throw new TypeError("del failed");
+      },
+    };
+    // The original sink error is still what propagates; the release failure
+    // is best-effort telemetry, never replacing the primary throw.
+    await expect(
+      adjudicateAndAudit(envFixture(), {}, passBundle, {
+        sink: throwingSink,
+        ledger,
+      }),
+    ).rejects.toThrow("sink down");
+    expect(failures).toContainEqual({ sink: "ledger", errorClass: "TypeError" });
+  });
+});
+
+describe("adjudicateAndAudit — LedgerOpEvent includes intentHash (SecurityReviewer-015)", () => {
+  it("emits intentHash on the ledger check event for correlation", async () => {
+    const ledgerOpEvents: Array<{ op: string; intentHash: string }> = [];
+    setMetricsSink({
+      recordLedgerOp(e) { ledgerOpEvents.push({ op: e.op, intentHash: e.intentHash }); },
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure() {},
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    });
+    const ledger = makeMemLedger();
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const env = envFixture();
+    await adjudicateAndAudit(env, {}, passBundle, { sink, ledger: ledger.ledger });
+    const checkOp = ledgerOpEvents.find((e) => e.op === "check");
+    expect(checkOp).toBeDefined();
+    expect(checkOp!.intentHash).toBe(env.intentHash);
+  });
+
+  it("emits intentHash on the ledger record event for EXECUTE correlation", async () => {
+    const ledgerOpEvents: Array<{ op: string; intentHash: string }> = [];
+    setMetricsSink({
+      recordLedgerOp(e) { ledgerOpEvents.push({ op: e.op, intentHash: e.intentHash }); },
+      recordDecision() {},
+      recordRefusal() {},
+      recordSinkFailure() {},
+      recordShadowDivergence() {},
+      recordResourceLimit() {},
+    });
+    const ledger = makeMemLedger();
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const env = envFixture();
+    await adjudicateAndAudit(env, {}, passBundle, { sink, ledger: ledger.ledger });
+    const recordOp = ledgerOpEvents.find((e) => e.op === "record");
+    expect(recordOp).toBeDefined();
+    expect(recordOp!.intentHash).toBe(env.intentHash);
   });
 });

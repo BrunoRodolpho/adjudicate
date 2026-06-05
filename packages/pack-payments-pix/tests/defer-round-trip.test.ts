@@ -77,13 +77,20 @@ describe("DEFER round-trip via @adjudicate/runtime", () => {
     if (deferDecision.kind !== "DEFER") return;
     expect(deferDecision.signal).toBe(PIX_CONFIRMATION_SIGNAL);
 
-    // Step 2 — adopter persists the parked envelope.
+    // Step 2 — adopter persists the parked envelope. Include the hash-verification
+    // fields (version/nonce/taint/actorPrincipal) so the blob is verifiable under the
+    // strict-by-default policy (SecurityReviewer-010) — i.e. a realistic adopter blob,
+    // not a legacy one. The derived hash matches createEnvelope.intentHash exactly.
     const parked = JSON.stringify({
       envelope: {
         intentHash: createEnvelope.intentHash,
         kind: createEnvelope.kind,
         actor: { sessionId: "s-1" },
         payload: createEnvelope.payload,
+        version: createEnvelope.version,
+        nonce: createEnvelope.nonce,
+        taint: createEnvelope.taint,
+        actorPrincipal: createEnvelope.actor.principal,
       },
       signal: PIX_CONFIRMATION_SIGNAL,
       parkedAt: DET_TIME,

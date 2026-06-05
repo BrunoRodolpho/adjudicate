@@ -62,6 +62,7 @@ import {
   recordDecision,
   recordLedgerOp,
   recordRefusal,
+  recordSinkFailure,
 } from "./metrics.js";
 import type { PolicyBundle } from "./policy.js";
 import type { RuntimeContext } from "./runtime-context.js";
@@ -150,6 +151,34 @@ export interface AdjudicateAndAuditDeps {
     readonly intentHash: string;
     /** ISO-8601 wall-clock of the user's confirmation. */
     readonly at: string;
+    /**
+     * Optional (LogicReviewer-004): the `at` timestamp of the original
+     * REQUEST_CONFIRMATION audit row. When provided, stored as
+     * `supersedes.predecessorAt` so audit-chain queries can JOIN on
+     * (predecessorIntentHash, predecessorAt) to locate the predecessor row.
+     * When omitted, falls back to `at` (pre-existing behaviour — use only
+     * when the predecessor row's `at` is unavailable to the caller).
+     *
+     * STRICTLY ADDITIVE: a caller that omits `originalAt` produces a
+     * byte-identical `supersedes` (and therefore identical auditHash) as
+     * before this field existed.
+     */
+    readonly originalAt?: string;
+    /**
+     * Optional (AuthReviewer-005): opaque single-use token from the
+     * confirmation store. When supplied, the kernel writes it into
+     * `Supersession.token` of the auto-derived `confirmation_resolved`
+     * supersedes link, providing a forensic trail that the confirmation
+     * came from a real token-exchange flow rather than a bare hash
+     * assertion. The kernel does NOT verify the token — that is the
+     * adapter's responsibility (the adapter calls
+     * `confirmationStore.take(token)` before passing this receipt).
+     *
+     * STRICTLY ADDITIVE: a caller that omits `token` produces a
+     * byte-identical `supersedes` (and therefore identical auditHash) as
+     * before this field existed.
+     */
+    readonly token?: string;
   };
   /**
    * Optional explicit supersession link (AuditRecord v3). When supplied,
@@ -181,6 +210,14 @@ export interface AdjudicateAndAuditResult {
  *
  * Sink failures propagate to the caller — adopters compose lossy sinks
  * upstream if fail-open is desired for non-critical paths.
+ *
+ * Minimum required wiring (APIReviewer-020): `{ sink }` alone is sufficient —
+ * every other dep is optional. With only a sink the kernel adjudicates, emits
+ * the AuditRecord, and routes metrics/learning to the module-level defaults.
+ * `ledger` adds dedup/REPLAY_SUPPRESSED; `context` (RuntimeContext) routes
+ * metrics/learning/kill-switch per tenant; `rateLimitRollback`,
+ * `resolveResourceVersion`, `plan`, `supersedes`, `kernelIdentity`, and `clock`
+ * are all opt-in.
  */
 export async function adjudicateAndAudit<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,
@@ -207,6 +244,9 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   const emitOutcome = ctx
     ? (e: Parameters<typeof recordOutcome>[0]) => ctx.learning.current().recordOutcome(e)
     : recordOutcome;
+  const emitSinkFailure = ctx
+    ? (e: Parameters<typeof recordSinkFailure>[0]) => ctx.metrics.recordSinkFailure(e)
+    : recordSinkFailure;
 
   // ── 0. Tenant kill switch (in addition to the process-wide one in adjudicate()) ──
   if (ctx?.killSwitch.isKilled()) {
@@ -241,6 +281,33 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         intentHash: envelope.intentHash,
       });
     }
+    // ── LearningSink on the kill-switch path (LogicReviewer-005) ────────
+    // The main path emits an outcome (line ~415); the kill-switch early
+    // return previously skipped it, so the analytics pipeline never saw the
+    // refusals a tenant kill switch produced. Mirror the main-path structure.
+    // Telemetry must NEVER block the kernel — emit inside try/catch so a
+    // failing LearningSink cannot change the Decision, the AuditRecord, or
+    // any hash. guardId/guardPhase/planFingerprint are intentionally omitted:
+    // the kill-switch path bypasses guard evaluation entirely, so there is no
+    // matched guard to record (matches main-path matchedGuardIdFromTrace([])).
+    try {
+      emitOutcome({
+        intentKind: envelope.kind,
+        decisionKind: decision.kind,
+        basisCodes: flattenBasis(decision.basis),
+        taint: envelope.taint,
+        durationMs,
+        intentHash: envelope.intentHash,
+        at: clock.nowIso(),
+      });
+    } catch (err) {
+      emitSinkFailure({
+        sink: "learning",
+        subject: envelope.intentHash,
+        errorClass: err instanceof Error ? err.name : "Error",
+        consecutiveFailures: 1,
+      });
+    }
     const record = buildAuditRecord({
       envelope,
       decision,
@@ -248,7 +315,28 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       at: clock.nowIso(),
       ...(deps.supersedes !== undefined ? { supersedes: deps.supersedes } : {}),
     });
-    await deps.sink.emit(record);
+    try {
+      await deps.sink.emit(record);
+    } finally {
+      // The tenant kill switch returns a non-EXECUTE decision — roll the
+      // rate-limit counter back even if the audit emit throws, so a
+      // maintenance window does not poison legitimate users' budgets
+      // (audit consolidated-async-tail, case (c): early return skipped rollback).
+      if (deps.rateLimitRollback) {
+        try {
+          await deps.rateLimitRollback();
+        } catch (err) {
+          // Rollback must not crash the kernel; surface the swallowed failure
+          // to the metrics sink rather than dropping it (ErrorReviewer-005).
+          emitSinkFailure({
+            sink: "rate-limit",
+            subject: envelope.intentHash,
+            errorClass: err instanceof Error ? err.name : "Error",
+            consecutiveFailures: 1,
+          });
+        }
+      }
+    }
     return { decision, record, ledgerHit: null };
   }
 
@@ -262,6 +350,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       outcome: ledgerHit ? "hit" : "miss",
       intentKind: envelope.kind,
       latencyMs: clock.nowMs() - checkStart,
+      intentHash: envelope.intentHash,
     });
   }
 
@@ -271,6 +360,13 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // `deps.supersedes` (set by adapters for defer_resumed / rewrite_executed /
   // replay) always wins over this auto-derivation.
   let confirmationSupersedes: Supersession | undefined;
+  // ConcurrencyReviewer-002: track whether THIS call claimed the ledger key
+  // (recordExecution returned "acquired"). Set true only inside the
+  // recordExecution block below. Never set on the REPLAY_SUPPRESSED racing
+  // path (outcome === "exists") — releasing there would delete another live
+  // caller's claim. Used in the audit-emit catch to best-effort release an
+  // orphaned key when sink.emit throws after an EXECUTE claim.
+  let ledgerAcquired = false;
   if (ledgerHit) {
     decision = replaySuppressedRefusal(envelope.intentHash, ledgerHit);
   } else {
@@ -304,16 +400,36 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       // Auto-derive supersedes for confirmation_resolved when the caller
       // did not pass one explicitly. This links the post-confirmation
       // EXECUTE record back to the original REQUEST_CONFIRMATION audit row.
+      //
+      // Both additions below are STRICTLY OPT-IN / ADDITIVE (determinism
+      // fence): when the caller passes neither `originalAt` nor `token`, the
+      // derived `supersedes` is byte-identical to the pre-existing shape
+      // ({ predecessorIntentHash, predecessorAt: at, reason }) — so the
+      // auditHash is unchanged.
+      //   - LogicReviewer-004: predecessorAt prefers `originalAt` (the
+      //     predecessor audit row's `at`) and falls back to the confirmation
+      //     `at` when the caller did not supply it.
+      //   - AuthReviewer-005: token is included only when supplied; an
+      //     omitted token leaves the key off the object entirely.
       confirmationSupersedes = {
         predecessorIntentHash: deps.confirmationReceipt.intentHash,
-        predecessorAt: deps.confirmationReceipt.at,
+        predecessorAt:
+          deps.confirmationReceipt.originalAt ?? deps.confirmationReceipt.at,
         reason: "confirmation_resolved" as const,
+        ...(deps.confirmationReceipt.token !== undefined
+          ? { token: deps.confirmationReceipt.token }
+          : {}),
       };
     }
 
     // ── 3. EXECUTE-race fix: claim the ledger key ───────────────────
     if (decision.kind === "EXECUTE" && deps.ledger) {
       const recordStart = clock.nowMs();
+      // LogicReviewer-013: `""` is the load-bearing sentinel for "no resolver
+      // wired, or resolver returned nothing" — recordExecution stores it as the
+      // empty resourceVersion and the ledger treats it as the version-agnostic
+      // claim. It is NOT a placeholder for a real version; downstream readers
+      // distinguish `""` (no version known) from a concrete row version.
       const resourceVersion =
         deps.resolveResourceVersion?.(envelope as IntentEnvelope, state) ?? "";
       const outcome = await deps.ledger.recordExecution({
@@ -327,7 +443,13 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         outcome: outcome === "acquired" ? "ok" : "duplicate",
         intentKind: envelope.kind,
         latencyMs: clock.nowMs() - recordStart,
+        intentHash: envelope.intentHash,
       });
+      if (outcome === "acquired") {
+        // This call won the SET-NX — record that so the audit-emit catch can
+        // release the key if the durable AuditRecord never lands.
+        ledgerAcquired = true;
+      }
       if (outcome === "exists") {
         // Another adjudicateAndAudit call beat us between checkLedger and
         // recordExecution. Suppress the EXECUTE so side effects do not
@@ -388,8 +510,15 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         : {}),
       at: clock.nowIso(),
     });
-  } catch {
-    // Telemetry failures are not the kernel's problem.
+  } catch (err) {
+    // Telemetry must never block the kernel — but a swallowed LearningSink
+    // failure should still be observable, not vanish silently (ErrorReviewer-005).
+    emitSinkFailure({
+      sink: "learning",
+      subject: envelope.intentHash,
+      errorClass: err instanceof Error ? err.name : "Error",
+      consecutiveFailures: 1,
+    });
   }
 
   // ── 6. Audit emission ──────────────────────────────────────────────
@@ -406,16 +535,62 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     ...(supersedes !== undefined ? { supersedes } : {}),
     ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
   });
-  await deps.sink.emit(record);
 
-  // ── 7. Rate-limit rollback on non-EXECUTE (T5 #41) ─────────────────
-  // Telemetry must never block — catch rollback failures here so a flaky
-  // counter does not propagate as an audit-emit failure.
-  if (decision.kind !== "EXECUTE" && deps.rateLimitRollback) {
-    try {
-      await deps.rateLimitRollback();
-    } catch {
-      // Counter rollback failures are not the kernel's problem.
+  // ── 6+7. Audit emission + rate-limit rollback (T5 #41) ─────────────
+  // The rollback for a non-EXECUTE decision MUST fire even if sink.emit throws.
+  // Pre-fix the rollback ran AFTER a bare `await sink.emit`, so a transient
+  // audit-sink failure skipped it and poisoned the rate-limit counter for
+  // legitimate users (audit consolidated-async-tail, case (a) — the
+  // load-bearing one). try/finally guarantees the rollback.
+  try {
+    await deps.sink.emit(record);
+  } catch (emitErr) {
+    // ConcurrencyReviewer-002: if THIS call claimed the ledger key and the
+    // durable AuditRecord then failed to land, the key is an orphan that would
+    // suppress retries for the full TTL with no audit trail. Best-effort
+    // release it so a retry of the same envelope can proceed. A missing
+    // `release` method (it is optional on the Ledger interface) is acceptable —
+    // surface the orphan via telemetry so operators can intervene before TTL.
+    // This is error-path-only cleanup: the success path is untouched, so no
+    // Decision / AuditRecord / hash byte moves.
+    if (ledgerAcquired && deps.ledger) {
+      if (typeof deps.ledger.release === "function") {
+        try {
+          await deps.ledger.release(envelope.intentHash);
+        } catch (releaseErr) {
+          emitSinkFailure({
+            sink: "ledger",
+            subject: envelope.intentHash,
+            errorClass:
+              releaseErr instanceof Error ? releaseErr.name : "Error",
+            consecutiveFailures: 1,
+          });
+        }
+      } else {
+        // Ledger does not support release — emit an observable orphan signal.
+        emitSinkFailure({
+          sink: "ledger",
+          subject: envelope.intentHash,
+          errorClass: "ledger_orphaned",
+          consecutiveFailures: 1,
+        });
+      }
+    }
+    throw emitErr;
+  } finally {
+    if (decision.kind !== "EXECUTE" && deps.rateLimitRollback) {
+      try {
+        await deps.rateLimitRollback();
+      } catch (err) {
+        // Rollback must not crash the kernel, but a swallowed failure poisons a
+        // user's rate-limit budget — surface it to the metrics sink (ErrorReviewer-005).
+        emitSinkFailure({
+          sink: "rate-limit",
+          subject: envelope.intentHash,
+          errorClass: err instanceof Error ? err.name : "Error",
+          consecutiveFailures: 1,
+        });
+      }
     }
   }
 

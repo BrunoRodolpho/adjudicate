@@ -13,7 +13,7 @@ New work is governed by
 [`docs/release/EXTENSION_POLICY.md`](docs/release/EXTENSION_POLICY.md) and
 [`docs/release/SEMVER_GOVERNANCE.md`](docs/release/SEMVER_GOVERNANCE.md).
 
-**Test posture: 1121 passing, 1 skipped (audit-postgres needs a live
+**Test posture: full suite green (1 skipped — audit-postgres needs a live
 DB), 0 failing.** Includes the original RC tests, 6 freeze-matrix
 surface tests, 4 scale-harness smoke tests, plus the post-v1
 additions:
@@ -200,7 +200,7 @@ All MINOR-bumpable, all opt-in, all classified in
 ```bash
 pnpm install
 pnpm build      # required: per-package tsc consumes upstream dist .d.ts
-pnpm test       # 1121 passing, 1 skipped, 0 failing
+pnpm test       # full suite green, 1 skipped, 0 failing
 pnpm -F @adjudicate/cli run analyze --pack ../pack-payments-pix
 pnpm -F @adjudicate/cli run adjudicate pack verify ./packages/pack-payments-pix
 pnpm rc:check   # full release pipeline

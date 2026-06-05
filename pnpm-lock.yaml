@@ -476,6 +476,22 @@ importers:
       eslint:
         specifier: ^9.0.0
         version: 9.39.4(jiti@1.21.7)
+      pg:
+        specifier: ^8.20.0
+        version: 8.20.0
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(terser@5.47.1)(tsx@4.21.0)
+
+  packages/canonical:
+    dependencies:
+      '@noble/hashes':
+        specifier: ^1.7.1
+        version: 1.8.0
+    devDependencies:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
@@ -538,6 +554,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@adjudicate/canonical':
+        specifier: workspace:*
+        version: link:../canonical
       '@noble/hashes':
         specifier: ^1.7.1
         version: 1.8.0
@@ -717,9 +736,6 @@ importers:
         specifier: workspace:*
         version: link:../primitives
     devDependencies:
-      '@adjudicate/cli':
-        specifier: workspace:*
-        version: link:../cli
       '@adjudicate/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config

@@ -93,7 +93,9 @@ describe("export — CSV output", () => {
 });
 
 describe("export — filtering", () => {
-  it("respects --since and --until ISO bounds", async () => {
+  // APIReviewer-003: `--since`/`--until` are INCLUSIVE on both ends
+  // (`since <= at <= until`), matching the admin-sdk audit query window.
+  it("respects --since and --until as inclusive ISO bounds", async () => {
     const src = path.join(FIXTURES_DIR, "src3.json");
     const old = record(
       "old.thing",
@@ -108,7 +110,7 @@ describe("export — filtering", () => {
     const newer = record(
       "new.thing",
       decisionExecute([]),
-      "2027-01-01T00:00:00.000Z",
+      "2027-06-01T00:00:00.000Z",
     );
     await fs.writeFile(src, JSON.stringify([old, middle, newer]));
 
@@ -121,8 +123,57 @@ describe("export — filtering", () => {
       stdout: (l) => lines.push(l),
     });
     const out = JSON.parse(lines.join("\n")) as AuditRecord[];
+    // `old` (2025) < since and `newer` (2027-06) > until are excluded;
+    // only `middle` survives.
     expect(out).toHaveLength(1);
     expect(out[0]!.envelope.kind).toBe("middle.thing");
+  });
+
+  it("includes a record whose `at` equals --until (inclusive upper bound, APIReviewer-003)", async () => {
+    const src = path.join(FIXTURES_DIR, "src3-boundary.json");
+    const onBoundary = record(
+      "boundary.thing",
+      decisionExecute([]),
+      "2026-06-01T00:00:00.000Z",
+    );
+    const before = record(
+      "before.thing",
+      decisionExecute([]),
+      "2026-05-31T00:00:00.000Z",
+    );
+    await fs.writeFile(src, JSON.stringify([before, onBoundary]));
+
+    const lines: string[] = [];
+    await runExport({
+      source: src,
+      format: "json",
+      until: "2026-06-01T00:00:00.000Z",
+      stdout: (l) => lines.push(l),
+    });
+    const out = JSON.parse(lines.join("\n")) as AuditRecord[];
+    const kinds = out.map((r) => r.envelope.kind).sort();
+    // Both included — the record AT the boundary is no longer dropped.
+    expect(kinds).toEqual(["before.thing", "boundary.thing"]);
+  });
+
+  it("includes a record whose `at` equals --since (inclusive lower bound)", async () => {
+    const src = path.join(FIXTURES_DIR, "src3-since.json");
+    const onSince = record(
+      "on.since",
+      decisionExecute([]),
+      "2026-06-01T00:00:00.000Z",
+    );
+    await fs.writeFile(src, JSON.stringify([onSince]));
+
+    const lines: string[] = [];
+    await runExport({
+      source: src,
+      format: "json",
+      since: "2026-06-01T00:00:00.000Z",
+      stdout: (l) => lines.push(l),
+    });
+    const out = JSON.parse(lines.join("\n")) as AuditRecord[];
+    expect(out).toHaveLength(1);
   });
 });
 

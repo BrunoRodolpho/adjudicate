@@ -7,20 +7,31 @@
 //
 // Schema: see ./schema.ts and ./migrations/001-create-intent-audit.sql.
 
-import type { AuditRecord } from "@adjudicate/core";
+import type {
+  AuditRecord,
+  Decision,
+  IntentActor,
+  RefusalKind,
+  Taint,
+} from "@adjudicate/core";
 import type { AuditSink } from "@adjudicate/audit";
 
 /**
  * Minimal Postgres-write interface. Adopters wrap their existing Postgres
  * client (pg, postgres.js, Prisma) into this shape.
  *
- * INSERT shape:
- *   INSERT INTO intent_audit
- *     (intent_hash, session_id, kind, principal, taint, decision_kind,
- *      refusal_kind, refusal_code, decision_basis, resource_version,
- *      envelope_jsonb, decision_jsonb, recorded_at, duration_ms, partition_month)
- *   VALUES ($1...$15)
- *   ON CONFLICT (intent_hash, recorded_at) DO NOTHING
+ * The reference INSERT statement is exported as `INSERT_AUDIT_SQL` (single
+ * source of truth for the row shape), with `auditInsertParams(row)` producing
+ * the bound `$1...$24` parameter array in matching column order. A typical
+ * `pg`-backed writer is:
+ *
+ *   insertAudit: (row) => pool.query(INSERT_AUDIT_SQL, [...auditInsertParams(row)])
+ *
+ * Adopters MUST insert every column. Omitting the v2/v3/v4 columns
+ * (record_version through signature_jsonb) silently discards the
+ * tamper-evidence binding and supersession chain — verifyAuditRecord then
+ * returns missing_hash on read-back. Using the exported const + params helper
+ * keeps the column set complete and in sync by construction.
  */
 export interface PostgresWriter {
   insertAudit(row: IntentAuditRow): Promise<void>;
@@ -31,10 +42,10 @@ export interface IntentAuditRow {
   readonly intent_hash: string;
   readonly session_id: string;
   readonly kind: string;
-  readonly principal: "llm" | "user" | "system";
-  readonly taint: "SYSTEM" | "TRUSTED" | "UNTRUSTED";
-  readonly decision_kind: string;
-  readonly refusal_kind: string | null;
+  readonly principal: IntentActor["principal"];
+  readonly taint: Taint;
+  readonly decision_kind: Decision["kind"];
+  readonly refusal_kind: RefusalKind | null;
   readonly refusal_code: string | null;
   readonly decision_basis: string[]; // jsonb-castable array of "category:code"
   readonly resource_version: string | null;
@@ -44,7 +55,7 @@ export interface IntentAuditRow {
   readonly duration_ms: number;
   readonly partition_month: string; // "2026-04" — for partition routing
   /**
-   * Audit record schema version (1, 2, or 3). Carried alongside the row so the
+   * Audit record schema version (1-4). Carried alongside the row so the
    * replay reader can branch without parsing JSON. v1 rows that predate this
    * column may be NULL — the reader treats NULL as v1.
    */
@@ -67,6 +78,36 @@ export interface IntentAuditRow {
    * `005-add-supersedes.sql` adds the underlying column.
    */
   readonly supersedes_jsonb: string | null;
+  /**
+   * v3+ optional kernel build identity `{ id, version }`, pre-serialized
+   * JSON. Part of the v4 `auditHash` pre-image, so it MUST round-trip or
+   * verifyAuditRecord reports false-positive tampering. Migration
+   * `008-add-v4-fields.sql` adds the underlying column.
+   */
+  readonly kernel_identity_jsonb: string | null;
+  /**
+   * v4+ optional Pack semantic version at adjudication time. NULL when the
+   * record carries no policyVersion. Migration `008-add-v4-fields.sql`.
+   */
+  readonly policy_version: string | null;
+  /**
+   * v4+ optional @adjudicate/core version that produced the record. NULL
+   * when absent. Migration `008-add-v4-fields.sql`.
+   */
+  readonly kernel_version: string | null;
+  /**
+   * v4+ tamper-evidence hash — `sha256Canonical(record \ { auditHash,
+   * signature })`. NULL for pre-v4 records. Migration
+   * `008-add-v4-fields.sql`. Dropping this on write/read defeats
+   * verifyAuditRecord end-to-end.
+   */
+  readonly audit_hash: string | null;
+  /**
+   * v4+ optional cryptographic signature `{ keyId, alg, value }` over the
+   * auditHash, pre-serialized JSON. NULL when no AuditSigner is configured.
+   * Migration `008-add-v4-fields.sql`.
+   */
+  readonly signature_jsonb: string | null;
 }
 
 export interface PostgresSinkOptions {
@@ -115,6 +156,10 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
     decision_kind: record.decision.kind,
     refusal_kind: refusal?.kind ?? null,
     refusal_code: refusal?.code ?? null,
+    // decision_basis TEXT[] is a query-projection of decision.basis. Both carry the
+    // same information; divergence is a writer bug. The canonical reader (rowToRecord)
+    // reconstructs AuditRecord.decision_basis from decision_jsonb — the TEXT[] is
+    // only for SQL-side filtering (WHERE 'category:code' = ANY(decision_basis)).
     decision_basis: record.decision_basis.map((b) => `${b.category}:${b.code}`),
     resource_version: record.resourceVersion ?? null,
     envelope_jsonb: JSON.stringify(record.envelope),
@@ -124,22 +169,99 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
     partition_month: partition,
     record_version: record.version,
     plan_jsonb: record.plan ? JSON.stringify(record.plan) : null,
-    // T8: extract nonce from the envelope (v2+). v1 rows had no nonce
-    // field; mappers reading historical rows see NULL here.
-    nonce:
-      typeof (record.envelope as { nonce?: unknown }).nonce === "string"
-        ? (record.envelope as { nonce: string }).nonce
-        : null,
+    // T8: nonce is required on IntentEnvelope (v2+). Written directly;
+    // pre-v2 rows that lack the column see NULL via the DB default, but
+    // any AuditRecord reaching this code carries a well-typed envelope.
+    nonce: record.envelope.nonce,
     supersedes_jsonb: record.supersedes
       ? JSON.stringify(record.supersedes)
       : null,
+    kernel_identity_jsonb: record.kernelIdentity
+      ? JSON.stringify(record.kernelIdentity)
+      : null,
+    policy_version: record.policyVersion ?? null,
+    kernel_version: record.kernelVersion ?? null,
+    audit_hash: record.auditHash ?? null,
+    signature_jsonb: record.signature ? JSON.stringify(record.signature) : null,
   };
+}
+
+/**
+ * Reference INSERT statement for the `intent_audit` table. Mirrors
+ * `INSERT_GOVERNANCE_EVENT_SQL` in governance-log.ts — adopters wrap their
+ * `pg`/`postgres.js`/Prisma client into a `PostgresWriter` whose
+ * `insertAudit` runs this statement. Exposed as a constant so the SQL stays
+ * in this package (single source of truth for the row shape), and so a
+ * column-order test can pin it against `auditInsertParams`.
+ *
+ * Column order matches `recordToRow` / `auditInsertParams`. The 24 columns
+ * span the base v1 schema (001) plus the additive v2/v3/v4 migrations
+ * (002 plan_jsonb, 003 nonce, 005 supersedes_jsonb, 008 kernel_identity_jsonb
+ * / policy_version / kernel_version / audit_hash / signature_jsonb). Because
+ * the columns are named explicitly, physical column order in Postgres is
+ * irrelevant — only this list and `auditInsertParams` must agree.
+ *
+ * `ON CONFLICT (intent_hash, recorded_at) DO NOTHING` matches the table's
+ * PRIMARY KEY (id, recorded_at) dedup intent at the (intent_hash, recorded_at)
+ * grain — idempotent re-emit of the same record is a no-op.
+ */
+export const INSERT_AUDIT_SQL = `
+  INSERT INTO intent_audit
+    (intent_hash, session_id, kind, principal, taint, decision_kind,
+     refusal_kind, refusal_code, decision_basis, resource_version,
+     envelope_jsonb, decision_jsonb, recorded_at, duration_ms, partition_month,
+     record_version, plan_jsonb, nonce, supersedes_jsonb, kernel_identity_jsonb,
+     policy_version, kernel_version, audit_hash, signature_jsonb)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+          $16, $17, $18, $19, $20, $21, $22, $23, $24)
+  ON CONFLICT (intent_hash, recorded_at) DO NOTHING
+`.replace(/\s+/g, " ").trim();
+
+/**
+ * Helper to convert an `IntentAuditRow` to the parameter array for
+ * `INSERT_AUDIT_SQL`. Adopters use this to keep the column order in sync
+ * with the SQL constant. Mirrors `governanceInsertParams`.
+ */
+export function auditInsertParams(row: IntentAuditRow): readonly unknown[] {
+  return [
+    row.intent_hash,
+    row.session_id,
+    row.kind,
+    row.principal,
+    row.taint,
+    row.decision_kind,
+    row.refusal_kind,
+    row.refusal_code,
+    row.decision_basis,
+    row.resource_version,
+    row.envelope_jsonb,
+    row.decision_jsonb,
+    row.recorded_at,
+    row.duration_ms,
+    row.partition_month,
+    row.record_version,
+    row.plan_jsonb,
+    row.nonce,
+    row.supersedes_jsonb,
+    row.kernel_identity_jsonb,
+    row.policy_version,
+    row.kernel_version,
+    row.audit_hash,
+    row.signature_jsonb,
+  ];
 }
 
 /**
  * Compute the partition month string for a given ISO-8601 timestamp.
  * Returns "YYYY-MM". Used by the Postgres partitioning scheme — see
  * migrations/001-create-intent-audit.sql.
+ *
+ * Throws on:
+ *   - a string that does not begin with "YYYY-MM" (regex mismatch)
+ *   - a string whose extracted month is outside 01-12
+ * These represent malformed inputs that should never reach the sink for a
+ * valid AuditRecord. Deterministic failure is preferable to a wall-clock
+ * fallback that silently routes the row to the wrong partition table.
  */
 export function partitionMonthOf(isoTimestamp: string): string {
   // Extract the year-month portion of the ISO-8601 string. "2026-04-23T..."
@@ -147,12 +269,15 @@ export function partitionMonthOf(isoTimestamp: string): string {
   // identically across timezones.
   const match = isoTimestamp.match(/^(\d{4})-(\d{2})/);
   if (!match) {
-    // Fallback: use UTC date conversion. ISO without a leading YYYY-MM is
-    // unusual but defensively handled.
-    const d = new Date(isoTimestamp);
-    const yyyy = d.getUTCFullYear().toString().padStart(4, "0");
-    const mm = (d.getUTCMonth() + 1).toString().padStart(2, "0");
-    return `${yyyy}-${mm}`;
+    throw new Error(
+      `partitionMonthOf: unparseable timestamp — expected ISO-8601 beginning with YYYY-MM, got: ${JSON.stringify(isoTimestamp)}`,
+    );
+  }
+  const month = parseInt(match[2]!, 10);
+  if (month < 1 || month > 12) {
+    throw new Error(
+      `partitionMonthOf: invalid month ${match[2]} in timestamp ${JSON.stringify(isoTimestamp)} — must be 01-12`,
+    );
   }
   return `${match[1]}-${match[2]}`;
 }

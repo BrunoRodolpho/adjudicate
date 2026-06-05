@@ -22,7 +22,7 @@ program
   .description(
     "adjudicate framework CLI — Pack lifecycle commands for policy authors",
   )
-  .version("0.1.0");
+  .version("0.1.1");
 
 // Commands listed in alphabetical order matching the eventual `--help` layout.
 
@@ -87,7 +87,7 @@ program
     "--source <path>",
     "Source JSONL or JSON-array file produced by the audit sink",
   )
-  .option("--format <json|csv|parquet>", "Output format. Defaults to json", "json")
+  .option("--format <json|csv|parquet>", "Output format. Defaults to json (unlike other commands which default to text; json is the primary use-case for export).", "json")
   .option("--output <file>", "Write to file instead of stdout")
   .option("--since <iso>", "Lower bound on recordedAt (inclusive)")
   .option("--until <iso>", "Upper bound on recordedAt (exclusive)")

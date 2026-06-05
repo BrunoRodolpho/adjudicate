@@ -128,6 +128,7 @@ describe("multiSink (T3 default = strict)", () => {
     );
     await expect(sink.emit(record())).rejects.toThrow(AuditSinkError);
     expect(failures).toHaveLength(1);
+    expect(failures[0]!.sink).toBe("multi");
     expect(failures[0]!.subject).toBe("multiSink[1]");
     expect(failures[0]!.errorClass).toBe("Error");
   });
@@ -168,6 +169,7 @@ describe("multiSinkLossy (explicit fail-open)", () => {
     });
     await sink.emit(record());
     expect(failures).toHaveLength(1);
+    expect(failures[0]!.sink).toBe("multi");
     expect(failures[0]!.subject).toBe("multiSinkLossy[0]");
   });
 });

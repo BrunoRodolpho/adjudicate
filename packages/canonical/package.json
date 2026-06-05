@@ -1,0 +1,35 @@
+{
+  "name": "@adjudicate/canonical",
+  "version": "1.1.0",
+  "description": "Canonical-JSON (RFC 8785 / JCS) serialization + sha256 — the single source of truth for content-addressed hashing shared by @adjudicate/core and runtime adopters (no forked copies).",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "golden-vectors.json"
+  ],
+  "scripts": {
+    "build": "tsc --outDir dist",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.7.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

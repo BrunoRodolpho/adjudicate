@@ -61,8 +61,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: adjudicate-redis
+    # Bind to localhost only — a dev DeferStore/rate-limit backend must not be
+    # reachable from the LAN (SecurityReviewer-012).
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -76,8 +78,10 @@ services:
       POSTGRES_USER: adjudicate
       POSTGRES_PASSWORD: adjudicate
       POSTGRES_DB: adjudicate
+    # Bind to localhost only — a dev audit DB (default creds) must not be
+    # reachable from the LAN (SecurityReviewer-012).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U adjudicate"]
       interval: 5s
@@ -89,7 +93,7 @@ services:
   #     context: ./apps/console
   #   container_name: adjudicate-console
   #   ports:
-  #     - "5180:5180"
+  #     - "127.0.0.1:5180:5180"
   #   environment:
   #     DATABASE_URL: postgres://adjudicate:adjudicate@postgres:5432/adjudicate
   #     REDIS_URL: redis://redis:6379

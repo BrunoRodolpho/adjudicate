@@ -207,6 +207,56 @@ describe("parkDeferredIntent", () => {
   });
 });
 
+describe("parkDeferredIntent — transformEnvelopeBeforePark (SecurityReviewer-005)", () => {
+  it("applies transformEnvelopeBeforePark before JSON serialisation", async () => {
+    const redis = makeFakeRedis();
+    await parkDeferredIntent({
+      envelope: {
+        intentHash: "abc",
+        kind: "test",
+        actor: { sessionId: "s1" },
+        payload: { payerDocument: "123.456.789-00" },
+      },
+      signal: "sig",
+      ttlSeconds: 60,
+      redis,
+      rk: (k) => k,
+      transformEnvelopeBeforePark: (e) => ({
+        ...e,
+        payload: { payerDocument: "[REDACTED]" },
+      }),
+    });
+    const raw = redis.store.get("defer:pending:s1");
+    expect(raw).toBeDefined();
+    const stored = JSON.parse(raw!);
+    expect((stored.envelope.payload as { payerDocument: string }).payerDocument).toBe(
+      "[REDACTED]",
+    );
+    // The raw CPF must not be present anywhere in the persisted blob.
+    expect(raw).not.toContain("123.456.789-00");
+  });
+
+  it("stores the envelope verbatim when no transform is supplied (back-compat)", async () => {
+    const redis = makeFakeRedis();
+    await parkDeferredIntent({
+      envelope: {
+        intentHash: "abc",
+        kind: "test",
+        actor: { sessionId: "s2" },
+        payload: { payerDocument: "123.456.789-00" },
+      },
+      signal: "sig",
+      ttlSeconds: 60,
+      redis,
+      rk: (k) => k,
+    });
+    const stored = JSON.parse(redis.store.get("defer:pending:s2")!);
+    expect((stored.envelope.payload as { payerDocument: string }).payerDocument).toBe(
+      "123.456.789-00",
+    );
+  });
+});
+
 describe("decrementDeferCounter", () => {
   it("DECRs the counter for a session", async () => {
     const redis = makeFakeRedis();

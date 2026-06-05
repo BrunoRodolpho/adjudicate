@@ -15,6 +15,7 @@ import {
   buildEnvelope,
   type Taint,
 } from "@adjudicate/core";
+import { jsonSafePayloadArb } from "../../helpers/json-safe-arb.js";
 
 const taintArb = fc.constantFrom<Taint>("SYSTEM", "TRUSTED", "UNTRUSTED");
 const principalArb = fc.constantFrom<"llm" | "user" | "system">(
@@ -24,18 +25,21 @@ const principalArb = fc.constantFrom<"llm" | "user" | "system">(
 );
 
 describe("invariant: v2 intentHash is invariant under createdAt perturbation", () => {
-  it("same nonce + different createdAt → same intentHash", () => {
+  // TestReviewer-008: fuzz with deeply-nested JSON-safe payloads, not the
+  // trivial { x: 1 }. numRuns is capped (recursive payloads are heavier) so the
+  // suite stays fast and deterministic — coverage comes from payload SHAPE.
+  it("same nonce + different createdAt → same intentHash (recursive payloads)", () => {
     fc.assert(
       fc.property(
         fc.string({ minLength: 1, maxLength: 12 }), // nonce
-        fc.string({ minLength: 1, maxLength: 12 }), // payload seed
+        jsonSafePayloadArb, // recursive, nested, JSON-safe payload
         taintArb,
         principalArb,
         fc.string({ minLength: 1, maxLength: 6 }), // session id
-        (nonce, seed, taint, principal, sessionId) => {
+        (nonce, payload, taint, principal, sessionId) => {
           const envA = buildEnvelope({
             kind: "order.tool.propose",
-            payload: { x: seed },
+            payload,
             actor: { principal, sessionId },
             taint,
             nonce,
@@ -43,7 +47,7 @@ describe("invariant: v2 intentHash is invariant under createdAt perturbation", (
           });
           const envB = buildEnvelope({
             kind: "order.tool.propose",
-            payload: { x: seed },
+            payload,
             actor: { principal, sessionId },
             taint,
             nonce,
@@ -53,7 +57,28 @@ describe("invariant: v2 intentHash is invariant under createdAt perturbation", (
           expect(envA.createdAt).not.toBe(envB.createdAt); // metadata differs
         },
       ),
-      { numRuns: 5_000 },
+      { numRuns: 1_000 },
+    );
+  });
+
+  // TestReviewer-008: the hash is a deterministic function of the canonical
+  // payload — building twice from the SAME nested payload yields the SAME hash.
+  it("intentHash is deterministic for any nested JSON-safe payload", () => {
+    fc.assert(
+      fc.property(jsonSafePayloadArb, taintArb, (payload, taint) => {
+        const common = {
+          kind: "order.tool.propose" as const,
+          payload,
+          actor: { principal: "llm" as const, sessionId: "s" },
+          taint,
+          nonce: "fixed-nonce",
+          createdAt: "2026-04-01T10:00:00.000Z",
+        };
+        expect(buildEnvelope(common).intentHash).toBe(
+          buildEnvelope(common).intentHash,
+        );
+      }),
+      { numRuns: 1_000 },
     );
   });
 

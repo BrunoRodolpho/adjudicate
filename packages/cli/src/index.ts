@@ -41,7 +41,7 @@ export {
 export {
   runReplay,
   type ReplayOptions,
-  type ReplayReport,
+  type CliReplayReport,
 } from "./commands/replay.js";
 
 export {

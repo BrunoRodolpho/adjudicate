@@ -10,6 +10,7 @@ import {
   type TaintPolicy,
 } from "@adjudicate/core";
 import { adjudicate } from "../../src/kernel/adjudicate.js";
+import { _resetKillSwitch } from "../../src/kernel/enforce-config.js";
 import type { Guard, PolicyBundle } from "../../src/kernel/policy.js";
 
 type Kind = "order.tool.propose";
@@ -22,15 +23,26 @@ const taintPolicy: TaintPolicy = {
   minimumFor: (kind) => (kind === "payment.send" ? "SYSTEM" : "UNTRUSTED"),
 };
 
-function baseEnvelope(overrides?: Partial<IntentEnvelope<Kind, Payload>>): IntentEnvelope<Kind, Payload> {
+function baseEnvelope(overrides: Partial<IntentEnvelope<Kind, Payload>> = {}): IntentEnvelope<Kind, Payload> {
+  // Hash-relevant overrides (kind, payload, actor, taint, nonce) flow into
+  // buildEnvelope's inputs so the resulting intentHash matches the canonical
+  // content — the kernel now verifies it (schema:intent_hash_mismatch). Only
+  // version/intentHash overrides are spread on top, for tests that
+  // deliberately craft a malformed/forged envelope.
+  const { version, intentHash, createdAt, ...hashRelevant } = overrides;
   const env = buildEnvelope<Kind, Payload>({
-    kind: "order.tool.propose",
-    payload: { toolName: "add_item" },
-    actor: { principal: "llm", sessionId: "s-1" },
-    taint: "UNTRUSTED",
-    nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
+    kind: (hashRelevant.kind ?? "order.tool.propose") as Kind,
+    payload: hashRelevant.payload ?? { toolName: "add_item" },
+    actor: hashRelevant.actor ?? { principal: "llm", sessionId: "s-1" },
+    taint: hashRelevant.taint ?? "UNTRUSTED",
+    nonce: hashRelevant.nonce ?? "n-test",
+    createdAt: createdAt ?? "2026-04-23T12:00:00.000Z",
   });
-  return { ...env, ...overrides } as IntentEnvelope<Kind, Payload>;
+  return {
+    ...env,
+    ...(version !== undefined ? { version } : {}),
+    ...(intentHash !== undefined ? { intentHash } : {}),
+  } as IntentEnvelope<Kind, Payload>;
 }
 
 function bundle(
@@ -157,6 +169,27 @@ describe("adjudicate — schema gate", () => {
   });
 });
 
+describe("adjudicate — content-addressing integrity (AuthReviewer-001)", () => {
+  it("refuses an envelope whose intentHash does not match canonical content", () => {
+    const forged = baseEnvelope({ intentHash: "0".repeat(64) });
+    const decision = adjudicate(forged, { step: "pre_order" }, bundle());
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("intent_hash_mismatch");
+    expect(
+      decision.basis.some(
+        (b) => b.category === "schema" && b.code === "intent_hash_mismatch",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts an envelope whose intentHash matches (buildEnvelope output)", () => {
+    const decision = adjudicate(baseEnvelope(), { step: "pre_order" }, bundle());
+    expect(decision.kind).toBe("EXECUTE");
+  });
+});
+
 describe("adjudicate — audit trail preservation", () => {
   it("includes passed bases before the short-circuit basis", () => {
     const decision = adjudicate(
@@ -197,5 +230,57 @@ describe("adjudicate — direct decision pass-through", () => {
       }),
     );
     expect(decision.kind).toBe("EXECUTE");
+  });
+});
+
+describe("adjudicate — hot path reads no live process.env (ConfigReviewer-001/003)", () => {
+  // Run adjudicate() with process.env replaced by a recording Proxy and assert
+  // the enforce-config / kill-switch env keys are never read off LIVE env on
+  // the decision hot path. Deterministic core: no env reads inside
+  // adjudicate(). If a future commit wires per-intent enforce or re-reads the
+  // kill switch from mutable process.env mid-decision, these traps fire.
+  function recordEnvAccessDuringAdjudicate(): string[] {
+    const accessed: string[] = [];
+    const realEnv = process.env;
+    const trap = new Proxy(realEnv, {
+      get(target, prop, receiver) {
+        if (typeof prop === "string") accessed.push(prop);
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    (process as { env: NodeJS.ProcessEnv }).env = trap;
+    try {
+      adjudicate(
+        baseEnvelope(),
+        { step: "pre_order" },
+        bundle({
+          business: [
+            () =>
+              decisionExecute([
+                basis("business", BASIS_CODES.business.RULE_SATISFIED),
+              ]),
+          ],
+        }),
+      );
+    } finally {
+      (process as { env: NodeJS.ProcessEnv }).env = realEnv;
+    }
+    return accessed;
+  }
+
+  it("does not access IBX_KERNEL_SHADOW or IBX_KERNEL_ENFORCE during adjudicate()", () => {
+    const accessed = recordEnvAccessDuringAdjudicate();
+    expect(accessed).not.toContain("IBX_KERNEL_SHADOW");
+    expect(accessed).not.toContain("IBX_KERNEL_ENFORCE");
+  });
+
+  it("does not access IBX_KILL_SWITCH off live process.env during adjudicate()", () => {
+    // Force a fresh kill-switch seed so the first isKilled() inside
+    // adjudicate() would actually consult an env source. The module snapshot
+    // (captured at import) is what gets read — never the live, trapped env.
+    _resetKillSwitch();
+    const accessed = recordEnvAccessDuringAdjudicate();
+    expect(accessed).not.toContain("IBX_KILL_SWITCH");
+    _resetKillSwitch();
   });
 });

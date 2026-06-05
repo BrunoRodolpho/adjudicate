@@ -1,5 +1,21 @@
 # @adjudicate/console
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [9e65871]
+- Updated dependencies [e9fc3ad]
+- Updated dependencies [36e7e76]
+- Updated dependencies [36e7e76]
+  - @adjudicate/audit@2.0.0
+  - @adjudicate/admin-sdk@2.0.0
+  - @adjudicate/core@1.2.0
+  - @adjudicate/audit-postgres@2.0.0
+  - @adjudicate/pack-payments-pix@0.2.0
+  - @adjudicate/pack-identity-kyc@0.2.0
+  - @adjudicate/pack-deployments-approval@0.2.0
+
 ## 0.1.0
 
 ### Patch Changes

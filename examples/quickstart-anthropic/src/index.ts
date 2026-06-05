@@ -150,8 +150,7 @@ async function main(): Promise<void> {
   const observed = new Set<DecisionKind>();
   let state: PixState = { charges: new Map() };
 
-  for (let i = 0; i < TRANSCRIPT.length; i++) {
-    const turn = TRANSCRIPT[i];
+  for (const [i, turn] of TRANSCRIPT.entries()) {
     state = turn.setupState(state);
 
     banner(`Turn ${i + 1}: ${turn.title}  [expected: ${turn.expected}]`);

@@ -1,6 +1,8 @@
 // @adjudicate/audit-postgres — durable governance trail in Postgres.
 
 export {
+  INSERT_AUDIT_SQL,
+  auditInsertParams,
   createPostgresSink,
   partitionMonthOf,
   recordToRow,
@@ -25,6 +27,7 @@ export { legacyV1ToV2 } from "./legacy-v1-compat.js";
 // writing don't pay for the SDK at runtime.
 
 export {
+  InvalidCursorError,
   buildWhereClauses,
   createPostgresAuditStore,
   decodeCursor,

@@ -12,6 +12,9 @@
  * `@adjudicate/audit-postgres` (Phase 1.5C) for durable storage.
  */
 
+import { z } from "zod";
+import { recordSinkFailure } from "./metrics.js";
+
 export type ObservedOutcome = "succeeded" | "failed" | "withdrawn";
 
 export interface RetrospectiveOutcome {
@@ -26,6 +29,23 @@ export interface RetrospectiveOutcome {
   /** Free-form note carrying operator context. Bounded by adopters. */
   readonly note?: string;
 }
+
+/**
+ * Wire schema for `RetrospectiveOutcome`. Enforces a 2000-character cap on
+ * `note` so unbounded operator text cannot inflate audit storage or bypass
+ * downstream column limits. Call `RetrospectiveOutcomeWireSchema.parse(raw)`
+ * at API boundaries (tRPC mutation handler, REST adapter) before forwarding
+ * to `recordRetrospectiveOutcome`.
+ *
+ * APIReviewer-011: `note` has no length cap at the interface level; the Zod
+ * schema is the authoritative wire-boundary enforcement point.
+ */
+export const RetrospectiveOutcomeWireSchema = z.object({
+  intentHash: z.string().min(1),
+  observed: z.enum(["succeeded", "failed", "withdrawn"]),
+  at: z.string().min(1),
+  note: z.string().max(2000).optional(),
+});
 
 export interface OutcomeSink {
   recordOutcome(outcome: RetrospectiveOutcome): void | Promise<void>;
@@ -57,11 +77,45 @@ function noopOutcomeSink(): OutcomeSink {
 /**
  * Module-level helper — adopters compose `setOutcomeSink(yourSink)` once at
  * boot, then forward retrospective observations through this function.
+ *
+ * ConcurrencyReviewer-008: outcome-sink failures are swallowed and routed to
+ * `recordSinkFailure` telemetry (sink: "outcome") rather than propagated to
+ * the caller. This mirrors the learning-sink and guard-stats best-effort
+ * pattern — telemetry must never crash the path that records it, and a
+ * transient sink outage (e.g. a Postgres blip) must not surface as a thrown
+ * error at every operator-driven call site. Operators observe the failure on
+ * the metrics dashboard; the helper always resolves.
  */
 export async function recordRetrospectiveOutcome(
   outcome: RetrospectiveOutcome,
 ): Promise<void> {
-  await _sink.recordOutcome(outcome);
+  try {
+    await _sink.recordOutcome(outcome);
+  } catch (err) {
+    recordSinkFailure({
+      sink: "outcome",
+      subject: outcome.intentHash,
+      errorClass: err instanceof Error ? err.name : "Error",
+      consecutiveFailures: 1,
+    });
+  }
+}
+
+/**
+ * Default cap on the number of distinct `intentHash` entries an
+ * {@link InMemoryOutcomeSink} retains. Sized so dev/test workloads never
+ * notice it, while a long-lived process cannot accumulate retrospective
+ * outcomes without bound. Override via the constructor's `maxEntries`.
+ */
+export const DEFAULT_MAX_OUTCOME_ENTRIES = 50_000;
+
+export interface InMemoryOutcomeSinkOptions {
+  /**
+   * MemoryReviewer-004: hard cap on retained entries. When a *new*
+   * `intentHash` would push the map past this size, the oldest-inserted
+   * entry is evicted (FIFO). Defaults to {@link DEFAULT_MAX_OUTCOME_ENTRIES}.
+   */
+  readonly maxEntries?: number;
 }
 
 /**
@@ -71,10 +125,32 @@ export async function recordRetrospectiveOutcome(
  * The map is keyed by `intentHash`; later observations overwrite earlier
  * ones (last-write-wins). Adopters who need full history install a
  * Postgres sink and append rather than overwrite.
+ *
+ * MemoryReviewer-004: the map is bounded by `maxEntries` with FIFO eviction
+ * of the oldest-inserted entry. Re-recording an existing `intentHash` keeps
+ * its original insertion position (Map semantics), so refreshing a known
+ * outcome never evicts a neighbour.
  */
 export class InMemoryOutcomeSink implements OutcomeSink {
   private readonly memo = new Map<string, RetrospectiveOutcome>();
+  private readonly maxEntries: number;
+
+  constructor(options: InMemoryOutcomeSinkOptions = {}) {
+    const requested = options.maxEntries ?? DEFAULT_MAX_OUTCOME_ENTRIES;
+    // A non-positive cap would evict every entry on insert; clamp to >= 1.
+    this.maxEntries = requested > 0 ? Math.floor(requested) : 1;
+  }
+
   recordOutcome(outcome: RetrospectiveOutcome): void {
+    // Overwriting an existing key is last-write-wins and does not grow the
+    // map, so only evict when inserting a genuinely new intentHash.
+    if (!this.memo.has(outcome.intentHash)) {
+      while (this.memo.size >= this.maxEntries) {
+        const oldest = this.memo.keys().next().value;
+        if (oldest === undefined) break;
+        this.memo.delete(oldest);
+      }
+    }
     this.memo.set(outcome.intentHash, outcome);
   }
   get(intentHash: string): RetrospectiveOutcome | undefined {

@@ -1,6 +1,6 @@
-# @adjudicate/primitives
+# @adjudicate/observability
 
-## 0.2.0
+## 1.0.0
 
 ### Minor Changes
 
@@ -112,25 +112,35 @@
   - Fail-closed default preserved (REWRITE scope check telemetry-first; enforcement opt-in)
   - ADR-105 closed-vocabulary discipline applied to `BASIS_CODES.kernel`, `AJD-*`, `AC-*`, `SEMCONV.*`
 
+- 36e7e76: v0.7 — operational hardening + ecosystem trust. All additive; no kernel breaking changes.
+
+  **Distributed kill switch v2.** `startDistributedKillSwitchPubSub` in `@adjudicate/audit` adds Redis pub/sub propagation on top of the existing polling helper. Sub-100 ms transitions when the subscriber is connected; polling retained as fallback for disconnects, restarts, and broker outages. See ADR-114.
+
+  **Real-time audit event substrate.** `createInMemoryAuditEventBus`, `createRedisAuditEventBus`, and `bridgeAuditSinkToBus` in `@adjudicate/audit`. Operator consoles and live-tail views fan out without touching the durable sink contract.
+
+  **Restart-durable confirmations.** `createRedisConfirmationStore` in `@adjudicate/adapter-core/persistence-redis`. REQUEST_CONFIRMATION tokens survive process restarts and rolling deploys.
+
+  **Pack trust primitives.** `computePackFingerprint`, `signPackFingerprint`, `verifyPackSignature`, `verifyPackTrust` in `@adjudicate/conformance`. Pure functions, ed25519 + RSA-PSS, no hosted dependencies. See ADR-115.
+
+  **`adjudicate pack verify` CLI.** Install-time + CI-gate wrapper around `verifyPackTrust`. Modes: `none | best_effort | require_fingerprint | require_signature`.
+
+  **`replayWithIntegrity` + `explainReplayReport`.** `@adjudicate/audit` gains a verifier that runs decision-axis check AND envelope `intentHash` + AuditRecord `auditHash` tamper detection in one pass. `explainReplayReport` produces operator-readable narration in three formats (`ci-line | summary | operator`).
+
+  **Cross-runtime golden vectors.** `docs/specs/canonical-hash-vectors.json` is the language-neutral consumer of the canonical-JSON SHA-256 spec. `packages/core/tests/cross-runtime-hash-vectors.test.ts` reads it and asserts the Node implementation matches; non-Node runtimes can do the same.
+
+  **Adapter loop `TraceSink`.** `@adjudicate/adapter-core` exposes a low-cardinality lifecycle hook (`iteration_start | decision_emitted | paused | completed | max_iterations_exceeded`). Defaults to no-op; opt in via `traceSink:` on `createAdjudicatedAgent`.
+
+  **Extended SEMCONV.** Eight new low-cardinality `adjudicate.*` attributes in `@adjudicate/observability` for adapter / provider / pause / kill-switch lifecycle. All additive; no renames.
+
+  **Chaos test suites.** `packages/audit/tests/chaos-kill-switch.test.ts` and `chaos-replay.test.ts` exercise burst-of-malformed messages, disconnect/reconnect recovery, trip/clear storm convergence, multi-replica race (no split-brain), subscribe leak detection, and 100+ corrupted replay envelopes.
+
+  **Test totals.** 1022 passing (was 924), 1 skipped (audit-postgres needs a live DB), 0 failing.
+
+  See `docs/architecture/V0.7-AUDIT-REPORT.md` for the full v1.0 readiness review.
+
 ### Patch Changes
 
 - Updated dependencies [e9fc3ad]
 - Updated dependencies [36e7e76]
 - Updated dependencies [36e7e76]
   - @adjudicate/core@1.2.0
-
-## 0.1.0
-
-### Patch Changes
-
-- Updated dependencies [d8c11b7]
-- Updated dependencies [d8c11b7]
-- Updated dependencies [663b572]
-- Updated dependencies [92858a0]
-- Updated dependencies [663b572]
-- Updated dependencies [663b572]
-- Updated dependencies [d8c11b7]
-- Updated dependencies [663b572]
-- Updated dependencies [663b572]
-- Updated dependencies [663b572]
-  - @adjudicate/core@1.0.0

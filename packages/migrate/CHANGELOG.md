@@ -1,4 +1,4 @@
-# @adjudicate/primitives
+# @adjudicate/migrate
 
 ## 0.2.0
 
@@ -111,26 +111,3 @@
   - AuditRecord v4 is additive-only over v3
   - Fail-closed default preserved (REWRITE scope check telemetry-first; enforcement opt-in)
   - ADR-105 closed-vocabulary discipline applied to `BASIS_CODES.kernel`, `AJD-*`, `AC-*`, `SEMCONV.*`
-
-### Patch Changes
-
-- Updated dependencies [e9fc3ad]
-- Updated dependencies [36e7e76]
-- Updated dependencies [36e7e76]
-  - @adjudicate/core@1.2.0
-
-## 0.1.0
-
-### Patch Changes
-
-- Updated dependencies [d8c11b7]
-- Updated dependencies [d8c11b7]
-- Updated dependencies [663b572]
-- Updated dependencies [92858a0]
-- Updated dependencies [663b572]
-- Updated dependencies [663b572]
-- Updated dependencies [d8c11b7]
-- Updated dependencies [663b572]
-- Updated dependencies [663b572]
-- Updated dependencies [663b572]
-  - @adjudicate/core@1.0.0

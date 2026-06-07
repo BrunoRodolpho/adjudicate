@@ -8,7 +8,11 @@ import {
   type PolicyBundle,
 } from "@adjudicate/core";
 import { nameGuard, type Guard } from "@adjudicate/core/kernel";
-import { createRewriteGuard, createStateDeferGuard } from "@adjudicate/primitives";
+import {
+  createDataClassificationGuard,
+  createRewriteGuard,
+  createStateDeferGuard,
+} from "@adjudicate/primitives";
 import {
   accessKey,
   accessTaintPolicy,
@@ -80,6 +84,29 @@ const allowResolve: AccessGuard = nameGuard("allowResolve", (envelope) =>
   envelope.kind === "access.review.resolve"
     ? decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID, { source: "review" })])
     : null,
+);
+
+/**
+ * Redact PII from the free-text `justification` before the request is processed
+ * (ADR-117). Access-request justifications routinely paste in personal data
+ * (SSNs, emails); this REWRITEs the matched field (taint preserved) so the
+ * downstream review/grant flow and the audit trail never carry raw PII. Runs
+ * first so the redacted request re-adjudicates through the normal flow. A
+ * justification with no classified data returns null (no-op).
+ */
+const redactJustificationPii: AccessGuard = nameGuard(
+  "redactJustificationPii",
+  createDataClassificationGuard<AccessIntentKind, unknown, AccessState>({
+    matches: (envelope) => envelope.kind === "access.request",
+    patterns: [
+      { id: "ssn", pattern: /\b\d{3}[- ]?\d{2}[- ]?\d{4}\b/ },
+      { id: "email", pattern: /\b[\w.+-]+@[\w-]+\.[\w][\w.-]*\b/ },
+    ],
+    scannedFields: ["justification"],
+    action: "REWRITE",
+    sensitivityLevel: "medium",
+    reason: "Redacted PII from the access-request justification.",
+  }),
 );
 
 const escalateSensitiveResource: AccessGuard = nameGuard("escalateSensitiveResource", (envelope, state) => {
@@ -171,6 +198,7 @@ export const accessPolicyBundle: PolicyBundle<AccessIntentKind, unknown, AccessS
   authGuards: [],
   taint: accessTaintPolicy,
   business: [
+    redactJustificationPii,
     allowResolve,
     escalateSensitiveResource,
     reduceToLeastPrivilege,

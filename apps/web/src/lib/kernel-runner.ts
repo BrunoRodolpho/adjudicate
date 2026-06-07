@@ -63,8 +63,10 @@ const piiDemoPack: PackV0<string, unknown, unknown, unknown> = {
       createDataClassificationGuard<string, unknown, unknown>({
         matches: (env) => env.kind === "support.ticket.create",
         patterns: [
-          { id: "ssn", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
-          { id: "pan", pattern: /\b\d{16}\b/ },
+          // Tolerate separator evasion: dashless/space-separated SSNs and
+          // grouped (spaced/dashed) 16-digit card numbers both match.
+          { id: "ssn", pattern: /\b\d{3}[- ]?\d{2}[- ]?\d{4}\b/ },
+          { id: "pan", pattern: /\b(?:\d{4}[- ]?){3}\d{4}\b/ },
         ],
         scannedFields: ["subject", "body"],
         action: "REWRITE",

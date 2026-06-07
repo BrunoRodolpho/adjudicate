@@ -71,8 +71,14 @@ import {
 } from "../schemas/token-budget.js";
 import {
   ConfigSealReportSchema,
+  ConfigSealStatusAllResultSchema,
   type ConfigSealReportParsed,
+  type PackConfigSealEntryParsed,
 } from "../schemas/config-seal.js";
+import {
+  KillSwitchTimelineReportSchema,
+  type KillSwitchTimelineReportParsed,
+} from "../schemas/kill-switch-timeline.js";
 import {
   ApprovalListQuerySchema,
   ApprovalRequestSchema,
@@ -173,6 +179,22 @@ export interface AdminContext {
    * PRECONDITION_FAILED when absent.
    */
   readonly configSealStatus?: ConfigSealReportParsed;
+  /**
+   * Optional multi-pack config-seal report set (ADR-131). The adopter verifies
+   * each installed pack via `verifyConfigSeal(pack, sealPackConfig(pack))` and
+   * wires the entries (each carrying a derived structured `violations[]`) here.
+   * `governance.configSealStatusAll` throws PRECONDITION_FAILED when absent.
+   * Additive sibling to `configSealStatus`, which is unchanged.
+   */
+  readonly configSealReports?: ReadonlyArray<PackConfigSealEntryParsed>;
+  /**
+   * Optional kill-switch activation-timeline report (ADR-131). The route handler
+   * maps `emergency.history` (GovernanceEvent) onto KillSwitchEvent[] and runs
+   * `analyzeKillSwitchTimeline(...)` (pure, adopter-side) at startup / per
+   * request, then threads the report here. `governance.killSwitchTimeline`
+   * throws PRECONDITION_FAILED when absent.
+   */
+  readonly killSwitchTimeline?: KillSwitchTimelineReportParsed;
   /**
    * Optional Tier-3 policy-coherence report (ADR-125), computed at startup via
    * `analyzePolicy({ pack, plannerProbes })`. `governance.policyCoherence`
@@ -407,6 +429,47 @@ const governanceRouter = t.router({
         });
       }
       return ctx.configSealStatus;
+    }),
+
+  /**
+   * Multi-pack config-integrity seal status (ADR-131) — one entry per installed
+   * pack, each wrapping the existing per-pack `ConfigSealReport` with a
+   * `packId`/`packVersion` and a derived structured `violations[]`. Additive
+   * sibling of `configSealStatus`; the single-pack procedure is unchanged.
+   * Throws PRECONDITION_FAILED when no multi-pack reports are wired into context.
+   */
+  configSealStatusAll: t.procedure
+    .output(ConfigSealStatusAllResultSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.configSealReports) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Multi-pack config-seal reports not configured. Verify each installed pack via verifyConfigSeal(pack, sealPackConfig(pack)) and wire ctx.configSealReports.",
+        });
+      }
+      return { entries: [...ctx.configSealReports] };
+    }),
+
+  /**
+   * Kill-switch activation-timeline roll-up (ADR-131) — exposes the existing
+   * pure producer `analyzeKillSwitchTimeline` (`@adjudicate/audit`) over tRPC.
+   * The analyzer runs adopter-side (map `emergency.history` → KillSwitchEvent[]),
+   * and the report is threaded as a read — same posture as `redTeam`,
+   * `policyCoherence`, and `aiBom`. Throws PRECONDITION_FAILED when no report is
+   * wired into context.
+   */
+  killSwitchTimeline: t.procedure
+    .output(KillSwitchTimelineReportSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.killSwitchTimeline) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Kill-switch timeline not configured. Map emergency.history to KillSwitchEvent[] and run analyzeKillSwitchTimeline at the route handler, then wire ctx.killSwitchTimeline.",
+        });
+      }
+      return ctx.killSwitchTimeline;
     }),
 
   /**

@@ -128,8 +128,26 @@ export {
 
 export {
   ConfigSealReportSchema,
+  ConfigSealStatusAllResultSchema,
+  PackConfigSealEntrySchema,
+  SealViolationKindSchema,
+  SealViolationSchema,
+  deriveSealViolations,
   type ConfigSealReportParsed,
+  type ConfigSealStatusAllResultParsed,
+  type PackConfigSealEntryParsed,
+  type SealViolationKindParsed,
+  type SealViolationParsed,
 } from "./schemas/config-seal.js";
+
+export {
+  KillSwitchEventSourceSchema,
+  KillSwitchStabilityClassSchema,
+  KillSwitchTimelineReportSchema,
+  type KillSwitchEventSourceParsed,
+  type KillSwitchStabilityClassParsed,
+  type KillSwitchTimelineReportParsed,
+} from "./schemas/kill-switch-timeline.js";
 
 export {
   ApprovalListQuerySchema,

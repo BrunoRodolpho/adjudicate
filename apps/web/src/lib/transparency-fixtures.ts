@@ -198,3 +198,58 @@ export const AI_BOM_TRANSPARENCY_SAMPLE: readonly AiBomTransparencySample[] = [
     generatedAt: "2026-06-06T00:00:00.000Z",
   },
 ];
+
+// ─── Configuration integrity transparency (ADR-131) ──────────────────────────
+
+/**
+ * Kill-switch stability class — closed enum, byte-equal to `@adjudicate/audit`'s
+ * `KillSwitchStabilityClass` and admin-sdk's `KillSwitchStabilityClassSchema`.
+ */
+export type KillSwitchStabilityClass =
+  | "stable"
+  | "single_incident"
+  | "recurring_incidents"
+  | "storm";
+
+/**
+ * ILLUSTRATIVE per-pack seal status for the public integrity view. The PUBLIC
+ * projection reads ONLY `verified` (a boolean) — never the digest, errors,
+ * signature detail, or pack version, which are operator-only. `packId` is kept
+ * here for fixture legibility but is intentionally NOT projected to the public
+ * shape (which exposes only aggregate counts).
+ */
+export interface ConfigSealStatusSample {
+  readonly packId: string;
+  readonly verified: boolean;
+}
+
+/**
+ * One ILLUSTRATIVE configuration-integrity sample for the public transparency
+ * badge. `apps/web` is a public surface with no kernel runtime, so it renders
+ * this committed fixture rather than live reports. It deliberately carries the
+ * operator-only fields (digests/reasons/actors are NEVER present here at all)
+ * collapsed to a boolean per pack plus a single closed stability class — the
+ * public projection is an aggregate of exactly these.
+ */
+export interface ConfigIntegrityTransparencySample {
+  readonly seals: readonly ConfigSealStatusSample[];
+  readonly killSwitchStability: KillSwitchStabilityClass;
+}
+
+/**
+ * Illustrative configuration-integrity sample for the shipped reference packs.
+ * All seals verify and the kill switch is `stable` — the healthy posture a
+ * reference deployment advertises publicly. Aggregates only; no digests,
+ * reasons, or actors appear anywhere in this fixture.
+ */
+export const CONFIG_INTEGRITY_TRANSPARENCY_SAMPLE: ConfigIntegrityTransparencySample =
+  {
+    seals: [
+      { packId: "pack-payments-pix", verified: true },
+      { packId: "pack-identity-kyc", verified: true },
+      { packId: "pack-deployments-approval", verified: true },
+      { packId: "pack-incident-response", verified: true },
+      { packId: "pack-access-governance", verified: true },
+    ],
+    killSwitchStability: "stable",
+  };

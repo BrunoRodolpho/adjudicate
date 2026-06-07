@@ -166,6 +166,7 @@ const PUBLIC_VIEWS: readonly PublicView[] = [
   },
   {
     title: "Configuration integrity",
+    href: "/transparency/integrity",
     exposes:
       "Whether pack configuration seals verify and the kill-switch stability class — no digests, reasons, or actors.",
   },

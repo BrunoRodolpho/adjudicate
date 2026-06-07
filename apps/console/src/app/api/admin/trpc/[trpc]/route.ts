@@ -9,10 +9,13 @@ import { adminRouter } from "@adjudicate/admin-sdk/trpc";
 import type {
   BehavioralDriftResultParsed,
   ConfigSealReportParsed,
+  KillSwitchTimelineReportParsed,
+  PackConfigSealEntryParsed,
   RedTeamReportParsed,
   TokenBudgetQuery,
   TokenBudgetResult,
 } from "@adjudicate/admin-sdk";
+import { deriveSealViolations } from "@adjudicate/admin-sdk";
 import {
   sealPackConfig,
   verifyConfigSeal,
@@ -43,7 +46,12 @@ import {
 import { createDriftDetector, type DriftAlert } from "@adjudicate/drift";
 import { DRIFT_CONFIG } from "@/lib/drift-config";
 import { deploymentsApprovalPack } from "@adjudicate/pack-deployments-approval";
-import { createRedisEmergencyStateStore } from "@adjudicate/audit";
+import {
+  analyzeKillSwitchTimeline,
+  createRedisEmergencyStateStore,
+  type KillSwitchEvent,
+} from "@adjudicate/audit";
+import type { GovernanceEvent } from "@adjudicate/admin-sdk";
 import {
   createPostgresAuditStore,
   createPostgresGovernanceLog,
@@ -219,6 +227,91 @@ const configSealStatus = verifyConfigSeal(
   sealPackConfig(sealablePack),
 ) as unknown as ConfigSealReportParsed;
 
+// Multi-pack config-integrity seal reports (ADR-131) — the same single-pack
+// verify-against-self pattern generalized across PackRegistry.all(). Each entry
+// carries the per-pack report plus a derived, structured violations[]
+// (`deriveSealViolations`). A real deployment loads committed/signed seals and
+// verifies against them; the reference console seals each pack at startup and
+// verifies it against itself (so the reference set verifies clean). Packs
+// lacking sealable fields (no policy bundle, no intents) are skipped rather than
+// throwing — one malformed adapter can't take down the whole list.
+function sealReportForPack(pack: unknown): PackConfigSealEntryParsed | null {
+  const p = pack as {
+    id?: string;
+    version?: string;
+    contract?: unknown;
+    intents?: ReadonlyArray<string>;
+    policy?: unknown;
+  };
+  if (!p.id || !p.version || typeof p.contract !== "string") return null;
+  if (!Array.isArray(p.intents) || p.intents.length === 0) return null;
+  if (p.policy === undefined || p.policy === null) return null;
+  try {
+    const sealable = pack as unknown as SealablePackInput;
+    const report = verifyConfigSeal(
+      sealable,
+      sealPackConfig(sealable),
+    ) as unknown as ConfigSealReportParsed;
+    return {
+      packId: p.id,
+      packVersion: p.version,
+      report,
+      violations: deriveSealViolations(report),
+    };
+  } catch {
+    // A pack that throws during seal extraction/verification is skipped.
+    return null;
+  }
+}
+
+const configSealReports: ReadonlyArray<PackConfigSealEntryParsed> = PackRegistry.all()
+  .map((adapter) => sealReportForPack(adapter.pack))
+  .filter((e): e is PackConfigSealEntryParsed => e !== null);
+
+// Kill-switch activation timeline (ADR-131). Map the emergency/governance event
+// history (GovernanceEvent) onto the pure analyzer's KillSwitchEvent[] and run
+// `analyzeKillSwitchTimeline` adopter-side; the procedure stays a read.
+//
+// Mapping note: GovernanceEvent carries previousStatus/newStatus/reason/actor/at
+// but NO explicit `source`, so console operator updates map to source
+// 'operator'. A DENY_ALL newStatus is a `trip` (state 'active'); any other
+// newStatus (i.e. NORMAL) is a `clear` (state 'normal'). The history is
+// newest-first; the analyzer is order-sensitive and does NOT sort, so we reverse
+// to chronological (oldest-first) before analysis.
+function governanceEventToKillSwitchEvent(e: GovernanceEvent): KillSwitchEvent {
+  const tripped = e.newStatus === "DENY_ALL";
+  return {
+    at: e.at,
+    kind: tripped ? "trip" : "clear",
+    state: tripped ? "active" : "normal",
+    source: "operator",
+    reason: e.reason,
+    actor: e.actor.displayName ?? e.actor.id,
+  };
+}
+
+/**
+ * Compute the kill-switch timeline report from the live emergency history. When
+ * the history is empty (reference console with no governance events yet) the
+ * analyzer returns a `stable`/empty report rather than throwing — feature stays
+ * available, not PRECONDITION_FAILED.
+ */
+async function computeKillSwitchTimeline(): Promise<KillSwitchTimelineReportParsed> {
+  let history: readonly GovernanceEvent[] = [];
+  try {
+    // Cap matches the emergency.history UI default ceiling.
+    history = await emergencyStore.history(100);
+  } catch {
+    history = [];
+  }
+  // History is newest-first; the analyzer is order-sensitive — reverse to
+  // chronological order before mapping.
+  const events = [...history]
+    .reverse()
+    .map(governanceEventToKillSwitchEvent);
+  return analyzeKillSwitchTimeline(events) as unknown as KillSwitchTimelineReportParsed;
+}
+
 // AI-BOM (ADR-127 / ADR-130). One BOM per installed pack, computed once at
 // startup. A SINGLE shared `generatedAt` literal is used for every pack so the
 // set is deterministic run-to-run (generatedAt is excluded from bomDigest, but
@@ -373,7 +466,7 @@ export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
   requireAuth: requireConsoleAdminAuth,
-  createContext: (req) => ({
+  createContext: async (req) => ({
     store: auditStore,
     emergencyStore,
     actor: extractActor(req),
@@ -385,6 +478,10 @@ export const { GET, POST } = toNextRouteHandler({
     },
     tokenBudget,
     configSealStatus,
+    configSealReports,
+    // Recomputed per request from the live emergency history so the timeline
+    // reflects the latest governance events (the analyzer itself is pure).
+    killSwitchTimeline: await computeKillSwitchTimeline(),
     policyCoherence,
     ...(aiBom ? { aiBom } : {}),
     aiBoms,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Boxes, ClipboardCheck, EyeOff, ListFilter, Network, ShieldAlert, X } from "lucide-react";
+import { Activity, Boxes, ClipboardCheck, EyeOff, ListFilter, Network, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Taint } from "@adjudicate/core";
@@ -22,6 +22,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { href: "/governance", label: "Governance", icon: Network },
   { href: "/pii", label: "PII Events", icon: EyeOff },
   { href: "/ai-bom", label: "AI-BOM", icon: Boxes },
+  { href: "/integrity", label: "Integrity", icon: ShieldCheck },
   { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/control", label: "Control", icon: ShieldAlert },
 ] as const;

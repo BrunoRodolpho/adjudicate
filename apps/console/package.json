@@ -21,6 +21,7 @@
     "@adjudicate/conformance": "workspace:*",
     "@adjudicate/core": "workspace:*",
     "@adjudicate/drift": "workspace:*",
+    "@adjudicate/observability": "workspace:*",
     "@adjudicate/pack-access-governance": "workspace:*",
     "@adjudicate/pack-deployments-approval": "workspace:*",
     "@adjudicate/pack-identity-kyc": "workspace:*",

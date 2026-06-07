@@ -65,6 +65,9 @@ importers:
       '@adjudicate/drift':
         specifier: workspace:*
         version: link:../../packages/drift
+      '@adjudicate/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@adjudicate/pack-access-governance':
         specifier: workspace:*
         version: link:../../packages/pack-access-governance

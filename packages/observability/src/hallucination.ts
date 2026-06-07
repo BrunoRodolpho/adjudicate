@@ -17,6 +17,50 @@ export interface HallucinationScorer {
   score(record: AuditRecord): number | undefined;
 }
 
+function tokenize(s: string): Set<string> {
+  return new Set(s.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+}
+
+/** Fraction of `claim` tokens present in `evidence` (recall-style containment). */
+function containment(claim: Set<string>, evidence: Set<string>): number {
+  if (claim.size === 0) return 1; // nothing asserted → vacuously grounded
+  let hit = 0;
+  for (const t of claim) if (evidence.has(t)) hit += 1;
+  return hit / claim.size;
+}
+
+export interface LexicalGroundednessOptions {
+  /** Payload field holding the model's assertion. Default "claim". */
+  readonly claimField?: string;
+  /** Payload field holding the supporting evidence/context. Default "evidence". */
+  readonly evidenceField?: string;
+}
+
+/**
+ * REFERENCE groundedness scorer — deterministic, dependency-free, NOT
+ * production-grade. Scores `1 - containment(claim, evidence)`: the fraction of
+ * the model's `claim` tokens NOT supported by the `evidence`, read from the
+ * record's envelope payload. Returns `undefined` when either field is absent (so
+ * the metadataProvider attaches nothing). Replace with a model-graded /
+ * NLI-based scorer for real groundedness — this exists so the scoring seam ships
+ * with working, tested code end-to-end, not merely an interface.
+ */
+export function createLexicalGroundednessScorer(
+  opts: LexicalGroundednessOptions = {},
+): HallucinationScorer {
+  const claimField = opts.claimField ?? "claim";
+  const evidenceField = opts.evidenceField ?? "evidence";
+  return {
+    score(record) {
+      const payload = record.envelope?.payload as Record<string, unknown> | undefined;
+      const claim = payload?.[claimField];
+      const evidence = payload?.[evidenceField];
+      if (typeof claim !== "string" || typeof evidence !== "string") return undefined;
+      return 1 - containment(tokenize(claim), tokenize(evidence));
+    },
+  };
+}
+
 export interface ScoreBucketOptions {
   /** score < grounded → "grounded". Default 0.34. */
   readonly grounded?: number;

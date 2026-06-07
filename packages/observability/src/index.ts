@@ -46,8 +46,10 @@ export { SEMCONV, type SemconvAttribute, type SemconvKey } from "./semconv.js";
 export {
   bucketHallucinationScore,
   createHallucinationMetadataProvider,
+  createLexicalGroundednessScorer,
   type HallucinationBucket,
   type HallucinationScorer,
+  type LexicalGroundednessOptions,
   type ScoreBucketOptions,
 } from "./hallucination.js";
 

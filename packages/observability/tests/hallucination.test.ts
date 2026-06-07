@@ -3,6 +3,7 @@ import type { AuditRecord } from "@adjudicate/core";
 import {
   bucketHallucinationScore,
   createHallucinationMetadataProvider,
+  createLexicalGroundednessScorer,
 } from "../src/hallucination.js";
 import { createInMemoryExporter } from "../src/exporter.js";
 import { SEMCONV } from "../src/semconv.js";
@@ -60,5 +61,38 @@ describe("createHallucinationMetadataProvider", () => {
       exporter: throwing,
     });
     expect(metadataProvider(record)).toEqual({ hallucination_score: 0.2, hallucination_bucket: "grounded" });
+  });
+});
+
+describe("createLexicalGroundednessScorer (reference)", () => {
+  const rec = (payload: Record<string, unknown>) =>
+    ({ intentHash: "h", at: "t", envelope: { kind: "agent.answer", payload } }) as unknown as AuditRecord;
+
+  it("scores a fully-supported claim as grounded (score ~0)", () => {
+    const s = createLexicalGroundednessScorer();
+    const score = s.score(rec({ claim: "refund approved", evidence: "the refund was approved per policy" }))!;
+    expect(score).toBe(0); // every claim token appears in the evidence
+    expect(bucketHallucinationScore(score)).toBe("grounded");
+  });
+
+  it("scores an unsupported claim as hallucinated (high score)", () => {
+    const s = createLexicalGroundednessScorer();
+    const score = s.score(rec({ claim: "preauthorized worldwide instantly guaranteed", evidence: "escalated to a human reviewer" }))!;
+    expect(score).toBeGreaterThanOrEqual(0.67);
+    expect(bucketHallucinationScore(score)).toBe("hallucinated");
+  });
+
+  it("returns undefined (skips) when claim/evidence are absent", () => {
+    const s = createLexicalGroundednessScorer();
+    expect(s.score(rec({ other: 1 }))).toBeUndefined();
+  });
+
+  it("wires end-to-end through the metadataProvider", () => {
+    const { metadataProvider } = createHallucinationMetadataProvider({
+      scorer: createLexicalGroundednessScorer(),
+    });
+    const meta = metadataProvider(rec({ claim: "aliens secretly approved this", evidence: "refund within thresholds approved" }));
+    expect(typeof (meta as { hallucination_score?: number }).hallucination_score).toBe("number");
+    expect(meta).toHaveProperty("hallucination_bucket");
   });
 });

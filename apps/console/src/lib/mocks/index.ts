@@ -1,4 +1,8 @@
-import type { AuditRecord } from "@adjudicate/core";
+import { attachAuditMetadata, type AuditRecord } from "@adjudicate/core";
+import {
+  createHallucinationMetadataProvider,
+  createLexicalGroundednessScorer,
+} from "@adjudicate/observability";
 import { kycStartDefer } from "./kyc-start-defer";
 import { pixRefundExecute } from "./pix-refund-execute";
 import { pixRefundAlreadyRefunded } from "./pix-refund-already-refunded";
@@ -20,11 +24,47 @@ import { pixOvershootRefundRewrite } from "./pix-overshoot-refund-rewrite";
  * `buildAuditRecord`, `decisionExecute|Refuse|Defer|Escalate|...`) so
  * `intentHash` and `planFingerprint` shapes match production.
  */
+/**
+ * Demonstrate the v5 hallucination metadata (ADR-124) on the reference data so
+ * the HallucinationBadge renders real buckets. Production attaches this in the
+ * agent loop via `adjudicateAndAudit({ metadataProvider })`; here we run the
+ * shipped REFERENCE scorer (`createLexicalGroundednessScorer`) over each turn's
+ * claim/evidence and attach the result with `attachAuditMetadata` (metadata is
+ * excluded from the auditHash, so the record's intentHash/auditHash are intact).
+ */
+const scoreMeta = createHallucinationMetadataProvider({
+  scorer: createLexicalGroundednessScorer(),
+}).metadataProvider;
+
+function withHallucination(record: AuditRecord, claim: string, evidence: string): AuditRecord {
+  // Feed the scorer a transient copy carrying this turn's claim/evidence; attach
+  // the score to the ORIGINAL record so its displayed payload is unchanged.
+  const probe = {
+    ...record,
+    envelope: {
+      ...record.envelope,
+      payload: { ...(record.envelope.payload as Record<string, unknown>), claim, evidence },
+    },
+  } as AuditRecord;
+  const meta = scoreMeta(probe);
+  return meta ? attachAuditMetadata(record, meta) : record;
+}
+
 export const ALL_MOCKS: readonly AuditRecord[] = [
-  pixRefundExecute,
+  // Grounded: the assertion is fully supported by the evidence → low score.
+  withHallucination(
+    pixRefundExecute,
+    "refund approved as a duplicate charge",
+    "charge was a duplicate; the refund within thresholds was approved",
+  ),
   pixRefundAlreadyRefunded,
   pixChargeCreateDefer,
-  pixLargeRefundEscalate,
+  // Hallucinated: the assertion is not supported by the evidence → high score.
+  withHallucination(
+    pixLargeRefundEscalate,
+    "preauthorized worldwide instantly guaranteed no review",
+    "large refund exceeds threshold; escalated to a human reviewer",
+  ),
   pixMediumRefundConfirm,
   pixOvershootRefundRewrite,
   kycStartDefer,

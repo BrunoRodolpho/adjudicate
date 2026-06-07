@@ -21,7 +21,7 @@ import { formatRelative } from "@/lib/format";
  * "3s ago" is honest without re-rendering the entire tree on each tick.
  */
 export function LiveTailToggle() {
-  const { isPaused, togglePause, lastUpdate, enabled, setEnabled } =
+  const { isPaused, togglePause, lastUpdate, enabled, setEnabled, transport } =
     useLiveTailContext();
   const [, force] = useState(0);
 
@@ -64,10 +64,18 @@ export function LiveTailToggle() {
           "flex items-center gap-1 rounded-sm border px-2 py-1",
           tone,
         )}
-        title={isPaused ? "Resume live tail" : "Pause live tail"}
+        title={
+          isPaused
+            ? "Resume live tail"
+            : transport === "sse"
+              ? "Real-time stream (SSE) — pause"
+              : "Polling every 2s — pause"
+        }
       >
         {isPaused ? <Play size={11} /> : <Pause size={11} />}
-        <span>{isPaused ? "Paused" : "Live"}</span>
+        <span>
+          {isPaused ? "Paused" : transport === "sse" ? "Live · stream" : "Live"}
+        </span>
       </button>
       <span className="text-faint tabular-nums">
         {lastUpdate ? formatRelative(lastUpdate) : "—"}

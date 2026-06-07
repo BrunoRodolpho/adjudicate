@@ -217,6 +217,32 @@ export const PACK_PRESETS: Record<string, ReadonlyArray<PackPreset>> = {
       },
       expectedKind: "ESCALATE",
     },
+    {
+      label: "Low AI eval score → ESCALATE",
+      description: "A regression gate: an eval score below threshold escalates the release.",
+      intentKind: "deployment.approval.request",
+      payload: {
+        service: "api",
+        environment: "staging",
+        gitSha: "deadbeefdeadbeef",
+        rampPercent: 10,
+        aiEvalScore: 70,
+      },
+      expectedKind: "ESCALATE",
+    },
+    {
+      label: "Dirty region → REWRITE (carbon clamp)",
+      description: "The carbon-budget gate clamps the deploy region to the greenest eligible region.",
+      intentKind: "deployment.approval.request",
+      payload: {
+        service: "api",
+        environment: "staging",
+        gitSha: "deadbeefdeadbeef",
+        rampPercent: 10,
+        region: "us-east-1",
+      },
+      expectedKind: "REWRITE",
+    },
   ],
 };
 

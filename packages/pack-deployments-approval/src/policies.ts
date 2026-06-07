@@ -41,10 +41,14 @@ import {
   type Guard,
   type PolicyBundle,
 } from "@adjudicate/core/kernel";
+import { createEscalateGuard } from "@adjudicate/primitives";
 import {
   approvalKey,
   deploymentTaintPolicy,
+  greenestRegion,
   MAX_PRODUCTION_RAMP_PERCENT,
+  REGION_CARBON_RANK,
+  REGRESSION_ESCALATE_THRESHOLD,
   type DeploymentApprovalRequestPayload,
   type DeploymentApprovalResolvePayload,
   type DeploymentIntentKind,
@@ -284,6 +288,62 @@ const allowConfirmedRollback: DeploymentGuard = nameGuard(
   },
 );
 
+// ── Release-gating guards (Item 14) ───────────────────────────────────────
+
+/** ESCALATE when the AI eval / regression score drops below the threshold. */
+const escalateRegressionScore: DeploymentGuard = nameGuard(
+  "escalateRegressionScore",
+  createEscalateGuard<DeploymentIntentKind, unknown, DeploymentState>({
+    matches: (envelope) => envelope.kind === "deployment.approval.request",
+    extract: (envelope) => (envelope.payload as DeploymentApprovalRequestPayload).aiEvalScore,
+    threshold: REGRESSION_ESCALATE_THRESHOLD,
+    comparator: "<",
+    to: "human",
+    reason: (value, threshold) => `AI eval score ${value} is below ${threshold}; release escalated.`,
+  }),
+);
+
+/** REWRITE the deploy region to the greenest eligible region (carbon budget). */
+const clampToGreenestRegion: DeploymentGuard = nameGuard("clampToGreenestRegion", (envelope) => {
+  if (envelope.kind !== "deployment.approval.request") return null;
+  const p = envelope.payload as DeploymentApprovalRequestPayload;
+  if (p.region === undefined) return null;
+  const greenest = greenestRegion(REGION_CARBON_RANK);
+  if (p.region === greenest) return null;
+  const rewritten = buildEnvelope({
+    kind: envelope.kind,
+    actor: envelope.actor,
+    taint: envelope.taint, // never lowered/raised
+    nonce: envelope.nonce,
+    createdAt: envelope.createdAt,
+    payload: { ...p, region: greenest },
+  });
+  return decisionRewrite(rewritten, `Region clamped from ${p.region} to ${greenest} (carbon budget).`, [
+    basis("business", BASIS_CODES.business.RULE_SATISFIED, { from: p.region, to: greenest, reason: "carbon_budget" }),
+  ]);
+});
+
+/** REQUEST_CONFIRMATION when the bundled model/prompt differs from the last approved release. */
+const confirmModelOrPromptChange: DeploymentGuard = nameGuard(
+  "confirmModelOrPromptChange",
+  (envelope, state) => {
+    if (envelope.kind !== "deployment.approval.request") return null;
+    const p = envelope.payload as DeploymentApprovalRequestPayload;
+    if (p.modelId === undefined && p.promptVersion === undefined) return null;
+    // Find the most recent approved release for this service+environment.
+    const prior = Array.from(state.approvals.values())
+      .filter((a) => a.service === p.service && a.environment === p.environment && a.decision === "approved")
+      .sort((a, b) => (a.at < b.at ? 1 : -1))[0];
+    const modelChanged = p.modelId !== undefined && prior?.modelId !== p.modelId;
+    const promptChanged = p.promptVersion !== undefined && prior?.promptVersion !== p.promptVersion;
+    if (!modelChanged && !promptChanged) return null;
+    return decisionRequestConfirmation(
+      `Model/prompt changed (model ${prior?.modelId ?? "—"}→${p.modelId ?? "—"}, prompt ${prior?.promptVersion ?? "—"}→${p.promptVersion ?? "—"}). Confirm the release gate?`,
+      [basis("business", BASIS_CODES.business.RULE_VIOLATED, { modelChanged, promptChanged })],
+    );
+  },
+);
+
 // ── The PolicyBundle ────────────────────────────────────────────────────
 
 export const deploymentPolicyBundle: PolicyBundle<
@@ -296,8 +356,13 @@ export const deploymentPolicyBundle: PolicyBundle<
   taint: deploymentTaintPolicy,
   business: [
     allowResolve,
+    // Release gates (Item 14) — a failed eval escalates before any clamp;
+    // region carbon-clamp and model/prompt confirm precede the approval gates.
+    escalateRegressionScore,
     deferHighRampStaging,
     clampProductionRamp,
+    clampToGreenestRegion,
+    confirmModelOrPromptChange,
     escalateProductionWithoutApproval,
     confirmDestructiveRollback,
     allowStagingNoRampOrLowRamp,

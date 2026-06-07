@@ -19,6 +19,7 @@ import {
 } from "@/components/dashboard/RangePicker";
 import { AccuracyPanel } from "@/components/dashboard/AccuracyPanel";
 import { DriftPanel } from "@/components/dashboard/DriftPanel";
+import { DeploymentGatePanel } from "@/components/dashboard/DeploymentGatePanel";
 import { PiiClassificationPanel } from "@/components/dashboard/PiiClassificationPanel";
 import { TokenBudgetPanel } from "@/components/dashboard/TokenBudgetPanel";
 import { SLOPanel } from "@/components/dashboard/SLOPanel";
@@ -121,6 +122,8 @@ export default function DashboardPage() {
       <PiiClassificationPanel since={since} />
 
       <TokenBudgetPanel />
+
+      <DeploymentGatePanel />
     </div>
   );
 }

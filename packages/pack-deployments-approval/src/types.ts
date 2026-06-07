@@ -35,6 +35,15 @@ export interface DeploymentApprovalRequestPayload {
   readonly environment: DeploymentEnvironment;
   /** Optional rollout ramp (1–100). REWRITE-clamped if outside the policy cap. */
   readonly rampPercent?: number;
+  // ── Release-gating extensions (Item 14) ────────────────────────────────
+  /** AI eval / regression score (0–100). Below the threshold → ESCALATE. */
+  readonly aiEvalScore?: number;
+  /** Deployment region; carbon-clamped (REWRITE) to the greenest eligible region. */
+  readonly region?: string;
+  /** Identity of the AI model bundled in this release (e.g. "model-x@3"). */
+  readonly modelId?: string;
+  /** Version of the prompt template bundled in this release. */
+  readonly promptVersion?: string;
 }
 
 export interface DeploymentRollbackExecutePayload {
@@ -64,6 +73,9 @@ export interface DeploymentApproval {
   readonly approver: string;
   readonly decision: "approved" | "rejected";
   readonly at: string;
+  /** Model/prompt the approval authorized — drives the model/prompt-change gate. */
+  readonly modelId?: string;
+  readonly promptVersion?: string;
 }
 
 export interface DeploymentState {
@@ -101,6 +113,40 @@ export const deploymentTaintPolicy = createSystemTaintPolicy({
  * to a new build. Staging has no cap.
  */
 export const MAX_PRODUCTION_RAMP_PERCENT = 25;
+
+// ── Release-gating constants (Item 14) ────────────────────────────────────
+
+/** AI eval score below this ESCALATEs the deploy to a human. */
+export const REGRESSION_ESCALATE_THRESHOLD = 80;
+
+/**
+ * Static carbon ranking by region (lower = greener). MUST stay a frozen
+ * constant — never fetch live carbon data inside a guard (that would be I/O in
+ * the decision path and break replay determinism). Adopters override by passing
+ * a state-derived ranking.
+ */
+export const REGION_CARBON_RANK: Readonly<Record<string, number>> = Object.freeze({
+  "us-west-1": 0,
+  "eu-north-1": 1,
+  "eu-west-1": 2,
+  "us-east-1": 5,
+  "ap-southeast-1": 6,
+});
+
+/** The greenest region in REGION_CARBON_RANK (lowest rank). */
+export function greenestRegion(rank: Readonly<Record<string, number>> = REGION_CARBON_RANK): string {
+  let best: string | undefined;
+  let bestRank = Infinity;
+  for (const [region, r] of Object.entries(rank)) {
+    if (r < bestRank) {
+      bestRank = r;
+      best = region;
+    }
+  }
+  return best ?? "us-west-1";
+}
+
+export const GREENEST_REGION = greenestRegion();
 
 /** Build the state key for a (service, environment, gitSha) tuple. */
 export function approvalKey(

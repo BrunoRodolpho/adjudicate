@@ -25,7 +25,11 @@ import type {
 export {
   approvalKey,
   deploymentTaintPolicy,
+  greenestRegion,
+  GREENEST_REGION,
   MAX_PRODUCTION_RAMP_PERCENT,
+  REGION_CARBON_RANK,
+  REGRESSION_ESCALATE_THRESHOLD,
   type DeploymentApproval,
   type DeploymentApprovalRequestPayload,
   type DeploymentApprovalResolvePayload,

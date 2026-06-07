@@ -148,6 +148,45 @@ export function greenestRegion(rank: Readonly<Record<string, number>> = REGION_C
 
 export const GREENEST_REGION = greenestRegion();
 
+/**
+ * Data-residency zone per region. The carbon clamp NEVER crosses a zone
+ * boundary: a deploy pinned to an EU region is only ever relocated to a greener
+ * *EU* region, never to `us-west-1`. Without this, the clamp is a GDPR
+ * foot-gun. Adopters MUST classify every region they deploy to; an unclassified
+ * region is left untouched (fail-safe — never relocate what we can't classify).
+ */
+export const REGION_RESIDENCY: Readonly<Record<string, string>> = Object.freeze({
+  "us-west-1": "us",
+  "us-east-1": "us",
+  "eu-north-1": "eu",
+  "eu-west-1": "eu",
+  "ap-southeast-1": "ap",
+});
+
+/**
+ * The greenest region in the SAME residency zone as `region`. Returns `region`
+ * unchanged when it is already greenest in its zone, when its zone has no
+ * greener option, or when the region/zone is unknown (fail-safe — a region we
+ * cannot classify is never relocated, so residency is never silently violated).
+ */
+export function greenestRegionInZone(
+  region: string,
+  rank: Readonly<Record<string, number>> = REGION_CARBON_RANK,
+  residency: Readonly<Record<string, string>> = REGION_RESIDENCY,
+): string {
+  const zone = residency[region];
+  if (zone === undefined) return region; // unknown region → never relocate
+  let best = region;
+  let bestRank = rank[region] ?? Infinity;
+  for (const [r, score] of Object.entries(rank)) {
+    if (residency[r] === zone && score < bestRank) {
+      bestRank = score;
+      best = r;
+    }
+  }
+  return best;
+}
+
 /** Build the state key for a (service, environment, gitSha) tuple. */
 export function approvalKey(
   service: string,

@@ -27,12 +27,13 @@ These are deliberate gaps in the reference gates; an adopter MUST address them:
   does not carry it bypasses `escalateRegressionScore` entirely (the threshold
   guard returns null on an absent value). If eval is mandatory for your release
   process, add a state guard that REFUSEs/ESCALATEs when the score is missing.
-- **The carbon clamp has no data-residency allow-list.** `clampToGreenestRegion`
-  rewrites *any* non-greenest region to `GREENEST_REGION` — including EU regions.
-  That is a data-residency / GDPR foot-gun: a deploy pinned to `eu-west-1` is
-  silently relocated to `us-west-1`. Adopters with residency constraints MUST
-  gate the clamp behind a residency allow-list (or scope `REGION_CARBON_RANK` to
-  the residency-eligible set) before the clamp runs.
+- **The carbon clamp is residency-bounded — but you must classify your regions.**
+  `clampToGreenestRegion` clamps to the greenest region *within the request
+  region's data-residency zone* (`REGION_RESIDENCY`), so an `eu-*` deploy is only
+  ever moved to a greener `eu-*` region, never to `us-west-1`. A region absent
+  from `REGION_RESIDENCY` is left untouched (fail-safe). Adopters MUST populate
+  `REGION_RESIDENCY` for every region they deploy to, or those regions are never
+  carbon-optimized (and never wrongly relocated).
 - **The model/prompt-change gate fires on the first deploy.** With no prior
   approved release, any request that supplies a `modelId`/`promptVersion`
   REQUEST_CONFIRMATIONs (there is nothing to diff against). Treat the first

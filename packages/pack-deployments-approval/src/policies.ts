@@ -45,9 +45,8 @@ import { createEscalateGuard } from "@adjudicate/primitives";
 import {
   approvalKey,
   deploymentTaintPolicy,
-  greenestRegion,
+  greenestRegionInZone,
   MAX_PRODUCTION_RAMP_PERCENT,
-  REGION_CARBON_RANK,
   REGRESSION_ESCALATE_THRESHOLD,
   type DeploymentApprovalRequestPayload,
   type DeploymentApprovalResolvePayload,
@@ -303,13 +302,18 @@ const escalateRegressionScore: DeploymentGuard = nameGuard(
   }),
 );
 
-/** REWRITE the deploy region to the greenest eligible region (carbon budget). */
+/**
+ * REWRITE the deploy region to the greenest region WITHIN THE SAME DATA-RESIDENCY
+ * ZONE (carbon budget). Crucially zone-bounded: an `eu-*` deploy is only ever
+ * clamped to a greener `eu-*` region, never to `us-west-1` — relocating across a
+ * residency boundary would be a GDPR violation. Unknown regions are left alone.
+ */
 const clampToGreenestRegion: DeploymentGuard = nameGuard("clampToGreenestRegion", (envelope) => {
   if (envelope.kind !== "deployment.approval.request") return null;
   const p = envelope.payload as DeploymentApprovalRequestPayload;
   if (p.region === undefined) return null;
-  const greenest = greenestRegion(REGION_CARBON_RANK);
-  if (p.region === greenest) return null;
+  const greenest = greenestRegionInZone(p.region);
+  if (p.region === greenest) return null; // already greenest in its zone (or unknown)
   const rewritten = buildEnvelope({
     kind: envelope.kind,
     actor: envelope.actor,
@@ -318,7 +322,7 @@ const clampToGreenestRegion: DeploymentGuard = nameGuard("clampToGreenestRegion"
     createdAt: envelope.createdAt,
     payload: { ...p, region: greenest },
   });
-  return decisionRewrite(rewritten, `Region clamped from ${p.region} to ${greenest} (carbon budget).`, [
+  return decisionRewrite(rewritten, `Region clamped from ${p.region} to ${greenest} (carbon budget, same residency zone).`, [
     basis("business", BASIS_CODES.business.RULE_SATISFIED, { from: p.region, to: greenest, reason: "carbon_budget" }),
   ]);
 });

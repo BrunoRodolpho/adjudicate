@@ -58,6 +58,25 @@ describe("release gates", () => {
     expect(d.kind).not.toBe("REWRITE");
   });
 
+  it("carbon clamp NEVER crosses a residency zone (EU stays EU — GDPR)", () => {
+    // eu-west-1 (rank 2) → greenest EU is eu-north-1 (rank 1), NOT us-west-1 (rank 0).
+    const d = run({ service: "api", environment: "staging", gitSha: "abc12345", region: "eu-west-1", rampPercent: 10 });
+    expect(d.kind).toBe("REWRITE");
+    if (d.kind === "REWRITE") {
+      expect((d.rewritten.payload as { region: string }).region).toBe("eu-north-1");
+    }
+  });
+
+  it("a region already greenest in its zone is a no-op (eu-north-1)", () => {
+    const d = run({ service: "api", environment: "staging", gitSha: "abc12345", region: "eu-north-1", rampPercent: 10 });
+    expect(d.kind).not.toBe("REWRITE");
+  });
+
+  it("an unknown/unclassified region is left untouched (fail-safe, never relocated)", () => {
+    const d = run({ service: "api", environment: "staging", gitSha: "abc12345", region: "moon-base-1", rampPercent: 10 });
+    expect(d.kind).not.toBe("REWRITE");
+  });
+
   it("REQUEST_CONFIRMATION when the bundled model differs from the last approved release", () => {
     const approvals = {
       "staging/api/old1234": {

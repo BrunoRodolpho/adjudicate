@@ -18,7 +18,7 @@ Regulators (EU AI Act Art. 11 technical documentation; NIST AI RMF MAP/MEASURE) 
 ## Why this shape
 
 - **Composition over reinvention.** The BOM is a deterministic view over primitives that already exist; it adds no new decision logic.
-- **`generatedAt` excluded from `bomDigest`.** Two BOMs of the same Pack at different times share a `bomDigest` (what gets signed / CI-gated); a property test asserts the digest is invariant to `generatedAt` and array order.
+- **`generatedAt` excluded from `bomDigest`.** Two BOMs of the same Pack at different times share a `bomDigest` (what gets signed / CI-gated); unit tests assert the digest is invariant to `generatedAt` and to input array order. The array comparators are total-order (equal keys sort to a stable position) so duplicate keys cannot perturb the digest. These are example-based unit tests, not fast-check property tests (the conformance package has no fast-check dependency).
 - **Prompts aren't in the Pack.** `promptHashes` are author-declared (sidecar-hashed), framed as "declared prompt templates," not rendered prompts.
 - **No kernel change.** `PackV0` is untouched; manifest fields are additive optional; conformance is a leaf consumer of core.
 

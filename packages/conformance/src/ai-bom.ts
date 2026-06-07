@@ -114,8 +114,12 @@ export function generateAiBom(inputs: GenerateAiBomInputs): AiBom {
   const tools = (inputs.tools ?? intents.map((name) => ({ name })))
     .slice()
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  const rag = (inputs.rag ?? []).slice().sort((a, b) => (a.name < b.name ? -1 : 1));
-  const promptHashes = (inputs.promptHashes ?? []).slice().sort((a, b) => (a.id < b.id ? -1 : 1));
+  // Total-order comparators: equal keys MUST return 0, else the sort is not a
+  // deterministic permutation for duplicate keys and the bomDigest stops being
+  // reproducible (V8's sort is not guaranteed stable for an inconsistent
+  // comparator). Mirror the `tools` comparator above.
+  const rag = (inputs.rag ?? []).slice().sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const promptHashes = (inputs.promptHashes ?? []).slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const frameworks = inputs.frameworks ?? ["eu-ai-act", "nist-ai-rmf"];
 
   const core: Omit<AiBom, "bomDigest" | "generatedAt" | "signature"> = {

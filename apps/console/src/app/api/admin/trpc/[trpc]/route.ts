@@ -219,27 +219,82 @@ const configSealStatus = verifyConfigSeal(
   sealPackConfig(sealablePack),
 ) as unknown as ConfigSealReportParsed;
 
-// AI-BOM (ADR-127) for the installed pack, computed once at startup.
-const bomConformance = runConformance(deploymentsApprovalPack as never);
-const aiBom = generateAiBom({
-  pack: {
-    id: deploymentsApprovalPack.id,
-    version: deploymentsApprovalPack.version,
-    contract: deploymentsApprovalPack.contract,
-    intents: [...deploymentsApprovalPack.intents],
-    signals: [...(deploymentsApprovalPack.signals ?? [])],
-    basisCodes: [...deploymentsApprovalPack.basisCodes],
-  } satisfies PackFingerprintInput,
-  manifest: {
-    contract: "v0",
-    packId: deploymentsApprovalPack.id,
-    kernelMinVersion: ">=1 <2",
-    intents: [...deploymentsApprovalPack.intents],
-  } satisfies PackManifest,
-  conformance: bomConformance,
-  health: scorePackHealth({ conformance: bomConformance, intentCount: deploymentsApprovalPack.intents.length, packId: deploymentsApprovalPack.id }),
-  generatedAt: "2026-06-06T00:00:00.000Z",
-}) as unknown as AiBomParsed;
+// AI-BOM (ADR-127 / ADR-130). One BOM per installed pack, computed once at
+// startup. A SINGLE shared `generatedAt` literal is used for every pack so the
+// set is deterministic run-to-run (generatedAt is excluded from bomDigest, but
+// a per-pack `new Date()` would make snapshot tests flap — see ADR-130
+// Determinism Analysis). The first (deployments) BOM is also kept as the legacy
+// single `ctx.aiBom` for the back-compat `pack.aiBom` procedure + summary card.
+const AIBOM_GENERATED_AT = "2026-06-06T00:00:00.000Z";
+
+/**
+ * Compute the AI-BOM for one installed pack. Returns `null` (skipped) for any
+ * pack missing the fields the producer requires — guarding heterogeneous packs
+ * so one malformed adapter can't take down the whole list.
+ */
+function bomForPack(pack: {
+  id: string;
+  version: string;
+  contract?: unknown;
+  intents: ReadonlyArray<string>;
+  signals?: ReadonlyArray<string>;
+  basisCodes?: ReadonlyArray<string>;
+}): AiBomParsed | null {
+  if (!pack.id || !pack.version || typeof pack.contract !== "string") return null;
+  if (!Array.isArray(pack.intents) || pack.intents.length === 0) return null;
+  try {
+    const conformance = runConformance(pack as never);
+    return generateAiBom({
+      pack: {
+        id: pack.id,
+        version: pack.version,
+        contract: pack.contract,
+        intents: [...pack.intents],
+        signals: [...(pack.signals ?? [])],
+        basisCodes: [...(pack.basisCodes ?? [])],
+      } satisfies PackFingerprintInput,
+      manifest: {
+        contract: "v0",
+        packId: pack.id,
+        kernelMinVersion: ">=1 <2",
+        intents: [...pack.intents],
+      } satisfies PackManifest,
+      conformance,
+      health: scorePackHealth({
+        conformance,
+        intentCount: pack.intents.length,
+        packId: pack.id,
+      }),
+      generatedAt: AIBOM_GENERATED_AT,
+    }) as unknown as AiBomParsed;
+  } catch {
+    // A pack that throws during conformance/health is skipped rather than
+    // failing module init for every other pack's BOM.
+    return null;
+  }
+}
+
+// One BOM per registered pack, in declaration order, skipping any that lack the
+// required producer inputs.
+const aiBoms: ReadonlyArray<AiBomParsed> = PackRegistry.all()
+  .map((adapter) =>
+    bomForPack(
+      adapter.pack as unknown as {
+        id: string;
+        version: string;
+        contract?: unknown;
+        intents: ReadonlyArray<string>;
+        signals?: ReadonlyArray<string>;
+        basisCodes?: ReadonlyArray<string>;
+      },
+    ),
+  )
+  .filter((b): b is AiBomParsed => b !== null);
+
+// Legacy single BOM for `pack.aiBom` (ADR-127) — the deployments-approval pack,
+// preserving the prior behavior. Falls back to the first wired BOM.
+const aiBom: AiBomParsed | undefined =
+  aiBoms.find((b) => b.packId === deploymentsApprovalPack.id) ?? aiBoms[0];
 
 // Tier-3 policy-coherence report (ADR-125) for the installed pack, computed once
 // at startup with REPRESENTATIVE planner probes (see DEPLOYMENT_POLICY_COHERENCE_PROBES
@@ -331,7 +386,8 @@ export const { GET, POST } = toNextRouteHandler({
     tokenBudget,
     configSealStatus,
     policyCoherence,
-    aiBom,
+    ...(aiBom ? { aiBom } : {}),
+    aiBoms,
     approvalPort,
     memoryLookup,
     ...(policyDescriptor ? { policyDescriptor } : {}),

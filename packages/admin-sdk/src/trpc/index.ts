@@ -84,7 +84,14 @@ import {
   PolicyCoherenceReportSchema,
   type PolicyCoherenceReportParsed,
 } from "../schemas/policy-coherence.js";
-import { AiBomSchema, type AiBomParsed } from "../schemas/ai-bom.js";
+import {
+  AiBomByIdQuerySchema,
+  AiBomListResultSchema,
+  AiBomSchema,
+  pickLatestAiBom,
+  toAiBomSummary,
+  type AiBomParsed,
+} from "../schemas/ai-bom.js";
 import {
   MemorySnapshotQuerySchema,
   MemorySnapshotSchema,
@@ -183,6 +190,15 @@ export interface AdminContext {
   };
   /** Optional AI-BOM for the installed Pack (ADR-127); `pack.aiBom` PRECONDITION_FAILED when absent. */
   readonly aiBom?: AiBomParsed;
+  /**
+   * Optional multi-pack AI-BOM set (ADR-130). The adopter computes
+   * `generateAiBom(...)` per `PackRegistry.all()` entry and wires the array
+   * here. `pack.aiBomList`/`pack.aiBomById` PRECONDITION_FAILED when absent —
+   * but BOTH fall back to `[ctx.aiBom]` when only the legacy single BOM is
+   * wired, so existing adopters keep a working Explorer. Kept additive: the
+   * existing `aiBom` field is unchanged.
+   */
+  readonly aiBoms?: ReadonlyArray<AiBomParsed>;
   /** Optional read-only session-memory lookup (ADR-126); `memory.bySession` PRECONDITION_FAILED when absent. */
   readonly memoryLookup?: { get(sessionId: string): Promise<unknown | null> };
 }
@@ -600,6 +616,17 @@ const memoryRouter = t.router({
     }),
 });
 
+/**
+ * Resolve the wired AI-BOM set, falling back to the legacy single `ctx.aiBom`
+ * for back-compat (ADR-130). Returns `undefined` when neither is configured so
+ * callers can raise PRECONDITION_FAILED uniformly.
+ */
+function resolveAiBoms(ctx: AdminContext): ReadonlyArray<AiBomParsed> | undefined {
+  if (ctx.aiBoms) return ctx.aiBoms;
+  if (ctx.aiBom) return [ctx.aiBom];
+  return undefined;
+}
+
 const packRouter = t.router({
   /** AI Bill-of-Materials for the installed Pack (ADR-127). */
   aiBom: t.procedure
@@ -612,6 +639,59 @@ const packRouter = t.router({
         });
       }
       return ctx.aiBom;
+    }),
+
+  /**
+   * Cheap summary list of every wired Pack's AI-BOM (ADR-130) for the
+   * Explorer's left rail. Read-only and non-sensitive (no actor required,
+   * consistent with `pack.aiBom`); the signature VALUE is never surfaced (only
+   * `signed: boolean`). PRECONDITION_FAILED when no BOMs are wired; falls back
+   * to `[ctx.aiBom]` when only the legacy single BOM is configured.
+   */
+  aiBomList: t.procedure
+    .output(AiBomListResultSchema)
+    .query(async ({ ctx }) => {
+      const all = resolveAiBoms(ctx);
+      if (!all) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "AI-BOM list not configured. Compute generateAiBom(...) per PackRegistry.all() and wire ctx.aiBoms.",
+        });
+      }
+      return { boms: all.map(toAiBomSummary) };
+    }),
+
+  /**
+   * Full AI-BOM for one Pack (ADR-130). When `packVersion` is omitted the
+   * deterministic latest is returned (semver-max, `bomDigest` tiebreak — no
+   * wall-clock). NOT_FOUND when no BOM matches; PRECONDITION_FAILED when no
+   * BOMs are wired at all. Read-only and non-sensitive (no actor required).
+   */
+  aiBomById: t.procedure
+    .input(AiBomByIdQuerySchema)
+    .output(AiBomSchema)
+    .query(async ({ input, ctx }) => {
+      const all = resolveAiBoms(ctx);
+      if (!all) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "AI-BOM list not configured. Compute generateAiBom(...) per PackRegistry.all() and wire ctx.aiBoms.",
+        });
+      }
+      const matches = all.filter(
+        (b) =>
+          b.packId === input.packId &&
+          (input.packVersion === undefined || b.packVersion === input.packVersion),
+      );
+      if (matches.length === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `No AI-BOM for ${input.packId}${input.packVersion ? "@" + input.packVersion : ""}`,
+        });
+      }
+      return pickLatestAiBom(matches);
     }),
 });
 

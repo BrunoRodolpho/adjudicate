@@ -85,17 +85,37 @@ export default function TransparencyPage() {
             Public views
           </h2>
           <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {PUBLIC_VIEWS.map((v) => (
-              <li
-                key={v.title}
-                className="rounded-sm border border-edge bg-surface p-4"
-              >
-                <h3 className="text-sm font-medium text-ink">{v.title}</h3>
-                <p className="mt-1.5 text-xs leading-relaxed text-muted">
-                  {v.exposes}
-                </p>
-              </li>
-            ))}
+            {PUBLIC_VIEWS.map((v) => {
+              const body = (
+                <>
+                  <h3 className="text-sm font-medium text-ink">{v.title}</h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted">
+                    {v.exposes}
+                  </p>
+                  {v.href ? (
+                    <p className="mt-2 text-xs uppercase tracking-section text-ink">
+                      View →
+                    </p>
+                  ) : null}
+                </>
+              );
+              return (
+                <li key={v.title}>
+                  {v.href ? (
+                    <Link
+                      href={v.href}
+                      className="flex h-full flex-col rounded-sm border border-edge bg-surface p-4 transition-colors hover:border-ink/30"
+                    >
+                      {body}
+                    </Link>
+                  ) : (
+                    <div className="flex h-full flex-col rounded-sm border border-edge bg-surface p-4">
+                      {body}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           <p className="mt-4 text-xs text-faint">
             Operator-only surfaces — the Approval Center and the live audit tail —
@@ -112,16 +132,20 @@ export default function TransparencyPage() {
 interface PublicView {
   readonly title: string;
   readonly exposes: string;
+  /** Live public route, when one ships. Cards without an href are placeholders. */
+  readonly href?: string;
 }
 
 const PUBLIC_VIEWS: readonly PublicView[] = [
   {
     title: "PII handling",
+    href: "/transparency/pii",
     exposes:
       "How often sensitive fields are redacted or blocked, by sensitivity class — counts only, never the values themselves.",
   },
   {
     title: "AI bill-of-materials",
+    href: "/transparency/ai-bom",
     exposes:
       "Models, tools, vector stores, prompt hashes, and conformance for each reference pack (EU AI Act / NIST AI RMF aligned).",
   },

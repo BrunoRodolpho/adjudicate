@@ -146,7 +146,22 @@ export {
   type PolicyCoherenceReportParsed,
 } from "./schemas/policy-coherence.js";
 
-export { AiBomSchema, type AiBomParsed } from "./schemas/ai-bom.js";
+export {
+  AiBomByIdQuerySchema,
+  AiBomListResultSchema,
+  AiBomRagRefSchema,
+  AiBomSchema,
+  AiBomSummarySchema,
+  AiBomToolRefSchema,
+  pickLatestAiBom,
+  toAiBomSummary,
+  type AiBomByIdQueryParsed,
+  type AiBomListResultParsed,
+  type AiBomParsed,
+  type AiBomRagRefParsed,
+  type AiBomSummaryParsed,
+  type AiBomToolRefParsed,
+} from "./schemas/ai-bom.js";
 
 export {
   MemorySnapshotQuerySchema,

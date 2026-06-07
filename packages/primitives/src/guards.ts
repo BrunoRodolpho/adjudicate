@@ -786,8 +786,11 @@ export function createTokenBudgetGuard<K extends string, P, S>(
     let budget = 0;
     if (options.sessionBudget !== undefined) {
       const session = options.extractSessionTokens(state, envelope);
-      // NaN/Infinity-safe: NaN comparisons are false → no spurious crossing.
-      if (Number.isFinite(session) && session >= options.sessionBudget) {
+      // Fail-CLOSED on a definitively-over meter: +Infinity ≥ any finite budget,
+      // so it crosses (REFUSE) — a broken/overflowed accumulator must NOT let an
+      // over-budget session through. Only NaN (an uninterpretable reading, whose
+      // comparisons are all false) and genuinely sub-budget values pass.
+      if (!Number.isNaN(session) && session >= options.sessionBudget) {
         scope = "session";
         consumed = session;
         budget = options.sessionBudget;
@@ -795,7 +798,7 @@ export function createTokenBudgetGuard<K extends string, P, S>(
     }
     if (scope === null && options.tenantBudget !== undefined && options.extractTenantTokens) {
       const tenant = options.extractTenantTokens(state, envelope);
-      if (Number.isFinite(tenant) && tenant >= options.tenantBudget) {
+      if (!Number.isNaN(tenant) && tenant >= options.tenantBudget) {
         scope = "tenant";
         consumed = tenant;
         budget = options.tenantBudget;

@@ -19,6 +19,7 @@ import {
   type SealablePackInput,
 } from "@adjudicate/conformance";
 import { analyzePolicy } from "@adjudicate/analyze";
+import { DEPLOYMENT_POLICY_COHERENCE_PROBES } from "@/lib/policy-coherence-probes";
 import {
   generateAiBom,
   runConformance,
@@ -39,7 +40,8 @@ import {
   runRedTeam,
   type RedTeamPack,
 } from "@adjudicate/red-team";
-import { createDriftDetector } from "@adjudicate/drift";
+import { createDriftDetector, type DriftAlert } from "@adjudicate/drift";
+import { DRIFT_CONFIG } from "@/lib/drift-config";
 import { deploymentsApprovalPack } from "@adjudicate/pack-deployments-approval";
 import { createRedisEmergencyStateStore } from "@adjudicate/audit";
 import {
@@ -203,14 +205,22 @@ const redTeamReport = runRedTeam(
 
 // Behavioral-drift detector (ADR-119). The console has no live AuditEventBus, so
 // warm the detector by replaying the mock audit records at startup. A real
-// deployment wires `detector.attach(auditEventBus)` instead.
+// deployment wires `detector.attach(auditEventBus)` instead. Windows are sized
+// for the demo stream (see DRIFT_CONFIG) so drift actually triggers, and we
+// invoke evaluate() with an onDrift callback so the ADR-119 alerting path is
+// live (previously dead: evaluate() was never called).
+const driftAlerts: DriftAlert[] = [];
 const driftDetector = createDriftDetector({
-  baselineWindow: 500,
-  recentWindow: 100,
-  alertThreshold: 0.25,
-  dimensions: ["decision.kind", "intent.kind", "basis"],
+  ...DRIFT_CONFIG,
+  onDrift: (alert) => driftAlerts.push(alert),
 });
 for (const record of ALL_MOCKS) driftDetector.observe(record);
+driftDetector.evaluate(); // fires onDrift per crossing (warm-up alerting path)
+if (driftAlerts.length > 0) {
+  console.warn(
+    `[adjudicate] behavioral-drift warm-up: ${driftAlerts.length} alert(s) across ${[...new Set(driftAlerts.map((a) => a.dimension))].join(", ")}`,
+  );
+}
 
 // Token-budget telemetry (ADR-120). The reference console does not run an
 // adapter loop, so this is a small seeded demo store illustrating the panel; a
@@ -252,19 +262,23 @@ const aiBom = generateAiBom({
 }) as unknown as AiBomParsed;
 
 // Tier-3 policy-coherence report (ADR-125) for the installed pack, computed once
-// at startup with a couple of planner probes.
+// at startup with REPRESENTATIVE planner probes (see DEPLOYMENT_POLICY_COHERENCE_PROBES
+// for why the authenticated case must be covered — Item 11).
 const policyCoherence = analyzePolicy({
   pack: deploymentsApprovalPack as never,
-  plannerProbes: [
-    { label: "empty", state: { approvals: new Map() }, context: {} },
-    { label: "nonempty", state: { approvals: new Map([["k", {}]]) }, context: {} },
-  ],
+  plannerProbes: DEPLOYMENT_POLICY_COHERENCE_PROBES as never,
 }) as unknown as PolicyCoherenceReportParsed;
 
-// Approval engine port (ADR-122). The reference console does not run a live
-// adapter agent, so resolve() updates the registry projection directly (a real
-// deployment adapts a full createApprovalEngine whose resolve() calls
-// agent.confirm()). Seeded with one pending approval so the panel renders.
+// Approval engine port (ADR-122). IMPORTANT — this is a DISPLAY-ONLY projection,
+// NOT the authorization mechanism. The reference console runs no live adapter
+// agent, so resolve() only flips the registry projection's status; it performs
+// NONE of the security-critical steps. In production those live in
+// `createApprovalEngine.resolve()` → `agent.confirm(token)`: single-use
+// `confirmationStore.take()`, timing-safe hash verification of the parked
+// envelope blob, and re-adjudication through the kernel. That real path is
+// exercised by `@adjudicate/approval-engine` tests/engine.test.ts +
+// adapter-core's confirm() — clicking "Approve" here does not execute anything.
+// Seeded with one pending approval so the panel renders.
 const approvalRegistry = createInMemoryApprovalRegistry();
 const DEMO_APPROVAL: ApprovalRequest = {
   token: "demo-approval-token",

@@ -5,8 +5,14 @@ import { cn } from "@/lib/cn";
 
 /**
  * Approvals panel (ADR-122) — pending REQUEST_CONFIRMATION items with
- * approve/decline actions. Resolving routes through the approval engine →
- * adapter-core `confirm()` (replay-safe single-use token).
+ * approve/decline actions.
+ *
+ * NOTE: in the reference console this is a DISPLAY-ONLY projection. Resolving
+ * flips the registry status for the operator view; it does NOT run the
+ * authorization path. In production, resolve routes through
+ * `createApprovalEngine` → adapter-core `confirm()` (single-use token take,
+ * timing-safe hash verification, kernel re-adjudication). The banner below makes
+ * this explicit so an operator never mistakes the demo for the real gate.
  */
 const STATUS_STYLE: Record<string, string> = {
   pending: "text-amber-300",
@@ -24,6 +30,14 @@ export function ApprovalsPanel() {
       <header className="border-b border-edge px-3 py-1.5">
         <span className="text-[10px] uppercase tracking-section text-faint">Approvals · ADR-122</span>
       </header>
+      <p
+        className="border-b border-edge bg-amber-500/5 px-3 py-1 text-[10px] italic text-amber-300/80"
+        data-testid="approvals-display-only-note"
+      >
+        Reference projection — resolving updates the operator view only. Production
+        authorization runs through the approval engine → adapter-core confirm()
+        (single-use token + hash verification + kernel re-adjudication).
+      </p>
       <div className="px-3 py-2">
         {isLoading ? (
           <p className="text-[11px] text-muted">Loading approvals…</p>

@@ -44,6 +44,14 @@ describe("ApprovalsPanel", () => {
     expect(screen.getByText("Decline")).toBeDefined();
   });
 
+  it("shows the display-only reference banner (not the real authorization gate)", () => {
+    mockedList.mockReturnValue({ isLoading: false, isError: false, data: [pending] } as never);
+    render(<ApprovalsPanel />);
+    const note = screen.getByTestId("approvals-display-only-note");
+    expect(note.textContent).toMatch(/reference projection/i);
+    expect(note.textContent).toMatch(/confirm\(\)/i);
+  });
+
   it("approve fires the resolve mutation with accepted:true", () => {
     const mutate = vi.fn();
     mockedResolve.mockReturnValue({ mutate } as never);

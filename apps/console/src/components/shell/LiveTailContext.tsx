@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { AuditRecord } from "@adjudicate/core";
-import { useLiveTail } from "@/hooks/useLiveTail";
+import { useLiveTail, type LiveTailTransport } from "@/hooks/useLiveTail";
 
 interface LiveTailContextValue {
   readonly enabled: boolean;
@@ -18,6 +18,8 @@ interface LiveTailContextValue {
   readonly lastUpdate: string | null;
   readonly records: readonly AuditRecord[];
   readonly newHashes: ReadonlySet<string>;
+  /** Active transport — "sse" (live) | "polling" (fallback) | "connecting". */
+  readonly transport: LiveTailTransport;
 }
 
 const LiveTailContext = createContext<LiveTailContextValue | null>(null);
@@ -41,6 +43,7 @@ export function LiveTailProvider({ children }: { children: ReactNode }) {
       lastUpdate: tail.lastUpdate,
       records: tail.records,
       newHashes: tail.newHashes,
+      transport: tail.transport,
     }),
     [enabled, tail],
   );

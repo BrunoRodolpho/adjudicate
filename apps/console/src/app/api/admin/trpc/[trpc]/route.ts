@@ -64,36 +64,8 @@ import {
 import { createLazyRedisLedgerAdapter } from "@/lib/redis-client";
 import { createReferenceReplayInvoker } from "@/lib/replay-invoker";
 import { PackRegistry } from "@/lib/packs/registry";
-import { isProductionEnv } from "@/lib/runtime-mode";
-
-/**
- * Reference auth gate (AuthReviewer-007 / ConfigReviewer-004). The admin SDK now
- * REQUIRES a `requireAuth` hook — without one it refuses to mount in production.
- * This reference gate enforces a shared-secret bearer token from
- * `ADMIN_API_TOKEN`; a real deployment swaps in `withClerkAuth` / `withOidcAuth`
- * (see the toNextRouteHandler JSDoc). It is fail-CLOSED in production: with no
- * token configured every request is rejected rather than trusting the forgeable
- * `x-adjudicate-actor-*` headers. Local dev (non-production, no token) leaves the
- * gate open for convenience — insecure by design, for demos only.
- */
-function requireConsoleAdminAuth(req: Request): void | Response {
-  const expected = process.env.ADMIN_API_TOKEN;
-  if (expected) {
-    if (req.headers.get("authorization") !== `Bearer ${expected}`) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-    return;
-  }
-  if (isProductionEnv()) {
-    // No auth configured in production → refuse rather than serve the admin API
-    // on header-trust alone.
-    return new Response(
-      "Admin API auth not configured (set ADMIN_API_TOKEN or wire withClerkAuth/withOidcAuth)",
-      { status: 503 },
-    );
-  }
-  // Local dev: open gate (documented insecure-by-design).
-}
+import { requireConsoleAdminAuth } from "@/lib/admin-auth";
+import { getAuditBus } from "@/lib/audit-bus";
 
 /**
  * tRPC route — mounts the @adjudicate/admin-sdk admin router under
@@ -203,23 +175,31 @@ const redTeamReport = runRedTeam(
   generateAllVectors(redTeamPack),
 ) as unknown as RedTeamReportParsed;
 
-// Behavioral-drift detector (ADR-119). The console has no live AuditEventBus, so
-// warm the detector by replaying the mock audit records at startup. A real
-// deployment wires `detector.attach(auditEventBus)` instead. Windows are sized
-// for the demo stream (see DRIFT_CONFIG) so drift actually triggers, and we
-// invoke evaluate() with an onDrift callback so the ADR-119 alerting path is
-// live (previously dead: evaluate() was never called).
+// Behavioral-drift detector (ADR-119 / ADR-128). When an AuditEventBus is wired
+// (REDIS_URL set — a real kernel publishes on the bus), attach the detector to
+// the LIVE feed so it updates as records arrive. Otherwise (reference console,
+// no live producer) warm it from the mock stream at startup so the panel has
+// data. Windows are sized for the demo stream (see DRIFT_CONFIG) so drift
+// actually triggers; evaluate() with an onDrift callback keeps the ADR-119
+// alerting path live.
 const driftAlerts: DriftAlert[] = [];
 const driftDetector = createDriftDetector({
   ...DRIFT_CONFIG,
   onDrift: (alert) => driftAlerts.push(alert),
 });
-for (const record of ALL_MOCKS) driftDetector.observe(record);
-driftDetector.evaluate(); // fires onDrift per crossing (warm-up alerting path)
-if (driftAlerts.length > 0) {
-  console.warn(
-    `[adjudicate] behavioral-drift warm-up: ${driftAlerts.length} alert(s) across ${[...new Set(driftAlerts.map((a) => a.dimension))].join(", ")}`,
-  );
+const auditBus = getAuditBus();
+if (auditBus) {
+  // Live: observe() each published record as it arrives (ADR-128).
+  driftDetector.attach(auditBus);
+} else {
+  // Reference fallback: warm from the mock stream.
+  for (const record of ALL_MOCKS) driftDetector.observe(record);
+  driftDetector.evaluate(); // fires onDrift per crossing (warm-up alerting path)
+  if (driftAlerts.length > 0) {
+    console.warn(
+      `[adjudicate] behavioral-drift warm-up: ${driftAlerts.length} alert(s) across ${[...new Set(driftAlerts.map((a) => a.dimension))].join(", ")}`,
+    );
+  }
 }
 
 // Token-budget telemetry (ADR-120). The reference console does not run an

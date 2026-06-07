@@ -68,12 +68,23 @@ describe("metadataProvider (ADR-124)", () => {
   });
 
   it("does not affect the Decision or intentHash vs no provider", async () => {
+    // A FIXED clock is load-bearing here: `at` and `durationMs` are part of the
+    // hashed `baseRecord`, so two real-time adjudicateAndAudit calls would derive
+    // DIFFERENT auditHashes whether or not metadata is involved — making the
+    // metadata-exclusion assertion below racy (it passed only when both calls
+    // landed in the same millisecond). Pinning the clock isolates the metadata
+    // variable so the auditHash equality genuinely tests "metadata excluded".
+    const clock = { nowIso: () => "2026-04-29T12:00:00.000Z", nowMs: () => 1_000 };
     const a = capturingSink();
     const b = capturingSink();
-    await adjudicateAndAudit(env("same"), {}, policy, { sink: a.sink });
-    await adjudicateAndAudit(env("same"), {}, policy, { sink: b.sink, metadataProvider: () => ({ x: 1 }) });
+    await adjudicateAndAudit(env("same"), {}, policy, { sink: a.sink, clock });
+    await adjudicateAndAudit(env("same"), {}, policy, { sink: b.sink, clock, metadataProvider: () => ({ x: 1 }) });
     expect(a.records[0]!.intentHash).toBe(b.records[0]!.intentHash);
     expect(a.records[0]!.decision.kind).toBe(b.records[0]!.decision.kind);
+    // Same input + same clock; the ONLY difference is metadata. Equal auditHash
+    // ⟹ metadata is excluded from the pre-image. (b carries metadata, a does not.)
+    expect(b.records[0]!.metadata).toEqual({ x: 1 });
+    expect(a.records[0]!.metadata).toBeUndefined();
     expect(a.records[0]!.auditHash).toBe(b.records[0]!.auditHash); // metadata excluded from hash
   });
 

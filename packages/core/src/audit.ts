@@ -146,7 +146,15 @@ export interface AuditRecord {
   };
   /**
    * Optional, v5+. Adopter-attached governance/observability metadata
-   * (e.g. `hallucination_score`). **EXCLUDED from the `auditHash` pre-image**
+   * (e.g. `hallucination_score`).
+   *
+   * **Cross-version contract:** a v5 record carrying metadata MUST be verified
+   * by `@adjudicate/core` ≥ v5. A pre-v5 `verifyAuditRecord` does not strip
+   * `metadata` from the pre-image, so it would re-derive a different hash and
+   * FALSELY report the record as `tampered`. Records with no metadata are
+   * cross-version safe. (Pinned by audit-record-v5.test.ts.)
+   *
+   * **EXCLUDED from the `auditHash` pre-image**
    * (like `signature`) — hallucination scoring is post-hoc/async, so attaching
    * metadata after emission must NOT invalidate tamper-evidence. Never read by
    * `adjudicate()`; never enters `intentHash`.

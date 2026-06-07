@@ -12,6 +12,7 @@ import {
 } from "../src/audit.js";
 import { buildEnvelope } from "../src/envelope.js";
 import { decisionExecute } from "../src/decision.js";
+import { sha256Canonical } from "../src/hash.js";
 
 function build(metadata?: Record<string, unknown>) {
   const envelope = buildEnvelope({
@@ -75,5 +76,27 @@ describe("AuditRecord v5", () => {
     const r = build();
     expect(r.metadata).toBeUndefined();
     expect(verifyAuditRecord(r).verified).toBe(true);
+  });
+
+  // ── CROSS-VERSION CONTRACT (ADR-124) ──────────────────────────────────────
+  // The v5 verifier strips `metadata` from the pre-image; a PRE-v5 verifier does
+  // not. So a metadata-bearing v5 record re-hashed by an old verifier derives a
+  // different hash → FALSE "tampered". This test pins that hazard as an explicit,
+  // documented fact and proves metadata-free records stay cross-version safe.
+  it("a pre-v5 verifier FALSELY rejects a metadata-bearing record (→ v5 records require core ≥ v5)", () => {
+    const r = build({ hallucination_score: 0.5 });
+    // The current (v5) verifier strips metadata → verifies.
+    expect(verifyAuditRecord(r).verified).toBe(true);
+
+    // Simulate a pre-v5 verifier: strip ONLY { auditHash, signature } and
+    // re-hash the rest — which, on a v5 record, still includes `metadata`.
+    const { auditHash: stored, signature: _sig, ...legacyRest } = r;
+    expect(sha256Canonical(legacyRest)).not.toBe(stored); // the false-positive
+
+    // Control: a record WITHOUT metadata is cross-version safe — a pre-v5 and a
+    // v5 verifier derive the SAME hash, so old verifiers verify it correctly.
+    const clean = build();
+    const { auditHash: cleanStored, signature: _s2, ...cleanLegacyRest } = clean;
+    expect(sha256Canonical(cleanLegacyRest)).toBe(cleanStored);
   });
 });

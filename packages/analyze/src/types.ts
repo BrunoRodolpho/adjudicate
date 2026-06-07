@@ -38,6 +38,7 @@ export type DiagnosticCode =
   | "AJD-106" // DefaultPolarityAnalyzer
   | "AJD-201" // RewriteScopeAstAnalyzer (Tier 2 — AST mutation check)
   | "AJD-202" // BasisCodeAstAnalyzer (Tier 2 — reserved)
+  | "AJD-301" // PolicyCoherenceAnalyzer (Tier 3 — structural coherence)
   | string;  // Forward-compat: unknown codes pass through
 
 /**
@@ -158,4 +159,19 @@ export interface AnalyzeOptions {
   readonly sourceFiles?: ReadonlyArray<unknown>;
   /** Tier 2 analyzers to run when `sourceFiles` is supplied. */
   readonly tier2Analyzers?: ReadonlyArray<Tier2Analyzer>;
+  /**
+   * Planner probe fixtures (state/context pairs) for Tier 3 (AJD-301). Absent →
+   * Tier 3 is skipped. `ReadonlyArray<unknown>` so this interface does not
+   * leak the `PlannerProbe` generic; the analyzer re-narrows.
+   */
+  readonly plannerProbes?: ReadonlyArray<unknown>;
+  /** Tier 3 analyzers to run when `plannerProbes` is supplied. */
+  readonly tier3Analyzers?: ReadonlyArray<Tier3AnalyzerLike>;
+}
+
+/** Structural Tier-3 analyzer shape (avoids a circular import of tier3.ts). */
+export interface Tier3AnalyzerLike {
+  readonly name: string;
+  readonly code: DiagnosticCode;
+  analyze(pack: unknown, probes: ReadonlyArray<unknown>): ReadonlyArray<Diagnostic>;
 }

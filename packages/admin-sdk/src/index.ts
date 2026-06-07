@@ -135,6 +135,12 @@ export {
 } from "./schemas/approval.js";
 
 export {
+  CoherenceDiagnosticSchema,
+  PolicyCoherenceReportSchema,
+  type PolicyCoherenceReportParsed,
+} from "./schemas/policy-coherence.js";
+
+export {
   GuardDescriptionSchema,
   GuardDescriptorSchema,
   GuardMetadataSchema,

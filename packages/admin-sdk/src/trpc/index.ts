@@ -77,6 +77,10 @@ import {
   type ApprovalRequestParsed,
   type ApprovalResolveInput,
 } from "../schemas/approval.js";
+import {
+  PolicyCoherenceReportSchema,
+  type PolicyCoherenceReportParsed,
+} from "../schemas/policy-coherence.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -154,6 +158,12 @@ export interface AdminContext {
    * PRECONDITION_FAILED when absent.
    */
   readonly configSealStatus?: ConfigSealReportParsed;
+  /**
+   * Optional Tier-3 policy-coherence report (ADR-125), computed at startup via
+   * `analyzePolicy({ pack, plannerProbes })`. `governance.policyCoherence`
+   * throws PRECONDITION_FAILED when absent.
+   */
+  readonly policyCoherence?: PolicyCoherenceReportParsed;
   /**
    * Optional approval-engine port (ADR-122). The route handler adapts a
    * concrete `@adjudicate/approval-engine` to this narrow list/resolve surface.
@@ -315,6 +325,23 @@ const governanceRouter = t.router({
     .query(async ({ input, ctx }) => {
       const handler = createPiiClassificationHandler({ store: ctx.store });
       return handler(input);
+    }),
+
+  /**
+   * Tier-3 policy-coherence report (AJD-301, ADR-125). Throws
+   * PRECONDITION_FAILED when no report is wired into context.
+   */
+  policyCoherence: t.procedure
+    .output(PolicyCoherenceReportSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.policyCoherence) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Policy-coherence report not configured. Compute analyzePolicy({ pack, plannerProbes }) at startup and wire it into context.",
+        });
+      }
+      return ctx.policyCoherence;
     }),
 
   /**

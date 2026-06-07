@@ -18,6 +18,8 @@ import {
   verifyConfigSeal,
   type SealablePackInput,
 } from "@adjudicate/conformance";
+import { analyzePolicy } from "@adjudicate/analyze";
+import type { PolicyCoherenceReportParsed } from "@adjudicate/admin-sdk";
 import {
   createInMemoryApprovalRegistry,
   type ApprovalRequest,
@@ -219,6 +221,16 @@ const configSealStatus = verifyConfigSeal(
   sealPackConfig(sealablePack),
 ) as unknown as ConfigSealReportParsed;
 
+// Tier-3 policy-coherence report (ADR-125) for the installed pack, computed once
+// at startup with a couple of planner probes.
+const policyCoherence = analyzePolicy({
+  pack: deploymentsApprovalPack as never,
+  plannerProbes: [
+    { label: "empty", state: { approvals: new Map() }, context: {} },
+    { label: "nonempty", state: { approvals: new Map([["k", {}]]) }, context: {} },
+  ],
+}) as unknown as PolicyCoherenceReportParsed;
+
 // Approval engine port (ADR-122). The reference console does not run a live
 // adapter agent, so resolve() updates the registry projection directly (a real
 // deployment adapts a full createApprovalEngine whose resolve() calls
@@ -284,6 +296,7 @@ export const { GET, POST } = toNextRouteHandler({
     },
     tokenBudget,
     configSealStatus,
+    policyCoherence,
     approvalPort,
     ...(policyDescriptor ? { policyDescriptor } : {}),
   }),

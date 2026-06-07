@@ -41,6 +41,9 @@ importers:
       '@adjudicate/admin-sdk':
         specifier: workspace:*
         version: link:../../packages/admin-sdk
+      '@adjudicate/analyze':
+        specifier: workspace:*
+        version: link:../../packages/analyze
       '@adjudicate/approval-engine':
         specifier: workspace:*
         version: link:../../packages/approval-engine

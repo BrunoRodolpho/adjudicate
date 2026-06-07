@@ -27,6 +27,13 @@ export {
   rewriteScopeAstAnalyzer,
 } from "./tier2.js";
 
+export {
+  DEFAULT_TIER3_ANALYZERS,
+  policyCoherenceAnalyzer,
+  type PlannerProbe,
+  type Tier3Analyzer,
+} from "./tier3.js";
+
 export { analyzePolicy, type AnalyzePolicyArgs } from "./analyze.js";
 
 export { renderJson, renderSarif, renderText } from "./render.js";

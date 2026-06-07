@@ -9,6 +9,7 @@
 import type { PackV0 } from "@adjudicate/core";
 import { DEFAULT_ANALYZERS } from "./analyzers.js";
 import { DEFAULT_TIER2_ANALYZERS } from "./tier2.js";
+import { DEFAULT_TIER3_ANALYZERS } from "./tier3.js";
 import type {
   AnalysisReport,
   Analyzer,
@@ -48,6 +49,20 @@ export function analyzePolicy<K extends string, P, S, C>(
     const tier2 = args.tier2Analyzers ?? DEFAULT_TIER2_ANALYZERS;
     for (const analyzer of tier2) {
       const raw = analyzer.analyze(args.pack, args.sourceFiles);
+      for (const d of raw) {
+        const overridden = overrides[d.code];
+        let severity: DiagnosticSeverity = overridden ?? d.severity;
+        if (strict && severity === "warning") severity = "error";
+        allDiagnostics.push({ ...d, severity });
+      }
+    }
+  }
+
+  // Tier 3 coherence analyzers — only when plannerProbes are supplied.
+  if (args.plannerProbes !== undefined && args.plannerProbes.length > 0) {
+    const tier3 = args.tier3Analyzers ?? DEFAULT_TIER3_ANALYZERS;
+    for (const analyzer of tier3) {
+      const raw = analyzer.analyze(args.pack, args.plannerProbes);
       for (const d of raw) {
         const overridden = overrides[d.code];
         let severity: DiagnosticSeverity = overridden ?? d.severity;

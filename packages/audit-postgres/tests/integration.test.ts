@@ -204,6 +204,44 @@ describeIntegration("integration — audit-postgres sink vs a real migrated DB",
     expect(back.rows[0]!.audit_hash).toBe(recordToRow(rec).audit_hash);
   });
 
+  // ── 1b. v5 CHECK + metadata round-trip (migration 010) ────────────────────
+  // core stamps record_version=5 unconditionally; against a DB migrated only
+  // through 009 this write fails with Postgres 23514 (record_version CHECK).
+  // Migration 010 widens the CHECK and adds metadata_jsonb. This proves the
+  // live insert succeeds AND that v5 metadata round-trips losslessly.
+  it("persists a v5 record with metadata (migration 010 widens the CHECK + adds metadata_jsonb)", async () => {
+    const env = buildEnvelope({
+      kind: "order.item.add",
+      payload: { sku: "v5-meta", qty: 1 },
+      actor: { principal: "llm", sessionId: TEST_SESSION },
+      taint: "UNTRUSTED",
+      nonce: "n-v5-meta",
+      createdAt: "2026-06-15T12:00:00.000Z",
+    });
+    const rec = buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]),
+      durationMs: 7,
+      at: "2026-06-15T12:09:00.000Z",
+      metadata: { hallucination_score: 0.42, bucket: "low" },
+    });
+    expect(recordToRow(rec).record_version).toBe(5);
+
+    // Would throw 23514 against a DB lacking migration 010 — the activation blocker.
+    await expect(sinkFor(pool).emit(rec)).resolves.toBeUndefined();
+
+    const back = await pool.query(
+      "SELECT record_version, metadata_jsonb FROM intent_audit WHERE intent_hash = $1 AND recorded_at = $2",
+      [rec.intentHash, rec.at],
+    );
+    expect(back.rows).toHaveLength(1);
+    expect(Number(back.rows[0]!.record_version)).toBe(5);
+    // metadata_jsonb comes back as parsed JSONB from pg; assert structurally.
+    const meta = back.rows[0]!.metadata_jsonb as Record<string, unknown> | string | null;
+    const parsed = typeof meta === "string" ? JSON.parse(meta) : meta;
+    expect(parsed).toEqual({ hallucination_score: 0.42, bucket: "low" });
+  });
+
   // ── 2. DEDUP — ON CONFLICT (intent_hash, recorded_at) DO NOTHING ──────────
   // The UNIQUE arbiter makes a same-instant re-emit idempotent (retry safety).
   it("re-emitting the SAME (intent_hash, recorded_at) is idempotent — still ONE row", async () => {

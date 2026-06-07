@@ -231,11 +231,12 @@ describe("INSERT_AUDIT_SQL + auditInsertParams (symmetry with governance)", () =
     "kernel_version",
     "audit_hash",
     "signature_jsonb",
+    "metadata_jsonb",
   ] as const;
 
-  it("INSERT_AUDIT_SQL declares all 24 columns with $1..$24 and ON CONFLICT DO NOTHING", () => {
+  it("INSERT_AUDIT_SQL declares all 25 columns with $1..$25 and ON CONFLICT DO NOTHING", () => {
     expect(INSERT_AUDIT_SQL).toContain(`(${COLUMNS.join(", ")})`);
-    const placeholders = Array.from({ length: 24 }, (_, i) => `$${i + 1}`).join(", ");
+    const placeholders = Array.from({ length: 25 }, (_, i) => `$${i + 1}`).join(", ");
     expect(INSERT_AUDIT_SQL).toContain(`VALUES (${placeholders})`);
     expect(INSERT_AUDIT_SQL).toContain("INSERT INTO intent_audit");
     expect(INSERT_AUDIT_SQL).toContain("ON CONFLICT (intent_hash, recorded_at) DO NOTHING");
@@ -604,6 +605,94 @@ describe("migration 008 — record_version CHECK (DataReviewer-001)", () => {
 
   it("adds the kernel_identity_jsonb column", () => {
     expect(sql).toMatch(/kernel_identity_jsonb/);
+  });
+});
+
+describe("migration 010 — record_version CHECK admits v5 + metadata_jsonb (audit 2026-06-07)", () => {
+  const sql = readFileSync(
+    new URL("../migrations/010-add-v5-metadata.sql", import.meta.url),
+    "utf-8",
+  );
+
+  // This is the regression guard for the activation blocker: core stamps
+  // record_version=5 unconditionally, so the LATEST effective CHECK must admit
+  // 5 or every live audit insert fails with Postgres 23514. (The 008 test above
+  // pins 008's historical IN(1,2,3,4); this pins the current ceiling.)
+  it("widens the record_version CHECK to admit v5 inserts", () => {
+    expect(sql).toMatch(
+      /record_version\s+IN\s*\(\s*1\s*,\s*2\s*,\s*3\s*,\s*4\s*,\s*5\s*\)/,
+    );
+  });
+
+  it("the sink-stamped record_version is within the migration-010 CHECK set", () => {
+    // Couples the writer to the schema: recordToRow stamps record.version, and
+    // that value MUST be admitted by the latest CHECK. Catches a future vN bump
+    // that outruns the constraint (exactly how v4→v5 regressed).
+    const stamped = recordToRow(v4Record()).record_version;
+    // Parse the EXECUTABLE constraint only — strip `--` comment lines first so
+    // the regex can't match the header comment that quotes 008's old IN(1,2,3,4).
+    const executable = sql
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+    const allowed = executable
+      .match(/record_version\s+IN\s*\(([^)]*)\)/)?.[1]
+      .split(",")
+      .map((s) => Number(s.trim()));
+    expect(allowed).toBeDefined();
+    expect(allowed).toContain(stamped);
+  });
+
+  it("adds the nullable metadata_jsonb column", () => {
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS metadata_jsonb JSONB/);
+  });
+});
+
+describe("v5 metadata_jsonb round-trip (ADR-124)", () => {
+  const env = buildEnvelope({
+    kind: "order.submit",
+    payload: { sku: "X", qty: 1 },
+    actor: { principal: "llm", sessionId: "s-1" },
+    taint: "TRUSTED",
+    nonce: "n-meta",
+    createdAt: "2026-06-07T12:00:00.000Z",
+  });
+  const decision = decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]);
+
+  it("persists and recovers metadata losslessly without perturbing auditHash", () => {
+    const withMeta = buildAuditRecord({
+      envelope: env,
+      decision,
+      durationMs: 7,
+      at: "2026-06-07T12:00:01.000Z",
+      metadata: { hallucination_score: 0.42, bucket: "low" },
+    });
+    const withoutMeta = buildAuditRecord({
+      envelope: env,
+      decision,
+      durationMs: 7,
+      at: "2026-06-07T12:00:01.000Z",
+    });
+    // metadata is excluded from the auditHash pre-image → same hash either way.
+    expect(withMeta.auditHash).toBe(withoutMeta.auditHash);
+
+    const row = recordToRow(withMeta);
+    expect(row.metadata_jsonb).toBe(JSON.stringify({ hallucination_score: 0.42, bucket: "low" }));
+
+    const recovered = rowToRecord(row);
+    expect(recovered.metadata).toEqual({ hallucination_score: 0.42, bucket: "low" });
+    // auditHash survives the DB round-trip AND still verifies (metadata is not
+    // part of the pre-image, so attaching it can never flip a record to tampered).
+    expect(recovered.auditHash).toBe(withMeta.auditHash);
+    expect(verifyAuditRecord(recovered).verified).toBe(true);
+  });
+
+  it("a record with no metadata writes NULL and recovers without a metadata field", () => {
+    const row = recordToRow(
+      buildAuditRecord({ envelope: env, decision, durationMs: 7, at: "2026-06-07T12:00:01.000Z" }),
+    );
+    expect(row.metadata_jsonb).toBeNull();
+    expect(rowToRecord(row).metadata).toBeUndefined();
   });
 });
 

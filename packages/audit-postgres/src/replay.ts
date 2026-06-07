@@ -96,6 +96,13 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
           AuditRecord["signature"]
         >)
       : undefined;
+  // v5+ metadata is EXCLUDED from the auditHash pre-image, so unlike the v4
+  // fields above it does NOT need presence-exact reconstruction for verify —
+  // but it is restored so the round-trip is lossless and the console can read it.
+  const metadata: NonNullable<AuditRecord["metadata"]> | undefined =
+    version >= 5 && row.metadata_jsonb
+      ? (JSON.parse(row.metadata_jsonb) as NonNullable<AuditRecord["metadata"]>)
+      : undefined;
   return {
     version,
     intentHash: row.intent_hash,
@@ -118,6 +125,7 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
       ? { auditHash: row.audit_hash }
       : {}),
     ...(signature !== undefined ? { signature } : {}),
+    ...(metadata !== undefined ? { metadata } : {}),
   };
 }
 

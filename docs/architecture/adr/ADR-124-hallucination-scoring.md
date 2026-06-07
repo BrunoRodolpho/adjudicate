@@ -40,4 +40,20 @@ Adopters want to score LLM outputs for groundedness and attach a `hallucination_
 
 ## Lifecycle
 
-Wire-version bump v4→v5; readers branch on `version` for `metadata`. Postgres round-trip reads v5 records correctly; durable persistence of the `metadata` JSONB column is a documented follow-up (the in-memory + console path carries metadata today; the postgres sink currently omits it pending a migration).
+Wire-version bump v4→v5; readers branch on `version` for `metadata`.
+
+**Durable persistence (migration 010).** The v4→v5 bump stamps `record_version=5`
+on every record unconditionally. `audit-postgres` migration
+`010-add-v5-metadata.sql` widens the `record_version` CHECK to `IN (1,2,3,4,5)`
+(without it, every live insert fails Postgres 23514 against a DB migrated through
+009 — the same class of regression migration 008 fixed for v4) **and** adds the
+nullable `metadata_jsonb` column. `recordToRow`/`rowToRecord` now persist and
+recover `metadata` losslessly; `postgres-sink.test.ts` pins the CHECK ceiling
+against the sink-stamped version, and `integration.test.ts` exercises a live v5 +
+metadata round-trip.
+
+**Cross-version verification.** `verifyAuditRecord` strips `metadata` from the
+pre-image; a **pre-v5** verifier does not, so it would re-derive a different hash
+and FALSELY flag a metadata-bearing record as `tampered`. Contract: a v5 record
+carrying metadata MUST be verified by core ≥ v5. Metadata-free records are
+cross-version safe. Pinned by the cross-version test in `audit-record-v5.test.ts`.

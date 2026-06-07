@@ -55,9 +55,10 @@ export interface IntentAuditRow {
   readonly duration_ms: number;
   readonly partition_month: string; // "2026-04" — for partition routing
   /**
-   * Audit record schema version (1-4). Carried alongside the row so the
+   * Audit record schema version (1-5). Carried alongside the row so the
    * replay reader can branch without parsing JSON. v1 rows that predate this
-   * column may be NULL — the reader treats NULL as v1.
+   * column may be NULL — the reader treats NULL as v1. Migration
+   * `010-add-v5-metadata.sql` widens the CHECK constraint to admit 5.
    */
   readonly record_version: 1 | 2 | 3 | 4 | 5;
   /**
@@ -108,6 +109,14 @@ export interface IntentAuditRow {
    * Migration `008-add-v4-fields.sql`.
    */
   readonly signature_jsonb: string | null;
+  /**
+   * v5+ optional governance/observability metadata (e.g. a hallucination
+   * score), pre-serialized JSON. NULL when the record carries no metadata.
+   * EXCLUDED from the auditHash pre-image (ADR-124), so attaching it post-hoc
+   * never invalidates tamper-evidence and a NULL on older rows is correct.
+   * Migration `010-add-v5-metadata.sql` adds the underlying column.
+   */
+  readonly metadata_jsonb: string | null;
 }
 
 export interface PostgresSinkOptions {
@@ -183,6 +192,7 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
     kernel_version: record.kernelVersion ?? null,
     audit_hash: record.auditHash ?? null,
     signature_jsonb: record.signature ? JSON.stringify(record.signature) : null,
+    metadata_jsonb: record.metadata ? JSON.stringify(record.metadata) : null,
   };
 }
 
@@ -194,12 +204,13 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
  * in this package (single source of truth for the row shape), and so a
  * column-order test can pin it against `auditInsertParams`.
  *
- * Column order matches `recordToRow` / `auditInsertParams`. The 24 columns
- * span the base v1 schema (001) plus the additive v2/v3/v4 migrations
+ * Column order matches `recordToRow` / `auditInsertParams`. The 25 columns
+ * span the base v1 schema (001) plus the additive v2/v3/v4/v5 migrations
  * (002 plan_jsonb, 003 nonce, 005 supersedes_jsonb, 008 kernel_identity_jsonb
- * / policy_version / kernel_version / audit_hash / signature_jsonb). Because
- * the columns are named explicitly, physical column order in Postgres is
- * irrelevant — only this list and `auditInsertParams` must agree.
+ * / policy_version / kernel_version / audit_hash / signature_jsonb,
+ * 010 metadata_jsonb). Because the columns are named explicitly, physical
+ * column order in Postgres is irrelevant — only this list and
+ * `auditInsertParams` must agree.
  *
  * `ON CONFLICT (intent_hash, recorded_at) DO NOTHING` matches the table's
  * PRIMARY KEY (id, recorded_at) dedup intent at the (intent_hash, recorded_at)
@@ -211,9 +222,9 @@ export const INSERT_AUDIT_SQL = `
      refusal_kind, refusal_code, decision_basis, resource_version,
      envelope_jsonb, decision_jsonb, recorded_at, duration_ms, partition_month,
      record_version, plan_jsonb, nonce, supersedes_jsonb, kernel_identity_jsonb,
-     policy_version, kernel_version, audit_hash, signature_jsonb)
+     policy_version, kernel_version, audit_hash, signature_jsonb, metadata_jsonb)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          $16, $17, $18, $19, $20, $21, $22, $23, $24)
+          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
   ON CONFLICT (intent_hash, recorded_at) DO NOTHING
 `.replace(/\s+/g, " ").trim();
 
@@ -248,6 +259,7 @@ export function auditInsertParams(row: IntentAuditRow): readonly unknown[] {
     row.kernel_version,
     row.audit_hash,
     row.signature_jsonb,
+    row.metadata_jsonb,
   ];
 }
 

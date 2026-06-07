@@ -18,12 +18,22 @@ export const EmergencyStatusSchema = z.enum(["NORMAL", "DENY_ALL"]);
 
 /**
  * Operator identity. Resolved at the route handler from
- * `x-adjudicate-actor-id` (required) and `x-adjudicate-actor-name`
- * (optional) headers populated by the adopter's auth middleware.
+ * `x-adjudicate-actor-id` (required), `x-adjudicate-actor-name`
+ * (optional), and `x-adjudicate-actor-tenant` (optional) headers populated by
+ * the adopter's auth middleware.
+ *
+ * `tenantId` (ADR-135) is the minimal, ADDITIVE-OPTIONAL multi-tenant
+ * dimension. It realizes the pre-existing `AuditQuerySchema.tenantScope`
+ * convention (documented as resolved "from `ctx.actor` (e.g. `actor.tenantId`)")
+ * with a real field. Single-tenant adopters omit it entirely. Tenant isolation
+ * is still enforced by the adopter's auth middleware + the store's tenant
+ * filter — `extractActor` does NOT authenticate (a publicly-mounted route lets a
+ * caller forge this header; see the deployment runbook).
  */
 export const ActorSchema = z.object({
   id: z.string().min(1),
   displayName: z.string().optional(),
+  tenantId: z.string().min(1).optional(),
 });
 
 export const EmergencyStateSchema = z.object({

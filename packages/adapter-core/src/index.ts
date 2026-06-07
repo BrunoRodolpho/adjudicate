@@ -84,6 +84,20 @@ export {
 } from "./persistence-redis.js";
 
 export {
+  createInMemoryTokenUsageStore,
+  type CreateInMemoryTokenUsageStoreOptions,
+  type ExhaustionEventsFilter,
+  type SessionConsumption,
+  type SessionsFilter,
+  type TenantConsumption,
+  type TenantsFilter,
+  type TokenBudgetConfig,
+  type TokenExhaustionEvent,
+  type TokenUsageSample,
+  type TokenUsageStore,
+} from "./token-usage-store.js";
+
+export {
   noopTraceSink,
   createInMemoryTraceSink,
   type AdapterPauseReason,

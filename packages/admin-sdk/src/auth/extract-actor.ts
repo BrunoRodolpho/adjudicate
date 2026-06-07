@@ -12,9 +12,15 @@ import type { Actor } from "../schemas/emergency.js";
  * adopter's deployment runbook.
  *
  * Header contract:
- *   x-adjudicate-actor-id    (REQUIRED for mutations) — stable user id
- *   x-adjudicate-actor-name  (optional) — display name for governance
+ *   x-adjudicate-actor-id     (REQUIRED for mutations) — stable user id
+ *   x-adjudicate-actor-name   (optional) — display name for governance
  *                                          event log
+ *   x-adjudicate-actor-tenant (optional, ADR-135) — the actor's tenant id; the
+ *                                          minimal multi-tenant dimension that
+ *                                          tenant budgets and audit `tenantScope`
+ *                                          hang off. Forge-able on a publicly-
+ *                                          mounted route — isolation is the
+ *                                          adopter middleware's job, not this.
  *
  * Returns `null` when the id header is missing or empty. Mutating
  * procedures reject `null` actor with UNAUTHORIZED; query procedures
@@ -25,8 +31,10 @@ export function extractActor(req: Request): Actor | null {
   const id = req.headers.get("x-adjudicate-actor-id");
   if (!id || id.length === 0) return null;
   const displayName = req.headers.get("x-adjudicate-actor-name") ?? undefined;
+  const tenantId = req.headers.get("x-adjudicate-actor-tenant") ?? undefined;
   return {
     id,
     ...(displayName !== undefined ? { displayName } : {}),
+    ...(tenantId !== undefined && tenantId.length > 0 ? { tenantId } : {}),
   };
 }

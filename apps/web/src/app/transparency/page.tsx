@@ -168,6 +168,12 @@ const PUBLIC_VIEWS: readonly PublicView[] = [
       "The distribution of classified command risk (destructive / network / credential / safe) — categories and counts only.",
   },
   {
+    title: "Token governance",
+    href: "/transparency/tokens",
+    exposes:
+      "An aggregate token-budget burn-down — a banded percent of budget used, coarsely rounded. Never session/tenant ids or raw counts.",
+  },
+  {
     title: "Configuration integrity",
     href: "/transparency/integrity",
     exposes:

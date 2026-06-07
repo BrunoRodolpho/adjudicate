@@ -158,11 +158,22 @@ export {
 } from "./schemas/behavioral-drift.js";
 
 export {
+  TokenBudgetByTenantResultSchema,
   TokenBudgetQuerySchema,
   TokenBudgetResultSchema,
   TokenBudgetSessionSchema,
+  TokenBudgetTenantQuerySchema,
+  TokenBudgetTenantSchema,
+  TokenExhaustionEventSchema,
+  TokenScopeSchema,
+  type TokenBudgetByTenantResult,
   type TokenBudgetQuery,
   type TokenBudgetResult,
+  type TokenBudgetSession,
+  type TokenBudgetTenant,
+  type TokenBudgetTenantQuery,
+  type TokenExhaustionEvent,
+  type TokenScope,
 } from "./schemas/token-budget.js";
 
 export {

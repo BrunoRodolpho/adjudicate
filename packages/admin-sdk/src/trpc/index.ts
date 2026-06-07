@@ -84,10 +84,14 @@ import {
   type DriftHistoryResultParsed,
 } from "../schemas/behavioral-drift.js";
 import {
+  TokenBudgetByTenantResultSchema,
   TokenBudgetQuerySchema,
   TokenBudgetResultSchema,
+  TokenBudgetTenantQuerySchema,
+  type TokenBudgetByTenantResult,
   type TokenBudgetQuery,
   type TokenBudgetResult,
+  type TokenBudgetTenantQuery,
 } from "../schemas/token-budget.js";
 import {
   ConfigSealReportSchema,
@@ -209,11 +213,22 @@ export interface AdminContext {
     query(input: DriftHistoryQuery): DriftHistoryResultParsed;
   };
   /**
-   * Optional token-budget telemetry store (ADR-120), fed by the adapter's
-   * `onTokenUsage` hook. `governance.tokenBudget` throws PRECONDITION_FAILED
-   * when absent.
+   * Optional token-budget telemetry store (ADR-120, extended ADR-135), fed by
+   * the adapter's `onTokenUsage` hook. `query` (per-session, back-compat) and
+   * the additive `queryByTenant` (per-tenant + exhaustion timeline) are both
+   * optional so single-method adopters still typecheck. `governance.tokenBudget`
+   * throws PRECONDITION_FAILED when the port is absent;
+   * `governance.tokenBudgetByTenant` throws PRECONDITION_FAILED when
+   * `queryByTenant` is absent.
+   *
+   * DETERMINISM: this is a TELEMETRY read port, outside the determinism
+   * boundary. It never feeds a kernel decision — enforcement stays in
+   * `createTokenBudgetGuard` (input is adopter state S, not this port).
    */
-  readonly tokenBudget?: { query(input: TokenBudgetQuery): Promise<TokenBudgetResult> };
+  readonly tokenBudget?: {
+    query(input: TokenBudgetQuery): Promise<TokenBudgetResult>;
+    queryByTenant?(input: TokenBudgetTenantQuery): Promise<TokenBudgetByTenantResult>;
+  };
   /**
    * Optional config-seal verification report (ADR-121), computed at startup via
    * `verifyConfigSeal(pack, seal)`. `governance.configSealStatus` throws
@@ -574,6 +589,31 @@ const governanceRouter = t.router({
         });
       }
       return ctx.tokenBudget.query(input);
+    }),
+
+  /**
+   * Per-tenant token-budget telemetry + the budget-exhaustion timeline
+   * (ADR-135). Additive sibling of `governance.tokenBudget` (which stays
+   * session-only and byte-compatible). Throws PRECONDITION_FAILED when the
+   * store's `queryByTenant` method is not wired — the same runtime
+   * feature-detection posture as `tokenBudget`.
+   *
+   * DETERMINISM: read-only telemetry, outside the determinism boundary. The
+   * exhaustion events are a denormalized read-model, never an audit record and
+   * never a kernel input.
+   */
+  tokenBudgetByTenant: t.procedure
+    .input(TokenBudgetTenantQuerySchema)
+    .output(TokenBudgetByTenantResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.tokenBudget?.queryByTenant) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Tenant token-budget store not configured. Wire a TokenUsageStore (fed by onTokenUsage) exposing queryByTenant into the route handler context.",
+        });
+      }
+      return ctx.tokenBudget.queryByTenant(input);
     }),
 
   /**

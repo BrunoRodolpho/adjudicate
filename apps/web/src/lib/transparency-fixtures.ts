@@ -391,3 +391,41 @@ export const RED_TEAM_TRANSPARENCY_SAMPLE: readonly RedTeamDefenseSample[] = [
   { packId: "pack-incident-response", displayName: "Incident Response", total: 27, defended: 27 },
   { packId: "pack-access-governance", displayName: "Access Governance", total: 30, defended: 30 },
 ];
+
+// ─── Token-governance burn-down transparency (ADR-135) ───────────────────────
+
+/**
+ * ILLUSTRATIVE single-tenant token burn-down for the public "Token governance"
+ * view. The operator console shows the full per-tenant AND per-session breakdown
+ * plus a budget-exhaustion timeline — tenant ids, session ids, raw token counts,
+ * and exhaustion details — all of which leak customer scale, usage, and identity.
+ * NONE of that may reach apps/web.
+ *
+ * This fixture therefore carries ONLY a single aggregate `consumed`/`budget`
+ * pair for ONE anonymous demo tenant — no tenant id, no session id, no
+ * per-session rows, no exhaustion-event details. The public projection collapses
+ * these into `{ pctUsed, band, consumedDisplay, budgetDisplay }` where `band` is
+ * a coarse ok/warn/exhausted label and the counts are ROUNDED to a coarse unit
+ * (never the exact figure that maps to a real customer). `apps/web` never imports
+ * the token-budget result shape and has no path to per-session/per-tenant data.
+ *
+ * The committed numbers are deliberately in the "warn" band (≥80%, <100%) so the
+ * public page exercises the non-trivial band without advertising an exhaustion.
+ */
+export interface TokenBurndownTransparencySample {
+  /** Aggregate tokens consumed this period across the (single) demo tenant. */
+  readonly consumed: number;
+  /** Configured aggregate budget for the period. */
+  readonly budget: number;
+}
+
+/**
+ * Illustrative aggregate token burn-down for the public view. `apps/web` is a
+ * public surface with no kernel runtime, so it renders this committed sample
+ * rather than a live store. Aggregate only — no ids, no per-session data.
+ */
+export const TOKEN_BURNDOWN_TRANSPARENCY_SAMPLE: TokenBurndownTransparencySample =
+  {
+    consumed: 1_240_000,
+    budget: 1_500_000,
+  };

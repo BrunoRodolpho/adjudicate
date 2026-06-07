@@ -16,8 +16,10 @@ import type {
   RedTeamHistoryQuery,
   RedTeamHistoryResultParsed,
   RedTeamReportParsed,
+  TokenBudgetByTenantResult,
   TokenBudgetQuery,
   TokenBudgetResult,
+  TokenBudgetTenantQuery,
 } from "@adjudicate/admin-sdk";
 import { deriveSealViolations } from "@adjudicate/admin-sdk";
 import {
@@ -39,7 +41,11 @@ import {
   createInMemoryApprovalRegistry,
   type ApprovalRequest,
 } from "@adjudicate/approval-engine";
-import { createInMemoryMemoryStore } from "@adjudicate/adapter-core";
+import {
+  createInMemoryMemoryStore,
+  createInMemoryTokenUsageStore,
+  type TokenUsageSample,
+} from "@adjudicate/adapter-core";
 import type { ApprovalRequestParsed, ApprovalResolveInput } from "@adjudicate/admin-sdk";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import {
@@ -372,15 +378,33 @@ const driftHistoryPort = {
   },
 };
 
-// Token-budget telemetry (ADR-120). The reference console does not run an
-// adapter loop, so this is a small seeded demo store illustrating the panel; a
-// real deployment wires a store fed by the adapter's `onTokenUsage` hook.
-const TOKEN_BUDGET = 50_000;
-const DEMO_TOKEN_SESSIONS: ReadonlyArray<{ sessionId: string; consumed: number }> = [
-  { sessionId: "sess-pix-01", consumed: 18_400 },
-  { sessionId: "sess-kyc-02", consumed: 47_900 },
-  { sessionId: "sess-dep-03", consumed: 52_300 },
+// Token-budget telemetry (ADR-120, extended ADR-135). The reference console
+// does not run an adapter loop, so this is a real `createInMemoryTokenUsageStore`
+// seeded via `record(...)` with deterministic demo samples (fixed timestamps)
+// spanning two tenants and several sessions; a real deployment feeds the same
+// store from the adapter's `onTokenUsage` hook. The store is TELEMETRY, outside
+// the determinism boundary — it never feeds a kernel decision.
+//
+// Caps: 50k per session, 90k per tenant. The seed deliberately crosses BOTH a
+// session cap (sess-dep-03 @ 52.3k) AND a tenant cap (acme aggregates past 90k)
+// so the exhaustion-event timeline is populated for the demo.
+const TOKEN_SESSION_BUDGET = 50_000;
+const TOKEN_TENANT_BUDGET = 90_000;
+const tokenUsageStore = createInMemoryTokenUsageStore({
+  sessionBudget: TOKEN_SESSION_BUDGET,
+  perTenantBudget: TOKEN_TENANT_BUDGET,
+});
+// Deterministic demo samples — fixed timestamps, total tokens per sample.
+const DEMO_TOKEN_SAMPLES: ReadonlyArray<TokenUsageSample> = [
+  // acme: two sessions; sess-dep-03 crosses the session cap, and acme's
+  // aggregate (18.4k + 47.9k + 52.3k = 118.6k) crosses the 90k tenant cap.
+  { sessionId: "sess-pix-01", tenantId: "acme", total: 18_400, at: "2026-06-07T09:00:00.000Z" },
+  { sessionId: "sess-kyc-02", tenantId: "acme", total: 47_900, at: "2026-06-07T09:05:00.000Z" },
+  { sessionId: "sess-dep-03", tenantId: "acme", total: 52_300, at: "2026-06-07T09:10:00.000Z" },
+  // globex: one session, comfortably under both caps.
+  { sessionId: "sess-bil-04", tenantId: "globex", total: 12_500, at: "2026-06-07T09:12:00.000Z" },
 ];
+for (const s of DEMO_TOKEN_SAMPLES) tokenUsageStore.record(s);
 // Config-integrity seal status (ADR-121). Seal the installed pack at startup and
 // verify it against itself — a real deployment loads a committed/signed seal.
 const sealablePack = deploymentsApprovalPack as unknown as SealablePackInput;
@@ -607,19 +631,52 @@ void memoryStore.put(
 );
 const memoryLookup = { get: (sessionId: string) => memoryStore.get(sessionId) };
 
+// Token-budget port (ADR-120 + ADR-135). `query` is the session view
+// (back-compat); `queryByTenant` is the additive per-tenant + exhaustion-timeline
+// view. Both read the same `createInMemoryTokenUsageStore` — two reads of one
+// telemetry store, never a kernel input.
 const tokenBudget = {
   async query(input: TokenBudgetQuery): Promise<TokenBudgetResult> {
-    const rows = DEMO_TOKEN_SESSIONS.filter(
-      (s) => input.sessionId === undefined || s.sessionId === input.sessionId,
-    );
-    return {
-      sessions: rows.map((s) => ({
+    const sessions = tokenUsageStore
+      .sessions({
+        ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
+        ...(input.since !== undefined ? { since: input.since } : {}),
+      })
+      .map((s) => ({
         sessionId: s.sessionId,
+        ...(s.tenantId !== undefined ? { tenantId: s.tenantId } : {}),
         consumed: s.consumed,
-        budget: TOKEN_BUDGET,
-        remaining: TOKEN_BUDGET - s.consumed,
-      })),
-      totalConsumed: rows.reduce((sum, s) => sum + s.consumed, 0),
+        ...(s.budget !== undefined ? { budget: s.budget } : {}),
+        ...(s.remaining !== undefined ? { remaining: s.remaining } : {}),
+      }));
+    return {
+      sessions,
+      totalConsumed: tokenUsageStore.totalConsumed(),
+    };
+  },
+  async queryByTenant(
+    input: TokenBudgetTenantQuery,
+  ): Promise<TokenBudgetByTenantResult> {
+    const tenants = tokenUsageStore
+      .tenants({
+        ...(input.tenantId !== undefined ? { tenantId: input.tenantId } : {}),
+        ...(input.since !== undefined ? { since: input.since } : {}),
+      })
+      .map((t) => ({
+        tenantId: t.tenantId,
+        consumed: t.consumed,
+        ...(t.budget !== undefined ? { budget: t.budget } : {}),
+        ...(t.remaining !== undefined ? { remaining: t.remaining } : {}),
+        sessionCount: t.sessionCount,
+      }));
+    const exhaustionEvents = tokenUsageStore.exhaustionEvents({
+      ...(input.tenantId !== undefined ? { tenantId: input.tenantId } : {}),
+      limit: input.eventLimit,
+    });
+    return {
+      tenants,
+      exhaustionEvents,
+      totalConsumed: tokenUsageStore.totalConsumed(),
     };
   },
 };

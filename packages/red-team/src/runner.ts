@@ -112,3 +112,40 @@ export function runRedTeam(
 export function computeRedTeamExitCode(summary: RedTeamSummary): 0 | 2 {
   return summary.escaped > 0 || summary.errors > 0 ? 2 : 0;
 }
+
+/** The basis code the kernel's taint gate emits when it refuses a sub-minimum intent. */
+export const TAINT_GATE_BASIS = "taint:level_insufficient";
+
+export interface TaintEscalationCausality {
+  /** All taint_escalation scenarios. */
+  readonly total: number;
+  /** Defended specifically BY THE TAINT GATE (basis `taint:level_insufficient`). */
+  readonly byTaintGate: number;
+  /**
+   * Defended by SOME OTHER guard that fired first (e.g. a state precondition).
+   * Still not an escape — but the taint gate was never exercised for these, so a
+   * green `escaped===0` does NOT prove the taint gate works for them.
+   */
+  readonly byOtherGuard: number;
+  /** Taint scenarios that escaped (should be 0). */
+  readonly escaped: number;
+}
+
+/**
+ * Causality analysis for the taint-escalation vector. `escaped===0` alone is a
+ * VACUOUS guarantee — a pack can pass while a state precondition refuses the
+ * sub-minimum intent before the taint gate ever runs (kernel order: state →
+ * taint). This breaks the "defended" count down so a reviewer can see how many
+ * scenarios the taint gate itself actually caught vs. were caught upstream.
+ */
+export function taintEscalationCausality(report: RedTeamReport): TaintEscalationCausality {
+  const taint = report.results.filter((r) => r.vector === "taint_escalation");
+  const defended = taint.filter((r) => r.status === "defended");
+  const byTaintGate = defended.filter((r) => r.basisCodes?.includes(TAINT_GATE_BASIS)).length;
+  return {
+    total: taint.length,
+    byTaintGate,
+    byOtherGuard: defended.length - byTaintGate,
+    escaped: taint.filter((r) => r.status === "escaped").length,
+  };
+}

@@ -32,10 +32,13 @@ export { generateToolScopeViolationEnvelopes } from "./vectors/tool-scope-violat
 export {
   computeRedTeamExitCode,
   runRedTeam,
+  taintEscalationCausality,
+  TAINT_GATE_BASIS,
   type RedTeamReport,
   type RedTeamResult,
   type RedTeamStatus,
   type RedTeamSummary,
+  type TaintEscalationCausality,
 } from "./runner.js";
 
 export { renderRedTeamJson, renderRedTeamText } from "./render.js";

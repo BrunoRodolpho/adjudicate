@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   computeRedTeamExitCode,
   generateAllVectors,
+  generateTaintEscalationEnvelopes,
   renderRedTeamJson,
   renderRedTeamText,
   runRedTeam,
+  taintEscalationCausality,
+  TAINT_GATE_BASIS,
   type RedTeamScenario,
 } from "../src/index.js";
 import { leakyStubPack, strictStubPack } from "./helpers.js";
@@ -61,5 +64,24 @@ describe("runRedTeam", () => {
     expect(text).toContain("escaped");
     expect(text).toContain("escapes by vector");
     expect(() => JSON.parse(renderRedTeamJson(report))).not.toThrow();
+  });
+});
+
+describe("taintEscalationCausality — the taint gate is genuinely exercised when reached", () => {
+  // strictStubPack's system-only kind (`demo.system.callback`) has NO state
+  // precondition, so a sub-minimum UNTRUSTED envelope reaches the taint gate.
+  // This proves the gate fires AND that the causality analysis attributes it
+  // correctly — the complement of the PIX fixture, where preconditions fire first.
+  it("attributes every taint-escalation defense to the taint gate for a precondition-free pack", () => {
+    const pack = strictStubPack();
+    const report = runRedTeam(pack, generateTaintEscalationEnvelopes(pack));
+    const c = taintEscalationCausality(report);
+    expect(c.total).toBeGreaterThan(0);
+    expect(c.escaped).toBe(0);
+    expect(c.byTaintGate).toBe(c.total); // the gate caught all of them
+    expect(c.byOtherGuard).toBe(0);
+    // And the actual basis really is the taint gate's code.
+    const taintResults = report.results.filter((r) => r.vector === "taint_escalation");
+    expect(taintResults.every((r) => r.basisCodes?.includes(TAINT_GATE_BASIS))).toBe(true);
   });
 });

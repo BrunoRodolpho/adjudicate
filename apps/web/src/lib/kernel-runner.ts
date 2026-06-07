@@ -36,6 +36,7 @@ import {
   rehydratePixState,
 } from "@adjudicate/pack-payments-pix";
 import {
+  createCommandRiskGuard,
   createDataClassificationGuard,
   createTokenBudgetGuard,
 } from "@adjudicate/primitives";
@@ -118,6 +119,38 @@ const tokenBudgetDemoPack: PackV0<string, unknown, unknown, unknown> = {
   },
 };
 
+/**
+ * Inline demo Pack for the command-risk playground tab (ADR-123). Safe commands
+ * EXECUTE; dangerous ones REFUSE / REQUEST_CONFIRMATION / REWRITE (flag strip).
+ */
+const terminalAgentPack: PackV0<string, unknown, unknown, unknown> = {
+  id: "pack-terminal-agent",
+  version: "0.0.0",
+  contract: "v0",
+  intents: ["terminal.run"],
+  basisCodes: ["terminal.run.executed"],
+  policy: {
+    stateGuards: [],
+    authGuards: [],
+    taint: { minimumFor: () => "UNTRUSTED" },
+    business: [
+      createCommandRiskGuard<string, unknown, unknown>({
+        matches: (env) => env.kind === "terminal.run",
+        extractCommand: (env) => (env.payload as { command?: string }).command,
+        commandField: "command",
+      }),
+      (env) =>
+        env.kind === "terminal.run"
+          ? decisionExecute([basis("business", BASIS_CODES.business.RULE_SATISFIED)])
+          : null,
+    ],
+    default: "REFUSE",
+  },
+  planner: {
+    plan: () => ({ visibleReadTools: [], allowedIntents: ["terminal.run"] }),
+  },
+};
+
 interface InstalledPack {
   readonly id: string;
   readonly displayName: string;
@@ -180,6 +213,14 @@ function installAll(): ReadonlyArray<InstalledPack> {
       pack: installPack(tokenBudgetDemoPack).pack,
       emptyState: { tokensConsumed: 0 },
       rehydrateState: (raw) => raw ?? { tokensConsumed: 0 },
+    },
+    {
+      id: terminalAgentPack.id,
+      displayName: "Terminal · Command Risk",
+      intents: [...terminalAgentPack.intents],
+      pack: installPack(terminalAgentPack).pack,
+      emptyState: {},
+      rehydrateState: (raw) => raw ?? {},
     },
   ];
 }

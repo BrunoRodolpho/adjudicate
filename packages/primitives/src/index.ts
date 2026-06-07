@@ -38,6 +38,18 @@
  */
 
 export {
+  classifyCommand,
+  stripDangerousFlags,
+  DEFAULT_COMMAND_RULES,
+  DEFAULT_FLAG_STRIP_RULES,
+  type CommandClassification,
+  type CommandRiskCategory,
+  type CommandRule,
+  type FlagStripRule,
+} from "./command-classify.js";
+
+export {
+  createCommandRiskGuard,
   createConfirmGuard,
   createDataClassificationGuard,
   createEscalateGuard,
@@ -55,6 +67,7 @@ export {
   type RewriteGuardOptions,
   type SensitivityLevel,
   type StateDeferGuardOptions,
+  type CommandRiskGuardOptions,
   type ThresholdComparator,
   type ThresholdGuardOptions,
   type TokenBudgetAction,

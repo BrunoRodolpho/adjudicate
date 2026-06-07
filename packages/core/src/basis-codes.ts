@@ -66,6 +66,11 @@ export const BASIS_CODES = {
     PII_DETECTED: "pii_detected",
     PII_REDACTED: "pii_redacted",
     PII_BLOCKED: "pii_blocked",
+    // Command-risk (ADR-123). FLAG_STRIPPED on a sanitizing REWRITE; SANITIZED
+    // marker; BLOCKED on an irrecoverable-risk REFUSE.
+    COMMAND_FLAG_STRIPPED: "command_flag_stripped",
+    COMMAND_SANITIZED: "command_sanitized",
+    COMMAND_BLOCKED: "command_blocked",
   },
   /**
    * Kill-switch — emitted when `setKillSwitch(true, ...)` is active. Blocks

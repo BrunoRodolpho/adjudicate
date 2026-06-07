@@ -44,6 +44,15 @@ import type {
   IntentEnvelope,
 } from "@adjudicate/core";
 import { withMetadata, type Guard } from "@adjudicate/core/kernel";
+import {
+  classifyCommand,
+  stripDangerousFlags,
+  DEFAULT_COMMAND_RULES,
+  DEFAULT_FLAG_STRIP_RULES,
+  type CommandClassification,
+  type CommandRule,
+  type FlagStripRule,
+} from "./command-classify.js";
 
 // ─── createThresholdGuard ──────────────────────────────────────────────────
 
@@ -809,4 +818,119 @@ export function createTokenBudgetGuard<K extends string, P, S>(
   return withMetadata(guard, {
     description: { kind: "opaque", note: "token budget guard (session/tenant)" },
   });
+}
+
+// ─── createCommandRiskGuard (CLI/terminal safety, ADR-123) ──────────────────
+
+/**
+ * Command-risk guard factory for CLI/terminal agents.
+ *
+ * Classifies a proposed shell command via a pure rule table and returns:
+ *   - REFUSE for irrecoverable risk,
+ *   - REWRITE when a dangerous flag can be stripped (taint preserved verbatim),
+ *   - REQUEST_CONFIRMATION otherwise (network / credential / recoverable).
+ *
+ * Metadata is `{ kind: "opaque" }` — the guard is multi-disposition and does not
+ * fit a single structured `GuardDescription` variant.
+ */
+export interface CommandRiskGuardOptions<K extends string, P, S> {
+  readonly matches: (envelope: IntentEnvelope<K, P>, state: S) => boolean;
+  /** Extract the proposed command string. null/undefined short-circuits to null. */
+  readonly extractCommand: (envelope: IntentEnvelope<K, P>, state: S) => string | null | undefined;
+  /** Payload field holding the command (REWRITE mutation target). */
+  readonly commandField: string;
+  /** Override the rule table; defaults to DEFAULT_COMMAND_RULES. */
+  readonly rules?: ReadonlyArray<CommandRule>;
+  /** Override flag-strip rules; defaults to DEFAULT_FLAG_STRIP_RULES. */
+  readonly flagStripRules?: ReadonlyArray<FlagStripRule>;
+  /** Optional adopter allowlist read from state/command — true → null (no opinion). */
+  readonly allow?: (command: string, envelope: IntentEnvelope<K, P>, state: S) => boolean;
+  /** Prompt builder for the REQUEST_CONFIRMATION case. */
+  readonly prompt?: (c: CommandClassification, command: string) => string;
+  /** User-facing refusal text for the REFUSE case. */
+  readonly refusalUserFacing?: string;
+}
+
+export function createCommandRiskGuard<K extends string, P, S>(
+  options: CommandRiskGuardOptions<K, P, S>,
+): Guard<K, P, S> {
+  const rules = options.rules ?? DEFAULT_COMMAND_RULES;
+  const flagRules = options.flagStripRules ?? DEFAULT_FLAG_STRIP_RULES;
+  const refusalUserFacing = options.refusalUserFacing ?? "I can't run that command.";
+
+  const guard: Guard<K, P, S> = (envelope, state) => {
+    if (!options.matches(envelope, state)) return null;
+    const command = options.extractCommand(envelope, state);
+    if (command === null || command === undefined || command.length === 0) return null;
+    if (options.allow && options.allow(command, envelope, state)) return null;
+
+    const classification = classifyCommand(command, rules);
+    if (classification.disposition === "safe") return null;
+
+    const detailBase = {
+      category: classification.category,
+      matchedRuleIds: classification.matchedRuleIds,
+      command,
+    };
+
+    if (classification.disposition === "refuse") {
+      // Try a sanitizing REWRITE first; if flags strip AND the sanitized
+      // command de-escalates below "refuse", REWRITE instead of REFUSE.
+      const { command: sanitized, stripped } = stripDangerousFlags(command, flagRules);
+      if (stripped.length > 0 && classifyCommand(sanitized, rules).disposition !== "refuse") {
+        return rewriteCommand(envelope, options.commandField, sanitized, stripped, detailBase);
+      }
+      return decisionRefuse(
+        refuse("SECURITY", "command_risk_blocked", refusalUserFacing, `${classification.category}: ${classification.matchedRuleIds.join(", ")}`),
+        [basis("validation", BASIS_CODES.validation.COMMAND_BLOCKED, detailBase)],
+      );
+    }
+
+    // Recoverable risk: REWRITE if a flag is strippable, else REQUEST_CONFIRMATION.
+    const { command: sanitized, stripped } = stripDangerousFlags(command, flagRules);
+    if (stripped.length > 0) {
+      return rewriteCommand(envelope, options.commandField, sanitized, stripped, detailBase);
+    }
+    const prompt = options.prompt
+      ? options.prompt(classification, command)
+      : `Confirm ${classification.category} command: ${command}`;
+    return decisionRequestConfirmation(prompt, [
+      basis("business", BASIS_CODES.business.RULE_SATISFIED, {
+        rule: "command_risk_confirm",
+        ...detailBase,
+      }),
+    ]);
+  };
+
+  return withMetadata(guard, {
+    description: { kind: "opaque", note: "command-risk classifier" },
+  });
+}
+
+function rewriteCommand<K extends string, P>(
+  envelope: IntentEnvelope<K, P>,
+  commandField: string,
+  sanitized: string,
+  stripped: ReadonlyArray<string>,
+  detailBase: Record<string, unknown>,
+): Decision {
+  const newPayload: Record<string, unknown> = {
+    ...(envelope.payload as Record<string, unknown>),
+    [commandField]: sanitized,
+  };
+  const rewritten = buildEnvelope({
+    kind: envelope.kind,
+    payload: newPayload as P,
+    actor: envelope.actor,
+    taint: envelope.taint, // never lowered/raised
+    nonce: envelope.nonce,
+    createdAt: envelope.createdAt,
+  });
+  return decisionRewrite(rewritten, `Stripped dangerous flags: ${stripped.join(", ")}`, [
+    basis("validation", BASIS_CODES.validation.COMMAND_FLAG_STRIPPED, {
+      ...detailBase,
+      sanitized,
+      stripped: [...stripped],
+    }),
+  ]);
 }

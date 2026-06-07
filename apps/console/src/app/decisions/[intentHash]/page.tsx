@@ -4,6 +4,7 @@ import { ChevronLeft, GitMerge } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use } from "react";
+import { CommandRiskBadge } from "@/components/decision/CommandRiskBadge";
 import { DecisionTrace } from "@/components/decision/DecisionTrace";
 import { WhyNotPanel } from "@/components/decision/WhyNotPanel";
 import { useDecisionByHash } from "@/hooks/useDecisionByHash";
@@ -61,6 +62,7 @@ export default function DecisionDetailPage({ params }: PageProps) {
       ) : (
         <>
           <DecisionTrace record={data} />
+          <CommandRiskBadge record={data} />
           <WhyNotPanel record={data} />
         </>
       )}

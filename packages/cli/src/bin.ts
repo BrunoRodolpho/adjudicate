@@ -6,6 +6,7 @@ import { runDoctor } from "./commands/doctor.js";
 import { runExport, type ExportFormat } from "./commands/export.js";
 import { runPackInit, TEMPLATE_NAMES, type TemplateName } from "./commands/pack-init.js";
 import { runPackLint } from "./commands/pack-lint.js";
+import { runPackBom } from "./commands/pack-bom.js";
 import { runPackVerify, type TrustPolicy } from "./commands/pack-verify.js";
 import { runReap } from "./commands/reap.js";
 import { runRedTeamCommand } from "./commands/red-team.js";
@@ -151,6 +152,21 @@ pack
   .action(async (packPath: string | undefined) => {
     await runPackLint(packPath);
   });
+
+pack
+  .command("bom <path>")
+  .description("Emit an AI Bill-of-Materials (AI-BOM) for a Pack (ADR-127)")
+  .option("--kernel-version <semver>", "Kernel version to record in the BOM")
+  .option("--model-version <id>", "LLM model id the Pack is tested against")
+  .action(
+    async (packPath: string, options: { kernelVersion?: string; modelVersion?: string }) => {
+      await runPackBom({
+        pack: packPath,
+        ...(options.kernelVersion !== undefined ? { kernelVersion: options.kernelVersion } : {}),
+        ...(options.modelVersion !== undefined ? { modelVersion: options.modelVersion } : {}),
+      });
+    },
+  );
 
 pack
   .command("verify [path]")

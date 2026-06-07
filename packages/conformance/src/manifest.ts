@@ -37,6 +37,25 @@ export interface PackManifest {
   readonly signed?: {
     readonly sigstore?: string;
   };
+  // ── AI-BOM metadata (ADR-127) — additive, optional, author-declared ──────
+  /** LLM the Pack is tested against, e.g. "claude-opus-4". */
+  readonly modelVersion?: string;
+  /** Declared prompt-template hashes (sidecar-derived); `{ id, sha256 }`. */
+  readonly promptHashes?: ReadonlyArray<{ readonly id: string; readonly sha256: string }>;
+  /** Tool/handler definitions exposed to the model. */
+  readonly tools?: ReadonlyArray<{
+    readonly name: string;
+    readonly description?: string;
+    readonly version?: string;
+    readonly schemaDigest?: string;
+  }>;
+  /** Retrieval/RAG data-source bindings. */
+  readonly rag?: ReadonlyArray<{
+    readonly name: string;
+    readonly kind?: string;
+    readonly version?: string;
+    readonly embeddingModel?: string;
+  }>;
 }
 
 export interface PackManifestPackageJson {

@@ -81,6 +81,7 @@ import {
   PolicyCoherenceReportSchema,
   type PolicyCoherenceReportParsed,
 } from "../schemas/policy-coherence.js";
+import { AiBomSchema, type AiBomParsed } from "../schemas/ai-bom.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -173,6 +174,8 @@ export interface AdminContext {
     list(filter: { status?: string; sessionId?: string; limit?: number }): Promise<ReadonlyArray<ApprovalRequestParsed>>;
     resolve(input: ApprovalResolveInput, by: { id: string; displayName?: string }): Promise<ApprovalRequestParsed>;
   };
+  /** Optional AI-BOM for the installed Pack (ADR-127); `pack.aiBom` PRECONDITION_FAILED when absent. */
+  readonly aiBom?: AiBomParsed;
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -548,12 +551,28 @@ const approvalRouter = t.router({
     }),
 });
 
+const packRouter = t.router({
+  /** AI Bill-of-Materials for the installed Pack (ADR-127). */
+  aiBom: t.procedure
+    .output(AiBomSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.aiBom) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "AI-BOM not configured. Compute generateAiBom(...) at startup and wire it into context.",
+        });
+      }
+      return ctx.aiBom;
+    }),
+});
+
 export const adminRouter = t.router({
   audit: auditRouter,
   emergency: emergencyRouter,
   replay: replayRouter,
   governance: governanceRouter,
   approval: approvalRouter,
+  pack: packRouter,
 });
 
 export type AdminRouter = typeof adminRouter;

@@ -19,7 +19,14 @@ import {
   type SealablePackInput,
 } from "@adjudicate/conformance";
 import { analyzePolicy } from "@adjudicate/analyze";
-import type { PolicyCoherenceReportParsed } from "@adjudicate/admin-sdk";
+import {
+  generateAiBom,
+  runConformance,
+  scorePackHealth,
+  type PackFingerprintInput,
+  type PackManifest,
+} from "@adjudicate/conformance";
+import type { AiBomParsed, PolicyCoherenceReportParsed } from "@adjudicate/admin-sdk";
 import {
   createInMemoryApprovalRegistry,
   type ApprovalRequest,
@@ -221,6 +228,28 @@ const configSealStatus = verifyConfigSeal(
   sealPackConfig(sealablePack),
 ) as unknown as ConfigSealReportParsed;
 
+// AI-BOM (ADR-127) for the installed pack, computed once at startup.
+const bomConformance = runConformance(deploymentsApprovalPack as never);
+const aiBom = generateAiBom({
+  pack: {
+    id: deploymentsApprovalPack.id,
+    version: deploymentsApprovalPack.version,
+    contract: deploymentsApprovalPack.contract,
+    intents: [...deploymentsApprovalPack.intents],
+    signals: [...(deploymentsApprovalPack.signals ?? [])],
+    basisCodes: [...deploymentsApprovalPack.basisCodes],
+  } satisfies PackFingerprintInput,
+  manifest: {
+    contract: "v0",
+    packId: deploymentsApprovalPack.id,
+    kernelMinVersion: ">=1 <2",
+    intents: [...deploymentsApprovalPack.intents],
+  } satisfies PackManifest,
+  conformance: bomConformance,
+  health: scorePackHealth({ conformance: bomConformance, intentCount: deploymentsApprovalPack.intents.length, packId: deploymentsApprovalPack.id }),
+  generatedAt: "2026-06-06T00:00:00.000Z",
+}) as unknown as AiBomParsed;
+
 // Tier-3 policy-coherence report (ADR-125) for the installed pack, computed once
 // at startup with a couple of planner probes.
 const policyCoherence = analyzePolicy({
@@ -297,6 +326,7 @@ export const { GET, POST } = toNextRouteHandler({
     tokenBudget,
     configSealStatus,
     policyCoherence,
+    aiBom,
     approvalPort,
     ...(policyDescriptor ? { policyDescriptor } : {}),
   }),

@@ -9,6 +9,7 @@ import {
   isoSince,
   type DashboardRange,
 } from "@/components/dashboard/RangePicker";
+import { AiBomPanel } from "@/components/governance/AiBomPanel";
 import { BehavioralDriftPanel } from "@/components/governance/BehavioralDriftPanel";
 import { ConfigSealStatus } from "@/components/governance/ConfigSealStatus";
 import { PolicyCoherencePanel } from "@/components/governance/PolicyCoherencePanel";
@@ -86,6 +87,8 @@ export default function GovernancePage() {
       </section>
 
       <ConfigSealStatus />
+
+      <AiBomPanel />
 
       <PolicyCoherencePanel />
 

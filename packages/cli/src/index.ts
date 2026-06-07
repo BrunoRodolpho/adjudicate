@@ -61,6 +61,11 @@ export {
 } from "./commands/red-team.js";
 
 export {
+  runPackBom,
+  type PackBomOptions,
+} from "./commands/pack-bom.js";
+
+export {
   runDev,
   type DevOptions,
   COMPOSE_FILENAME,

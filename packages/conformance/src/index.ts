@@ -60,6 +60,22 @@ export {
   type VerifyPackTrustOptions,
 } from "./pack-trust.js";
 
+// AI Bill-of-Materials (ADR-127) — pure generator composing fingerprint +
+// conformance + health + manifest into an EU-AI-Act/NIST-aligned manifest.
+export {
+  computeBomDigest,
+  generateAiBom,
+  type AiBom,
+  type AiBomFramework,
+  type AiBomGuardrail,
+  type AiBomModelRef,
+  type AiBomPromptHash,
+  type AiBomRagRef,
+  type AiBomToolRef,
+  type AiBomVersion,
+  type GenerateAiBomInputs,
+} from "./ai-bom.js";
+
 // Configuration Integrity Seal (ADR-121) — pins the introspectable config
 // surface (declarative + guard metadata + probed taint minimums) under a
 // signature; the adapter verifies at runtime.

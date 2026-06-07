@@ -126,6 +126,15 @@ export {
 } from "./schemas/config-seal.js";
 
 export {
+  ApprovalListQuerySchema,
+  ApprovalRequestSchema,
+  ApprovalResolveInputSchema,
+  ApprovalStatusSchema,
+  type ApprovalRequestParsed,
+  type ApprovalResolveInput,
+} from "./schemas/approval.js";
+
+export {
   GuardDescriptionSchema,
   GuardDescriptorSchema,
   GuardMetadataSchema,

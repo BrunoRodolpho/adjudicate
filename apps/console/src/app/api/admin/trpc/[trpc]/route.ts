@@ -18,6 +18,11 @@ import {
   verifyConfigSeal,
   type SealablePackInput,
 } from "@adjudicate/conformance";
+import {
+  createInMemoryApprovalRegistry,
+  type ApprovalRequest,
+} from "@adjudicate/approval-engine";
+import type { ApprovalRequestParsed, ApprovalResolveInput } from "@adjudicate/admin-sdk";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import {
   generateAllVectors,
@@ -214,6 +219,38 @@ const configSealStatus = verifyConfigSeal(
   sealPackConfig(sealablePack),
 ) as unknown as ConfigSealReportParsed;
 
+// Approval engine port (ADR-122). The reference console does not run a live
+// adapter agent, so resolve() updates the registry projection directly (a real
+// deployment adapts a full createApprovalEngine whose resolve() calls
+// agent.confirm()). Seeded with one pending approval so the panel renders.
+const approvalRegistry = createInMemoryApprovalRegistry();
+const DEMO_APPROVAL: ApprovalRequest = {
+  token: "demo-approval-token",
+  sessionId: "sess-dep-03",
+  intentHash: "0xdemoapproval",
+  intentKind: "deployment.rollback.execute",
+  prompt: "Confirm rollback of production to a1b2c3d4? This is destructive.",
+  taint: "UNTRUSTED",
+  channel: "console-log",
+  status: "pending",
+  requestedAt: "2026-06-06T12:00:00.000Z",
+};
+void approvalRegistry.put(DEMO_APPROVAL, 24 * 60 * 60);
+const approvalPort = {
+  async list(filter: { status?: string; sessionId?: string; limit?: number }): Promise<ReadonlyArray<ApprovalRequestParsed>> {
+    return (await approvalRegistry.list(filter as never)) as unknown as ReadonlyArray<ApprovalRequestParsed>;
+  },
+  async resolve(input: ApprovalResolveInput, by: { id: string; displayName?: string }): Promise<ApprovalRequestParsed> {
+    const resolved = await approvalRegistry.markResolved(
+      input.token,
+      input.accepted ? "approved" : "declined",
+      by,
+    );
+    if (!resolved) throw new Error(`unknown approval token ${input.token}`);
+    return resolved as unknown as ApprovalRequestParsed;
+  },
+};
+
 const tokenBudget = {
   async query(input: TokenBudgetQuery): Promise<TokenBudgetResult> {
     const rows = DEMO_TOKEN_SESSIONS.filter(
@@ -247,6 +284,7 @@ export const { GET, POST } = toNextRouteHandler({
     },
     tokenBudget,
     configSealStatus,
+    approvalPort,
     ...(policyDescriptor ? { policyDescriptor } : {}),
   }),
 });

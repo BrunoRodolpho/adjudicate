@@ -70,6 +70,13 @@ import {
   ConfigSealReportSchema,
   type ConfigSealReportParsed,
 } from "../schemas/config-seal.js";
+import {
+  ApprovalListQuerySchema,
+  ApprovalRequestSchema,
+  ApprovalResolveInputSchema,
+  type ApprovalRequestParsed,
+  type ApprovalResolveInput,
+} from "../schemas/approval.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -147,6 +154,15 @@ export interface AdminContext {
    * PRECONDITION_FAILED when absent.
    */
   readonly configSealStatus?: ConfigSealReportParsed;
+  /**
+   * Optional approval-engine port (ADR-122). The route handler adapts a
+   * concrete `@adjudicate/approval-engine` to this narrow list/resolve surface.
+   * `approval.*` throws PRECONDITION_FAILED when absent.
+   */
+  readonly approvalPort?: {
+    list(filter: { status?: string; sessionId?: string; limit?: number }): Promise<ReadonlyArray<ApprovalRequestParsed>>;
+    resolve(input: ApprovalResolveInput, by: { id: string; displayName?: string }): Promise<ApprovalRequestParsed>;
+  };
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -469,11 +485,48 @@ const governanceRouter = t.router({
     }),
 });
 
+const approvalRouter = t.router({
+  /** List approval requests (ADR-122). Requires an actor. */
+  list: t.procedure
+    .input(ApprovalListQuerySchema)
+    .output(z.array(ApprovalRequestSchema))
+    .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "actor required" });
+      }
+      if (!ctx.approvalPort) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Approval engine not configured. Wire an approval port into context.",
+        });
+      }
+      return [...(await ctx.approvalPort.list(input))];
+    }),
+
+  /** Approve or decline a pending confirmation. Mutating — requires an actor. */
+  resolve: t.procedure
+    .input(ApprovalResolveInputSchema)
+    .output(ApprovalRequestSchema)
+    .mutation(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "actor required" });
+      }
+      if (!ctx.approvalPort) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Approval engine not configured. Wire an approval port into context.",
+        });
+      }
+      return ctx.approvalPort.resolve(input, { id: ctx.actor.id, ...(ctx.actor.displayName ? { displayName: ctx.actor.displayName } : {}) });
+    }),
+});
+
 export const adminRouter = t.router({
   audit: auditRouter,
   emergency: emergencyRouter,
   replay: replayRouter,
   governance: governanceRouter,
+  approval: approvalRouter,
 });
 
 export type AdminRouter = typeof adminRouter;

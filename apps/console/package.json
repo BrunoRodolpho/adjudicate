@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@adjudicate/admin-sdk": "workspace:*",
+    "@adjudicate/approval-engine": "workspace:*",
     "@adjudicate/audit": "workspace:*",
     "@adjudicate/audit-postgres": "workspace:*",
     "@adjudicate/conformance": "workspace:*",

@@ -41,6 +41,9 @@ importers:
       '@adjudicate/admin-sdk':
         specifier: workspace:*
         version: link:../../packages/admin-sdk
+      '@adjudicate/approval-engine':
+        specifier: workspace:*
+        version: link:../../packages/approval-engine
       '@adjudicate/audit':
         specifier: workspace:*
         version: link:../../packages/audit
@@ -447,6 +450,25 @@ importers:
       eslint:
         specifier: ^9.0.0
         version: 9.39.4(jiti@1.21.7)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0)
+
+  packages/approval-engine:
+    dependencies:
+      '@adjudicate/adapter-core':
+        specifier: workspace:*
+        version: link:../adapter-core
+      '@adjudicate/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^3.2.0
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0))
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

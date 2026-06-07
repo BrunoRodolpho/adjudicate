@@ -1,0 +1,3 @@
+{ "intent": { "kind": "access.request", "payload": { "principal": "alice", "resourceId": "db.analytics", "privilegeLevel": 0, "justification": "read dashboards" }, "actor": { "principal": "llm", "sessionId": "a3" }, "taint": "UNTRUSTED", "nonce": "ag-03" },
+  "state": { "reviews": {}, "grants": {} },
+  "expected": { "kind": "DEFER" } }

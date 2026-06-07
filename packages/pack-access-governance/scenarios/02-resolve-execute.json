@@ -1,0 +1,3 @@
+{ "intent": { "kind": "access.review.resolve", "payload": { "resourceId": "db.prod", "principal": "alice", "reviewer": "bob", "decision": "approved", "grantedLevel": 1 }, "actor": { "principal": "system", "sessionId": "a2" }, "taint": "TRUSTED", "nonce": "ag-02" },
+  "state": { "reviews": {}, "grants": {} },
+  "expected": { "kind": "EXECUTE" } }

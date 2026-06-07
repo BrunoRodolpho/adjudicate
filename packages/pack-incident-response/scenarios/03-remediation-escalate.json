@@ -1,0 +1,3 @@
+{ "intent": { "kind": "incident.remediation.execute", "payload": { "incidentId": "inc-1", "action": "failover_region", "blastRadius": 30 }, "actor": { "principal": "user", "sessionId": "s3" }, "taint": "TRUSTED", "nonce": "ir-03" },
+  "state": { "incidents": { "inc-1": {"id":"inc-1","severity":"sev2","status":"remediating","dependencies":[],"createdAt":"2026-05-01T10:00:00.000Z"} } },
+  "expected": { "kind": "ESCALATE" } }

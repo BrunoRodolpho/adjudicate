@@ -1,0 +1,3 @@
+{ "intent": { "kind": "incident.remediation.execute", "payload": { "incidentId": "missing", "action": "restart_pods", "blastRadius": 3 }, "actor": { "principal": "llm", "sessionId": "s6" }, "taint": "UNTRUSTED", "nonce": "ir-06" },
+  "state": { "incidents": {} },
+  "expected": { "kind": "REFUSE" } }

@@ -1,0 +1,3 @@
+{ "intent": { "kind": "access.request", "payload": { "principal": "alice", "resourceId": "payroll", "privilegeLevel": 1, "justification": "finance task" }, "actor": { "principal": "llm", "sessionId": "a5" }, "taint": "UNTRUSTED", "nonce": "ag-05" },
+  "state": { "reviews": {}, "grants": {} },
+  "expected": { "kind": "ESCALATE" } }

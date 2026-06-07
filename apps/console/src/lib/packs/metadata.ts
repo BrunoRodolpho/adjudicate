@@ -54,6 +54,22 @@ const PACK_METADATA: ReadonlyArray<PackMetadata> = [
       "deployment.approval.resolve",
     ],
   },
+  {
+    id: "pack-incident-response",
+    version: "0.1.0-experimental",
+    displayName: "Incident Response",
+    intents: [
+      "incident.remediation.execute",
+      "incident.escalate",
+      "incident.monitor.callback",
+    ],
+  },
+  {
+    id: "pack-access-governance",
+    version: "0.1.0-experimental",
+    displayName: "Access Governance",
+    intents: ["access.request", "access.review.resolve", "access.revoke"],
+  },
 ];
 
 function match(intentKind: string): PackMetadata | null {

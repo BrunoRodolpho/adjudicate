@@ -1,0 +1,3 @@
+{ "intent": { "kind": "access.revoke", "payload": { "principal": "alice", "resourceId": "db.prod" }, "actor": { "principal": "llm", "sessionId": "a6" }, "taint": "UNTRUSTED", "nonce": "ag-06" },
+  "state": { "reviews": {}, "grants": { "db.prod::alice": { "principal": "alice", "resourceId": "db.prod", "privilegeLevel": 1 } } },
+  "expected": { "kind": "REQUEST_CONFIRMATION" } }

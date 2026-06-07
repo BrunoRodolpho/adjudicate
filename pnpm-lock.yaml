@@ -59,12 +59,18 @@ importers:
       '@adjudicate/drift':
         specifier: workspace:*
         version: link:../../packages/drift
+      '@adjudicate/pack-access-governance':
+        specifier: workspace:*
+        version: link:../../packages/pack-access-governance
       '@adjudicate/pack-deployments-approval':
         specifier: workspace:*
         version: link:../../packages/pack-deployments-approval
       '@adjudicate/pack-identity-kyc':
         specifier: workspace:*
         version: link:../../packages/pack-identity-kyc
+      '@adjudicate/pack-incident-response':
+        specifier: workspace:*
+        version: link:../../packages/pack-incident-response
       '@adjudicate/pack-payments-pix':
         specifier: workspace:*
         version: link:../../packages/pack-payments-pix
@@ -757,6 +763,28 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0)
 
+  packages/pack-access-governance:
+    dependencies:
+      '@adjudicate/core':
+        specifier: workspace:*
+        version: link:../core
+      '@adjudicate/primitives':
+        specifier: workspace:*
+        version: link:../primitives
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^3.2.0
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0))
+      fast-check:
+        specifier: ^3.23.1
+        version: 3.23.2
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0)
+
   packages/pack-deployments-approval:
     dependencies:
       '@adjudicate/core':
@@ -794,6 +822,28 @@ importers:
       '@adjudicate/cli':
         specifier: workspace:*
         version: link:../cli
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0)
+
+  packages/pack-incident-response:
+    dependencies:
+      '@adjudicate/core':
+        specifier: workspace:*
+        version: link:../core
+      '@adjudicate/primitives':
+        specifier: workspace:*
+        version: link:../primitives
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^3.2.0
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0))
+      fast-check:
+        specifier: ^3.23.1
+        version: 3.23.2
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

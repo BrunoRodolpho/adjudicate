@@ -1,0 +1,3 @@
+{ "intent": { "kind": "incident.remediation.execute", "payload": { "incidentId": "inc-1", "action": "drain_node", "blastRadius": 15 }, "actor": { "principal": "user", "sessionId": "s2" }, "taint": "TRUSTED", "nonce": "ir-02" },
+  "state": { "incidents": { "inc-1": {"id":"inc-1","severity":"sev2","status":"investigating","dependencies":[],"createdAt":"2026-05-01T10:00:00.000Z"} } },
+  "expected": { "kind": "REQUEST_CONFIRMATION" } }

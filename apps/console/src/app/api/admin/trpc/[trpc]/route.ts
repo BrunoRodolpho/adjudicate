@@ -6,13 +6,17 @@ import {
   type EmergencyStateStore,
 } from "@adjudicate/admin-sdk";
 import { adminRouter } from "@adjudicate/admin-sdk/trpc";
-import type { RedTeamReportParsed } from "@adjudicate/admin-sdk";
+import type {
+  BehavioralDriftResultParsed,
+  RedTeamReportParsed,
+} from "@adjudicate/admin-sdk";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import {
   generateAllVectors,
   runRedTeam,
   type RedTeamPack,
 } from "@adjudicate/red-team";
+import { createDriftDetector } from "@adjudicate/drift";
 import { deploymentsApprovalPack } from "@adjudicate/pack-deployments-approval";
 import { createRedisEmergencyStateStore } from "@adjudicate/audit";
 import {
@@ -174,6 +178,17 @@ const redTeamReport = runRedTeam(
   generateAllVectors(redTeamPack),
 ) as unknown as RedTeamReportParsed;
 
+// Behavioral-drift detector (ADR-119). The console has no live AuditEventBus, so
+// warm the detector by replaying the mock audit records at startup. A real
+// deployment wires `detector.attach(auditEventBus)` instead.
+const driftDetector = createDriftDetector({
+  baselineWindow: 500,
+  recentWindow: 100,
+  alertThreshold: 0.25,
+  dimensions: ["decision.kind", "intent.kind", "basis"],
+});
+for (const record of ALL_MOCKS) driftDetector.observe(record);
+
 export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
@@ -185,6 +200,9 @@ export const { GET, POST } = toNextRouteHandler({
     replayer,
     guardFireStats,
     redTeamReport,
+    driftDetector: driftDetector as unknown as {
+      snapshot(): BehavioralDriftResultParsed;
+    },
     ...(policyDescriptor ? { policyDescriptor } : {}),
   }),
 });

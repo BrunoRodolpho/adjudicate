@@ -16,6 +16,7 @@
     "@adjudicate/audit": "workspace:*",
     "@adjudicate/audit-postgres": "workspace:*",
     "@adjudicate/core": "workspace:*",
+    "@adjudicate/drift": "workspace:*",
     "@adjudicate/pack-deployments-approval": "workspace:*",
     "@adjudicate/pack-identity-kyc": "workspace:*",
     "@adjudicate/pack-payments-pix": "workspace:*",

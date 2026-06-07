@@ -50,6 +50,9 @@ importers:
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@adjudicate/drift':
+        specifier: workspace:*
+        version: link:../../packages/drift
       '@adjudicate/pack-deployments-approval':
         specifier: workspace:*
         version: link:../../packages/pack-deployments-approval
@@ -600,6 +603,25 @@ importers:
       eslint:
         specifier: ^9.0.0
         version: 9.39.4(jiti@1.21.7)
+      fast-check:
+        specifier: ^3.23.1
+        version: 3.23.2
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0)
+
+  packages/drift:
+    dependencies:
+      '@adjudicate/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^3.2.0
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0))
       fast-check:
         specifier: ^3.23.1
         version: 3.23.2

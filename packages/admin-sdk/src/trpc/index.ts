@@ -56,6 +56,10 @@ import {
   RedTeamReportSchema,
   type RedTeamReportParsed,
 } from "../schemas/red-team.js";
+import {
+  BehavioralDriftResultSchema,
+  type BehavioralDriftResultParsed,
+} from "../schemas/behavioral-drift.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -114,6 +118,13 @@ export interface AdminContext {
    * report here; `governance.redTeam` throws PRECONDITION_FAILED when absent.
    */
   readonly redTeamReport?: RedTeamReportParsed;
+  /**
+   * Optional behavioral-drift detector port (ADR-119). The route handler wires
+   * an @adjudicate/drift detector (fed from the audit stream/store) and exposes
+   * its `snapshot()`; `governance.behavioralDrift` throws PRECONDITION_FAILED
+   * when absent.
+   */
+  readonly driftDetector?: { snapshot(): BehavioralDriftResultParsed };
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -266,6 +277,24 @@ const governanceRouter = t.router({
     .query(async ({ input, ctx }) => {
       const handler = createPiiClassificationHandler({ store: ctx.store });
       return handler(input);
+    }),
+
+  /**
+   * Behavioral/statistical drift snapshot (ADR-119) — decision-distribution
+   * shift over a baseline-vs-recent window. Distinct from the operational
+   * DriftPanel. Throws PRECONDITION_FAILED when no detector is wired.
+   */
+  behavioralDrift: t.procedure
+    .output(BehavioralDriftResultSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.driftDetector) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Behavioral-drift detector not configured. Wire an @adjudicate/drift detector into the route handler context.",
+        });
+      }
+      return ctx.driftDetector.snapshot();
     }),
 
   /**

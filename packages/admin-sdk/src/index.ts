@@ -105,6 +105,14 @@ export {
 } from "./schemas/red-team.js";
 
 export {
+  BehavioralDriftResultSchema,
+  DriftAlertSchema,
+  DriftDimensionSnapshotSchema,
+  DriftSignalKindSchema,
+  type BehavioralDriftResultParsed,
+} from "./schemas/behavioral-drift.js";
+
+export {
   GuardDescriptionSchema,
   GuardDescriptorSchema,
   GuardMetadataSchema,

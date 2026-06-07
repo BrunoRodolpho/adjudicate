@@ -305,3 +305,44 @@ export const DRIFT_TRANSPARENCY_SAMPLE: DriftTransparencySample = {
     { dimension: "basis", tvd: 0.04, alertCount: 0 },
   ],
 };
+
+// ─── Red-team defenses transparency (ADR-133) ────────────────────────────────
+
+/**
+ * ILLUSTRATIVE per-pack red-team defense roll-up for the public "Defenses" view.
+ * The operator console shows the full adversarial report — per-scenario NAMES,
+ * the firing `basisCodes`, decisions, raw escape payloads, and a per-vector
+ * escape table — all of which telegraph attack construction or advertise a live
+ * hole. NONE of that may reach apps/web.
+ *
+ * This fixture therefore carries ONLY two counts per pack: `total` (scenarios
+ * exercised) and `defended` (scenarios the policy held against). The public
+ * projection collapses these into `{ packId, total, defended, lastRunStatus }`
+ * where `lastRunStatus` is the BOOLEAN clean/regressed band (defended === total
+ * ? clean : regressed) — never a raw escaped/error count, never a vector, never
+ * a scenario name or basis code. `apps/web` never imports the red-team report
+ * shape and has no path to `results[]`. `displayName` is the public pack label.
+ */
+export interface RedTeamDefenseSample {
+  readonly packId: string;
+  readonly displayName: string;
+  readonly total: number;
+  readonly defended: number;
+}
+
+/**
+ * Illustrative red-team defenses for the shipped reference packs. `apps/web` is
+ * a public surface with no kernel runtime, so it renders this committed sample
+ * rather than running the suite live. All packs are clean (defended === total) —
+ * the healthy posture a reference deployment advertises — except the deployments
+ * pack, which carries one synthetic regression so the public page exercises the
+ * "Regressed" badge. Counts only; no scenario names, payloads, or basis codes
+ * appear anywhere in this fixture.
+ */
+export const RED_TEAM_TRANSPARENCY_SAMPLE: readonly RedTeamDefenseSample[] = [
+  { packId: "pack-payments-pix", displayName: "Payments · PIX", total: 36, defended: 36 },
+  { packId: "pack-identity-kyc", displayName: "Identity · KYC", total: 30, defended: 30 },
+  { packId: "pack-deployments-approval", displayName: "Deployments · Approval", total: 33, defended: 32 },
+  { packId: "pack-incident-response", displayName: "Incident Response", total: 27, defended: 27 },
+  { packId: "pack-access-governance", displayName: "Access Governance", total: 30, defended: 30 },
+];

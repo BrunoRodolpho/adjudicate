@@ -60,6 +60,12 @@ import {
   type RedTeamReportParsed,
 } from "../schemas/red-team.js";
 import {
+  RedTeamHistoryQuerySchema,
+  RedTeamHistoryResultSchema,
+  type RedTeamHistoryQuery,
+  type RedTeamHistoryResultParsed,
+} from "../schemas/red-team-history.js";
+import {
   BehavioralDriftResultSchema,
   DriftHistoryQuerySchema,
   DriftHistoryResultSchema,
@@ -164,6 +170,16 @@ export interface AdminContext {
    * report here; `governance.redTeam` throws PRECONDITION_FAILED when absent.
    */
   readonly redTeamReport?: RedTeamReportParsed;
+  /**
+   * Optional bounded red-team run-history port (ADR-133). The route handler runs
+   * the suite across `PackRegistry.all()`, records each report into an
+   * `@adjudicate/red-team` history store, and exposes its `view()` (filtered by
+   * the query). `governance.redTeamHistory` throws PRECONDITION_FAILED when
+   * absent — the same runtime feature-detection posture as `redTeamReport`.
+   */
+  readonly redTeamHistory?: {
+    view(input: RedTeamHistoryQuery): RedTeamHistoryResultParsed;
+  };
   /**
    * Optional behavioral-drift detector port (ADR-119). The route handler wires
    * an @adjudicate/drift detector (fed from the audit stream/store) and exposes
@@ -559,6 +575,27 @@ const governanceRouter = t.router({
         });
       }
       return ctx.redTeamReport;
+    }),
+
+  /**
+   * Bounded red-team run-history (ADR-133) — per-pack run records (newest-first)
+   * plus a defended/escaped/error trend over runs, so an operator can see
+   * whether a pack's adversarial posture is improving, holding, or regressing.
+   * `packId` restricts to one pack; `limit` windows to the last N runs per pack.
+   * Throws PRECONDITION_FAILED when no history is wired.
+   */
+  redTeamHistory: t.procedure
+    .input(RedTeamHistoryQuerySchema)
+    .output(RedTeamHistoryResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.redTeamHistory) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Red-team history store not configured. Record @adjudicate/red-team reports into a history store and wire it into the route handler context.",
+        });
+      }
+      return ctx.redTeamHistory.view(input);
     }),
 
   /**

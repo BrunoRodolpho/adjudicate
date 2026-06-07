@@ -13,6 +13,8 @@ import type {
   DriftHistoryResultParsed,
   KillSwitchTimelineReportParsed,
   PackConfigSealEntryParsed,
+  RedTeamHistoryQuery,
+  RedTeamHistoryResultParsed,
   RedTeamReportParsed,
   TokenBudgetQuery,
   TokenBudgetResult,
@@ -41,8 +43,10 @@ import { createInMemoryMemoryStore } from "@adjudicate/adapter-core";
 import type { ApprovalRequestParsed, ApprovalResolveInput } from "@adjudicate/admin-sdk";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import {
+  createInMemoryRedTeamHistoryStore,
   generateAllVectors,
   runRedTeam,
+  runRedTeamAcrossPacks,
   type RedTeamPack,
 } from "@adjudicate/red-team";
 import {
@@ -188,6 +192,97 @@ const redTeamReport = runRedTeam(
   redTeamPack,
   generateAllVectors(redTeamPack),
 ) as unknown as RedTeamReportParsed;
+
+// Red-team run-history (ADR-133). The CURRENT run is the suite executed across
+// every installed Pack — `runRedTeamAcrossPacks` over `PackRegistry.all()`. The
+// store is content-keyed + idempotent, bounded, and clock-free (timestamps are
+// caller-supplied), so this history is byte-stable across restarts and never a
+// system of record; the kernel never reads it.
+const redTeamHistoryStore = createInMemoryRedTeamHistoryStore({ capacity: 500 });
+
+// Deterministic demo-timeline base + spacing. The red-team package is clock-free
+// (digests exclude timing; `record(report, at)` takes the stamp), so we derive
+// evenly-spaced ISO stamps from a FIXED base rather than wall-clock.
+const RED_TEAM_TIMELINE_BASE = Date.parse("2026-01-01T00:00:00.000Z");
+const RED_TEAM_TIMELINE_STEP_MS = 91 * 24 * 60 * 60 * 1000; // ~one quarter
+
+const currentRedTeamReports = runRedTeamAcrossPacks(
+  PackRegistry.all().map((a) => a.pack as unknown as RedTeamPack),
+);
+
+// ILLUSTRATIVE prior history so the reference demo's Trend chart has more than a
+// single point. These are SYNTHETIC earlier runs with earlier fixed timestamps
+// and slightly varying defended counts (a small regression that recovers) — they
+// are NOT real runs. The LAST point recorded for each pack (below) is the REAL
+// current run; only it reflects the live policy. A production deployment records
+// only real runs (e.g. one per CI release-candidate), so this seed block is the
+// only place synthetic history is introduced.
+const PRIOR_RUN_OFFSETS: ReadonlyArray<{ step: number; defendedDelta: number }> = [
+  { step: 0, defendedDelta: 0 }, // baseline, oldest
+  { step: 1, defendedDelta: -1 }, // a dip (one fewer defended) → a visible regression
+  { step: 2, defendedDelta: 0 }, // recovered to baseline
+];
+for (const report of currentRedTeamReports) {
+  for (const { step, defendedDelta } of PRIOR_RUN_OFFSETS) {
+    // Clamp so we never fabricate negative/over-total counts; shift one scenario
+    // from defended → escaped to keep total constant and the digest distinct.
+    const escapedShift = Math.max(
+      0,
+      Math.min(report.summary.total, -defendedDelta),
+    );
+    const priorReport = {
+      ...report,
+      summary: {
+        ...report.summary,
+        defended: report.summary.defended - escapedShift,
+        escaped: report.summary.escaped + escapedShift,
+        escapesByVector: {
+          ...report.summary.escapesByVector,
+          prompt_injection:
+            report.summary.escapesByVector.prompt_injection + escapedShift,
+        },
+      },
+      // Tag the synthetic results so the content digest differs per prior run.
+      results: report.results.map((r, i) =>
+        i === 0 ? { ...r, name: `${r.name}#prior-${step}` } : r,
+      ),
+    };
+    const at = new Date(
+      RED_TEAM_TIMELINE_BASE + step * RED_TEAM_TIMELINE_STEP_MS,
+    ).toISOString();
+    redTeamHistoryStore.record(priorReport, at);
+  }
+  // The REAL current run, recorded LAST (newest timestamp) so it is the latest
+  // trend point and the newest-first run.
+  const currentAt = new Date(
+    RED_TEAM_TIMELINE_BASE + PRIOR_RUN_OFFSETS.length * RED_TEAM_TIMELINE_STEP_MS,
+  ).toISOString();
+  redTeamHistoryStore.record(report, currentAt);
+}
+
+// Adapter from the @adjudicate/red-team history store to the admin-sdk
+// `governance.redTeamHistory` port.
+const redTeamHistoryPort = {
+  view(input: RedTeamHistoryQuery): RedTeamHistoryResultParsed {
+    const view = redTeamHistoryStore.view(input);
+    return {
+      runs: view.runs.map((r) => ({
+        digest: r.digest,
+        at: r.at,
+        packId: r.packId,
+        summary: r.summary,
+      })),
+      trend: view.trend.map((p) => ({
+        at: p.at,
+        packId: p.packId,
+        total: p.total,
+        defended: p.defended,
+        escaped: p.escaped,
+        errors: p.errors,
+      })),
+    };
+  },
+};
 
 // Behavioral-drift detector (ADR-119 / ADR-128). When an AuditEventBus is wired
 // (REDIS_URL set — a real kernel publishes on the bus), attach the detector to
@@ -534,6 +629,7 @@ export const { GET, POST } = toNextRouteHandler({
     replayer,
     guardFireStats,
     redTeamReport,
+    redTeamHistory: redTeamHistoryPort,
     driftDetector: driftDetector as unknown as {
       snapshot(): BehavioralDriftResultParsed;
     },

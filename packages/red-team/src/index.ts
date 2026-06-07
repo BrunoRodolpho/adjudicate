@@ -43,19 +43,16 @@ export {
 
 export { renderRedTeamJson, renderRedTeamText } from "./render.js";
 
-import { generatePromptInjectionEnvelopes } from "./vectors/prompt-injection.js";
-import { generateTaintEscalationEnvelopes } from "./vectors/taint-escalation.js";
-import { generateToolScopeViolationEnvelopes } from "./vectors/tool-scope-violation.js";
-import type { GenerateOptions, RedTeamPack, RedTeamScenario } from "./scenario.js";
+export { generateAllVectors } from "./vectors.js";
 
-/** Run all three generators and concatenate. Convenience for the CLI + tests. */
-export function generateAllVectors(
-  pack: RedTeamPack,
-  opts: GenerateOptions = {},
-): RedTeamScenario[] {
-  return [
-    ...generatePromptInjectionEnvelopes(pack, opts),
-    ...generateTaintEscalationEnvelopes(pack, opts),
-    ...generateToolScopeViolationEnvelopes(pack, opts),
-  ];
-}
+export {
+  createInMemoryRedTeamHistoryStore,
+  digestRedTeamReport,
+  runRedTeamAcrossPacks,
+  type RedTeamHistoryOptions,
+  type RedTeamHistoryQuery,
+  type RedTeamHistoryStore,
+  type RedTeamHistoryView,
+  type RedTeamRunRecord,
+  type RedTeamTrendPoint,
+} from "./history.js";

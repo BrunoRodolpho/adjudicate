@@ -15,3 +15,18 @@ export function useRedTeam() {
     retry: false,
   });
 }
+
+/**
+ * Fetches the bounded red-team run-history (ADR-133) from
+ * `governance.redTeamHistory` — per-pack run records + a defended/escaped/error
+ * trend over runs. `retry: false` so a PRECONDITION_FAILED (no history wired)
+ * surfaces immediately as the error state rather than retrying.
+ */
+export function useRedTeamHistory(packId?: string) {
+  return useQuery({
+    queryKey: ["governance", "redTeamHistory", packId ?? null],
+    queryFn: () =>
+      trpc.governance.redTeamHistory.query(packId ? { packId } : {}),
+    retry: false,
+  });
+}

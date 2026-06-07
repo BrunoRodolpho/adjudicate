@@ -157,6 +157,7 @@ const PUBLIC_VIEWS: readonly PublicView[] = [
   },
   {
     title: "Red-team defenses",
+    href: "/transparency/red-team",
     exposes:
       "Whether each shipped pack still defends against the adversarial suite — a clean/regressed badge with defended totals.",
   },

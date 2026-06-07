@@ -918,6 +918,9 @@ importers:
 
   packages/red-team:
     dependencies:
+      '@adjudicate/canonical':
+        specifier: workspace:*
+        version: link:../canonical
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../core

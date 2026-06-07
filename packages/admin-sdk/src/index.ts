@@ -111,6 +111,17 @@ export {
 } from "./schemas/red-team.js";
 
 export {
+  RedTeamHistoryQuerySchema,
+  RedTeamHistoryResultSchema,
+  RedTeamRunRecordSchema,
+  RedTeamTrendPointSchema,
+  type RedTeamHistoryQuery,
+  type RedTeamHistoryResultParsed,
+  type RedTeamRunRecordParsed,
+  type RedTeamTrendPointParsed,
+} from "./schemas/red-team-history.js";
+
+export {
   BehavioralDriftResultSchema,
   DriftAlertSchema,
   DriftDimensionNameSchema,

@@ -1,5 +1,30 @@
 # @adjudicate/analyze
 
+## 0.3.0
+
+### Minor Changes
+
+- 464db38: feat(primitives): add `createDataClassificationGuard` (PII/PHI redaction & refusal). REWRITE masks matched payload fields (taint preserved); REFUSE blocks. Runtime sensitivity tier + redacted fields ride in `DecisionBasis.detail`.
+
+  feat(core): widen `GuardDescription` with the additive `data_classification` variant; add `validation.PII_DETECTED/PII_REDACTED/PII_BLOCKED` basis codes (ADR-117).
+
+  feat(analyze): AJD-104 also flags a `data_classification` REWRITE guard with empty `scannedFields`.
+
+  feat(admin-sdk): add `governance.piiClassificationStats` — aggregates data-classification dispositions by (sensitivityLevel × disposition) for the console.
+
+- 1f091ef: feat(analyze): add Tier-3 PolicyCoherenceAnalyzer (AJD-301) — structural coherence checks (phantom/unreachable intent, system-taint contradiction, threshold-conflict note, planner-probe error) via pure pack inspection + planner probing; new `plannerProbes`/`tier3Analyzers` analyze options (ADR-125).
+
+  feat(admin-sdk): add `governance.policyCoherence` for the console Policy Coherence panel.
+
+### Patch Changes
+
+- Updated dependencies [fdc0344]
+- Updated dependencies [ce2cdc5]
+- Updated dependencies [7545b17]
+- Updated dependencies [570db36]
+- Updated dependencies [464db38]
+  - @adjudicate/core@1.3.0
+
 ## 0.2.0
 
 ### Minor Changes

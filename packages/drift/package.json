@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/drift",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Opt-in behavioral/statistical drift detection over the AuditEventBus — running decision-distribution comparison with bounded cardinality. Never touches the decision path.",
   "publishConfig": {
     "access": "public"

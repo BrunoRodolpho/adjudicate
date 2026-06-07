@@ -1,5 +1,38 @@
 # @adjudicate/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- 60daeef: feat(conformance): add `generateAiBom` — a pure AI Bill-of-Materials generator (EU AI Act / NIST AI RMF aligned) composing fingerprint + conformance + health + manifest; `bomDigest` excludes generatedAt + signature for reproducibility. New optional manifest fields modelVersion/promptHashes/tools/rag (ADR-127).
+
+  feat(cli): add `adjudicate pack bom <path>`.
+
+  feat(admin-sdk): add `pack.aiBom` for the console AI-BOM panel.
+
+- b642424: feat(red-team): new @adjudicate/red-team package — deterministic adversarial scenario generation (prompt-injection, taint-escalation, tool-scope-violation) that asserts a Pack's kernel-level defenses hold (ADR-118).
+
+  feat(cli): add `adjudicate red-team --pack <module>` (exit 2 on any escape/error).
+
+  feat(admin-sdk): add `governance.redTeam` returning a pre-computed RedTeamReport for the console Red-Team panel.
+
+### Patch Changes
+
+- Updated dependencies [60daeef]
+- Updated dependencies [fdc0344]
+- Updated dependencies [ce2cdc5]
+- Updated dependencies [7545b17]
+- Updated dependencies [570db36]
+- Updated dependencies [55c2494]
+- Updated dependencies [464db38]
+- Updated dependencies [1f091ef]
+- Updated dependencies [75e85df]
+- Updated dependencies [b642424]
+  - @adjudicate/conformance@2.0.0
+  - @adjudicate/core@1.3.0
+  - @adjudicate/red-team@0.2.0
+  - @adjudicate/analyze@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes

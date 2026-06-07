@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/analyze",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Static analysis for @adjudicate Packs — Tier 1 metadata-driven analyzers producing AnalysisReport with text/json/SARIF output.",
   "publishConfig": {
     "access": "public"

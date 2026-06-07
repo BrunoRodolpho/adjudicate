@@ -1,5 +1,59 @@
 # @adjudicate/core
 
+## 1.3.0
+
+### Minor Changes
+
+- 570db36: feat(core): AuditRecord v5 adds optional `metadata` (EXCLUDED from auditHash) + `attachAuditMetadata` + an `adjudicateAndAudit({ metadataProvider })` seam (ADR-124).
+
+  feat(observability): hallucination scoring — `createHallucinationMetadataProvider` + `bucketHallucinationScore` + `adjudicate.hallucination.score`/`.bucket` semconv attributes.
+
+  fix(admin-sdk,audit-postgres): accept AuditRecord v5 (schema + row mapping).
+
+- 464db38: feat(primitives): add `createDataClassificationGuard` (PII/PHI redaction & refusal). REWRITE masks matched payload fields (taint preserved); REFUSE blocks. Runtime sensitivity tier + redacted fields ride in `DecisionBasis.detail`.
+
+  feat(core): widen `GuardDescription` with the additive `data_classification` variant; add `validation.PII_DETECTED/PII_REDACTED/PII_BLOCKED` basis codes (ADR-117).
+
+  feat(analyze): AJD-104 also flags a `data_classification` REWRITE guard with empty `scannedFields`.
+
+  feat(admin-sdk): add `governance.piiClassificationStats` — aggregates data-classification dispositions by (sensitivityLevel × disposition) for the console.
+
+### Patch Changes
+
+- fdc0344: Adversarial-audit remediation (464db38→804af8f review):
+  - **audit-postgres (release-blocker):** migration `010-add-v5-metadata.sql` widens
+    the `record_version` CHECK to `IN (1,2,3,4,5)` and adds the nullable
+    `metadata_jsonb` column. Core stamps `record_version=5` unconditionally, so
+    against a DB migrated through 009 every audit insert previously failed Postgres 23514. The sink now persists and recovers `metadata` losslessly.
+  - **primitives:** `createTokenBudgetGuard` now fails **closed** on a non-finite
+    over-budget meter — `+Infinity` ≥ any budget crosses (REFUSE) instead of
+    passing through. NaN/negative remain non-crossing.
+  - **conformance:** `generateAiBom` array comparators are now total-order (equal
+    keys → 0), so the `bomDigest` is reproducible for inputs with duplicate keys.
+  - **anthropic / openai:** the provider adapters now declare and forward the
+    agent-loop seams `onTokenUsage`, `memoryStore`, `enrichContext`,
+    `deriveMemoryWriteback`, `configSeal`, and `traceSink` — previously these were
+    unreachable through the bridges (token budget, memory, and config-seal were
+    effectively dead via the published adapters).
+  - **pack-deployments-approval:** total-order tie-break for the model/prompt gate;
+    README documents three release-gate limitations (opt-in regression score,
+    carbon clamp has no data-residency allow-list, model/prompt gate fires on first
+    deploy).
+  - **core:** documents and pins the v5 metadata cross-version verification contract
+    (a pre-v5 verifier would falsely flag a metadata-bearing record as tampered).
+
+- ce2cdc5: feat(primitives): add `createCommandRiskGuard` + `command-classify` (classifyCommand/stripDangerousFlags) for CLI/terminal agents — REFUSE/REWRITE(flag-strip, taint preserved)/REQUEST_CONFIRMATION by command risk (ADR-123).
+
+  feat(core): add `validation.COMMAND_BLOCKED/COMMAND_FLAG_STRIPPED/COMMAND_SANITIZED` basis codes.
+
+- 7545b17: feat(conformance): add Configuration Integrity Seal — sealPackConfig / verifyConfigSeal pin the introspectable config surface (declarative + guard metadata + probed taint minimums + basis codes) under a signature (ADR-121). Factored shared canonicalJson into its own module.
+
+  feat(adapter-core): config-seal loop gate — verifies once per agent instance before the first adjudication; on mismatch refuses the turn (new `refused` AgentOutcome + `config_seal_violation` trace) and can engage the kill switch.
+
+  feat(core): add `kill.SEAL_MISMATCH` basis code.
+
+  feat(admin-sdk): add `governance.configSealStatus` for the console seal panel.
+
 ## 1.2.0
 
 ### Minor Changes

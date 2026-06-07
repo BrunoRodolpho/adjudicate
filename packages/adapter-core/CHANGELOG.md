@@ -1,5 +1,46 @@
 # @adjudicate/adapter-core
 
+## 0.3.0
+
+### Minor Changes
+
+- 58655cb: feat(adapter-core): add MemoryStore (in-memory + redis) + `memoryStore`/`enrichContext`/`deriveMemoryWriteback` options — cross-session memory enriches the planner/renderer context UPSTREAM of the envelope; the kernel decision is unchanged (ADR-126).
+
+  feat(admin-sdk): add `memory.bySession` for the console Session Memory panel.
+
+- 7545b17: feat(conformance): add Configuration Integrity Seal — sealPackConfig / verifyConfigSeal pin the introspectable config surface (declarative + guard metadata + probed taint minimums + basis codes) under a signature (ADR-121). Factored shared canonicalJson into its own module.
+
+  feat(adapter-core): config-seal loop gate — verifies once per agent instance before the first adjudication; on mismatch refuses the turn (new `refused` AgentOutcome + `config_seal_violation` trace) and can engage the kill switch.
+
+  feat(core): add `kill.SEAL_MISMATCH` basis code.
+
+  feat(admin-sdk): add `governance.configSealStatus` for the console seal panel.
+
+- 1e0058b: feat(primitives): add `createTokenBudgetGuard` — pure guard that REFUSE/DEFERs on per-session/per-tenant token budgets, reading the counter from adopter state S (ADR-120).
+
+  feat(adapter-core): `AssistantTurn.usage` + `onTokenUsage` hook surface provider token usage per turn (the adopter folds it into state S).
+
+  feat(anthropic,openai): map provider token usage onto `AssistantTurn.usage`.
+
+  feat(admin-sdk): add `governance.tokenBudget` for the console Token Budget panel.
+
+- 6b291be: Token Governance surface (ADR-135, follows ADR-120). `@adjudicate/adapter-core` gains a token-usage TELEMETRY store: the `TokenUsageStore` interface + `createInMemoryTokenUsageStore({ sessionBudget?, perTenantBudget?, perSessionBudget?, perTenantBudgets?, maxSessions?, maxEvents?, capacity? })`, mirroring the existing `createInMemoryMemoryStore`/`createInMemoryConfirmationStore` (Map-backed ref impl, opportunistic LRU bound, fixed-capacity event ring). Fed by the adapter loop's `onTokenUsage` hook via `record(sample)`, it accumulates per-session AND per-tenant cumulative consumption against configured caps and appends a bounded `TokenExhaustionEvent` when a counter CROSSES its cap (once per crossing, not per over-budget sample); reads via `sessions()` / `tenants()` / `exhaustionEvents()` / `totalConsumed()`. New types `TokenUsageSample`, `TokenBudgetConfig`, `SessionConsumption`, `TenantConsumption`, `TokenExhaustionEvent`, and the filter types. **The store is strictly OUTSIDE the determinism boundary — it is TELEMETRY and NEVER a kernel input.** Enforcement stays in `createTokenBudgetGuard` (input is adopter state S, not this store). NO wall-clock on any recorded value (timestamps are caller-supplied — `at` is used verbatim; the only `Date.now()` is the same LRU sweep the memory store already does) and NO RNG (event ids are a monotonic `evt:<n>` sequence, not `randomUUID`), so the store is reproducible across runs/replays. Session counters are LRU-bounded (default 10_000) and events ring-bounded (default 10_000) so unbounded session-id churn cannot grow memory — and the per-tenant aggregate is the backstop for session-churn budget evasion (it aggregates across all of a tenant's sessions regardless of churn). Redis is a noted follow-up (the in-memory store + interface ship now).
+
+  `@adjudicate/admin-sdk` gains the read-only `governance.tokenBudgetByTenant` query (input `TokenBudgetTenantQuerySchema` `{ tenantId?, since?, eventLimit≤500 }`) returning `TokenBudgetByTenantResultSchema` (`{ tenants[], exhaustionEvents[], totalConsumed }`); throws PRECONDITION_FAILED when `ctx.tokenBudget.queryByTenant` is absent (feature-detectable), mirroring `governance.tokenBudget`. New schemas `TokenScopeSchema` (CLOSED `session`|`tenant`), `TokenBudgetTenantSchema`, `TokenExhaustionEventSchema`, `TokenBudgetTenantQuerySchema`, `TokenBudgetByTenantResultSchema` (+ inferred types) re-declare the store's read-model as Zod with NO dependency on `@adjudicate/adapter-core`. `TokenBudgetResultSchema` gains ADDITIVE OPTIONAL `tenants?`/`exhaustionEvents?` fields — the existing session-only shape and `governance.tokenBudget` stay byte-compatible. `AdminContext.tokenBudget` widens additively with an optional `queryByTenant` (`query` kept for back-compat; both optional so single-method adopters still typecheck). `ActorSchema` gains an ADDITIVE OPTIONAL `tenantId` and `extractActor` reads `x-adjudicate-actor-tenant` — the minimal multi-tenant dimension that realizes the pre-existing `AuditQuerySchema.tenantScope` convention; single-tenant adopters omit it. No kernel change, no closed KERNEL-enum widening (Decision-6/Taint/IntentActor/BasisCategory unchanged; the only new enum is admin-sdk-local and closed), no canonical-hash change. `TokenExhaustionEvent` is a telemetry read-model — NOT an `AuditRecord` field and NOT a `GovernanceEvent` taxonomy entry. Powers the console `/tokens` Token Governance section (tenant budgets, session budgets, exhaustion timeline) and the public web `/transparency/tokens` aggregate-only, id-free, banded burn-down.
+
+### Patch Changes
+
+- Updated dependencies [60daeef]
+- Updated dependencies [fdc0344]
+- Updated dependencies [ce2cdc5]
+- Updated dependencies [7545b17]
+- Updated dependencies [570db36]
+- Updated dependencies [464db38]
+  - @adjudicate/conformance@2.0.0
+  - @adjudicate/core@1.3.0
+  - @adjudicate/audit@3.0.0
+  - @adjudicate/runtime@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

@@ -1,5 +1,20 @@
 # @example/quickstart-anthropic
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [fdc0344]
+- Updated dependencies [ce2cdc5]
+- Updated dependencies [7545b17]
+- Updated dependencies [570db36]
+- Updated dependencies [464db38]
+- Updated dependencies [1e0058b]
+  - @adjudicate/core@1.3.0
+  - @adjudicate/anthropic@0.3.0
+  - @adjudicate/pack-payments-pix@0.2.1
+  - @adjudicate/runtime@0.2.1
+
 ## 0.1.1
 
 ### Patch Changes

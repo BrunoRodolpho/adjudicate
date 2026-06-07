@@ -1,5 +1,72 @@
 # @adjudicate/pack-deployments-approval
 
+## 0.3.0
+
+### Minor Changes
+
+- 804af8f: feat(pack-deployments-approval): release-gating extensions (Item 14) — regression-score-aware ESCALATE (aiEvalScore below threshold), carbon-budget region REWRITE (clamp to the greenest region, taint preserved), and AI model/prompt-change REQUEST_CONFIRMATION. New payload fields (aiEvalScore, region, modelId, promptVersion), constants (REGRESSION_ESCALATE_THRESHOLD, REGION_CARBON_RANK, GREENEST_REGION, greenestRegion), and guards. No kernel changes; existing scenarios unaffected (new gates are inert without the new fields).
+
+### Patch Changes
+
+- fdc0344: Adversarial-audit remediation (464db38→804af8f review):
+  - **audit-postgres (release-blocker):** migration `010-add-v5-metadata.sql` widens
+    the `record_version` CHECK to `IN (1,2,3,4,5)` and adds the nullable
+    `metadata_jsonb` column. Core stamps `record_version=5` unconditionally, so
+    against a DB migrated through 009 every audit insert previously failed Postgres 23514. The sink now persists and recovers `metadata` losslessly.
+  - **primitives:** `createTokenBudgetGuard` now fails **closed** on a non-finite
+    over-budget meter — `+Infinity` ≥ any budget crosses (REFUSE) instead of
+    passing through. NaN/negative remain non-crossing.
+  - **conformance:** `generateAiBom` array comparators are now total-order (equal
+    keys → 0), so the `bomDigest` is reproducible for inputs with duplicate keys.
+  - **anthropic / openai:** the provider adapters now declare and forward the
+    agent-loop seams `onTokenUsage`, `memoryStore`, `enrichContext`,
+    `deriveMemoryWriteback`, `configSeal`, and `traceSink` — previously these were
+    unreachable through the bridges (token budget, memory, and config-seal were
+    effectively dead via the published adapters).
+  - **pack-deployments-approval:** total-order tie-break for the model/prompt gate;
+    README documents three release-gate limitations (opt-in regression score,
+    carbon clamp has no data-residency allow-list, model/prompt gate fires on first
+    deploy).
+  - **core:** documents and pins the v5 metadata cross-version verification contract
+    (a pre-v5 verifier would falsely flag a metadata-bearing record as tampered).
+
+- 55c2494: Maturity wave — close the gaps the adversarial audit conceded:
+  - **primitives (command-risk):** the REFUSE tier now covers `rm -rf ~`,
+    `rm -rf $HOME`/`${HOME}`, `rm -rf /*` (not just `rm -rf /`) and is
+    case-insensitive for the destructive rules; a recursive `rm` against a specific
+    recoverable path still only CONFIRMs.
+  - **pack-deployments-approval:** the carbon clamp is now data-residency-bounded
+    (`REGION_RESIDENCY` + `greenestRegionInZone`) — an EU deploy is only relocated
+    to a greener EU region, never across a residency boundary; unknown regions are
+    left untouched (fail-safe). Closes the GDPR foot-gun.
+  - **red-team:** new `taintEscalationCausality` distinguishes taint-gate defenses
+    from precondition defenses, so `escaped===0` is no longer a vacuous guarantee.
+    The PIX fixture documents that preconditions fire first; a precondition-free
+    pack proves the taint gate genuinely fires.
+  - **observability:** ships `createLexicalGroundednessScorer`, a deterministic
+    reference `HallucinationScorer` (1 − claim/evidence containment), so the
+    ADR-124 scoring seam ships with working code, not just an interface.
+  - **pack-access-governance:** the pack now actually uses
+    `createDataClassificationGuard` — it REWRITE-redacts PII (SSN/email) from the
+    free-text `access.request` justification (taint preserved) before processing.
+
+  Console (reference UI, unversioned): the hallucination badge now renders real
+  buckets; the Tier-3 analyzer no longer emits false unreachable-intent warnings
+  (authenticated planner probes); behavioral-drift `evaluate()`/`onDrift` is wired
+  and the demo stream actually drifts; the approvals panel is clearly labeled a
+  display-only projection (production authorization runs through the approval
+  engine). Web playground: stronger PII demo patterns (dashless SSN, grouped PAN).
+
+- Updated dependencies [fdc0344]
+- Updated dependencies [ce2cdc5]
+- Updated dependencies [7545b17]
+- Updated dependencies [570db36]
+- Updated dependencies [55c2494]
+- Updated dependencies [464db38]
+- Updated dependencies [1e0058b]
+  - @adjudicate/core@1.3.0
+  - @adjudicate/primitives@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes

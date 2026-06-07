@@ -1,8 +1,0 @@
----
-"@adjudicate/approval-engine": minor
-"@adjudicate/admin-sdk": minor
----
-
-feat(approval-engine): add `createRedisApprovalRegistry` (+ `CreateRedisApprovalRegistryOptions`, `ApprovalRedisClient`) — a Redis-backed `ApprovalRegistry` implementing the same `put`/`get`/`list`/`markResolved` interface as the in-memory reference, for restart-durable approval projections. Stores ONLY the display projection (never the authoritative envelope blob — that stays in the single-use ConfirmationStore). `markResolved` is a guarded, idempotent read-modify-write; the residual GET+SET TOCTOU is a display-projection race only (the real single-use guarantee lives in `ConfirmationStore.take()` inside `agent.confirm()`). The adopter injects a minimal `set/get/del/keys` client — no hard dependency on a concrete Redis client. ADR-136.
-
-feat(admin-sdk): add read-only `approval.history` and `approval.chain` queries (+ `ApprovalHistoryQuery`/`ApprovalHistoryEntry`/`ApprovalHistoryResult` and `ApprovalChainQuery`/`ApprovalChainStepKind`/`ApprovalChainStep`/`ApprovalChainResult` schemas; optional `AdminContext.approvalPort.history`/`.chain`). `approval.history` projects resolved/expired approvals from the registry; `approval.chain` walks the FROZEN `AuditRecord.supersedes` lineage (confirmation_resolved / defer_resumed) into request → resolved → resumed. Both are actor-gated and `PRECONDITION_FAILED` when the optional port members are unwired (`approval.list`/`resolve` unchanged). `resolvedBy`/`actor` are CLAIMED (forgeable header until OIDC); the chain surfaces token PRESENCE only, never the value. ADR-136.

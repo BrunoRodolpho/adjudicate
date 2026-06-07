@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/red-team",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Deterministic adversarial scenario generation (prompt-injection, taint-escalation, tool-scope-violation) that asserts a Pack's kernel-level defenses hold.",
   "publishConfig": {
     "access": "public"

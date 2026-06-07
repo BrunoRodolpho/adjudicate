@@ -1,5 +1,61 @@
 # @adjudicate/audit-postgres
 
+## 2.0.1
+
+### Patch Changes
+
+- fdc0344: Adversarial-audit remediation (464db38→804af8f review):
+  - **audit-postgres (release-blocker):** migration `010-add-v5-metadata.sql` widens
+    the `record_version` CHECK to `IN (1,2,3,4,5)` and adds the nullable
+    `metadata_jsonb` column. Core stamps `record_version=5` unconditionally, so
+    against a DB migrated through 009 every audit insert previously failed Postgres 23514. The sink now persists and recovers `metadata` losslessly.
+  - **primitives:** `createTokenBudgetGuard` now fails **closed** on a non-finite
+    over-budget meter — `+Infinity` ≥ any budget crosses (REFUSE) instead of
+    passing through. NaN/negative remain non-crossing.
+  - **conformance:** `generateAiBom` array comparators are now total-order (equal
+    keys → 0), so the `bomDigest` is reproducible for inputs with duplicate keys.
+  - **anthropic / openai:** the provider adapters now declare and forward the
+    agent-loop seams `onTokenUsage`, `memoryStore`, `enrichContext`,
+    `deriveMemoryWriteback`, `configSeal`, and `traceSink` — previously these were
+    unreachable through the bridges (token budget, memory, and config-seal were
+    effectively dead via the published adapters).
+  - **pack-deployments-approval:** total-order tie-break for the model/prompt gate;
+    README documents three release-gate limitations (opt-in regression score,
+    carbon clamp has no data-residency allow-list, model/prompt gate fires on first
+    deploy).
+  - **core:** documents and pins the v5 metadata cross-version verification contract
+    (a pre-v5 verifier would falsely flag a metadata-bearing record as tampered).
+
+- 570db36: feat(core): AuditRecord v5 adds optional `metadata` (EXCLUDED from auditHash) + `attachAuditMetadata` + an `adjudicateAndAudit({ metadataProvider })` seam (ADR-124).
+
+  feat(observability): hallucination scoring — `createHallucinationMetadataProvider` + `bucketHallucinationScore` + `adjudicate.hallucination.score`/`.bucket` semconv attributes.
+
+  fix(admin-sdk,audit-postgres): accept AuditRecord v5 (schema + row mapping).
+
+- Updated dependencies [58655cb]
+- Updated dependencies [1ea3ed4]
+- Updated dependencies [60daeef]
+- Updated dependencies [5c1460d]
+- Updated dependencies [2892100]
+- Updated dependencies [fdc0344]
+- Updated dependencies [71658f9]
+- Updated dependencies [2ea6156]
+- Updated dependencies [ce2cdc5]
+- Updated dependencies [0726b56]
+- Updated dependencies [7545b17]
+- Updated dependencies [fa94fcd]
+- Updated dependencies [570db36]
+- Updated dependencies [464db38]
+- Updated dependencies [9f1e379]
+- Updated dependencies [1f091ef]
+- Updated dependencies [75e85df]
+- Updated dependencies [b642424]
+- Updated dependencies [1e0058b]
+- Updated dependencies [6b291be]
+  - @adjudicate/admin-sdk@3.0.0
+  - @adjudicate/core@1.3.0
+  - @adjudicate/audit@3.0.0
+
 ## 2.0.0
 
 ### Minor Changes

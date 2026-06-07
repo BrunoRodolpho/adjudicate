@@ -20,6 +20,7 @@ import {
 import { AccuracyPanel } from "@/components/dashboard/AccuracyPanel";
 import { DriftPanel } from "@/components/dashboard/DriftPanel";
 import { PiiClassificationPanel } from "@/components/dashboard/PiiClassificationPanel";
+import { TokenBudgetPanel } from "@/components/dashboard/TokenBudgetPanel";
 import { SLOPanel } from "@/components/dashboard/SLOPanel";
 import { TopRefusals } from "@/components/dashboard/TopRefusals";
 
@@ -118,6 +119,8 @@ export default function DashboardPage() {
       <DriftPanel />
 
       <PiiClassificationPanel since={since} />
+
+      <TokenBudgetPanel />
     </div>
   );
 }

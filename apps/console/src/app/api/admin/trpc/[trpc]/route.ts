@@ -9,6 +9,8 @@ import { adminRouter } from "@adjudicate/admin-sdk/trpc";
 import type {
   BehavioralDriftResultParsed,
   RedTeamReportParsed,
+  TokenBudgetQuery,
+  TokenBudgetResult,
 } from "@adjudicate/admin-sdk";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import {
@@ -189,6 +191,32 @@ const driftDetector = createDriftDetector({
 });
 for (const record of ALL_MOCKS) driftDetector.observe(record);
 
+// Token-budget telemetry (ADR-120). The reference console does not run an
+// adapter loop, so this is a small seeded demo store illustrating the panel; a
+// real deployment wires a store fed by the adapter's `onTokenUsage` hook.
+const TOKEN_BUDGET = 50_000;
+const DEMO_TOKEN_SESSIONS: ReadonlyArray<{ sessionId: string; consumed: number }> = [
+  { sessionId: "sess-pix-01", consumed: 18_400 },
+  { sessionId: "sess-kyc-02", consumed: 47_900 },
+  { sessionId: "sess-dep-03", consumed: 52_300 },
+];
+const tokenBudget = {
+  async query(input: TokenBudgetQuery): Promise<TokenBudgetResult> {
+    const rows = DEMO_TOKEN_SESSIONS.filter(
+      (s) => input.sessionId === undefined || s.sessionId === input.sessionId,
+    );
+    return {
+      sessions: rows.map((s) => ({
+        sessionId: s.sessionId,
+        consumed: s.consumed,
+        budget: TOKEN_BUDGET,
+        remaining: TOKEN_BUDGET - s.consumed,
+      })),
+      totalConsumed: rows.reduce((sum, s) => sum + s.consumed, 0),
+    };
+  },
+};
+
 export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
@@ -203,6 +231,7 @@ export const { GET, POST } = toNextRouteHandler({
     driftDetector: driftDetector as unknown as {
       snapshot(): BehavioralDriftResultParsed;
     },
+    tokenBudget,
     ...(policyDescriptor ? { policyDescriptor } : {}),
   }),
 });

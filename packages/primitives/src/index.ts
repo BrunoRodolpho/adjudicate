@@ -45,6 +45,7 @@ export {
   createRewriteGuard,
   createStateDeferGuard,
   createThresholdGuard,
+  createTokenBudgetGuard,
   requireTenantBinding,
   type ConfirmGuardOptions,
   type DataClassificationGuardOptions,
@@ -56,6 +57,8 @@ export {
   type StateDeferGuardOptions,
   type ThresholdComparator,
   type ThresholdGuardOptions,
+  type TokenBudgetAction,
+  type TokenBudgetGuardOptions,
 } from "./guards.js";
 
 export {

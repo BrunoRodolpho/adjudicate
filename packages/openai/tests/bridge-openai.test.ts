@@ -185,4 +185,34 @@ describe("createOpenAIBridge", () => {
     });
     expect(req.messages[1]).toEqual({ role: "user", content: "hi" });
   });
+
+  it("maps usage.prompt_tokens/completion_tokens to turn.usage (ADR-120)", async () => {
+    const client: OpenAIChatLikeClient = {
+      chat: {
+        completions: {
+          create: vi.fn(async () => ({
+            choices: [{ message: { role: "assistant" as const, content: "ok" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 11, completion_tokens: 22 },
+          })),
+        },
+      },
+    };
+    const bridge = createOpenAIBridge({ client, model: "gpt-test" });
+    const { turn } = await bridge.send(bridge.emptyHistory(), {
+      systemPrompt: "s",
+      maxTokens: 100,
+      toolSchemas: [],
+    });
+    expect(turn.usage).toEqual({ inputTokens: 11, outputTokens: 22 });
+  });
+
+  it("omits turn.usage when the response has no usage", async () => {
+    const bridge = createOpenAIBridge({ client: fakeClient({ text: "ok" }), model: "gpt-test" });
+    const { turn } = await bridge.send(bridge.emptyHistory(), {
+      systemPrompt: "s",
+      maxTokens: 100,
+      toolSchemas: [],
+    });
+    expect(turn.usage).toBeUndefined();
+  });
 });

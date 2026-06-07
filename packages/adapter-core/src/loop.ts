@@ -134,6 +134,25 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
       });
       history = sent.history;
 
+      // Surface provider token usage (ADR-120) so the adopter can fold a
+      // cumulative counter into the next state S (where a token-budget guard
+      // reads it). Side-effect-only and defensive — a throwing observer must
+      // not break the loop.
+      if (options.onTokenUsage) {
+        try {
+          options.onTokenUsage({
+            sessionId,
+            iteration: iter + 1,
+            usage: sent.turn.usage,
+          });
+        } catch (err) {
+          options.log?.warn?.({
+            msg: "onTokenUsage threw; ignoring",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       for (const text of sent.turn.textBlocks) {
         events.push({ kind: "assistant_text", text });
       }

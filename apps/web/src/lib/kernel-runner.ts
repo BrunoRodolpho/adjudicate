@@ -35,7 +35,10 @@ import {
   paymentsPixPack,
   rehydratePixState,
 } from "@adjudicate/pack-payments-pix";
-import { createDataClassificationGuard } from "@adjudicate/primitives";
+import {
+  createDataClassificationGuard,
+  createTokenBudgetGuard,
+} from "@adjudicate/primitives";
 
 /**
  * Inline demo Pack for the PII / data-classification playground tab (ADR-117).
@@ -80,6 +83,38 @@ const piiDemoPack: PackV0<string, unknown, unknown, unknown> = {
       visibleReadTools: [],
       allowedIntents: ["support.ticket.create"],
     }),
+  },
+};
+
+/**
+ * Inline demo Pack for the token-budget playground tab (ADR-120). A clean step
+ * EXECUTEs; a step whose state carries tokensConsumed at/over the budget is
+ * REFUSEd — demonstrating "counter in state S, kernel disposes".
+ */
+const tokenBudgetDemoPack: PackV0<string, unknown, unknown, unknown> = {
+  id: "pack-token-budget-demo",
+  version: "0.0.0",
+  contract: "v0",
+  intents: ["agent.step"],
+  basisCodes: ["agent.step.executed"],
+  policy: {
+    stateGuards: [],
+    authGuards: [],
+    taint: { minimumFor: () => "UNTRUSTED" },
+    business: [
+      createTokenBudgetGuard<string, unknown, unknown>({
+        extractSessionTokens: (s) => (s as { tokensConsumed?: number }).tokensConsumed ?? 0,
+        sessionBudget: 5000,
+      }),
+      (env) =>
+        env.kind === "agent.step"
+          ? decisionExecute([basis("business", BASIS_CODES.business.RULE_SATISFIED)])
+          : null,
+    ],
+    default: "REFUSE",
+  },
+  planner: {
+    plan: () => ({ visibleReadTools: [], allowedIntents: ["agent.step"] }),
   },
 };
 
@@ -137,6 +172,14 @@ function installAll(): ReadonlyArray<InstalledPack> {
       pack: installPack(piiDemoPack).pack,
       emptyState: {},
       rehydrateState: (raw) => raw ?? {},
+    },
+    {
+      id: tokenBudgetDemoPack.id,
+      displayName: "Token Budget · Cost Control",
+      intents: [...tokenBudgetDemoPack.intents],
+      pack: installPack(tokenBudgetDemoPack).pack,
+      emptyState: { tokensConsumed: 0 },
+      rehydrateState: (raw) => raw ?? { tokensConsumed: 0 },
     },
   ];
 }

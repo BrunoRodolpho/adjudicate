@@ -79,7 +79,18 @@ export function createAnthropicBridge(
           input: b.input,
         }));
 
-      const turn: AssistantTurn = { textBlocks, toolUses };
+      // Map provider token usage (ADR-120). Anthropic's Message carries
+      // `usage.{input_tokens,output_tokens}`; absent → omit.
+      const usage =
+        resp.usage !== undefined
+          ? {
+              inputTokens: resp.usage.input_tokens,
+              outputTokens: resp.usage.output_tokens,
+            }
+          : undefined;
+      const turn: AssistantTurn = usage
+        ? { textBlocks, toolUses, usage }
+        : { textBlocks, toolUses };
       const newHistory: ReadonlyArray<MessageParam> = [
         ...history,
         { role: "assistant", content: resp.content },

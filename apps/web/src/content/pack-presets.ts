@@ -130,6 +130,25 @@ export const PACK_PRESETS: Record<string, ReadonlyArray<PackPreset>> = {
       expectedKind: "EXECUTE",
     },
   ],
+  "token-budget": [
+    {
+      label: "Over budget → REFUSE",
+      description:
+        "An agent step whose session has consumed 6000 tokens against a 5000 budget. The kernel REFUSEs (counter lives in state S).",
+      intentKind: "agent.step",
+      payload: { tool: "search" },
+      state: { tokensConsumed: 6000 },
+      expectedKind: "REFUSE",
+    },
+    {
+      label: "Under budget → EXECUTE",
+      description: "Same step with 1200 tokens consumed — well under budget.",
+      intentKind: "agent.step",
+      payload: { tool: "search" },
+      state: { tokensConsumed: 1200 },
+      expectedKind: "EXECUTE",
+    },
+  ],
   "deployments-approval": [
     {
       label: "Staging at 25% → EXECUTE",
@@ -177,4 +196,5 @@ export const PACK_DISPLAY_NAME: Record<string, string> = {
   "identity-kyc": "Identity · KYC",
   "deployments-approval": "Deployments · Approval",
   "pii-redaction": "Data Classification · PII",
+  "token-budget": "Token Budget · Cost Control",
 };

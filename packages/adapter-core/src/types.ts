@@ -42,12 +42,25 @@ export interface ToolUseRequest {
 }
 
 /**
+ * Provider-reported token usage for a single assistant turn (ADR-120).
+ * Optional — bridges that cannot report usage omit it; the loop treats absence
+ * as "no usage to report". NOT part of any hash; surfaced to the adopter via
+ * `onTokenUsage` so a token-budget counter can be folded into state S.
+ */
+export interface TokenUsage {
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+}
+
+/**
  * Provider-neutral representation of a single assistant turn (text and
  * any tool-use blocks). The bridge fans out the SDK-specific response.
  */
 export interface AssistantTurn {
   readonly textBlocks: ReadonlyArray<string>;
   readonly toolUses: ReadonlyArray<ToolUseRequest>;
+  /** Provider-reported token usage for this turn, when available (ADR-120). */
+  readonly usage?: TokenUsage;
 }
 
 /**
@@ -161,6 +174,17 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
     payload: unknown;
   }) => string;
   readonly log?: AgentLogger;
+  /**
+   * Fired once per provider response with that turn's token usage (ADR-120).
+   * Side-effect-only; MUST NOT throw (the loop guards it). The adapter does NOT
+   * mutate state S — the adopter uses this to fold `tokensConsumed` into the
+   * next `SendInput.state`, where a `createTokenBudgetGuard` reads it.
+   */
+  readonly onTokenUsage?: (info: {
+    readonly sessionId: string;
+    readonly iteration: number;
+    readonly usage: TokenUsage | undefined;
+  }) => void;
   /**
    * Hash-verification policy for parked envelope blobs at resume.
    * Defaults to `"strict"` (SecurityReviewer-010): a legacy blob lacking

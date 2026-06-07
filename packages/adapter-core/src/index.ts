@@ -36,6 +36,7 @@ export type {
   ProviderRequest,
   ResumeArgs,
   SendInput,
+  TokenUsage,
   ToolResultBlock,
   ToolUseRequest,
 } from "./types.js";

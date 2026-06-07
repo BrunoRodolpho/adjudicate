@@ -703,3 +703,110 @@ export function createDataClassificationGuard<K extends string, P, S>(
     },
   });
 }
+
+// ─── createTokenBudgetGuard (cost control, ADR-120) ─────────────────────────
+
+/**
+ * Token-budget guard factory.
+ *
+ * A pure guard that REFUSEs (or DEFERs) when cumulative LLM token consumption
+ * crosses a per-session or per-tenant budget.
+ *
+ * **Determinism note (corrects the roadmap):** guards never receive
+ * `RuntimeContext`, and `RuntimeContext` is a singletons-only container — NOT
+ * decision-input data. So `tokensConsumed` lives in the adopter's **state `S`**
+ * (which guards do receive), read here via `extractSessionTokens` /
+ * `extractTenantTokens`. The adapter updates the counter AFTER each LLM
+ * response (via `AssistantTurn.usage` + the `onTokenUsage` hook) and folds it
+ * into the next `S`. Given a fixed `S` the decision is pure and replayable.
+ *
+ * DEFER has no natural external resume signal (unlike a webhook), so REFUSE is
+ * the default/primary action; DEFER parks on an adopter-emitted
+ * `token_budget_reset` signal.
+ *
+ * Metadata is `{ kind: "opaque" }` — the guard is a numeric-crossing shape but
+ * spans two scopes, so it does not fit the closed `threshold` variant; opaque
+ * is the sanctioned escape hatch (no `GuardDescription` widening).
+ */
+export type TokenBudgetAction = "REFUSE" | "DEFER";
+
+export interface TokenBudgetGuardOptions<K extends string, P, S> {
+  /** Engage predicate. Defaults to "always engage" when omitted. */
+  readonly matches?: (envelope: IntentEnvelope<K, P>, state: S) => boolean;
+  /** Read session-scoped tokens consumed so far from adopter state S. */
+  readonly extractSessionTokens: (state: S, envelope: IntentEnvelope<K, P>) => number;
+  /** Read tenant-scoped tokens consumed. Required iff `tenantBudget` is set. */
+  readonly extractTenantTokens?: (state: S, envelope: IntentEnvelope<K, P>) => number;
+  /** Per-session cap. At least one of sessionBudget/tenantBudget is required. */
+  readonly sessionBudget?: number;
+  /** Per-tenant cap. */
+  readonly tenantBudget?: number;
+  /** What to do when a budget is crossed. Defaults to "REFUSE". */
+  readonly action?: TokenBudgetAction;
+  /** Signal to park on when action === "DEFER". Defaults to "token_budget_reset". */
+  readonly deferSignal?: string;
+  /** DEFER timeout (ms). Required when action === "DEFER". */
+  readonly deferTimeoutMs?: number;
+  /** User-facing refusal text (REFUSE action). */
+  readonly userFacing?: string;
+}
+
+export function createTokenBudgetGuard<K extends string, P, S>(
+  options: TokenBudgetGuardOptions<K, P, S>,
+): Guard<K, P, S> {
+  if (options.sessionBudget === undefined && options.tenantBudget === undefined) {
+    throw new Error(
+      "createTokenBudgetGuard: at least one of sessionBudget / tenantBudget is required.",
+    );
+  }
+  const action = options.action ?? "REFUSE";
+  if (action === "DEFER" && options.deferTimeoutMs === undefined) {
+    throw new Error("createTokenBudgetGuard: deferTimeoutMs is required when action is DEFER.");
+  }
+  if (options.tenantBudget !== undefined && options.extractTenantTokens === undefined) {
+    throw new Error("createTokenBudgetGuard: extractTenantTokens is required when tenantBudget is set.");
+  }
+  const userFacing = options.userFacing ?? "Token budget exhausted for this session.";
+  const deferSignal = options.deferSignal ?? "token_budget_reset";
+
+  const guard: Guard<K, P, S> = (envelope, state) => {
+    if (options.matches && !options.matches(envelope, state)) return null;
+
+    let scope: "session" | "tenant" | null = null;
+    let consumed = 0;
+    let budget = 0;
+    if (options.sessionBudget !== undefined) {
+      const session = options.extractSessionTokens(state, envelope);
+      // NaN/Infinity-safe: NaN comparisons are false → no spurious crossing.
+      if (Number.isFinite(session) && session >= options.sessionBudget) {
+        scope = "session";
+        consumed = session;
+        budget = options.sessionBudget;
+      }
+    }
+    if (scope === null && options.tenantBudget !== undefined && options.extractTenantTokens) {
+      const tenant = options.extractTenantTokens(state, envelope);
+      if (Number.isFinite(tenant) && tenant >= options.tenantBudget) {
+        scope = "tenant";
+        consumed = tenant;
+        budget = options.tenantBudget;
+      }
+    }
+    if (scope === null) return null;
+
+    const detail = { rule: "token_budget", scope, consumed, budget };
+    if (action === "DEFER") {
+      return decisionDefer(deferSignal, options.deferTimeoutMs!, [
+        basis("business", BASIS_CODES.business.RULE_VIOLATED, detail),
+      ]);
+    }
+    return decisionRefuse(
+      refuse("BUSINESS_RULE", "token_budget.exhausted", userFacing, `${scope} budget ${budget} reached (consumed ${consumed})`),
+      [basis("business", BASIS_CODES.business.RULE_VIOLATED, detail)],
+    );
+  };
+
+  return withMetadata(guard, {
+    description: { kind: "opaque", note: "token budget guard (session/tenant)" },
+  });
+}

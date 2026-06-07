@@ -63,6 +63,11 @@ export interface OpenAIChatCompletionResponse {
     };
     readonly finish_reason?: string | null;
   }>;
+  /** Token usage (ADR-120). Optional — present on real OpenAI responses. */
+  readonly usage?: {
+    readonly prompt_tokens?: number;
+    readonly completion_tokens?: number;
+  };
 }
 
 export interface OpenAIChatCompletionRequest {

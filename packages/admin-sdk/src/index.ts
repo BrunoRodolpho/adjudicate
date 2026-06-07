@@ -113,6 +113,14 @@ export {
 } from "./schemas/behavioral-drift.js";
 
 export {
+  TokenBudgetQuerySchema,
+  TokenBudgetResultSchema,
+  TokenBudgetSessionSchema,
+  type TokenBudgetQuery,
+  type TokenBudgetResult,
+} from "./schemas/token-budget.js";
+
+export {
   GuardDescriptionSchema,
   GuardDescriptorSchema,
   GuardMetadataSchema,

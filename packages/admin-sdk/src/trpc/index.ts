@@ -60,6 +60,12 @@ import {
   BehavioralDriftResultSchema,
   type BehavioralDriftResultParsed,
 } from "../schemas/behavioral-drift.js";
+import {
+  TokenBudgetQuerySchema,
+  TokenBudgetResultSchema,
+  type TokenBudgetQuery,
+  type TokenBudgetResult,
+} from "../schemas/token-budget.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -125,6 +131,12 @@ export interface AdminContext {
    * when absent.
    */
   readonly driftDetector?: { snapshot(): BehavioralDriftResultParsed };
+  /**
+   * Optional token-budget telemetry store (ADR-120), fed by the adapter's
+   * `onTokenUsage` hook. `governance.tokenBudget` throws PRECONDITION_FAILED
+   * when absent.
+   */
+  readonly tokenBudget?: { query(input: TokenBudgetQuery): Promise<TokenBudgetResult> };
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -277,6 +289,24 @@ const governanceRouter = t.router({
     .query(async ({ input, ctx }) => {
       const handler = createPiiClassificationHandler({ store: ctx.store });
       return handler(input);
+    }),
+
+  /**
+   * Per-session token-budget telemetry (ADR-120). Throws PRECONDITION_FAILED
+   * when no token-budget store is wired into context.
+   */
+  tokenBudget: t.procedure
+    .input(TokenBudgetQuerySchema)
+    .output(TokenBudgetResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.tokenBudget) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Token-budget store not configured. Wire a store fed by the adapter's onTokenUsage hook into the route handler context.",
+        });
+      }
+      return ctx.tokenBudget.query(input);
     }),
 
   /**

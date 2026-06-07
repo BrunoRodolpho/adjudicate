@@ -118,7 +118,18 @@ export function createOpenAIBridge(
         },
       );
 
-      const turn: AssistantTurn = { textBlocks, toolUses };
+      // Map provider token usage (ADR-120): OpenAI reports
+      // `usage.{prompt_tokens,completion_tokens}`; absent → omit.
+      const usage =
+        resp.usage !== undefined
+          ? {
+              inputTokens: resp.usage.prompt_tokens,
+              outputTokens: resp.usage.completion_tokens,
+            }
+          : undefined;
+      const turn: AssistantTurn = usage
+        ? { textBlocks, toolUses, usage }
+        : { textBlocks, toolUses };
       const assistantMessage: OpenAIMessage = {
         role: "assistant",
         content: message.content ?? null,

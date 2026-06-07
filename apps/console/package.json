@@ -15,6 +15,7 @@
     "@adjudicate/admin-sdk": "workspace:*",
     "@adjudicate/audit": "workspace:*",
     "@adjudicate/audit-postgres": "workspace:*",
+    "@adjudicate/conformance": "workspace:*",
     "@adjudicate/core": "workspace:*",
     "@adjudicate/drift": "workspace:*",
     "@adjudicate/pack-deployments-approval": "workspace:*",

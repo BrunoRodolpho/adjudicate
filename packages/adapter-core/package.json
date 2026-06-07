@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@adjudicate/audit": "workspace:*",
+    "@adjudicate/conformance": "workspace:*",
     "@adjudicate/core": "workspace:*",
     "@adjudicate/runtime": "workspace:*"
   },

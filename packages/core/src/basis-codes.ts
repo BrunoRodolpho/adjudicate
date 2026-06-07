@@ -74,6 +74,9 @@ export const BASIS_CODES = {
    */
   kill: {
     ACTIVE: "active",
+    // Configuration-integrity seal mismatch (ADR-121). Like kill.ACTIVE, blocks
+    // regardless of policy — the installed Pack config drifted from its seal.
+    SEAL_MISMATCH: "seal_mismatch",
   },
   /**
    * Deadline — emitted by `adjudicateWithDeadline` when wall-clock time

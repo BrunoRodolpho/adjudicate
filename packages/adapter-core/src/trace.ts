@@ -45,7 +45,8 @@ export type AdapterTracePhase =
   | "decision_emitted"
   | "paused"
   | "completed"
-  | "max_iterations_exceeded";
+  | "max_iterations_exceeded"
+  | "config_seal_violation";
 
 export type AdapterPauseReason =
   | "deferred"

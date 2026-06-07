@@ -10,6 +10,7 @@ import {
   type DashboardRange,
 } from "@/components/dashboard/RangePicker";
 import { BehavioralDriftPanel } from "@/components/governance/BehavioralDriftPanel";
+import { ConfigSealStatus } from "@/components/governance/ConfigSealStatus";
 import { RedTeamPanel } from "@/components/governance/RedTeamPanel";
 import { useGuardFireStats } from "@/hooks/useGuardFireStats";
 import { usePolicyDescriptor } from "@/hooks/usePolicyDescriptor";
@@ -82,6 +83,8 @@ export default function GovernancePage() {
           ) : null}
         </div>
       </section>
+
+      <ConfigSealStatus />
 
       <BehavioralDriftPanel />
 

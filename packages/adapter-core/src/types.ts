@@ -21,6 +21,7 @@ import type {
 } from "@adjudicate/core";
 import type { PromptRenderer, ToolSchema } from "@adjudicate/core/llm";
 import type { RuntimeContext } from "@adjudicate/core/kernel";
+import type { ConfigSeal, ConfigSealPolicy } from "@adjudicate/conformance";
 import type {
   ConfirmationStore,
   DeferRedis,
@@ -186,6 +187,19 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
     readonly usage: TokenUsage | undefined;
   }) => void;
   /**
+   * Optional configuration-integrity gate (ADR-121). When supplied, the loop
+   * verifies the Pack's sealable surface against `seal` ONCE per agent instance
+   * before the first adjudication. On mismatch the turn is REFUSED (no
+   * adjudication runs) and, if `engageKillSwitchOnMismatch`, the runtime
+   * context's kill switch is engaged.
+   */
+  readonly configSeal?: {
+    readonly seal: ConfigSeal;
+    readonly publicKeyPem?: string;
+    readonly policy?: ConfigSealPolicy;
+    readonly engageKillSwitchOnMismatch?: boolean;
+  };
+  /**
    * Hash-verification policy for parked envelope blobs at resume.
    * Defaults to `"strict"` (SecurityReviewer-010): a legacy blob lacking
    * verification fields fails closed rather than resuming with a warning.
@@ -231,7 +245,9 @@ export type AgentOutcome =
       confirmationToken: string;
     }
   | { kind: "escalated"; to: "human" | "supervisor"; reason: string }
-  | { kind: "max_iterations_exceeded"; lastDecision: Decision | null };
+  | { kind: "max_iterations_exceeded"; lastDecision: Decision | null }
+  /** Config-integrity seal mismatch refused the turn before any adjudication (ADR-121). */
+  | { kind: "refused"; reason: string; detail?: string };
 
 export interface AgentTurnResult<H> {
   readonly events: ReadonlyArray<AgentEvent>;

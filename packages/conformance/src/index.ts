@@ -60,6 +60,21 @@ export {
   type VerifyPackTrustOptions,
 } from "./pack-trust.js";
 
+// Configuration Integrity Seal (ADR-121) — pins the introspectable config
+// surface (declarative + guard metadata + probed taint minimums) under a
+// signature; the adapter verifies at runtime.
+export {
+  computeConfigDigest,
+  extractSealableSurface,
+  sealPackConfig,
+  verifyConfigSeal,
+  type ConfigSeal,
+  type ConfigSealPolicy,
+  type ConfigSealReport,
+  type SealableSurface,
+  type SealablePackInput,
+} from "./config-seal.js";
+
 // Pack health diagnostics — post-v1 composable scoring over the
 // existing primitives. Pure; closed vocabulary; additive over time.
 export {

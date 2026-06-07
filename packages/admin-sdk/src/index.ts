@@ -121,6 +121,11 @@ export {
 } from "./schemas/token-budget.js";
 
 export {
+  ConfigSealReportSchema,
+  type ConfigSealReportParsed,
+} from "./schemas/config-seal.js";
+
+export {
   GuardDescriptionSchema,
   GuardDescriptorSchema,
   GuardMetadataSchema,

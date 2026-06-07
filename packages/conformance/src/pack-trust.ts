@@ -52,6 +52,7 @@
  */
 
 import { createHash, createPublicKey, createPrivateKey, sign, verify } from "node:crypto";
+import { canonicalJson } from "./canonical-json.js";
 
 /**
  * Minimal Pack shape required for fingerprinting. Wider than PackV0 so
@@ -78,49 +79,6 @@ export interface PackSignature {
   readonly value: string;
 }
 
-/**
- * Canonical-JSON serializer for the declarative Pack subset.
- *
- * Mirrors `packages/core/src/hash.ts`'s rules (RFC 8785 JCS) but is a
- * minimal subset because:
- *   - keys are sorted by UTF-16 code-unit order
- *   - strings, numbers, booleans, arrays, objects, null are the only
- *     value types we accept here
- *   - undefined keys are omitted (matches JCS § 2.2)
- *
- * Lifted into this module so trust verification has zero dependency on
- * `@adjudicate/core`. The implementation is short, the behavior is
- * load-bearing — duplicate it rather than introduce a cross-package
- * cycle through trust → core → conformance → trust.
- */
-function canonicalJson(value: unknown): string {
-  if (value === null) return "null";
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new Error(
-        `canonicalJson: non-finite number not representable (got ${value})`,
-      );
-    }
-    return JSON.stringify(value);
-  }
-  if (typeof value === "string") return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((v) => (v === undefined ? "null" : canonicalJson(v))).join(",")}]`;
-  }
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj).sort();
-    const parts: string[] = [];
-    for (const k of keys) {
-      const v = obj[k];
-      if (v === undefined) continue;
-      parts.push(`${JSON.stringify(k)}:${canonicalJson(v)}`);
-    }
-    return `{${parts.join(",")}}`;
-  }
-  throw new Error(`canonicalJson: unsupported value type (${typeof value})`);
-}
 
 /**
  * Compute the Pack's deterministic fingerprint. Returns 64-char lowercase

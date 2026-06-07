@@ -27,7 +27,8 @@ import {
   type Decision,
   type IntentEnvelope,
 } from "@adjudicate/core";
-import { adjudicateAndAudit } from "@adjudicate/core/kernel";
+import { adjudicateAndAudit, getDefaultRuntimeContext } from "@adjudicate/core/kernel";
+import { verifyConfigSeal, type SealablePackInput } from "@adjudicate/conformance";
 import { resumeDeferredIntent } from "@adjudicate/runtime";
 import {
   buildEnvelopeFromToolUse,
@@ -64,6 +65,50 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
   const bridge = options.bridge;
   const traceSink = options.traceSink ?? noopTraceSink;
 
+  // Configuration-integrity seal gate (ADR-121). Verified once per agent
+  // instance, cached. On mismatch the turn is refused before any adjudication.
+  let sealChecked = false;
+  let sealRefusal: { reason: string; detail: string } | null = null;
+
+  function checkConfigSeal(sessionId: string): AgentTurnResult<H> | null {
+    if (!options.configSeal) return null;
+    if (!sealChecked) {
+      sealChecked = true;
+      const report = verifyConfigSeal(
+        options.pack as unknown as SealablePackInput,
+        options.configSeal.seal,
+        {
+          ...(options.configSeal.publicKeyPem !== undefined
+            ? { publicKeyPem: options.configSeal.publicKeyPem }
+            : {}),
+          ...(options.configSeal.policy !== undefined
+            ? { policy: options.configSeal.policy }
+            : {}),
+        },
+      );
+      if (!report.verified) {
+        sealRefusal = {
+          reason: "config_seal_mismatch",
+          detail: report.errors.join("; "),
+        };
+        if (options.configSeal.engageKillSwitchOnMismatch) {
+          const ctx = options.runtimeContext ?? getDefaultRuntimeContext();
+          ctx.killSwitch.set(true, "config_seal_mismatch");
+        }
+      }
+    }
+    if (sealRefusal === null) return null;
+    traceSink.onTrace({ phase: "config_seal_violation", sessionId, iteration: 0 });
+    options.log?.warn?.(
+      { msg: "config seal mismatch — refusing turn", detail: sealRefusal.detail },
+    );
+    return {
+      events: [],
+      history: bridge.emptyHistory(),
+      outcome: { kind: "refused", reason: sealRefusal.reason, detail: sealRefusal.detail },
+    };
+  }
+
   function pauseActionToReason(kind: LoopAction["kind"]): AdapterPauseReason | undefined {
     switch (kind) {
       case "pause_for_defer":
@@ -91,6 +136,11 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
      */
     seedDecision: SeedDecision<K, P> | null,
   ): Promise<AgentTurnResult<H>> {
+    // Configuration-integrity gate (ADR-121): refuse before any adjudication
+    // when the installed Pack config has drifted from its signed seal.
+    const sealResult = checkConfigSeal(sessionId);
+    if (sealResult !== null) return sealResult;
+
     const events: AgentEvent[] = [...seedEvents];
     let history = initialHistory;
     let lastDecision: Decision | null = null;

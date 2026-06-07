@@ -8,10 +8,16 @@ import {
 import { adminRouter } from "@adjudicate/admin-sdk/trpc";
 import type {
   BehavioralDriftResultParsed,
+  ConfigSealReportParsed,
   RedTeamReportParsed,
   TokenBudgetQuery,
   TokenBudgetResult,
 } from "@adjudicate/admin-sdk";
+import {
+  sealPackConfig,
+  verifyConfigSeal,
+  type SealablePackInput,
+} from "@adjudicate/conformance";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import {
   generateAllVectors,
@@ -200,6 +206,14 @@ const DEMO_TOKEN_SESSIONS: ReadonlyArray<{ sessionId: string; consumed: number }
   { sessionId: "sess-kyc-02", consumed: 47_900 },
   { sessionId: "sess-dep-03", consumed: 52_300 },
 ];
+// Config-integrity seal status (ADR-121). Seal the installed pack at startup and
+// verify it against itself — a real deployment loads a committed/signed seal.
+const sealablePack = deploymentsApprovalPack as unknown as SealablePackInput;
+const configSealStatus = verifyConfigSeal(
+  sealablePack,
+  sealPackConfig(sealablePack),
+) as unknown as ConfigSealReportParsed;
+
 const tokenBudget = {
   async query(input: TokenBudgetQuery): Promise<TokenBudgetResult> {
     const rows = DEMO_TOKEN_SESSIONS.filter(
@@ -232,6 +246,7 @@ export const { GET, POST } = toNextRouteHandler({
       snapshot(): BehavioralDriftResultParsed;
     },
     tokenBudget,
+    configSealStatus,
     ...(policyDescriptor ? { policyDescriptor } : {}),
   }),
 });

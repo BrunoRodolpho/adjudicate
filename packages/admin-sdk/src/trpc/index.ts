@@ -66,6 +66,10 @@ import {
   type TokenBudgetQuery,
   type TokenBudgetResult,
 } from "../schemas/token-budget.js";
+import {
+  ConfigSealReportSchema,
+  type ConfigSealReportParsed,
+} from "../schemas/config-seal.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -137,6 +141,12 @@ export interface AdminContext {
    * when absent.
    */
   readonly tokenBudget?: { query(input: TokenBudgetQuery): Promise<TokenBudgetResult> };
+  /**
+   * Optional config-seal verification report (ADR-121), computed at startup via
+   * `verifyConfigSeal(pack, seal)`. `governance.configSealStatus` throws
+   * PRECONDITION_FAILED when absent.
+   */
+  readonly configSealStatus?: ConfigSealReportParsed;
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -289,6 +299,23 @@ const governanceRouter = t.router({
     .query(async ({ input, ctx }) => {
       const handler = createPiiClassificationHandler({ store: ctx.store });
       return handler(input);
+    }),
+
+  /**
+   * Config-integrity seal status for the installed Pack (ADR-121). Throws
+   * PRECONDITION_FAILED when no seal report is wired into context.
+   */
+  configSealStatus: t.procedure
+    .output(ConfigSealReportSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.configSealStatus) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Config-seal status not configured. Compute verifyConfigSeal(pack, seal) at startup and wire the report into context.",
+        });
+      }
+      return ctx.configSealStatus;
     }),
 
   /**

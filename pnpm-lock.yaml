@@ -47,6 +47,9 @@ importers:
       '@adjudicate/audit-postgres':
         specifier: workspace:*
         version: link:../../packages/audit-postgres
+      '@adjudicate/conformance':
+        specifier: workspace:*
+        version: link:../../packages/conformance
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -341,6 +344,9 @@ importers:
       '@adjudicate/audit':
         specifier: workspace:*
         version: link:../audit
+      '@adjudicate/conformance':
+        specifier: workspace:*
+        version: link:../conformance
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../core

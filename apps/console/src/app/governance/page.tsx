@@ -9,6 +9,7 @@ import {
   isoSince,
   type DashboardRange,
 } from "@/components/dashboard/RangePicker";
+import { RedTeamPanel } from "@/components/governance/RedTeamPanel";
 import { useGuardFireStats } from "@/hooks/useGuardFireStats";
 import { usePolicyDescriptor } from "@/hooks/usePolicyDescriptor";
 
@@ -80,6 +81,8 @@ export default function GovernancePage() {
           ) : null}
         </div>
       </section>
+
+      <RedTeamPanel />
     </div>
   );
 }

@@ -33,6 +33,7 @@
     "@adjudicate/analyze": "workspace:*",
     "@adjudicate/conformance": "workspace:*",
     "@adjudicate/core": "workspace:*",
+    "@adjudicate/red-team": "workspace:*",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
     "zod": "^4.3.6"

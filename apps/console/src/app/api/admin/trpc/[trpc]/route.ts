@@ -6,7 +6,14 @@ import {
   type EmergencyStateStore,
 } from "@adjudicate/admin-sdk";
 import { adminRouter } from "@adjudicate/admin-sdk/trpc";
+import type { RedTeamReportParsed } from "@adjudicate/admin-sdk";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
+import {
+  generateAllVectors,
+  runRedTeam,
+  type RedTeamPack,
+} from "@adjudicate/red-team";
+import { deploymentsApprovalPack } from "@adjudicate/pack-deployments-approval";
 import { createRedisEmergencyStateStore } from "@adjudicate/audit";
 import {
   createPostgresAuditStore,
@@ -158,6 +165,15 @@ const policyDescriptor: PolicyBundleDescriptor | undefined = firstPack
     )
   : undefined;
 
+// Pre-compute the adversarial red-team report once at startup (ADR-118). The
+// kernel run is pure + deterministic; the report feeds the console's Red-Team
+// panel via `governance.redTeam`.
+const redTeamPack = deploymentsApprovalPack as unknown as RedTeamPack;
+const redTeamReport = runRedTeam(
+  redTeamPack,
+  generateAllVectors(redTeamPack),
+) as unknown as RedTeamReportParsed;
+
 export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
@@ -168,6 +184,7 @@ export const { GET, POST } = toNextRouteHandler({
     actor: extractActor(req),
     replayer,
     guardFireStats,
+    redTeamReport,
     ...(policyDescriptor ? { policyDescriptor } : {}),
   }),
 });

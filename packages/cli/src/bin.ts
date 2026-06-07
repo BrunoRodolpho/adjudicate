@@ -8,6 +8,7 @@ import { runPackInit, TEMPLATE_NAMES, type TemplateName } from "./commands/pack-
 import { runPackLint } from "./commands/pack-lint.js";
 import { runPackVerify, type TrustPolicy } from "./commands/pack-verify.js";
 import { runReap } from "./commands/reap.js";
+import { runRedTeamCommand } from "./commands/red-team.js";
 import { runReplay } from "./commands/replay.js";
 import { runRepl } from "./commands/repl.js";
 import { runScenariosGenerate } from "./commands/scenarios-generate.js";
@@ -263,6 +264,55 @@ program
       await runReplay({
         pack: options.pack,
         records: options.records,
+        format,
+      });
+    },
+  );
+
+program
+  .command("red-team")
+  .description(
+    "Generate adversarial scenarios for a Pack and assert its kernel-level defenses hold",
+  )
+  .requiredOption("--pack <module>", "Pack module spec")
+  .option("--seed <n>", "PRNG seed for deterministic generation")
+  .option("--per-intent <n>", "Attack variants per eligible intent kind. Defaults to 3")
+  .option(
+    "--vectors <csv>",
+    "Comma list of vectors: prompt_injection,taint_escalation,tool_scope_violation. Defaults to all",
+  )
+  .option("--format <text|json>", "Output format. Defaults to text", "text")
+  .action(
+    async (options: {
+      pack: string;
+      seed?: string;
+      perIntent?: string;
+      vectors?: string;
+      format?: string;
+    }) => {
+      const format = (options.format ?? "text") as "text" | "json";
+      if (format !== "text" && format !== "json") {
+        console.error(`✗ Unknown --format value "${options.format}". Use text or json.`);
+        process.exit(1);
+      }
+      const VALID = ["prompt_injection", "taint_escalation", "tool_scope_violation"] as const;
+      type Vector = (typeof VALID)[number];
+      let vectors: ReadonlyArray<Vector> | undefined;
+      if (options.vectors !== undefined) {
+        const parts = options.vectors.split(",").map((p) => p.trim()).filter(Boolean);
+        for (const p of parts) {
+          if (!VALID.includes(p as Vector)) {
+            console.error(`✗ Unknown vector "${p}". Use ${VALID.join(", ")}.`);
+            process.exit(1);
+          }
+        }
+        vectors = parts as ReadonlyArray<Vector>;
+      }
+      await runRedTeamCommand({
+        pack: options.pack,
+        ...(options.seed !== undefined ? { seed: Number(options.seed) } : {}),
+        ...(options.perIntent !== undefined ? { perIntent: Number(options.perIntent) } : {}),
+        ...(vectors !== undefined ? { vectors } : {}),
         format,
       });
     },

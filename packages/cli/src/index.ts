@@ -56,6 +56,11 @@ export {
 } from "./commands/scenarios-generate.js";
 
 export {
+  runRedTeamCommand,
+  type RedTeamOptions,
+} from "./commands/red-team.js";
+
+export {
   runDev,
   type DevOptions,
   COMPOSE_FILENAME,

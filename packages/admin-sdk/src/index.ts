@@ -96,6 +96,15 @@ export {
 } from "./schemas/pii-classification.js";
 
 export {
+  AttackVectorSchema,
+  RedTeamReportSchema,
+  RedTeamResultSchema,
+  RedTeamStatusSchema,
+  RedTeamSummarySchema,
+  type RedTeamReportParsed,
+} from "./schemas/red-team.js";
+
+export {
   GuardDescriptionSchema,
   GuardDescriptorSchema,
   GuardMetadataSchema,

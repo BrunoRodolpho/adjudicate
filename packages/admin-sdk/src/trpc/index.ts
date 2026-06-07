@@ -52,6 +52,10 @@ import {
   PiiClassificationResultSchema,
 } from "../schemas/pii-classification.js";
 import { createPiiClassificationHandler } from "../handlers/pii-classification.js";
+import {
+  RedTeamReportSchema,
+  type RedTeamReportParsed,
+} from "../schemas/red-team.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -104,6 +108,12 @@ export interface AdminContext {
    */
   readonly outcomeSink?: OutcomeSink;
   readonly outcomeLookup?: InMemoryOutcomeSink | OutcomeLookup;
+  /**
+   * Optional pre-computed red-team report (ADR-118). The route handler runs
+   * `@adjudicate/red-team` against the installed Pack at startup and threads the
+   * report here; `governance.redTeam` throws PRECONDITION_FAILED when absent.
+   */
+  readonly redTeamReport?: RedTeamReportParsed;
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -256,6 +266,23 @@ const governanceRouter = t.router({
     .query(async ({ input, ctx }) => {
       const handler = createPiiClassificationHandler({ store: ctx.store });
       return handler(input);
+    }),
+
+  /**
+   * Pre-computed adversarial red-team report for the installed Pack (ADR-118).
+   * Throws PRECONDITION_FAILED when no report is wired into context.
+   */
+  redTeam: t.procedure
+    .output(RedTeamReportSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.redTeamReport) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Red-team report not configured. Run @adjudicate/red-team against the installed Pack and wire the report into the route handler context.",
+        });
+      }
+      return ctx.redTeamReport;
     }),
 
   /**

@@ -38,6 +38,51 @@ export const PII_TRANSPARENCY_SAMPLE: readonly PiiTransparencyRow[] = [
   { sensitivityLevel: "critical", disposition: "blocked", count: 29 },
 ];
 
+// ─── Command-risk transparency (ADR-134) ─────────────────────────────────────
+
+/**
+ * Closed-enum command-risk category for a public transparency row. Mirrors the
+ * kernel's `CommandRiskCategory` (primitives/command-classify.ts) EXACTLY,
+ * including `"safe"` — the public view shows the full classification taxonomy as
+ * a category distribution (safe commands produce no audit basis, so their public
+ * count is always 0, advertised honestly).
+ *
+ * SECURITY: the public command-risk view is the highest-stakes redaction in the
+ * system — command-risk audit detail carries the RAW command (which routinely
+ * embeds live secrets) AND the matched rule ids (which telegraph exactly which
+ * dangerous patterns fired). The public shape carries ONLY `category` + `count`:
+ * no command text, no rule ids, no disposition split (which could let an outsider
+ * infer "a credential-exfil attempt is in progress"), no timestamps, no tenant
+ * data. Redaction is by construction — there is no field that could carry any of
+ * it.
+ */
+export type CommandRiskCategory =
+  | "destructive"
+  | "network"
+  | "credential"
+  | "safe";
+
+/** A single aggregate row: count of command-risk dispositions for a category. */
+export interface CommandRiskTransparencyRow {
+  readonly category: CommandRiskCategory;
+  readonly count: number;
+}
+
+/**
+ * Illustrative command-risk aggregate sample. Realistic spread across the risk
+ * categories; `credential` is a small cohort (count 4) to exercise the
+ * small-cohort floor on the public page, and `safe` is 0 (safe commands never
+ * produce a basis). NO disposition split, NO command text, NO rule ids — the
+ * fixture itself only ever carries `category` + `count`.
+ */
+export const COMMAND_RISK_TRANSPARENCY_SAMPLE: readonly CommandRiskTransparencyRow[] =
+  [
+    { category: "destructive", count: 312 },
+    { category: "network", count: 87 },
+    { category: "credential", count: 4 },
+    { category: "safe", count: 0 },
+  ];
+
 // ─── AI-BOM transparency (ADR-130) ──────────────────────────────────────────
 
 /** A model reference in an illustrative AI-BOM. */

@@ -102,6 +102,25 @@ export {
 } from "./schemas/pii-classification.js";
 
 export {
+  CommandRiskBucketSchema,
+  CommandRiskCategorySchema,
+  CommandRiskDispositionSchema,
+  CommandRiskEventSchema,
+  CommandRiskEventsQuerySchema,
+  CommandRiskEventsResultSchema,
+  CommandRiskQuerySchema,
+  CommandRiskResultSchema,
+  type CommandRiskBucket,
+  type CommandRiskCategory,
+  type CommandRiskDisposition,
+  type CommandRiskEvent,
+  type CommandRiskEventsQuery,
+  type CommandRiskEventsResult,
+  type CommandRiskQuery,
+  type CommandRiskResult,
+} from "./schemas/command-risk.js";
+
+export {
   AttackVectorSchema,
   RedTeamReportSchema,
   RedTeamResultSchema,
@@ -258,6 +277,13 @@ export {
   createPiiEventsHandler,
   type CreatePiiEventsHandlerDeps,
 } from "./handlers/pii-events.js";
+
+export {
+  createCommandRiskStatsHandler,
+  createCommandRiskEventsHandler,
+  type CreateCommandRiskStatsHandlerDeps,
+  type CreateCommandRiskEventsHandlerDeps,
+} from "./handlers/command-risk.js";
 
 // ─── Auth utility ───────────────────────────────────────────────────────────
 export { extractActor } from "./auth/extract-actor.js";

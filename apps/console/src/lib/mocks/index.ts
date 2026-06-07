@@ -10,6 +10,7 @@ import { pixChargeCreateDefer } from "./pix-charge-create-defer";
 import { pixLargeRefundEscalate } from "./pix-large-refund-escalate";
 import { pixMediumRefundConfirm } from "./pix-medium-refund-confirm";
 import { pixOvershootRefundRewrite } from "./pix-overshoot-refund-rewrite";
+import { COMMAND_RISK_MOCKS } from "./command-risk";
 
 /**
  * Decision-outcome fixtures driving the mock gateway.
@@ -50,7 +51,14 @@ function withHallucination(record: AuditRecord, claim: string, evidence: string)
   return meta ? attachAuditMetadata(record, meta) : record;
 }
 
-export const ALL_MOCKS: readonly AuditRecord[] = [
+/**
+ * The seven decision-outcome fixtures. This is the stream the behavioral-drift
+ * detector warms from — DRIFT_CONFIG's windows (baseline 3 / recent 4) are sized
+ * for exactly these seven records, so drift behavior must stay scoped to this
+ * set. Additive surfaces that need extra audit records (e.g. command-risk) join
+ * `ALL_MOCKS` below WITHOUT perturbing the drift demo.
+ */
+export const DECISION_OUTCOME_MOCKS: readonly AuditRecord[] = [
   // Grounded: the assertion is fully supported by the evidence → low score.
   withHallucination(
     pixRefundExecute,
@@ -70,6 +78,16 @@ export const ALL_MOCKS: readonly AuditRecord[] = [
   kycStartDefer,
 ] as const;
 
+export const ALL_MOCKS: readonly AuditRecord[] = [
+  ...DECISION_OUTCOME_MOCKS,
+  // Command-risk demo records (ADR-134) so the Command Risk panel + blocked
+  // list render. Each carries ONLY the closed-enum category — never a raw
+  // (possibly secret-bearing) command. Appended after the decision-outcome
+  // stream so the drift detector (which reads DECISION_OUTCOME_MOCKS) is
+  // unaffected.
+  ...COMMAND_RISK_MOCKS,
+] as const;
+
 export {
   kycStartDefer,
   pixRefundExecute,
@@ -78,4 +96,5 @@ export {
   pixLargeRefundEscalate,
   pixMediumRefundConfirm,
   pixOvershootRefundRewrite,
+  COMMAND_RISK_MOCKS,
 };

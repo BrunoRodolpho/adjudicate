@@ -72,7 +72,7 @@ import {
   type PolicyBundle,
   type PolicyBundleDescriptor,
 } from "@adjudicate/core";
-import { ALL_MOCKS } from "@/lib/mocks";
+import { ALL_MOCKS, DECISION_OUTCOME_MOCKS } from "@/lib/mocks";
 import { createDurableEmergencyStore } from "@/lib/durable-emergency-store";
 import {
   createPgPoolGovernanceWriter,
@@ -322,10 +322,16 @@ if (auditBus) {
   // a snapshot after each chunk with an evenly-spaced, fixed-base timestamp, so
   // the Timeline has a real, deterministic multi-point series rather than a
   // single warm-up point.
+  // Drift warms ONLY from the decision-outcome stream (DRIFT_CONFIG windows are
+  // sized for those seven records); the command-risk demo records in ALL_MOCKS
+  // feed the AuditStore/governance queries, not the drift demo.
   const CHUNKS = 4;
-  const chunkSize = Math.max(1, Math.ceil(ALL_MOCKS.length / CHUNKS));
-  for (let chunk = 0; chunk * chunkSize < ALL_MOCKS.length; chunk++) {
-    const slice = ALL_MOCKS.slice(chunk * chunkSize, (chunk + 1) * chunkSize);
+  const chunkSize = Math.max(1, Math.ceil(DECISION_OUTCOME_MOCKS.length / CHUNKS));
+  for (let chunk = 0; chunk * chunkSize < DECISION_OUTCOME_MOCKS.length; chunk++) {
+    const slice = DECISION_OUTCOME_MOCKS.slice(
+      chunk * chunkSize,
+      (chunk + 1) * chunkSize,
+    );
     for (const record of slice) driftDetector.observe(record);
     const at = new Date(
       DRIFT_TIMELINE_BASE + chunk * DRIFT_TIMELINE_STEP_MS,

@@ -2,12 +2,21 @@
 
 import type { AuditRecord } from "@adjudicate/core";
 import { cn } from "@/lib/cn";
+import { redactCommand } from "@/lib/redact-command";
 
 /**
  * Command-Risk badge (ADR-123). Renders when a decision carries a command-risk
  * validation basis (command_blocked / command_flag_stripped), reading the
  * category + command + stripped flags from `basis.detail`. No new endpoint —
  * the data rides on the existing audit record.
+ *
+ * SECURITY (ADR-134): the raw `detail.command` is tainted (LLM-proposed) and may
+ * embed live secrets — credential-category rules fire on exactly such commands.
+ * The command is therefore run through `redactCommand` before render so secret
+ * env expansions and credential file paths are masked. The aggregation /
+ * transparency surfaces never carry the command at all (redaction by
+ * construction); this badge is the single place an operator sees it, and it is
+ * masked here.
  */
 const COMMAND_CODES = new Set(["command_blocked", "command_flag_stripped", "command_sanitized"]);
 
@@ -45,7 +54,9 @@ export function CommandRiskBadge({ record }: { record: AuditRecord }) {
           {category} · {basis.code === "command_blocked" ? "blocked" : "sanitized"}
         </span>
         {detail.command ? (
-          <code className="text-muted">{detail.command}</code>
+          <code className="text-muted" title="Secret tokens masked">
+            {redactCommand(detail.command)}
+          </code>
         ) : null}
         {detail.stripped && detail.stripped.length > 0 ? (
           <span className="text-faint">stripped flags: {detail.stripped.join(", ")}</span>

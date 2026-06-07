@@ -27,6 +27,39 @@ describe("CommandRiskBadge", () => {
     expect(screen.getByText("rm -rf /")).toBeDefined();
   });
 
+  it("masks secret-bearing tokens in the rendered command (ADR-134)", () => {
+    const { container } = render(
+      <CommandRiskBadge
+        record={record([
+          {
+            category: "validation",
+            code: "command_blocked",
+            detail: { category: "credential", command: "echo $AWS_SECRET_ACCESS_KEY > /tmp/x" },
+          },
+        ] as never)}
+      />,
+    );
+    // The live secret env-var name is never echoed; it's masked.
+    expect(container.textContent).not.toContain("AWS_SECRET_ACCESS_KEY");
+    expect(container.textContent).toContain("[REDACTED]");
+  });
+
+  it("masks credential file paths in the rendered command (ADR-134)", () => {
+    const { container } = render(
+      <CommandRiskBadge
+        record={record([
+          {
+            category: "validation",
+            code: "command_blocked",
+            detail: { category: "credential", command: "cat ~/.aws/credentials" },
+          },
+        ] as never)}
+      />,
+    );
+    expect(container.textContent).not.toContain(".aws/credentials");
+    expect(container.textContent).toContain("[REDACTED]");
+  });
+
   it("renders stripped flags for a sanitized REWRITE", () => {
     render(
       <CommandRiskBadge

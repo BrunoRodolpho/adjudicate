@@ -56,6 +56,16 @@ import {
 import { createPiiClassificationHandler } from "../handlers/pii-classification.js";
 import { createPiiEventsHandler } from "../handlers/pii-events.js";
 import {
+  CommandRiskEventsQuerySchema,
+  CommandRiskEventsResultSchema,
+  CommandRiskQuerySchema,
+  CommandRiskResultSchema,
+} from "../schemas/command-risk.js";
+import {
+  createCommandRiskEventsHandler,
+  createCommandRiskStatsHandler,
+} from "../handlers/command-risk.js";
+import {
   RedTeamReportSchema,
   type RedTeamReportParsed,
 } from "../schemas/red-team.js";
@@ -425,6 +435,51 @@ const governanceRouter = t.router({
         });
       }
       const handler = createPiiEventsHandler({ store: ctx.store });
+      return handler(input);
+    }),
+
+  /**
+   * Command-risk dispositions over a window, bucketed by (category ×
+   * disposition). Drives the console's Command Risk panel (ADR-134, ADR-123).
+   * Reads the same AuditStore as outcomeDistribution — no extra context wiring.
+   *
+   * SECURITY: the result schema carries ONLY the closed-enum category +
+   * disposition and integer counts. The raw command string (which may contain
+   * secrets) is never read into the result, and the `.output()` Zod gate has no
+   * field that could serialize it. Aggregate is unauthenticated-friendly like
+   * piiClassificationStats — it leaks no per-record data.
+   */
+  commandRisk: t.procedure
+    .input(CommandRiskQuerySchema)
+    .output(CommandRiskResultSchema)
+    .query(async ({ input, ctx }) => {
+      const handler = createCommandRiskStatsHandler({ store: ctx.store });
+      return handler(input);
+    }),
+
+  /**
+   * Event-level command-risk drill-down (ADR-134) — individual command-risk
+   * disposition events, newest-first, for the console's blocked-commands list.
+   * Record-level governance data, so it requires an authenticated actor
+   * (consistent with audit.query / piiEvents). Reads the same AuditStore.
+   *
+   * SECURITY: each event row carries ONLY intentHash + at + intentKind +
+   * decisionKind + closed-enum category/disposition. The raw command, sanitized
+   * command, stripped flags, and matched rule ids are NEVER surfaced — the
+   * schema has no field that could carry the (tainted, secret-bearing) command.
+   */
+  commandRiskEvents: t.procedure
+    .input(CommandRiskEventsQuerySchema)
+    .output(CommandRiskEventsResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message:
+            "x-adjudicate-actor-id header required for command-risk event drill-down",
+        });
+      }
+      const handler = createCommandRiskEventsHandler({ store: ctx.store });
       return handler(input);
     }),
 

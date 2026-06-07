@@ -163,6 +163,7 @@ const PUBLIC_VIEWS: readonly PublicView[] = [
   },
   {
     title: "Command risk",
+    href: "/transparency/command-risk",
     exposes:
       "The distribution of classified command risk (destructive / network / credential / safe) — categories and counts only.",
   },

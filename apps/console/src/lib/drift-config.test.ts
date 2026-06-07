@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDriftDetector } from "@adjudicate/drift";
-import { ALL_MOCKS } from "./mocks";
+import { DECISION_OUTCOME_MOCKS } from "./mocks";
 import { DRIFT_CONFIG } from "./drift-config";
 
 /**
@@ -17,7 +17,7 @@ describe("console drift wiring", () => {
       ...DRIFT_CONFIG,
       onDrift: (a) => alerts.push(a),
     });
-    for (const r of ALL_MOCKS) detector.observe(r);
+    for (const r of DECISION_OUTCOME_MOCKS) detector.observe(r);
     const returned = detector.evaluate();
     expect(returned.length).toBeGreaterThan(0);
     expect(alerts.length).toBe(returned.length); // onDrift fired once per crossing
@@ -25,7 +25,7 @@ describe("console drift wiring", () => {
 
   it("the snapshot surfaces the same drift the panel reads", () => {
     const detector = createDriftDetector(DRIFT_CONFIG);
-    for (const r of ALL_MOCKS) detector.observe(r);
+    for (const r of DECISION_OUTCOME_MOCKS) detector.observe(r);
     const snap = detector.snapshot();
     const totalAlerts = snap.dimensions.reduce((n, d) => n + d.alerts.length, 0);
     expect(totalAlerts).toBeGreaterThan(0);

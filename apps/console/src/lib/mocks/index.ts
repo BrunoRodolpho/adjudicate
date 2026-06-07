@@ -11,6 +11,7 @@ import { pixLargeRefundEscalate } from "./pix-large-refund-escalate";
 import { pixMediumRefundConfirm } from "./pix-medium-refund-confirm";
 import { pixOvershootRefundRewrite } from "./pix-overshoot-refund-rewrite";
 import { COMMAND_RISK_MOCKS } from "./command-risk";
+import { deploymentRollbackResumed } from "./deployment-rollback-resumed";
 
 /**
  * Decision-outcome fixtures driving the mock gateway.
@@ -86,6 +87,11 @@ export const ALL_MOCKS: readonly AuditRecord[] = [
   // stream so the drift detector (which reads DECISION_OUTCOME_MOCKS) is
   // unaffected.
   ...COMMAND_RISK_MOCKS,
+  // Approval Center resumed-decision (ADR-136): a re-adjudicated EXECUTE carrying
+  // a `confirmation_resolved` supersession so `approval.chain` can walk
+  // request → resolved → resumed against honest ledger data. Appended after the
+  // drift stream so the detector is unaffected.
+  deploymentRollbackResumed,
 ] as const;
 
 export {
@@ -97,4 +103,9 @@ export {
   pixMediumRefundConfirm,
   pixOvershootRefundRewrite,
   COMMAND_RISK_MOCKS,
+  deploymentRollbackResumed,
 };
+export {
+  DEPLOYMENT_ROLLBACK_RESUMED_HASH,
+  DEPLOYMENT_ROLLBACK_PARKED_HASH,
+} from "./deployment-rollback-resumed";

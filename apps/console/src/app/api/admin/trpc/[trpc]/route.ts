@@ -39,6 +39,8 @@ import {
 import type { AiBomParsed, PolicyCoherenceReportParsed } from "@adjudicate/admin-sdk";
 import {
   createInMemoryApprovalRegistry,
+  createRedisApprovalRegistry,
+  type ApprovalRegistry,
   type ApprovalRequest,
 } from "@adjudicate/approval-engine";
 import {
@@ -46,7 +48,14 @@ import {
   createInMemoryTokenUsageStore,
   type TokenUsageSample,
 } from "@adjudicate/adapter-core";
-import type { ApprovalRequestParsed, ApprovalResolveInput } from "@adjudicate/admin-sdk";
+import type {
+  ApprovalRequestParsed,
+  ApprovalResolveInput,
+  ApprovalHistoryQuery,
+  ApprovalHistoryResult,
+  ApprovalChainQuery,
+  ApprovalChainResult,
+} from "@adjudicate/admin-sdk";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import {
   createInMemoryRedTeamHistoryStore,
@@ -78,14 +87,21 @@ import {
   type PolicyBundle,
   type PolicyBundleDescriptor,
 } from "@adjudicate/core";
-import { ALL_MOCKS, DECISION_OUTCOME_MOCKS } from "@/lib/mocks";
+import {
+  ALL_MOCKS,
+  DECISION_OUTCOME_MOCKS,
+  DEPLOYMENT_ROLLBACK_RESUMED_HASH,
+} from "@/lib/mocks";
 import { createDurableEmergencyStore } from "@/lib/durable-emergency-store";
 import {
   createPgPoolGovernanceWriter,
   createPgPoolReader,
   getPgPool,
 } from "@/lib/postgres-pool";
-import { createLazyRedisLedgerAdapter } from "@/lib/redis-client";
+import {
+  createLazyRedisApprovalAdapter,
+  createLazyRedisLedgerAdapter,
+} from "@/lib/redis-client";
 import { createReferenceReplayInvoker } from "@/lib/replay-invoker";
 import { PackRegistry } from "@/lib/packs/registry";
 import { requireConsoleAdminAuth } from "@/lib/admin-auth";
@@ -583,17 +599,36 @@ const policyCoherence = analyzePolicy({
   plannerProbes: DEPLOYMENT_POLICY_COHERENCE_PROBES as never,
 }) as unknown as PolicyCoherenceReportParsed;
 
-// Approval engine port (ADR-122). IMPORTANT — this is a DISPLAY-ONLY projection,
-// NOT the authorization mechanism. The reference console runs no live adapter
-// agent, so resolve() only flips the registry projection's status; it performs
+// Approval engine port (ADR-122, extended ADR-136). IMPORTANT — this is a
+// DISPLAY-ONLY projection, NOT the authorization mechanism. The reference
+// console runs no live adapter agent, so resolve() ONLY records the operator's
+// decision into the persisted registry projection (markResolved). It performs
 // NONE of the security-critical steps. In production those live in
-// `createApprovalEngine.resolve()` → `agent.confirm(token)`: single-use
-// `confirmationStore.take()`, timing-safe hash verification of the parked
-// envelope blob, and re-adjudication through the kernel. That real path is
-// exercised by `@adjudicate/approval-engine` tests/engine.test.ts +
-// adapter-core's confirm() — clicking "Approve" here does not execute anything.
-// Seeded with one pending approval so the panel renders.
-const approvalRegistry = createInMemoryApprovalRegistry();
+// `createApprovalEngine.resolve()` → `agent.confirm(token)`:
+//   1. single-use `confirmationStore.take()` (token redeemed exactly once),
+//   2. timing-safe hash verification of the parked envelope blob,
+//   3. kernel re-adjudication via `adjudicateAndAudit`,
+//   4. RESUME of the parked deferred intent.
+// All four happen in the ADOPTER's adapter process — clicking "Approve" here
+// executes none of them and authorizes nothing. The real path is exercised by
+// `@adjudicate/approval-engine` tests/engine.test.ts + adapter-core's confirm().
+// The amber banner in ApprovalsPanel keeps this honest for the operator.
+//
+// The registry is PERSISTED: in-memory by default, Redis when REDIS_URL is set
+// (mirrors how the emergency state store picks its backend). Redis keeps the
+// queue + decision history alive across cold starts. The registry stores ONLY
+// display fields — never the authoritative envelope blob.
+const approvalRegistry: ApprovalRegistry = process.env.REDIS_URL
+  ? createRedisApprovalRegistry({
+      redis: createLazyRedisApprovalAdapter(),
+      keyPrefix: "adjudicate:console:approval",
+    })
+  : createInMemoryApprovalRegistry();
+
+// Seeded demo projections so the panel + history + chain render. The PENDING one
+// drives the queue; the RESOLVED one (intentHash = the seeded resumed-decision
+// AuditRecord's hash) drives Decision history + the audit chain, which joins to
+// `deploymentRollbackResumed` in ALL_MOCKS via that hash + its supersession.
 const DEMO_APPROVAL: ApprovalRequest = {
   token: "demo-approval-token",
   sessionId: "sess-dep-03",
@@ -605,11 +640,39 @@ const DEMO_APPROVAL: ApprovalRequest = {
   status: "pending",
   requestedAt: "2026-06-06T12:00:00.000Z",
 };
+const DEMO_RESOLVED_APPROVAL: ApprovalRequest = {
+  token: "demo-resolved-token",
+  sessionId: "sess-dep-03",
+  intentHash: DEPLOYMENT_ROLLBACK_RESUMED_HASH,
+  intentKind: "deployment.rollback.execute",
+  prompt: "Confirm rollback of staging to 9f8e7d6c?",
+  taint: "UNTRUSTED",
+  channel: "console-log",
+  status: "approved",
+  requestedAt: "2026-06-06T11:55:00.000Z",
+  resolvedAt: "2026-06-06T12:05:00.026Z",
+  // CLAIMED actor — sourced from forgeable x-adjudicate-actor-* headers in the
+  // live path (shared bearer authenticates the console, not the operator).
+  resolvedBy: { id: "operator@example.com", displayName: "Demo Operator" },
+};
 void approvalRegistry.put(DEMO_APPROVAL, 24 * 60 * 60);
+void approvalRegistry.put(DEMO_RESOLVED_APPROVAL, 24 * 60 * 60);
+
+const APPROVAL_STATUSES = ["pending", "approved", "declined", "expired"] as const;
+type ApprovalStatusLiteral = (typeof APPROVAL_STATUSES)[number];
+const asApprovalStatus = (s: string): ApprovalStatusLiteral | undefined =>
+  (APPROVAL_STATUSES as readonly string[]).includes(s)
+    ? (s as ApprovalStatusLiteral)
+    : undefined;
+
 const approvalPort = {
   async list(filter: { status?: string; sessionId?: string; limit?: number }): Promise<ReadonlyArray<ApprovalRequestParsed>> {
     return (await approvalRegistry.list(filter as never)) as unknown as ReadonlyArray<ApprovalRequestParsed>;
   },
+  // HONEST resolve: records the operator decision into the persisted registry.
+  // It does NOT take the single-use token, verify the parked-blob hash,
+  // re-adjudicate, or resume any parked intent — those are the adapter agent's
+  // job and the reference console runs no agent. See the block comment above.
   async resolve(input: ApprovalResolveInput, by: { id: string; displayName?: string }): Promise<ApprovalRequestParsed> {
     const resolved = await approvalRegistry.markResolved(
       input.token,
@@ -618,6 +681,72 @@ const approvalPort = {
     );
     if (!resolved) throw new Error(`unknown approval token ${input.token}`);
     return resolved as unknown as ApprovalRequestParsed;
+  },
+  // Decision history (ADR-136) — resolved/expired projections from the registry.
+  // Read-only. `resolvedBy` is a CLAIM (forgeable header until OIDC).
+  async history(input: ApprovalHistoryQuery): Promise<ApprovalHistoryResult> {
+    const rows = await approvalRegistry.list({
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      limit: input.limit,
+    });
+    const resolvedOnly = input.status
+      ? rows
+      : rows.filter((r) => r.status !== "pending");
+    return {
+      entries: resolvedOnly.map((r) => ({
+        token: r.token,
+        sessionId: r.sessionId,
+        intentHash: r.intentHash,
+        intentKind: r.intentKind,
+        status: r.status,
+        requestedAt: r.requestedAt,
+        ...(r.resolvedAt ? { resolvedAt: r.resolvedAt } : {}),
+        ...(r.resolvedBy ? { resolvedBy: r.resolvedBy } : {}),
+      })),
+    };
+  },
+  // Audit chain (ADR-136) — request → resolved → resumed, reconstructed by
+  // joining the resolved projection (by intentHash) to the resumed-decision
+  // AuditRecord in `ctx.store` and walking its FROZEN `supersedes` lineage
+  // (confirmation_resolved / defer_resumed). Token PRESENCE only — never value.
+  async chain(input: ApprovalChainQuery): Promise<ApprovalChainResult> {
+    const resumed = await auditStore.getByIntentHash(input.intentHash);
+    const projections = await approvalRegistry.list({ limit: 500 });
+    const projection = projections.find((p) => p.intentHash === input.intentHash);
+
+    const steps: ApprovalChainResult["steps"] = [];
+    if (projection) {
+      steps.push({
+        kind: "requested",
+        at: projection.requestedAt,
+        intentHash: projection.intentHash,
+        tokenPresent: projection.token.length > 0,
+        status: "pending",
+      });
+      if (projection.status !== "pending") {
+        const resolvedStatus = asApprovalStatus(projection.status);
+        steps.push({
+          kind: "resolved",
+          at: projection.resolvedAt ?? projection.requestedAt,
+          intentHash: projection.intentHash,
+          tokenPresent: projection.token.length > 0,
+          ...(resolvedStatus ? { status: resolvedStatus } : {}),
+          ...(projection.resolvedBy ? { actor: projection.resolvedBy } : {}),
+        });
+      }
+    }
+    if (resumed?.supersedes) {
+      steps.push({
+        kind: "resumed",
+        at: resumed.at,
+        intentHash: resumed.intentHash,
+        supersedesReason: resumed.supersedes.reason,
+        tokenPresent: resumed.supersedes.token !== undefined,
+        status: "approved",
+      });
+    }
+    return { steps };
   },
 };
 

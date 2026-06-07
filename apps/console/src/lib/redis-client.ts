@@ -1,5 +1,6 @@
 import { createClient, type RedisClientType } from "redis";
 import type { RedisLedgerClient } from "@adjudicate/audit";
+import type { ApprovalRedisClient } from "@adjudicate/approval-engine";
 
 /**
  * Lazy Redis client + `RedisLedgerClient` adapter.
@@ -58,6 +59,44 @@ export function createLazyRedisLedgerAdapter(): RedisLedgerClient {
       const c = await getRedisClient();
       const result = await c.get(key);
       return result ?? null;
+    },
+  };
+}
+
+/**
+ * `ApprovalRedisClient` adapter for the Redis-backed `ApprovalRegistry`
+ * (ADR-136). Exposes `set(k,v,exSeconds)/get/del/keys` over the same lazily-
+ * opened connection. `keys` uses SCAN (NOT the blocking `KEYS`) so a large
+ * keyspace doesn't stall Redis; bounded by the registry's `keyPrefix`.
+ *
+ * This persists ONLY the display projection — it is NOT the authorization
+ * mechanism. The single-use confirmation take + hash verify live in
+ * adapter-core's `confirm()`, not here.
+ */
+export function createLazyRedisApprovalAdapter(): ApprovalRedisClient {
+  return {
+    async set(key, value, exSeconds) {
+      const c = await getRedisClient();
+      await c.set(key, value, { EX: exSeconds });
+    },
+    async get(key) {
+      const c = await getRedisClient();
+      const result = await c.get(key);
+      return result ?? null;
+    },
+    async del(key) {
+      const c = await getRedisClient();
+      return c.del(key);
+    },
+    async keys(pattern) {
+      const c = await getRedisClient();
+      const found: string[] = [];
+      // SCAN avoids the O(N)-blocking KEYS; node-redis exposes an async iterator
+      // that yields one key per step.
+      for await (const key of c.scanIterator({ MATCH: pattern, COUNT: 200 })) {
+        found.push(key);
+      }
+      return found;
     },
   };
 }

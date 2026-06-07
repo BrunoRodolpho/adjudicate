@@ -204,8 +204,22 @@ export {
   ApprovalRequestSchema,
   ApprovalResolveInputSchema,
   ApprovalStatusSchema,
+  ApprovalHistoryQuerySchema,
+  ApprovalHistoryEntrySchema,
+  ApprovalHistoryResultSchema,
+  ApprovalChainQuerySchema,
+  ApprovalChainStepKindSchema,
+  ApprovalChainStepSchema,
+  ApprovalChainResultSchema,
   type ApprovalRequestParsed,
   type ApprovalResolveInput,
+  type ApprovalHistoryQuery,
+  type ApprovalHistoryEntry,
+  type ApprovalHistoryResult,
+  type ApprovalChainQuery,
+  type ApprovalChainStepKind,
+  type ApprovalChainStep,
+  type ApprovalChainResult,
 } from "./schemas/approval.js";
 
 export {

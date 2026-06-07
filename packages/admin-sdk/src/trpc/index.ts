@@ -107,8 +107,16 @@ import {
   ApprovalListQuerySchema,
   ApprovalRequestSchema,
   ApprovalResolveInputSchema,
+  ApprovalHistoryQuerySchema,
+  ApprovalHistoryResultSchema,
+  ApprovalChainQuerySchema,
+  ApprovalChainResultSchema,
   type ApprovalRequestParsed,
   type ApprovalResolveInput,
+  type ApprovalHistoryQuery,
+  type ApprovalHistoryResult,
+  type ApprovalChainQuery,
+  type ApprovalChainResult,
 } from "../schemas/approval.js";
 import {
   PolicyCoherenceReportSchema,
@@ -258,13 +266,28 @@ export interface AdminContext {
    */
   readonly policyCoherence?: PolicyCoherenceReportParsed;
   /**
-   * Optional approval-engine port (ADR-122). The route handler adapts a
-   * concrete `@adjudicate/approval-engine` to this narrow list/resolve surface.
-   * `approval.*` throws PRECONDITION_FAILED when absent.
+   * Optional approval-engine port (ADR-122, extended ADR-136). The route
+   * handler adapts a concrete `@adjudicate/approval-engine` to this narrow
+   * surface. `approval.list`/`approval.resolve` throw PRECONDITION_FAILED when
+   * the port is absent; `approval.history`/`approval.chain` throw
+   * PRECONDITION_FAILED when the OPTIONAL `history`/`chain` members are absent
+   * (same runtime feature-detection posture as `driftDetector`).
    */
   readonly approvalPort?: {
     list(filter: { status?: string; sessionId?: string; limit?: number }): Promise<ReadonlyArray<ApprovalRequestParsed>>;
     resolve(input: ApprovalResolveInput, by: { id: string; displayName?: string }): Promise<ApprovalRequestParsed>;
+    /**
+     * Read-only decision history (ADR-136): resolved/expired approvals from the
+     * registry projection. Optional — `approval.history` is PRECONDITION_FAILED
+     * when unwired.
+     */
+    history?(input: ApprovalHistoryQuery): Promise<ApprovalHistoryResult>;
+    /**
+     * Read-only audit chain (ADR-136): request → resolved → resumed, joined by
+     * walking the frozen `AuditRecord.supersedes` lineage via `ctx.store`.
+     * Optional — `approval.chain` is PRECONDITION_FAILED when unwired.
+     */
+    chain?(input: ApprovalChainQuery): Promise<ApprovalChainResult>;
   };
   /** Optional AI-BOM for the installed Pack (ADR-127); `pack.aiBom` PRECONDITION_FAILED when absent. */
   readonly aiBom?: AiBomParsed;
@@ -824,6 +847,52 @@ const approvalRouter = t.router({
         });
       }
       return ctx.approvalPort.resolve(input, { id: ctx.actor.id, ...(ctx.actor.displayName ? { displayName: ctx.actor.displayName } : {}) });
+    }),
+
+  /**
+   * Decision history (ADR-136) — resolved/expired approvals from the registry
+   * projection. Read-only; requires an actor. PRECONDITION_FAILED when the
+   * optional `history` port member is unwired (feature-detection). The
+   * `resolvedBy` actor is a CLAIM until real per-operator identity (OIDC).
+   */
+  history: t.procedure
+    .input(ApprovalHistoryQuerySchema)
+    .output(ApprovalHistoryResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "actor required" });
+      }
+      if (!ctx.approvalPort?.history) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Approval history not configured. Wire a persisted approval registry with a history projection into context.",
+        });
+      }
+      return ctx.approvalPort.history(input);
+    }),
+
+  /**
+   * Audit chain (ADR-136) — given an intentHash, walk the frozen
+   * `AuditRecord.supersedes` lineage (confirmation_resolved / defer_resumed) to
+   * reconstruct request → resolved → resumed. Read-only; requires an actor.
+   * PRECONDITION_FAILED when the optional `chain` port member is unwired.
+   */
+  chain: t.procedure
+    .input(ApprovalChainQuerySchema)
+    .output(ApprovalChainResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "actor required" });
+      }
+      if (!ctx.approvalPort?.chain) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Approval chain not configured. Wire a persisted approval registry with a chain walker into context.",
+        });
+      }
+      return ctx.approvalPort.chain(input);
     }),
 });
 

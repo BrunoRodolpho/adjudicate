@@ -17,6 +17,12 @@ export {
 } from "./registry.js";
 
 export {
+  createRedisApprovalRegistry,
+  type ApprovalRedisClient,
+  type CreateRedisApprovalRegistryOptions,
+} from "./registry-redis.js";
+
+export {
   createConsoleLogChannel,
   createWebhookChannel,
   type ApprovalChannel,

@@ -136,9 +136,9 @@ describe("replay longevity corpus", () => {
         expect(isReplayIntegrityClean(report)).toBe(true);
       });
 
-      it("produces a v4 record with a valid auditHash", () => {
+      it("produces a v5 record with a valid auditHash", () => {
         const record = buildRecord(fixture);
-        expect(record.version).toBe(4);
+        expect(record.version).toBe(5);
         expect(record.auditHash).toBeDefined();
         expect(record.auditHash).toMatch(/^[0-9a-f]{64}$/);
       });

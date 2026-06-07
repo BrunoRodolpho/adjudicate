@@ -132,7 +132,7 @@ describe("adjudicateAndAudit", () => {
     const record = emit.mock.calls[0]![0] as AuditRecord;
     expect(record.intentHash).toBe(envFixture().intentHash);
     expect(record.decision.kind).toBe("EXECUTE");
-    expect(record.version).toBe(4);
+    expect(record.version).toBe(5);
   });
 
   it("propagates a sink failure (strict by design)", async () => {

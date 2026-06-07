@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use } from "react";
 import { CommandRiskBadge } from "@/components/decision/CommandRiskBadge";
+import { HallucinationBadge } from "@/components/decision/HallucinationBadge";
 import { DecisionTrace } from "@/components/decision/DecisionTrace";
 import { WhyNotPanel } from "@/components/decision/WhyNotPanel";
 import { useDecisionByHash } from "@/hooks/useDecisionByHash";
@@ -63,6 +64,7 @@ export default function DecisionDetailPage({ params }: PageProps) {
         <>
           <DecisionTrace record={data} />
           <CommandRiskBadge record={data} />
+          <HallucinationBadge record={data} />
           <WhyNotPanel record={data} />
         </>
       )}

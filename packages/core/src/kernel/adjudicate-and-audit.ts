@@ -30,6 +30,7 @@
 
 import { basis, BASIS_CODES } from "../basis-codes.js";
 import {
+  attachAuditMetadata,
   buildAuditRecord,
   type AuditPlanSnapshot,
   type AuditRecord,
@@ -84,6 +85,17 @@ export interface AdjudicateAndAuditDeps {
    * `@adjudicate/audit` to control fail-open vs fail-closed semantics.
    */
   readonly sink: AuditSink;
+  /**
+   * Optional, v5+ (ADR-124). Synchronous post-decision metadata provider. Runs
+   * after `buildAuditRecord` and before `sink.emit`, on BOTH the kill-switch and
+   * main paths. Returns governance/observability metadata (e.g. a hallucination
+   * score) merged onto the record's `metadata` field. MUST NOT throw (wrapped);
+   * MUST NOT affect the Decision (already computed) or any hashed field —
+   * `metadata` is excluded from the auditHash pre-image.
+   */
+  readonly metadataProvider?: (
+    record: AuditRecord,
+  ) => Readonly<Record<string, unknown>> | undefined;
   /**
    * Optional Execution Ledger. When supplied:
    *   - `checkLedger` runs before adjudication; a hit short-circuits the
@@ -248,6 +260,26 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     ? (e: Parameters<typeof recordSinkFailure>[0]) => ctx.metrics.recordSinkFailure(e)
     : recordSinkFailure;
 
+  // v5 (ADR-124): apply the optional post-decision metadata provider before
+  // emit, defensively — a throwing provider must not break audit emission (the
+  // record is still emitted, without metadata). metadata is excluded from the
+  // auditHash, so this never invalidates tamper-evidence.
+  const applyMeta = (record: AuditRecord): AuditRecord => {
+    if (!deps.metadataProvider) return record;
+    try {
+      const m = deps.metadataProvider(record);
+      return m !== undefined ? attachAuditMetadata(record, m) : record;
+    } catch (err) {
+      emitSinkFailure({
+        sink: "metadata",
+        subject: record.intentHash,
+        errorClass: err instanceof Error ? err.name : "Error",
+        consecutiveFailures: 1,
+      });
+      return record;
+    }
+  };
+
   // ── 0. Tenant kill switch (in addition to the process-wide one in adjudicate()) ──
   if (ctx?.killSwitch.isKilled()) {
     const killState = ctx.killSwitch.state();
@@ -308,13 +340,15 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         consecutiveFailures: 1,
       });
     }
-    const record = buildAuditRecord({
-      envelope,
-      decision,
-      durationMs,
-      at: clock.nowIso(),
-      ...(deps.supersedes !== undefined ? { supersedes: deps.supersedes } : {}),
-    });
+    const record = applyMeta(
+      buildAuditRecord({
+        envelope,
+        decision,
+        durationMs,
+        at: clock.nowIso(),
+        ...(deps.supersedes !== undefined ? { supersedes: deps.supersedes } : {}),
+      }),
+    );
     try {
       await deps.sink.emit(record);
     } finally {
@@ -526,15 +560,17 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   const kernelIdentity = ctx?.kernelIdentity
     ? { id: ctx.kernelIdentity.id, version: ctx.kernelIdentity.version }
     : undefined;
-  const record = buildAuditRecord({
-    envelope,
-    decision,
-    durationMs,
-    at: clock.nowIso(),
-    ...(planSnapshot ? { plan: planSnapshot } : {}),
-    ...(supersedes !== undefined ? { supersedes } : {}),
-    ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
-  });
+  const record = applyMeta(
+    buildAuditRecord({
+      envelope,
+      decision,
+      durationMs,
+      at: clock.nowIso(),
+      ...(planSnapshot ? { plan: planSnapshot } : {}),
+      ...(supersedes !== undefined ? { supersedes } : {}),
+      ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
+    }),
+  );
 
   // ── 6+7. Audit emission + rate-limit rollback (T5 #41) ─────────────
   // The rollback for a non-EXECUTE decision MUST fire even if sink.emit throws.

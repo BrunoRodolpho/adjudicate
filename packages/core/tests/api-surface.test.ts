@@ -171,7 +171,7 @@ describe("@adjudicate/core public API surface — v1 freeze matrix", () => {
     expect(root.INTENT_ENVELOPE_VERSION).toBe(2);
   });
 
-  it("AUDIT_RECORD_VERSION is 4", () => {
-    expect(root.AUDIT_RECORD_VERSION).toBe(4);
+  it("AUDIT_RECORD_VERSION is 5", () => {
+    expect(root.AUDIT_RECORD_VERSION).toBe(5);
   });
 });

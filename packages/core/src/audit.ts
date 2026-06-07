@@ -28,8 +28,8 @@ import {
 import type { Decision } from "./decision.js";
 import type { DecisionBasis } from "./basis-codes.js";
 
-export const AUDIT_RECORD_VERSION = 4 as const;
-export type AuditRecordVersion = 1 | 2 | 3 | 4;
+export const AUDIT_RECORD_VERSION = 5 as const;
+export type AuditRecordVersion = 1 | 2 | 3 | 4 | 5;
 
 /**
  * Why the current AuditRecord supersedes its predecessor.
@@ -144,9 +144,19 @@ export interface AuditRecord {
     readonly alg: string;
     readonly value: string;
   };
+  /**
+   * Optional, v5+. Adopter-attached governance/observability metadata
+   * (e.g. `hallucination_score`). **EXCLUDED from the `auditHash` pre-image**
+   * (like `signature`) — hallucination scoring is post-hoc/async, so attaching
+   * metadata after emission must NOT invalidate tamper-evidence. Never read by
+   * `adjudicate()`; never enters `intentHash`.
+   */
+  readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface BuildAuditInput {
+  /** Optional, v5+. Governance/observability metadata; excluded from auditHash. */
+  readonly metadata?: Readonly<Record<string, unknown>>;
   readonly envelope: IntentEnvelope;
   readonly decision: Decision;
   readonly durationMs: number;
@@ -213,11 +223,30 @@ export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
       ? { kernelVersion: input.kernelVersion }
       : {}),
   };
-  // v4 auditHash: sha256 over canonical(record \ { auditHash, signature }).
-  // Binds envelope + decision + basis + supersession into one tamper-evident
-  // token. Verifiers re-derive and compare via `verifyAuditRecord`.
+  // v4 auditHash: sha256 over canonical(record \ { auditHash, signature,
+  // metadata }). Binds envelope + decision + basis + supersession into one
+  // tamper-evident token. `metadata` (v5+) is EXCLUDED so post-hoc/async
+  // attachment does not invalidate the hash. Verifiers strip the same fields.
   const auditHash = sha256Canonical(baseRecord);
-  return { ...baseRecord, auditHash };
+  return {
+    ...baseRecord,
+    ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+    auditHash,
+  };
+}
+
+/**
+ * Attach/merge governance metadata onto an already-built record (v5+, ADR-124),
+ * for the truly-async case (a groundedness score computed after emission). Pure:
+ * returns a new record; leaves `auditHash`/`signature`/`intentHash` untouched
+ * (metadata is excluded from the auditHash pre-image, so the record still
+ * verifies).
+ */
+export function attachAuditMetadata(
+  record: AuditRecord,
+  metadata: Readonly<Record<string, unknown>>,
+): AuditRecord {
+  return { ...record, metadata: { ...record.metadata, ...metadata } };
 }
 
 /**
@@ -284,9 +313,9 @@ export function verifyAuditRecord(
   if (record.auditHash === undefined) {
     return { verified: null, reason: "missing_hash" };
   }
-  // Strip the auditHash + signature fields from the record before
+  // Strip the auditHash + signature + metadata fields from the record before
   // re-deriving (the hash was computed over the record sans these fields).
-  const { auditHash: stored, signature: _signature, ...rest } = record;
+  const { auditHash: stored, signature: _signature, metadata: _metadata, ...rest } = record;
   const derived = sha256Canonical(rest);
   // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare
   // short-circuits on the first differing hex char, leaking via timing how

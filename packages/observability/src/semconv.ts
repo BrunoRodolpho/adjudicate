@@ -70,6 +70,10 @@ export const SEMCONV = {
    * Use {@link TRANSITION_SOURCE} alongside for the trigger.
    */
   KILL_SWITCH_STATE: "adjudicate.kill_switch.state",
+  /** Adopter-supplied groundedness/hallucination score in [0,1]; higher = less grounded (ADR-124). */
+  HALLUCINATION_SCORE: "adjudicate.hallucination.score",
+  /** Bounded-cardinality bucket: grounded | uncertain | hallucinated. */
+  HALLUCINATION_BUCKET: "adjudicate.hallucination.bucket",
 } as const;
 
 export type SemconvKey = keyof typeof SEMCONV;

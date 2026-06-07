@@ -24,9 +24,9 @@ const ENV = buildEnvelope({
   createdAt: "2026-05-18T00:00:00.000Z",
 });
 
-describe("AUDIT_RECORD_VERSION is 4", () => {
+describe("AUDIT_RECORD_VERSION is 5", () => {
   it("constant equals 4", () => {
-    expect(AUDIT_RECORD_VERSION).toBe(4);
+    expect(AUDIT_RECORD_VERSION).toBe(5);
   });
 });
 

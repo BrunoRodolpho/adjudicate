@@ -44,6 +44,14 @@ export {
 export { SEMCONV, type SemconvAttribute, type SemconvKey } from "./semconv.js";
 
 export {
+  bucketHallucinationScore,
+  createHallucinationMetadataProvider,
+  type HallucinationBucket,
+  type HallucinationScorer,
+  type ScoreBucketOptions,
+} from "./hallucination.js";
+
+export {
   createOtlpMetricsSink,
   type OtlpMetricsSinkOptions,
 } from "./metrics.js";

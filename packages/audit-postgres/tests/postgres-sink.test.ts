@@ -336,10 +336,10 @@ describe("rowToRecord — round-trip with recordToRow", () => {
       },
     });
     const row = recordToRow(original);
-    expect(row.record_version).toBe(4);
+    expect(row.record_version).toBe(5);
     expect(row.plan_jsonb).not.toBeNull();
     const recovered = rowToRecord(row);
-    expect(recovered.version).toBe(4);
+    expect(recovered.version).toBe(5);
     expect(recovered.plan).toBeDefined();
     expect(recovered.plan!.visibleReadTools).toEqual(["search", "view_cart"]);
     expect(recovered.plan!.allowedIntents).toEqual(["order.submit"]);
@@ -369,10 +369,10 @@ describe("rowToRecord — round-trip with recordToRow", () => {
       },
     });
     const row = recordToRow(original);
-    expect(row.record_version).toBe(4);
+    expect(row.record_version).toBe(5);
     expect(row.supersedes_jsonb).not.toBeNull();
     const recovered = rowToRecord(row);
-    expect(recovered.version).toBe(4);
+    expect(recovered.version).toBe(5);
     expect(recovered.supersedes).toEqual({
       predecessorIntentHash: "a".repeat(64),
       predecessorAt: "2026-04-23T11:59:00.000Z",
@@ -507,7 +507,7 @@ describe("v4 tamper-evidence persistence (RC-K1)", () => {
   it("recordToRow populates every v4 column", () => {
     const r = v4Record();
     const row = recordToRow(r);
-    expect(row.record_version).toBe(4);
+    expect(row.record_version).toBe(5);
     expect(row.audit_hash).toBe(r.auditHash);
     expect(row.policy_version).toBe("1.2.3");
     expect(row.kernel_version).toBe("1.1.0");

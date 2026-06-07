@@ -37,7 +37,7 @@ export const SupersessionSchema = z.object({
 });
 
 export const AuditRecordSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   intentHash: IntentHashSchema,
   envelope: IntentEnvelopeSchema,
   decision: DecisionSchema,
@@ -62,6 +62,8 @@ export const AuditRecordSchema = z.object({
       value: z.string(),
     })
     .optional(),
+  // v5+ additive: governance/observability metadata (e.g. hallucination_score).
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 // ─── Build-time drift guards ────────────────────────────────────────────────

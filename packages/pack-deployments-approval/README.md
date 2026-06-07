@@ -17,3 +17,23 @@ clamp; region carbon-clamp and model/prompt confirm precede the approval gates.
 **Carbon ranking is a static constant** — never fetch live carbon data inside a
 guard (that would be I/O in the decision path and break replay determinism).
 In-memory state only; not for production as-is.
+
+## Known limitations — read before adopting
+
+These are deliberate gaps in the reference gates; an adopter MUST address them:
+
+- **The regression gate is opt-in per request (fail-open if the score is
+  omitted).** `aiEvalScore` is optional; a `deployment.approval.request` that
+  does not carry it bypasses `escalateRegressionScore` entirely (the threshold
+  guard returns null on an absent value). If eval is mandatory for your release
+  process, add a state guard that REFUSEs/ESCALATEs when the score is missing.
+- **The carbon clamp has no data-residency allow-list.** `clampToGreenestRegion`
+  rewrites *any* non-greenest region to `GREENEST_REGION` — including EU regions.
+  That is a data-residency / GDPR foot-gun: a deploy pinned to `eu-west-1` is
+  silently relocated to `us-west-1`. Adopters with residency constraints MUST
+  gate the clamp behind a residency allow-list (or scope `REGION_CARBON_RANK` to
+  the residency-eligible set) before the clamp runs.
+- **The model/prompt-change gate fires on the first deploy.** With no prior
+  approved release, any request that supplies a `modelId`/`promptVersion`
+  REQUEST_CONFIRMATIONs (there is nothing to diff against). Treat the first
+  confirmation as the baseline-establishing approval.

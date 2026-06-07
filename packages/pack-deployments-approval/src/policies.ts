@@ -331,9 +331,13 @@ const confirmModelOrPromptChange: DeploymentGuard = nameGuard(
     const p = envelope.payload as DeploymentApprovalRequestPayload;
     if (p.modelId === undefined && p.promptVersion === undefined) return null;
     // Find the most recent approved release for this service+environment.
+    // Total-order comparator (equal `at` → 0): a non-total comparator makes the
+    // "most recent prior" non-deterministic for tied timestamps, which would put
+    // a replay-determinism-sensitive value (the prior model/prompt compared
+    // against) at the mercy of V8's unstable sort. Descending by `at`.
     const prior = Array.from(state.approvals.values())
       .filter((a) => a.service === p.service && a.environment === p.environment && a.decision === "approved")
-      .sort((a, b) => (a.at < b.at ? 1 : -1))[0];
+      .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))[0];
     const modelChanged = p.modelId !== undefined && prior?.modelId !== p.modelId;
     const promptChanged = p.promptVersion !== undefined && prior?.promptVersion !== p.promptVersion;
     if (!modelChanged && !promptChanged) return null;

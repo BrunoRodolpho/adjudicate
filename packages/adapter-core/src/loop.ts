@@ -109,6 +109,30 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
     };
   }
 
+  // ADR-126: fold cross-session memory into the planner/renderer context.
+  // Returns baseContext unchanged when no store/enricher is configured.
+  async function resolveContext(sessionId: string, baseContext: C): Promise<C> {
+    if (!options.memoryStore || !options.enrichContext) return baseContext;
+    const memory = await options.memoryStore.get(sessionId);
+    return options.enrichContext(baseContext, memory);
+  }
+
+  // Optional best-effort post-turn writeback (outside the decision path).
+  async function writeMemoryback(
+    sessionId: string,
+    baseContext: C,
+    result: AgentTurnResult<H>,
+  ): Promise<void> {
+    if (!options.memoryStore || !options.deriveMemoryWriteback) return;
+    try {
+      const prior = await options.memoryStore.get(sessionId);
+      const patch = options.deriveMemoryWriteback({ sessionId, baseContext, priorMemory: prior, result });
+      if (patch !== null) await options.memoryStore.put(sessionId, patch.memory, patch.ttlSeconds);
+    } catch (err) {
+      options.log?.warn?.({ msg: "memory writeback failed; ignoring", error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   function pauseActionToReason(kind: LoopAction["kind"]): AdapterPauseReason | undefined {
     switch (kind) {
       case "pause_for_defer":
@@ -174,8 +198,13 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         sessionId,
         iteration: iter + 1,
       });
-      const plan = options.pack.planner.plan(state, context);
-      const rendered = options.renderer.render(state, context, plan);
+      // ADR-126: enrich the planner/renderer context with cross-session memory
+      // ONCE per iteration. Both planner.plan and renderer.render see the SAME
+      // enriched context (no prompt/plan desync). Memory flows ONLY here —
+      // upstream of envelope construction — never into the kernel decision.
+      const effectiveContext = await resolveContext(sessionId, context);
+      const plan = options.pack.planner.plan(state, effectiveContext);
+      const rendered = options.renderer.render(state, effectiveContext, plan);
 
       const sent = await bridge.send(history, {
         systemPrompt: rendered.systemPrompt,
@@ -441,7 +470,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
       const seedEvents: AgentEvent[] = [
         { kind: "user_message", text: input.userMessage },
       ];
-      return runLoop(
+      const result = await runLoop(
         input.sessionId,
         initialHistory,
         input.state,
@@ -449,6 +478,8 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         seedEvents,
         null,
       );
+      await writeMemoryback(input.sessionId, input.context, result);
+      return result;
     },
 
     async resume(args: ResumeArgs<S, C, H>) {

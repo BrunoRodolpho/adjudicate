@@ -38,6 +38,9 @@ importers:
 
   apps/console:
     dependencies:
+      '@adjudicate/adapter-core':
+        specifier: workspace:*
+        version: link:../../packages/adapter-core
       '@adjudicate/admin-sdk':
         specifier: workspace:*
         version: link:../../packages/admin-sdk

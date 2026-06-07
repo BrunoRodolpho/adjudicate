@@ -42,6 +42,7 @@
 import type { IntentEnvelope } from "@adjudicate/core";
 import type {
   ConfirmationStore,
+  MemoryStore,
   PendingConfirmation,
 } from "./persistence.js";
 
@@ -155,4 +156,45 @@ export function createRedisConfirmationStore<H = unknown>(
       };
     },
   };
+}
+
+// ─── Redis MemoryStore (ADR-126) ────────────────────────────────────────────
+
+export interface CreateRedisMemoryStoreOptions<M> {
+  readonly client: ConfirmationRedisClient;
+  readonly keyFor?: (sessionId: string) => string;
+  readonly serialize?: (m: M) => string;
+  readonly deserialize?: (s: string) => M;
+  readonly defaultTtlSeconds?: number;
+}
+
+/** Redis-backed MemoryStore. Non-destructive get; SET EX put; non-atomic merge. */
+export function createRedisMemoryStore<M = unknown>(
+  opts: CreateRedisMemoryStoreOptions<M>,
+): MemoryStore<M> {
+  const keyFor = opts.keyFor ?? ((s: string) => `adjudicate:memory:${s}`);
+  const serialize = opts.serialize ?? ((m: M) => JSON.stringify(m));
+  const deserialize = opts.deserialize ?? ((s: string) => JSON.parse(s) as M);
+  const defaultTtl = opts.defaultTtlSeconds ?? 24 * 60 * 60;
+  const store: MemoryStore<M> = {
+    async get(sessionId) {
+      const raw = await opts.client.get(keyFor(sessionId));
+      if (raw === null) return null;
+      try {
+        return deserialize(raw);
+      } catch {
+        return null;
+      }
+    },
+    async put(sessionId, memory, ttlSeconds) {
+      await opts.client.set(keyFor(sessionId), serialize(memory), { EX: ttlSeconds || defaultTtl });
+    },
+    async merge(sessionId, patch, ttlSeconds) {
+      const current = (await store.get(sessionId)) ?? ({} as M);
+      const merged = { ...current, ...patch } as M;
+      await store.put(sessionId, merged, ttlSeconds);
+      return merged;
+    },
+  };
+  return store;
 }

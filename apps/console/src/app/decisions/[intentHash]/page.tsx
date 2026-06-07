@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { use } from "react";
 import { CommandRiskBadge } from "@/components/decision/CommandRiskBadge";
 import { HallucinationBadge } from "@/components/decision/HallucinationBadge";
+import { SessionMemoryPanel } from "@/components/decision/SessionMemoryPanel";
 import { DecisionTrace } from "@/components/decision/DecisionTrace";
 import { WhyNotPanel } from "@/components/decision/WhyNotPanel";
 import { useDecisionByHash } from "@/hooks/useDecisionByHash";
@@ -65,6 +66,7 @@ export default function DecisionDetailPage({ params }: PageProps) {
           <DecisionTrace record={data} />
           <CommandRiskBadge record={data} />
           <HallucinationBadge record={data} />
+          <SessionMemoryPanel sessionId={data.envelope.actor.sessionId} />
           <WhyNotPanel record={data} />
         </>
       )}

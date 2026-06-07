@@ -25,6 +25,7 @@ import type { ConfigSeal, ConfigSealPolicy } from "@adjudicate/conformance";
 import type {
   ConfirmationStore,
   DeferRedis,
+  MemoryStore,
   ParkRedis,
 } from "./persistence.js";
 import type { TraceSink } from "./trace.js";
@@ -186,6 +187,30 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
     readonly iteration: number;
     readonly usage: TokenUsage | undefined;
   }) => void;
+  /**
+   * Optional cross-session memory store (ADR-126). When omitted, context passes
+   * through unchanged. Read-many; ENRICHES the planner/renderer context only —
+   * never the kernel decision, state S, or intentHash.
+   */
+  readonly memoryStore?: MemoryStore<unknown>;
+  /**
+   * Pure folder of stored memory into the planner/renderer context, applied
+   * once per plan() site BEFORE planner.plan + renderer.render. MUST be pure and
+   * MUST NOT influence envelope/payload/taint/nonce. `memory` is null on a cold
+   * session. Required for `memoryStore` to take effect.
+   */
+  readonly enrichContext?: (baseContext: C, memory: unknown | null) => C;
+  /**
+   * Optional post-turn writeback. Runs AFTER the loop resolves, OUTSIDE the
+   * decision path; returning null skips the write. Best-effort (a throwing
+   * writeback never fails the turn).
+   */
+  readonly deriveMemoryWriteback?: (args: {
+    readonly sessionId: string;
+    readonly baseContext: C;
+    readonly priorMemory: unknown | null;
+    readonly result: AgentTurnResult<H>;
+  }) => { memory: unknown; ttlSeconds: number } | null;
   /**
    * Optional configuration-integrity gate (ADR-121). When supplied, the loop
    * verifies the Pack's sealable surface against `seal` ONCE per agent instance

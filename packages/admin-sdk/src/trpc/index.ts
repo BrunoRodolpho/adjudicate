@@ -82,6 +82,10 @@ import {
   type PolicyCoherenceReportParsed,
 } from "../schemas/policy-coherence.js";
 import { AiBomSchema, type AiBomParsed } from "../schemas/ai-bom.js";
+import {
+  MemorySnapshotQuerySchema,
+  MemorySnapshotSchema,
+} from "../schemas/memory.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -176,6 +180,8 @@ export interface AdminContext {
   };
   /** Optional AI-BOM for the installed Pack (ADR-127); `pack.aiBom` PRECONDITION_FAILED when absent. */
   readonly aiBom?: AiBomParsed;
+  /** Optional read-only session-memory lookup (ADR-126); `memory.bySession` PRECONDITION_FAILED when absent. */
+  readonly memoryLookup?: { get(sessionId: string): Promise<unknown | null> };
 }
 
 const t = initTRPC.context<AdminContext>().create();
@@ -551,6 +557,26 @@ const approvalRouter = t.router({
     }),
 });
 
+const memoryRouter = t.router({
+  /** Cross-session memory snapshot for a session (ADR-126). Requires an actor. */
+  bySession: t.procedure
+    .input(MemorySnapshotQuerySchema)
+    .output(MemorySnapshotSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "actor required" });
+      }
+      if (!ctx.memoryLookup) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Memory lookup not configured. Wire a read-only memory view into context.",
+        });
+      }
+      const memory = await ctx.memoryLookup.get(input.sessionId);
+      return { sessionId: input.sessionId, present: memory !== null, memory, retrievedAt: new Date().toISOString() };
+    }),
+});
+
 const packRouter = t.router({
   /** AI Bill-of-Materials for the installed Pack (ADR-127). */
   aiBom: t.procedure
@@ -573,6 +599,7 @@ export const adminRouter = t.router({
   governance: governanceRouter,
   approval: approvalRouter,
   pack: packRouter,
+  memory: memoryRouter,
 });
 
 export type AdminRouter = typeof adminRouter;

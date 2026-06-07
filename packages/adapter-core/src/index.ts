@@ -64,13 +64,19 @@ export type {
 export {
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
+  createInMemoryMemoryStore,
 } from "./persistence.js";
 export type {
   ConfirmationStore,
   DeferRedis,
+  MemoryStore,
   ParkRedis,
   PendingConfirmation,
 } from "./persistence.js";
+export {
+  createRedisMemoryStore,
+  type CreateRedisMemoryStoreOptions,
+} from "./persistence-redis.js";
 export {
   createRedisConfirmationStore,
   type ConfirmationRedisClient,

@@ -31,6 +31,7 @@ import {
   createInMemoryApprovalRegistry,
   type ApprovalRequest,
 } from "@adjudicate/approval-engine";
+import { createInMemoryMemoryStore } from "@adjudicate/adapter-core";
 import type { ApprovalRequestParsed, ApprovalResolveInput } from "@adjudicate/admin-sdk";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import {
@@ -292,6 +293,16 @@ const approvalPort = {
   },
 };
 
+// Session-memory lookup (ADR-126). The reference console seeds a demo memory
+// store; a real deployment wires the same store the adapter writes to.
+const memoryStore = createInMemoryMemoryStore<Record<string, unknown>>();
+void memoryStore.put(
+  "sess-dep-03",
+  { lastApprovedRegion: "us-west-1", priorEscalations: 2, note: "prefers low-carbon regions" },
+  24 * 60 * 60,
+);
+const memoryLookup = { get: (sessionId: string) => memoryStore.get(sessionId) };
+
 const tokenBudget = {
   async query(input: TokenBudgetQuery): Promise<TokenBudgetResult> {
     const rows = DEMO_TOKEN_SESSIONS.filter(
@@ -328,6 +339,7 @@ export const { GET, POST } = toNextRouteHandler({
     policyCoherence,
     aiBom,
     approvalPort,
+    memoryLookup,
     ...(policyDescriptor ? { policyDescriptor } : {}),
   }),
 });

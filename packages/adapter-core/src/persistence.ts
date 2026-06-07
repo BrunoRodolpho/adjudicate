@@ -230,3 +230,54 @@ export function createInMemoryConfirmationStore<H = unknown>(): ConfirmationStor
     },
   };
 }
+
+// ─── MemoryStore (cross-session planner memory, ADR-126) ────────────────────
+
+/**
+ * Cross-session memory store. Read-many (non-destructive `get`), unlike the
+ * single-use `ConfirmationStore.take`. Used ONLY to enrich the planner/renderer
+ * context — never the kernel decision (see loop `resolveContext`). Memory never
+ * enters `intentHash`, state `S`, or any guard.
+ */
+export interface MemoryStore<M = unknown> {
+  get(sessionId: string): Promise<M | null>;
+  put(sessionId: string, memory: M, ttlSeconds: number): Promise<void>;
+  merge?(sessionId: string, patch: Partial<M>, ttlSeconds: number): Promise<M>;
+}
+
+/** In-memory reference MemoryStore. Non-destructive get; opportunistic TTL sweep. */
+export function createInMemoryMemoryStore<M = unknown>(opts: {
+  readonly defaultTtlSeconds?: number;
+} = {}): MemoryStore<M> {
+  const store = new Map<string, { value: M; expiresAt: number }>();
+  const defaultTtl = opts.defaultTtlSeconds ?? 24 * 60 * 60;
+  function sweep(): void {
+    const now = Date.now();
+    let n = 0;
+    for (const [k, e] of store) {
+      if (e.expiresAt <= now) store.delete(k);
+      if (++n >= SWEEP_BATCH) break;
+    }
+  }
+  return {
+    async get(sessionId) {
+      const e = store.get(sessionId);
+      if (e === undefined) return null;
+      if (e.expiresAt <= Date.now()) {
+        store.delete(sessionId);
+        return null;
+      }
+      return e.value;
+    },
+    async put(sessionId, memory, ttlSeconds) {
+      sweep();
+      store.set(sessionId, { value: memory, expiresAt: Date.now() + (ttlSeconds || defaultTtl) * 1000 });
+    },
+    async merge(sessionId, patch, ttlSeconds) {
+      const current = (await this.get(sessionId)) ?? ({} as M);
+      const merged = { ...current, ...patch } as M;
+      await this.put(sessionId, merged, ttlSeconds);
+      return merged;
+    },
+  };
+}

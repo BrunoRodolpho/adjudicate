@@ -143,6 +143,12 @@ export {
 export { AiBomSchema, type AiBomParsed } from "./schemas/ai-bom.js";
 
 export {
+  MemorySnapshotQuerySchema,
+  MemorySnapshotSchema,
+  type MemorySnapshotParsed,
+} from "./schemas/memory.js";
+
+export {
   GuardDescriptionSchema,
   GuardDescriptorSchema,
   GuardMetadataSchema,

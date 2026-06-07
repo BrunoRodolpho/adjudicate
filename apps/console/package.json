@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@adjudicate/adapter-core": "workspace:*",
     "@adjudicate/admin-sdk": "workspace:*",
     "@adjudicate/analyze": "workspace:*",
     "@adjudicate/approval-engine": "workspace:*",

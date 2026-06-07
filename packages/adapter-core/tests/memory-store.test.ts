@@ -11,10 +11,20 @@ describe("createInMemoryMemoryStore", () => {
     expect(await m.get("missing")).toBeNull();
   });
 
-  it("expires entries past TTL", async () => {
-    const m = createInMemoryMemoryStore<number>();
-    await m.put("s1", 7, 0); // 0 → defaultTtl? no: 0 falls back to default — use a real expiry test via merge below
-    expect(await m.get("s1")).toBe(7);
+  it("expires entries past their TTL", async () => {
+    // Real expiry test (the prior version put with ttl=0, which falls back to the
+    // default TTL, then asserted presence — so it never exercised expiry at all).
+    // Drive the store's Date.now()-based expiry with fake timers.
+    vi.useFakeTimers();
+    try {
+      const m = createInMemoryMemoryStore<number>({});
+      await m.put("s1", 7, 60); // 60-second TTL
+      expect(await m.get("s1")).toBe(7); // present before expiry
+      vi.advanceTimersByTime(61_000); // jump past the TTL
+      expect(await m.get("s1")).toBeNull(); // now expired
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("merge reduces prior memory", async () => {

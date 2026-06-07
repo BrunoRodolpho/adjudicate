@@ -90,9 +90,15 @@ export {
   PiiClassificationResultSchema,
   PiiDispositionSchema,
   SensitivityLevelSchema,
+  PiiEventSchema,
+  PiiEventsQuerySchema,
+  PiiEventsResultSchema,
   type PiiClassificationBucket,
   type PiiClassificationQuery,
   type PiiClassificationResult,
+  type PiiEvent,
+  type PiiEventsQuery,
+  type PiiEventsResult,
 } from "./schemas/pii-classification.js";
 
 export {
@@ -194,6 +200,11 @@ export {
   createPiiClassificationHandler,
   type CreatePiiClassificationHandlerDeps,
 } from "./handlers/pii-classification.js";
+
+export {
+  createPiiEventsHandler,
+  type CreatePiiEventsHandlerDeps,
+} from "./handlers/pii-events.js";
 
 // ─── Auth utility ───────────────────────────────────────────────────────────
 export { extractActor } from "./auth/extract-actor.js";

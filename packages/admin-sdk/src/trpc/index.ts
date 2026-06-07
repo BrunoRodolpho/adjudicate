@@ -50,8 +50,11 @@ import { createGuardFireStatsHandler } from "../handlers/guard-stats.js";
 import {
   PiiClassificationQuerySchema,
   PiiClassificationResultSchema,
+  PiiEventsQuerySchema,
+  PiiEventsResultSchema,
 } from "../schemas/pii-classification.js";
 import { createPiiClassificationHandler } from "../handlers/pii-classification.js";
+import { createPiiEventsHandler } from "../handlers/pii-events.js";
 import {
   RedTeamReportSchema,
   type RedTeamReportParsed,
@@ -333,6 +336,26 @@ const governanceRouter = t.router({
     .output(PiiClassificationResultSchema)
     .query(async ({ input, ctx }) => {
       const handler = createPiiClassificationHandler({ store: ctx.store });
+      return handler(input);
+    }),
+
+  /**
+   * Event-level data-classification drill-down (ADR-129) — individual PII
+   * disposition events (no raw values), newest-first, for the console's PII
+   * Events table. Record-level governance data, so it requires an authenticated
+   * actor (consistent with audit.query). Reads the same AuditStore.
+   */
+  piiEvents: t.procedure
+    .input(PiiEventsQuerySchema)
+    .output(PiiEventsResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "x-adjudicate-actor-id header required for PII event drill-down",
+        });
+      }
+      const handler = createPiiEventsHandler({ store: ctx.store });
       return handler(input);
     }),
 

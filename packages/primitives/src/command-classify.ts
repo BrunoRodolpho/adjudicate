@@ -30,17 +30,28 @@ export interface FlagStripRule {
   readonly appliesTo: (command: string) => boolean;
 }
 
-const isRm = (c: string) => /(^|\s|;|&&|\|)\s*rm(\s|$)/.test(c);
+// Case-insensitive (defense-in-depth: catch `RM`/`DD` on case-insensitive
+// filesystems and obfuscation attempts, not just lowercase canonical names).
+const isRm = (c: string) => /(^|\s|;|&&|\|)\s*rm(\s|$)/i.test(c);
+
+/**
+ * Irrecoverable `rm` targets: the filesystem root (`/`, `/*`), the entire home
+ * directory (`~`, `~/`, `~/*`), and `$HOME`/`${HOME}`. A target like `/tmp/x` or
+ * `~/Downloads` is NOT catastrophic (it falls through to the recoverable CONFIRM
+ * tier) — only the whole-root / whole-home targets refuse outright. Any `rm`
+ * against these (with or without flags) is irrecoverable, so flags are irrelevant.
+ */
+const CATASTROPHIC_RM_TARGET = /(^|\s)(\/\*?|~\/?\*?|\$\{?HOME\}?)(\s|$)/i;
 
 /** Frozen default rule table. Exported for testing + override. */
 export const DEFAULT_COMMAND_RULES: ReadonlyArray<CommandRule> = Object.freeze([
   // Irrecoverable destruction → REFUSE outright.
-  { id: "rm_rf_root", category: "destructive", severity: "refuse", test: (c) => /\brm\b[^\n]*-[^\s]*[rf][^\s]*[rf]?[^\n]*\s+\/(\s|$)/.test(c) || /\brm\b[^\n]*\s-[rf]{1,2}\b[^\n]*\s+\/(\s|$)/.test(c) },
+  { id: "rm_rf_root", category: "destructive", severity: "refuse", test: (c) => isRm(c) && CATASTROPHIC_RM_TARGET.test(c) },
   { id: "fork_bomb", category: "destructive", severity: "refuse", test: (c) => /:\(\)\s*\{\s*:\|:&\s*\}\s*;:/.test(c) },
-  { id: "dd_to_device", category: "destructive", severity: "refuse", test: (c) => /\bdd\b[^\n]*of=\/dev\//.test(c) },
-  { id: "mkfs", category: "destructive", severity: "refuse", test: (c) => /\bmkfs(\.\w+)?\b/.test(c) },
+  { id: "dd_to_device", category: "destructive", severity: "refuse", test: (c) => /\bdd\b[^\n]*of=\/dev\//i.test(c) },
+  { id: "mkfs", category: "destructive", severity: "refuse", test: (c) => /\bmkfs(\.\w+)?\b/i.test(c) },
   // Recoverable-ish destruction → CONFIRM (or REWRITE if a flag is strippable).
-  { id: "rm_recursive", category: "destructive", severity: "confirm", test: (c) => isRm(c) && /-[^\s]*r/.test(c) },
+  { id: "rm_recursive", category: "destructive", severity: "confirm", test: (c) => isRm(c) && /-[^\s]*r/i.test(c) },
   // Network exfil/execution.
   { id: "curl_pipe_shell", category: "network", severity: "confirm", test: (c) => /\b(curl|wget)\b[^\n]*\|\s*(sh|bash|zsh)\b/.test(c) },
   { id: "outbound_fetch", category: "network", severity: "confirm", test: (c) => /\b(curl|wget|nc|netcat)\b/.test(c) },

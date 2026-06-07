@@ -113,9 +113,18 @@ export {
 export {
   BehavioralDriftResultSchema,
   DriftAlertSchema,
+  DriftDimensionNameSchema,
   DriftDimensionSnapshotSchema,
+  DriftHistoryDimensionEntrySchema,
+  DriftHistoryEntrySchema,
+  DriftHistoryQuerySchema,
+  DriftHistoryResultSchema,
   DriftSignalKindSchema,
   type BehavioralDriftResultParsed,
+  type DriftHistoryDimensionEntryParsed,
+  type DriftHistoryEntryParsed,
+  type DriftHistoryQuery,
+  type DriftHistoryResultParsed,
 } from "./schemas/behavioral-drift.js";
 
 export {

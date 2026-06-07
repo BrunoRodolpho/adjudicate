@@ -9,6 +9,8 @@ import { adminRouter } from "@adjudicate/admin-sdk/trpc";
 import type {
   BehavioralDriftResultParsed,
   ConfigSealReportParsed,
+  DriftHistoryQuery,
+  DriftHistoryResultParsed,
   KillSwitchTimelineReportParsed,
   PackConfigSealEntryParsed,
   RedTeamReportParsed,
@@ -43,7 +45,11 @@ import {
   runRedTeam,
   type RedTeamPack,
 } from "@adjudicate/red-team";
-import { createDriftDetector, type DriftAlert } from "@adjudicate/drift";
+import {
+  createDriftDetector,
+  createDriftHistory,
+  type DriftAlert,
+} from "@adjudicate/drift";
 import { DRIFT_CONFIG } from "@/lib/drift-config";
 import { deploymentsApprovalPack } from "@adjudicate/pack-deployments-approval";
 import {
@@ -195,13 +201,42 @@ const driftDetector = createDriftDetector({
   ...DRIFT_CONFIG,
   onDrift: (alert) => driftAlerts.push(alert),
 });
+
+// Bounded drift-history time-series (ADR-132). Snapshots are recorded on a
+// cadence so the Drift Timeline can show whether a TVD spike is new /
+// recovering / sustained. The buffer is in-process telemetry, never a system
+// of record; the kernel never reads it.
+const driftHistory = createDriftHistory({ capacity: 100 });
+
+// Deterministic demo-timeline base + spacing. The drift package is clock-free
+// (timestamps are caller-supplied), so we derive evenly-spaced ISO stamps from
+// a FIXED base rather than wall-clock — keeping the reference console's history
+// byte-stable across restarts.
+const DRIFT_TIMELINE_BASE = Date.parse("2026-01-01T00:00:00.000Z");
+const DRIFT_TIMELINE_STEP_MS = 91 * 24 * 60 * 60 * 1000; // ~one quarter
+
 const auditBus = getAuditBus();
 if (auditBus) {
-  // Live: observe() each published record as it arrives (ADR-128).
+  // Live: observe() each published record as it arrives (ADR-128). A live
+  // adopter records `driftHistory.record(driftDetector.snapshot(), at)` on
+  // their own cadence (e.g. a periodic tick with a harness-supplied clock) —
+  // the bus handler stays no-throw and the package never reads a clock here.
   driftDetector.attach(auditBus);
 } else {
-  // Reference fallback: warm from the mock stream.
-  for (const record of ALL_MOCKS) driftDetector.observe(record);
+  // Reference fallback: replay the mock stream in CHUNKS (quarters) and record
+  // a snapshot after each chunk with an evenly-spaced, fixed-base timestamp, so
+  // the Timeline has a real, deterministic multi-point series rather than a
+  // single warm-up point.
+  const CHUNKS = 4;
+  const chunkSize = Math.max(1, Math.ceil(ALL_MOCKS.length / CHUNKS));
+  for (let chunk = 0; chunk * chunkSize < ALL_MOCKS.length; chunk++) {
+    const slice = ALL_MOCKS.slice(chunk * chunkSize, (chunk + 1) * chunkSize);
+    for (const record of slice) driftDetector.observe(record);
+    const at = new Date(
+      DRIFT_TIMELINE_BASE + chunk * DRIFT_TIMELINE_STEP_MS,
+    ).toISOString();
+    driftHistory.record(driftDetector.snapshot(), at);
+  }
   driftDetector.evaluate(); // fires onDrift per crossing (warm-up alerting path)
   if (driftAlerts.length > 0) {
     console.warn(
@@ -209,6 +244,32 @@ if (auditBus) {
     );
   }
 }
+
+// Adapter from the @adjudicate/drift `DriftHistory.view()` to the admin-sdk
+// `governance.driftHistory` port: window to the last `limit` entries.
+const driftHistoryPort = {
+  query(input: DriftHistoryQuery): DriftHistoryResultParsed {
+    const view = driftHistory.view();
+    return {
+      schemaVersion: 1 as const,
+      capacity: view.capacity,
+      count: view.count,
+      dropped: view.dropped,
+      entries: view.entries.slice(-input.limit).map((e) => ({
+        at: e.at,
+        seq: e.seq,
+        totalObserved: e.totalObserved,
+        maxTvd: e.maxTvd,
+        alertCount: e.alertCount,
+        dimensions: e.dimensions.map((d) => ({
+          dimension: d.dimension,
+          tvd: d.tvd,
+          alertCount: d.alertCount,
+        })),
+      })),
+    };
+  },
+};
 
 // Token-budget telemetry (ADR-120). The reference console does not run an
 // adapter loop, so this is a small seeded demo store illustrating the panel; a
@@ -476,6 +537,7 @@ export const { GET, POST } = toNextRouteHandler({
     driftDetector: driftDetector as unknown as {
       snapshot(): BehavioralDriftResultParsed;
     },
+    driftHistory: driftHistoryPort,
     tokenBudget,
     configSealStatus,
     configSealReports,

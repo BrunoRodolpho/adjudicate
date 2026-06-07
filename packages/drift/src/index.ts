@@ -23,3 +23,11 @@ export {
   type DriftSignalKind,
   type DriftSnapshot,
 } from "./detector.js";
+export {
+  createDriftHistory,
+  type DriftHistory,
+  type DriftHistoryDimensionEntry,
+  type DriftHistoryEntry,
+  type DriftHistoryOptions,
+  type DriftHistoryView,
+} from "./history.js";

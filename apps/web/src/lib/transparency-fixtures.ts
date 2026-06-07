@@ -253,3 +253,55 @@ export const CONFIG_INTEGRITY_TRANSPARENCY_SAMPLE: ConfigIntegrityTransparencySa
     ],
     killSwitchStability: "stable",
   };
+
+// ─── Behavioral drift transparency (ADR-132) ─────────────────────────────────
+
+/**
+ * Closed-enum drift dimension NAME — byte-equal to `@adjudicate/drift`'s
+ * `DriftDimension` and admin-sdk's `DriftDimensionNameSchema`. The dimension
+ * NAME is public vocabulary (`decision.kind` etc.); the public projection
+ * exposes only the name of the top-drifting dimension, never any category VALUE.
+ */
+export type DriftDimensionName = "decision.kind" | "intent.kind" | "basis";
+
+/**
+ * ILLUSTRATIVE per-dimension drift roll-up for the public drift view. Carries
+ * only the closed dimension NAME, its TVD, and its alert count — never the
+ * baseline/recent category maps (operator-only). The public projection reads
+ * these to compute one banded status; it never publishes a raw TVD number or a
+ * category value.
+ */
+export interface DriftTransparencyDimension {
+  readonly dimension: DriftDimensionName;
+  readonly tvd: number;
+  readonly alertCount: number;
+}
+
+/**
+ * One ILLUSTRATIVE behavioral-drift sample for the public transparency status.
+ * `apps/web` is a public surface with no kernel runtime, so it renders this
+ * committed fixture rather than a live detector snapshot. The operator console
+ * shows full per-dimension category maps + a TVD timeline; this fixture carries
+ * only the closed dimension names + TVD/alert roll-ups + a threshold, which the
+ * aggregate-only projection collapses into a banded status.
+ */
+export interface DriftTransparencySample {
+  /** TVD/proportion threshold above which a dimension is alerting. */
+  readonly alertThreshold: number;
+  readonly dimensions: readonly DriftTransparencyDimension[];
+}
+
+/**
+ * Illustrative behavioral-drift sample for the reference deployment. One
+ * dimension is mildly elevated (a single alert just over threshold) so the
+ * public status renders the "elevated" band with a top dimension — the healthy
+ * "watch it" posture, not a crisis. Aggregates only; no category values appear.
+ */
+export const DRIFT_TRANSPARENCY_SAMPLE: DriftTransparencySample = {
+  alertThreshold: 0.25,
+  dimensions: [
+    { dimension: "decision.kind", tvd: 0.31, alertCount: 1 },
+    { dimension: "intent.kind", tvd: 0.12, alertCount: 0 },
+    { dimension: "basis", tvd: 0.04, alertCount: 0 },
+  ],
+};

@@ -61,7 +61,11 @@ import {
 } from "../schemas/red-team.js";
 import {
   BehavioralDriftResultSchema,
+  DriftHistoryQuerySchema,
+  DriftHistoryResultSchema,
   type BehavioralDriftResultParsed,
+  type DriftHistoryQuery,
+  type DriftHistoryResultParsed,
 } from "../schemas/behavioral-drift.js";
 import {
   TokenBudgetQuerySchema,
@@ -167,6 +171,17 @@ export interface AdminContext {
    * when absent.
    */
   readonly driftDetector?: { snapshot(): BehavioralDriftResultParsed };
+  /**
+   * Optional bounded drift-history time-series port (ADR-132). The route
+   * handler wires an @adjudicate/drift `DriftHistory` (snapshots recorded on a
+   * cadence — quarters for the demo replay, an adopter's own cadence on a live
+   * bus) and exposes its `view()` windowed to the query `limit`.
+   * `governance.driftHistory` throws PRECONDITION_FAILED when absent — the same
+   * runtime feature-detection posture as `driftDetector`.
+   */
+  readonly driftHistory?: {
+    query(input: DriftHistoryQuery): DriftHistoryResultParsed;
+  };
   /**
    * Optional token-budget telemetry store (ADR-120), fed by the adapter's
    * `onTokenUsage` hook. `governance.tokenBudget` throws PRECONDITION_FAILED
@@ -506,6 +521,27 @@ const governanceRouter = t.router({
         });
       }
       return ctx.driftDetector.snapshot();
+    }),
+
+  /**
+   * Bounded drift-history time-series (ADR-132) — the per-dimension TVD +
+   * alert-count roll-up of recorded detector snapshots over time, so an
+   * operator can see whether a TVD spike is new / recovering / sustained. The
+   * `limit` windows the timeline to the last N retained points. Throws
+   * PRECONDITION_FAILED when no history is wired.
+   */
+  driftHistory: t.procedure
+    .input(DriftHistoryQuerySchema)
+    .output(DriftHistoryResultSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.driftHistory) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Drift-history store not configured. Wire an @adjudicate/drift DriftHistory into the route handler context.",
+        });
+      }
+      return ctx.driftHistory.query(input);
     }),
 
   /**

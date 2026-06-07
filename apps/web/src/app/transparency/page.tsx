@@ -151,6 +151,7 @@ const PUBLIC_VIEWS: readonly PublicView[] = [
   },
   {
     title: "Behavioral drift",
+    href: "/transparency/drift",
     exposes:
       "Whether decision distributions are shifting, by severity and dimension — a status summary, not the underlying records.",
   },

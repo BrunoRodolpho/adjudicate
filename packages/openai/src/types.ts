@@ -8,6 +8,7 @@
 
 import type {
   AdjudicatedAgent as AdjudicatedAgentCore,
+  AdjudicatedAgentOptions as AdjudicatedAgentOptionsCore,
   AdopterExecutor,
   AgentEvent,
   AgentLogger,
@@ -47,7 +48,21 @@ export type PendingConfirmation = PendingConfirmationCore<OpenAIHistory>;
 
 export type { AdopterExecutor, AgentLogger };
 
-export interface AdjudicatedAgentOptions<K extends string, P, S, C> {
+export interface AdjudicatedAgentOptions<K extends string, P, S, C>
+  // Forward the provider-neutral agent-loop seams verbatim from adapter-core so
+  // they can never structurally drift: token-usage telemetry (ADR-120),
+  // cross-session memory (ADR-126), the config-integrity gate (ADR-121), and the
+  // trace sink. Without these declared+forwarded, those features were
+  // unreachable through this provider bridge.
+  extends Pick<
+    AdjudicatedAgentOptionsCore<K, P, S, C, OpenAIHistory>,
+    | "onTokenUsage"
+    | "memoryStore"
+    | "enrichContext"
+    | "deriveMemoryWriteback"
+    | "configSeal"
+    | "traceSink"
+  > {
   readonly pack: PackV0<K, P, S, C>;
   /** OpenAI SDK client (or any object satisfying `OpenAIChatLikeClient`). */
   readonly openaiClient: OpenAIChatLikeClient;

@@ -55,6 +55,14 @@ export function createAdjudicatedAgent<K extends string, P, S, C>(
     deriveNonce: options.deriveNonce,
     log: options.log,
     verifyParkedHash: options.verifyParkedHash,
+    // Provider-neutral agent-loop seams (ADR-120/121/126) — forwarded so they
+    // are actually reachable through the Anthropic bridge.
+    onTokenUsage: options.onTokenUsage,
+    memoryStore: options.memoryStore,
+    enrichContext: options.enrichContext,
+    deriveMemoryWriteback: options.deriveMemoryWriteback,
+    configSeal: options.configSeal,
+    traceSink: options.traceSink,
   });
 
   return agent;

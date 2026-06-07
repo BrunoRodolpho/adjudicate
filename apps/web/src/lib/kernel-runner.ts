@@ -11,7 +11,10 @@
 import {
   adjudicateAndAudit,
   adjudicateWithTrace,
+  basis,
+  BASIS_CODES,
   buildEnvelope,
+  decisionExecute,
   installPack,
   type AdjudicationTraceEntry,
   type AuditRecord,
@@ -32,6 +35,53 @@ import {
   paymentsPixPack,
   rehydratePixState,
 } from "@adjudicate/pack-payments-pix";
+import { createDataClassificationGuard } from "@adjudicate/primitives";
+
+/**
+ * Inline demo Pack for the PII / data-classification playground tab (ADR-117).
+ * Not a published package — it exists only to showcase
+ * `createDataClassificationGuard` REWRITE-redaction in the marketing
+ * playground. A clean ticket EXECUTEs; a ticket carrying a fake SSN / card
+ * number gets the matched fields REWRITE-redacted (taint preserved).
+ */
+const piiDemoPack: PackV0<string, unknown, unknown, unknown> = {
+  id: "pack-pii-demo",
+  version: "0.0.0",
+  contract: "v0",
+  intents: ["support.ticket.create"],
+  basisCodes: ["support.ticket.created"],
+  policy: {
+    stateGuards: [],
+    authGuards: [],
+    taint: { minimumFor: () => "UNTRUSTED" },
+    business: [
+      // PII present → REWRITE (redact) and short-circuit.
+      createDataClassificationGuard<string, unknown, unknown>({
+        matches: (env) => env.kind === "support.ticket.create",
+        patterns: [
+          { id: "ssn", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
+          { id: "pan", pattern: /\b\d{16}\b/ },
+        ],
+        scannedFields: ["subject", "body"],
+        action: "REWRITE",
+        sensitivityLevel: "high",
+        reason: "Redacted PII from the support ticket before processing.",
+      }),
+      // Clean ticket → EXECUTE (the classification guard returned null).
+      (env) =>
+        env.kind === "support.ticket.create"
+          ? decisionExecute([basis("business", BASIS_CODES.business.RULE_SATISFIED)])
+          : null,
+    ],
+    default: "REFUSE",
+  },
+  planner: {
+    plan: () => ({
+      visibleReadTools: [],
+      allowedIntents: ["support.ticket.create"],
+    }),
+  },
+};
 
 interface InstalledPack {
   readonly id: string;
@@ -79,6 +129,14 @@ function installAll(): ReadonlyArray<InstalledPack> {
       pack: dep.pack,
       emptyState: { approvals: new Map() },
       rehydrateState: rehydrateDeploymentState,
+    },
+    {
+      id: piiDemoPack.id,
+      displayName: "Data Classification · PII",
+      intents: [...piiDemoPack.intents],
+      pack: installPack(piiDemoPack).pack,
+      emptyState: {},
+      rehydrateState: (raw) => raw ?? {},
     },
   ];
 }

@@ -149,6 +149,27 @@ export type GuardDescription =
       readonly mutatesPayloadFields: ReadonlyArray<string>;
     }
   | {
+      readonly kind: "data_classification";
+      /**
+       * Sensitivity tier the guard classifies, highest-first ordinal. Carried
+       * here for static/analyzer consumption; the *runtime* value also travels
+       * in `DecisionBasis.detail.sensitivityLevel` (the only structured channel
+       * that survives into the AuditRecord — `GuardDescription` is never
+       * serialized into a record). Both, redundantly, by design (ADR-117).
+       */
+      readonly sensitivityLevel: "low" | "medium" | "high" | "critical";
+      /** Disposition when classified data is detected. */
+      readonly action: "REWRITE" | "REFUSE";
+      /**
+       * Static whitelist of payload field paths the guard is permitted to
+       * scan/redact (same dotted-path convention as the `rewrite` variant).
+       * Non-empty so AJD-104-style REWRITE-scope checks stay enforceable.
+       * Which subset actually fired at runtime is recorded in
+       * `DecisionBasis.detail.redactedFields`.
+       */
+      readonly scannedFields: ReadonlyArray<string>;
+    }
+  | {
       readonly kind: "opaque";
       /**
        * Human-only operator/debugger breadcrumb. **Analyzers MUST NOT parse

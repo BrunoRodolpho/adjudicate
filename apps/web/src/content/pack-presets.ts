@@ -107,6 +107,29 @@ export const PACK_PRESETS: Record<string, ReadonlyArray<PackPreset>> = {
       expectedKind: "DEFER",
     },
   ],
+  "pii-redaction": [
+    {
+      label: "Ticket with SSN → REWRITE (redacted)",
+      description:
+        "A support ticket whose body contains a fake SSN. The kernel REWRITEs the payload, masking the matched field (taint preserved).",
+      intentKind: "support.ticket.create",
+      payload: {
+        subject: "Cannot log in",
+        body: "My SSN is 123-45-6789 and card 4111111111111111, please help.",
+      },
+      expectedKind: "REWRITE",
+    },
+    {
+      label: "Clean ticket → EXECUTE",
+      description: "A ticket with no classified data passes through untouched.",
+      intentKind: "support.ticket.create",
+      payload: {
+        subject: "Feature request",
+        body: "Please add a dark mode to the dashboard.",
+      },
+      expectedKind: "EXECUTE",
+    },
+  ],
   "deployments-approval": [
     {
       label: "Staging at 25% → EXECUTE",
@@ -153,4 +176,5 @@ export const PACK_DISPLAY_NAME: Record<string, string> = {
   "payments-pix": "Payments · PIX",
   "identity-kyc": "Identity · KYC",
   "deployments-approval": "Deployments · Approval",
+  "pii-redaction": "Data Classification · PII",
 };

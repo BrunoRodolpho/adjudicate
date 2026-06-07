@@ -513,3 +513,193 @@ export function requireTenantBinding<K extends string, P, S>(
           [basis("auth", BASIS_CODES.auth.SCOPE_INSUFFICIENT)],
         );
 }
+
+// ─── createDataClassificationGuard (PII / data-classification, ADR-117) ──────
+
+/**
+ * Data-classification / PII guard factory.
+ *
+ * Inspects a whitelisted set of payload fields for sensitive-data patterns
+ * (SSN, account numbers, PHI/MPI, …) and, on detection, either:
+ *
+ *   - **REWRITE** — masks the matched substrings in the matched fields and
+ *     re-emits the envelope with the redacted payload (field-level redaction),
+ *     or
+ *   - **REFUSE** — blocks the intent with a SECURITY refusal.
+ *
+ * **Taint is preserved verbatim** on the REWRITE path (`taint: envelope.taint`)
+ * — redaction removes the *content* but does not declassify the envelope, so it
+ * can never raise taint and never trips the `rewrite_taint_regression` drift
+ * signal. Declassification would require field-level taint (deferred).
+ *
+ * **Two channels for `sensitivityLevel`, by design (ADR-117):** the static
+ * `GuardDescription.data_classification` metadata carries it for analyzers; the
+ * runtime `DecisionBasis.detail.sensitivityLevel` carries it for the audit
+ * record / console (guard metadata is never serialized into an AuditRecord).
+ * Likewise the static `scannedFields` whitelist declares *permitted* scope while
+ * runtime `detail.redactedFields` records the subset that actually fired.
+ *
+ * Pure: regex evaluation over `envelope.payload`, no clock/I/O/RNG. Patterns
+ * and fields are iterated in declared order so `detectedPatterns` /
+ * `redactedFields` are deterministically ordered (matters for the replay
+ * basis-set comparison).
+ */
+export type SensitivityLevel = "low" | "medium" | "high" | "critical";
+
+export interface DataClassificationPattern {
+  /** Stable id for audit detail + dedup, e.g. "ssn", "cpf", "pan". */
+  readonly id: string;
+  /** Regex matched against stringified leaf field values. */
+  readonly pattern: RegExp;
+  /**
+   * Redaction replacement applied per-match when `action: "REWRITE"`. Receives
+   * the matched substring; returns the masked string. Defaults to a fixed
+   * `[REDACTED]` token when omitted.
+   */
+  readonly redact?: (match: string) => string;
+}
+
+export interface DataClassificationGuardOptions<K extends string, P, S> {
+  /** Predicate engaging the guard. `(env) => env.kind === "..."` typical. */
+  readonly matches: (envelope: IntentEnvelope<K, P>, state: S) => boolean;
+  /** Patterns to scan for. */
+  readonly patterns: ReadonlyArray<DataClassificationPattern>;
+  /**
+   * Whitelist of payload field paths to scan (dotted paths: `["note",
+   * "items.0.memo"]`). Required + non-empty so the static
+   * `GuardDescription.scannedFields` can declare scope (AJD-104 parity).
+   */
+  readonly scannedFields: ReadonlyArray<string>;
+  /** Disposition on detection. */
+  readonly action: "REWRITE" | "REFUSE";
+  /** Sensitivity tag surfaced in metadata AND `basis.detail`. */
+  readonly sensitivityLevel: SensitivityLevel;
+  /** REWRITE reason text. Defaults to a fixed string. */
+  readonly reason?: string;
+  /** REFUSE user-facing text. Defaults to "I can't process that data." */
+  readonly userFacing?: string;
+}
+
+const DEFAULT_REDACT_TOKEN = "[REDACTED]";
+
+/** Resolve a dotted path (`a.b.0.c`) against a value. Returns undefined if absent. */
+function getPath(root: unknown, path: string): unknown {
+  const segments = path.split(".");
+  let cursor: unknown = root;
+  for (const segment of segments) {
+    if (cursor === null || typeof cursor !== "object") return undefined;
+    cursor = (cursor as Record<string, unknown>)[segment];
+  }
+  return cursor;
+}
+
+/** Set a dotted path on a mutable clone. No-op if an intermediate node is missing. */
+function setPath(root: Record<string, unknown>, path: string, value: unknown): void {
+  const segments = path.split(".");
+  let cursor: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    const next = cursor[segments[i]!];
+    if (next === null || typeof next !== "object") return;
+    cursor = next as Record<string, unknown>;
+  }
+  cursor[segments[segments.length - 1]!] = value;
+}
+
+/** Non-global tester (avoids shared-lastIndex statefulness of a `/g` regex). */
+function testPattern(p: RegExp, value: string): boolean {
+  const flags = p.flags.replace("g", "");
+  return new RegExp(p.source, flags).test(value);
+}
+
+/** Global replacer for redaction (fresh regex so lastIndex never leaks). */
+function redactWith(p: RegExp, value: string, redact: (m: string) => string): string {
+  const flags = p.flags.includes("g") ? p.flags : `${p.flags}g`;
+  return value.replace(new RegExp(p.source, flags), (m) => redact(m));
+}
+
+export function createDataClassificationGuard<K extends string, P, S>(
+  options: DataClassificationGuardOptions<K, P, S>,
+): Guard<K, P, S> {
+  if (options.scannedFields.length === 0) {
+    throw new Error(
+      "createDataClassificationGuard: scannedFields must be non-empty (declares the permitted scan/redact scope).",
+    );
+  }
+  const reason = options.reason ?? "Redacted classified data from payload.";
+  const userFacing = options.userFacing ?? "I can't process that data.";
+
+  const guard: Guard<K, P, S> = (envelope, state) => {
+    if (!options.matches(envelope, state)) return null;
+    const payload = envelope.payload;
+    // Trust-boundary: a non-object payload cannot be scanned — no opinion.
+    if (payload === null || typeof payload !== "object") return null;
+
+    const detectedPatterns: string[] = [];
+    const redactedFields: string[] = [];
+    // Built lazily, only for the REWRITE path.
+    let clone: Record<string, unknown> | null = null;
+
+    for (const field of options.scannedFields) {
+      const value = getPath(payload, field);
+      if (typeof value !== "string") continue;
+      let fieldMatched = false;
+      let redacted = value;
+      for (const p of options.patterns) {
+        if (testPattern(p.pattern, value)) {
+          fieldMatched = true;
+          if (!detectedPatterns.includes(p.id)) detectedPatterns.push(p.id);
+        }
+        if (options.action === "REWRITE") {
+          redacted = redactWith(p.pattern, redacted, p.redact ?? (() => DEFAULT_REDACT_TOKEN));
+        }
+      }
+      if (fieldMatched) {
+        redactedFields.push(field);
+        if (options.action === "REWRITE") {
+          if (clone === null) clone = structuredClone(payload) as Record<string, unknown>;
+          setPath(clone, field, redacted);
+        }
+      }
+    }
+
+    if (detectedPatterns.length === 0) return null;
+
+    if (options.action === "REFUSE") {
+      return decisionRefuse(
+        refuse("SECURITY", "pii_blocked", userFacing, `detected ${detectedPatterns.join(", ")} in ${redactedFields.join(", ")}`),
+        [
+          basis("validation", BASIS_CODES.validation.PII_BLOCKED, {
+            sensitivityLevel: options.sensitivityLevel,
+            detectedPatterns,
+            fields: redactedFields,
+          }),
+        ],
+      );
+    }
+
+    const rewritten = buildEnvelope({
+      kind: envelope.kind,
+      payload: (clone ?? (payload as Record<string, unknown>)) as P,
+      actor: envelope.actor,
+      taint: envelope.taint,
+      nonce: envelope.nonce,
+      createdAt: envelope.createdAt,
+    });
+    return decisionRewrite(rewritten, reason, [
+      basis("validation", BASIS_CODES.validation.PII_REDACTED, {
+        sensitivityLevel: options.sensitivityLevel,
+        detectedPatterns,
+        redactedFields,
+      }),
+    ]);
+  };
+
+  return withMetadata(guard, {
+    description: {
+      kind: "data_classification",
+      sensitivityLevel: options.sensitivityLevel,
+      action: options.action,
+      scannedFields: [...options.scannedFields],
+    },
+  });
+}

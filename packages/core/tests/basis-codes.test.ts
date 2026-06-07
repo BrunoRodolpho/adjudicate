@@ -47,6 +47,15 @@ describe("BASIS_CODES — vocabulary-controlled", () => {
     }
   });
 
+  it("exposes the data-classification validation codes (ADR-117)", () => {
+    expect(BASIS_CODES.validation.PII_DETECTED).toBe("pii_detected");
+    expect(BASIS_CODES.validation.PII_REDACTED).toBe("pii_redacted");
+    expect(BASIS_CODES.validation.PII_BLOCKED).toBe("pii_blocked");
+    expect(
+      isKnownBasisCode({ category: "validation", code: "pii_redacted" }),
+    ).toBe(true);
+  });
+
   it("isKnownBasisCode rejects drift strings", () => {
     expect(
       isKnownBasisCode({ category: "auth", code: "scope_ok" as never }),

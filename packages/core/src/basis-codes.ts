@@ -59,6 +59,13 @@ export const BASIS_CODES = {
     FORBIDDEN_PHRASE_ABSENT: "forbidden_phrase_absent",
     HOMOGLYPH_NORMALIZED: "homoglyph_normalized",
     UNICODE_NORMALIZED: "unicode_normalized",
+    // Data-classification (ADR-117). PII_DETECTED is the neutral detection
+    // marker; PII_REDACTED accompanies a REWRITE that masked matched fields;
+    // PII_BLOCKED accompanies a REFUSE. sensitivityLevel + redactedFields ride
+    // in DecisionBasis.detail so the console can aggregate by tier/disposition.
+    PII_DETECTED: "pii_detected",
+    PII_REDACTED: "pii_redacted",
+    PII_BLOCKED: "pii_blocked",
   },
   /**
    * Kill-switch — emitted when `setKillSwitch(true, ...)` is active. Blocks

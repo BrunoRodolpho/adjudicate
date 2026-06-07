@@ -39,6 +39,7 @@
 
 export {
   createConfirmGuard,
+  createDataClassificationGuard,
   createEscalateGuard,
   createIdempotencyGuard,
   createRewriteGuard,
@@ -46,9 +47,12 @@ export {
   createThresholdGuard,
   requireTenantBinding,
   type ConfirmGuardOptions,
+  type DataClassificationGuardOptions,
+  type DataClassificationPattern,
   type EscalateGuardOptions,
   type IdempotencyGuardOptions,
   type RewriteGuardOptions,
+  type SensitivityLevel,
   type StateDeferGuardOptions,
   type ThresholdComparator,
   type ThresholdGuardOptions,

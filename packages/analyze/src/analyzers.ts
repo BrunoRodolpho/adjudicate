@@ -182,6 +182,28 @@ export const rewriteScopeAnalyzer: Analyzer = {
           });
         }
       }
+      // ADR-117: a data_classification guard with action REWRITE redacts
+      // fields drawn from scannedFields — the same REWRITE-scope discipline
+      // applies. An empty scannedFields whitelist declares no scope.
+      if (
+        meta?.description?.kind === "data_classification" &&
+        meta.description.action === "REWRITE" &&
+        meta.description.scannedFields.length === 0
+      ) {
+        diagnostics.push({
+          code: "AJD-104",
+          severity: "error",
+          message: `Guard ${guardLabel(
+            guard,
+            phase,
+            index,
+          )} declares kind='data_classification' action='REWRITE' but scannedFields is empty.`,
+          description:
+            "Data-classification REWRITE guards MUST declare the payload fields they may scan/redact (scannedFields). An empty whitelist declares no scope.",
+          guardId: guardLabel(guard, phase, index),
+          phase,
+        });
+      }
     });
     return diagnostics;
   },

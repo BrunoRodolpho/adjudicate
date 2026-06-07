@@ -47,6 +47,11 @@ import {
   type OutcomeDistributionStore,
 } from "../handlers/outcome-distribution.js";
 import { createGuardFireStatsHandler } from "../handlers/guard-stats.js";
+import {
+  PiiClassificationQuerySchema,
+  PiiClassificationResultSchema,
+} from "../schemas/pii-classification.js";
+import { createPiiClassificationHandler } from "../handlers/pii-classification.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
@@ -236,6 +241,20 @@ const governanceRouter = t.router({
     .output(OutcomeDistributionResultSchema)
     .query(async ({ input, ctx }) => {
       const handler = createOutcomeDistributionHandler({ store: ctx.store });
+      return handler(input);
+    }),
+
+  /**
+   * Data-classification (PII) dispositions over a window, bucketed by
+   * (sensitivityLevel × disposition). Drives the console's PII panel
+   * (ADR-117). Reads the same AuditStore as outcomeDistribution — no extra
+   * context wiring required.
+   */
+  piiClassificationStats: t.procedure
+    .input(PiiClassificationQuerySchema)
+    .output(PiiClassificationResultSchema)
+    .query(async ({ input, ctx }) => {
+      const handler = createPiiClassificationHandler({ store: ctx.store });
       return handler(input);
     }),
 

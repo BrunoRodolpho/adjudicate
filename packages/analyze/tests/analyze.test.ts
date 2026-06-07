@@ -307,3 +307,48 @@ describe("severityOverrides + strict mode", () => {
     expect(report.passed).toBe(false);
   });
 });
+
+describe("RewriteScopeAnalyzer (AJD-104) — data_classification (ADR-117)", () => {
+  function packWith(scannedFields: ReadonlyArray<string>): PackV0<string, unknown, unknown, unknown> {
+    const guard = withMetadata(
+      function piiGuard(): null {
+        return null;
+      } as Guard<string, unknown, unknown>,
+      {
+        name: "piiGuard",
+        description: {
+          kind: "data_classification",
+          sensitivityLevel: "high",
+          action: "REWRITE",
+          scannedFields,
+        },
+      },
+    );
+    return {
+      contract: "v0",
+      id: "test/data-classification",
+      version: "0.0.0",
+      intents: ["x"],
+      basisCodes: ["x.code"],
+      signals: [],
+      policy: {
+        stateGuards: [],
+        authGuards: [],
+        business: [guard],
+        taint: { minimumFor: () => "UNTRUSTED" },
+        default: "REFUSE",
+      },
+      planner: { plan: () => ({ visibleReadTools: [], allowedIntents: [] }) },
+    };
+  }
+
+  it("flags a REWRITE data_classification guard with empty scannedFields", () => {
+    const diags = rewriteScopeAnalyzer.analyze(packWith([]));
+    expect(diags.some((d) => d.code === "AJD-104" && d.severity === "error")).toBe(true);
+  });
+
+  it("does NOT flag when scannedFields is non-empty", () => {
+    const diags = rewriteScopeAnalyzer.analyze(packWith(["note"]));
+    expect(diags.length).toBe(0);
+  });
+});

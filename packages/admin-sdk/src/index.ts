@@ -85,6 +85,17 @@ export {
 } from "./schemas/guard-stats.js";
 
 export {
+  PiiClassificationBucketSchema,
+  PiiClassificationQuerySchema,
+  PiiClassificationResultSchema,
+  PiiDispositionSchema,
+  SensitivityLevelSchema,
+  type PiiClassificationBucket,
+  type PiiClassificationQuery,
+  type PiiClassificationResult,
+} from "./schemas/pii-classification.js";
+
+export {
   GuardDescriptionSchema,
   GuardDescriptorSchema,
   GuardMetadataSchema,
@@ -125,6 +136,11 @@ export {
   createGuardFireStatsHandler,
   type CreateGuardFireStatsHandlerDeps,
 } from "./handlers/guard-stats.js";
+
+export {
+  createPiiClassificationHandler,
+  type CreatePiiClassificationHandlerDeps,
+} from "./handlers/pii-classification.js";
 
 // ─── Auth utility ───────────────────────────────────────────────────────────
 export { extractActor } from "./auth/extract-actor.js";

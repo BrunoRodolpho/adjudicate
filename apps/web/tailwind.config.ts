@@ -53,6 +53,19 @@ const config: Config = {
         defer: "#F59E0B",         // amber-500
         escalate: "#8B5CF6",      // violet-500
         confirm: "#0EA5E9",       // sky-500
+        // Console dark-token namespace — used ONLY by the copied operator-console
+        // design kit under components/console-kit/ so those components render
+        // correctly on dark surfaces. These mirror the console's zinc-based
+        // canvas/panel/edge/ink/muted/faint scale and never touch the
+        // marketing-light palette above. See TASK K / ADR-128 (no shared @adjudicate/ui).
+        console: {
+          canvas: "rgb(9 9 11)",   // zinc-950 — outermost dark surface
+          panel: "rgb(24 24 27)",  // zinc-900 — raised panels
+          edge: "rgb(39 39 42)",   // zinc-800 — hairline borders
+          ink: "rgb(244 244 245)", // zinc-100 — primary text
+          muted: "rgb(161 161 170)", // zinc-400 — secondary text
+          faint: "rgb(82 82 91)",  // zinc-600 — tertiary/label text
+        },
       },
       letterSpacing: {
         section: "0.18em",

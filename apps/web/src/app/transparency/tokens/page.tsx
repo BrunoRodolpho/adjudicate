@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Footer } from "@/sections/FinalCTA";
 import { projectTokenBurndownTransparency } from "@/lib/token-burndown-transparency";
 import { TOKEN_BURNDOWN_TRANSPARENCY_SAMPLE } from "@/lib/transparency-fixtures";
 
@@ -143,8 +142,6 @@ export default function TokenGovernanceTransparencyPage() {
           </p>
         </div>
       </section>
-
-      <Footer />
     </main>
   );
 }

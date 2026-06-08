@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Footer } from "@/sections/FinalCTA";
 import { PUBLIC_COHORT_FLOOR } from "@/lib/public-projection";
 
 export const metadata: Metadata = {
@@ -123,8 +122,6 @@ export default function TransparencyPage() {
           </p>
         </div>
       </section>
-
-      <Footer />
     </main>
   );
 }

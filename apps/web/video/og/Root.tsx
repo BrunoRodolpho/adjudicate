@@ -3,6 +3,11 @@ import { HomepageOG } from "./HomepageOG";
 import { ArchitectureOG } from "./ArchitectureOG";
 import { ComparisonsOG } from "./ComparisonsOG";
 import { IntrospectionOG } from "./IntrospectionOG";
+import { CapabilitiesOG } from "./CapabilitiesOG";
+import { ConsoleOG } from "./ConsoleOG";
+import { DeployOG } from "./DeployOG";
+import { DataFlowOG } from "./DataFlowOG";
+import { TransparencyOG } from "./TransparencyOG";
 
 /**
  * Composition registry for the four per-route OG images.
@@ -50,6 +55,46 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="IntrospectionOG"
         component={IntrospectionOG}
+        durationInFrames={1}
+        fps={FPS}
+        width={OG_WIDTH}
+        height={OG_HEIGHT}
+      />
+      <Composition
+        id="CapabilitiesOG"
+        component={CapabilitiesOG}
+        durationInFrames={1}
+        fps={FPS}
+        width={OG_WIDTH}
+        height={OG_HEIGHT}
+      />
+      <Composition
+        id="ConsoleOG"
+        component={ConsoleOG}
+        durationInFrames={1}
+        fps={FPS}
+        width={OG_WIDTH}
+        height={OG_HEIGHT}
+      />
+      <Composition
+        id="DeployOG"
+        component={DeployOG}
+        durationInFrames={1}
+        fps={FPS}
+        width={OG_WIDTH}
+        height={OG_HEIGHT}
+      />
+      <Composition
+        id="DataFlowOG"
+        component={DataFlowOG}
+        durationInFrames={1}
+        fps={FPS}
+        width={OG_WIDTH}
+        height={OG_HEIGHT}
+      />
+      <Composition
+        id="TransparencyOG"
+        component={TransparencyOG}
         durationInFrames={1}
         fps={FPS}
         width={OG_WIDTH}

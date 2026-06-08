@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import { Providers } from "./providers";
+import { NavBar } from "@/components/ui/NavBar";
+import { SiteFooter } from "@/components/ui/SiteFooter";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:5181",
+  ),
   title: "adjudicate · a decision kernel for AI actions",
   description:
     "A decision kernel for AI actions — a control layer between AI intent and system execution. Six possible decisions, every one auditable.",
@@ -57,7 +62,9 @@ export default function RootLayout({
         `}</style>
       </head>
       <body>
+        <NavBar />
         <Providers>{children}</Providers>
+        <SiteFooter />
         {plausibleDomain ? (
           <Script
             strategy="afterInteractive"

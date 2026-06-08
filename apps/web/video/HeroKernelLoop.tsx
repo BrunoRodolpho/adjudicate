@@ -1,65 +1,86 @@
 import {
   AbsoluteFill,
-  Easing,
   interpolate,
   spring,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { COLORS, FONT_MONO, FONT_SANS, GRADIENT_PRIMARY } from "./tokens";
+import {
+  AmbientGlow,
+  Caption,
+  ConsoleRow,
+  DecisionBadge,
+  DottedGrid,
+  EASE_IN,
+  EASE_OUT,
+  EASE_SOFT,
+  EnvelopeCard,
+  fadeIn as kitFadeIn,
+  fadeOut as kitFadeOut,
+  Grain,
+  KernelCube,
+  ReceiptCard,
+  type ReceiptRow,
+  rise,
+  seam,
+  SPRING_SETTLE,
+  SPRING_WEIGHTY,
+  Vignette,
+} from "./components";
+import { COLORS, CONSOLE, FONT_MONO, FONT_SANS, SHADOW } from "./tokens";
 
 /**
- * HeroKernelLoop — 12-second mechanism-deep REWRITE composition.
+ * HeroKernelLoop — the homepage hero loop, now carrying the full product
+ * spine end to end: an agent ACTS → the kernel DECIDES (Rewrite) → a signed
+ * AuditRecord is SAVED to the database → the operator console DISPLAYS it.
  *
- * v0.3 rebuild: doubles the duration of the previous 6s morph and adds
- * the mechanism beats the prior version hand-waved — the original
- * envelope is preserved alongside the rewritten one, reason+basis fields
- * surface in-frame, and an audit card materialises beneath the action
- * lane to seal the transaction. The whole story is visible inside the
- * video; the adjacent DOM panel narrates the same beats in JSON form.
+ * v0.4 rebuild: composes the shared scene kit (video/components/* +
+ * video/motion.ts) instead of bespoke primitives, and extends the prior
+ * version (which stopped at "audit") with the two missing narrative beats —
+ * the receipt being persisted ("→ Postgres") and the receipt surfacing as a
+ * row in a dark operator-console audit explorer. Kinetic captions name each
+ * of the four steps in turn.
  *
- * 12 seconds · 30fps · 600×720 (retina-friendly bump from 480×600).
+ * 16 seconds · 30fps · 600×720 portrait.
  *
- * Beat schedule:
- *   A. Intent emerges          0–66    (0.0–2.2s)
- *   B. Kernel intercepts      66–132   (2.2–4.4s)
- *   C. REWRITE mechanism     132–240   (4.4–8.0s)   ← the deep beat
- *   D. Execution + audit     240–312   (8.0–10.4s)
- *   E. Loop seam             312–360   (10.4–12.0s)
+ * Beat schedule (frames @ 30fps):
+ *   A. Intent emerges        0–66     the agent acts
+ *   B. Kernel intercepts     66–132   the guard decides
+ *   C. REWRITE mechanism    132–252   rewrite (the deep beat)
+ *   D. Receipt SAVED        252–348   a signed receipt → Postgres
+ *   E. Console DISPLAYS     348–456   the operator console shows it
+ *   F. Loop seam            456–480   fade back to the light start
  *
- * Smoothness pass: weighty springs replace bouncy ones, expoOut bezier
- * gives long-tailed decelerations, ambient gradient drift adds physical
- * presence. See WEIGHTY_SPRING, SETTLE_SPRING, QUIET_SPRING, EASE_*.
+ * Motion bar: one weighted/expo-out easing system (EASE_OUT / EASE_SOFT /
+ * EASE_IN + over-damped springs from motion.ts), layered depth (kit shadows,
+ * ambient glow, soft blur), a faint vignette + film grain, palette-consistent
+ * grading (light COLORS for steps 1–3, dark CONSOLE for step 4), frame-accurate
+ * beats, and kinetic typography with the site's 0.18em section-caps tracking.
  */
 
 export const FPS = 30;
-export const DURATION_FRAMES = 360; // 12 seconds
+export const DURATION_FRAMES = 480; // 16 seconds (was 360 / 12s)
 export const WIDTH = 600;
 export const HEIGHT = 720;
 
-// Anchor positions on the canvas.
+// ── Anchor positions on the canvas ────────────────────────────────────
 const AGENT_X = 80;
 const KERNEL_X = WIDTH / 2; // 300
 const PRODUCTION_X = WIDTH - 80; // 520
-const ROW_Y = 280;
-const AUDIT_Y = 500;
+const ROW_Y = 240;
+const RECEIPT_Y = 432;
 
 // Two synthetic hashes for the proposed vs rewritten envelopes. The
-// adjacent DOM panel uses these same prefixes so the visitor's eye can
-// connect "the orange envelope in the video has the orange hash in the
-// panel".
+// receipt's content-address (h2) is the one that follows into the console.
 const HASH_H1 = "h1: sha256:9f4c…c4f2";
-const HASH_H2 = "h2: sha256:3a01…8a91";
+const HASH_H2_FULL = "sha256:3a01b7…e2d8…8a91";
+const HASH_H2_SHORT = "sha256:3a01…8a91";
 
-// ── Easing / spring presets ───────────────────────────────────────────
-
-const EASE_DECEL = Easing.bezier(0.22, 1, 0.36, 1); // expo-out
-const EASE_ACCEL = Easing.bezier(0.7, 0, 1, 0.4);
-const EASE_INOUT = Easing.bezier(0.65, 0, 0.35, 1);
-
-const WEIGHTY_SPRING = { damping: 28, stiffness: 60, mass: 1.4 } as const;
-const SETTLE_SPRING = { damping: 24, stiffness: 90, mass: 1.0 } as const;
-const QUIET_SPRING = { damping: 32, stiffness: 70, mass: 1.1 } as const;
+// Beat boundaries (single source of truth for cross-component timing).
+const SAVE_START = 252; // Beat D — receipt materializes
+const SAVE_BEAT = 312; // the "→ Postgres" persist moment
+const CONSOLE_START = 348; // Beat E — dark console crossfade begins
+const LIGHTS_OUT = 444; // everything light begins clearing for the seam
 
 // ── Top-level composition ─────────────────────────────────────────────
 
@@ -67,106 +88,59 @@ export const HeroKernelLoop: React.FC = () => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
 
-  // Loop seam: fade in over first 8 frames, fade out over last 24.
-  // Background canvas-cream is on the outer AbsoluteFill so it never
-  // fades — prevents <video> default-black flash at the seam.
-  const fadeIn = interpolate(frame, [0, 8], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_INOUT,
-  });
-  const fadeOut = interpolate(
-    frame,
-    [durationInFrames - 24, durationInFrames],
-    [1, 0],
-    {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-      easing: EASE_INOUT,
-    },
-  );
-  const seamOpacity = Math.min(fadeIn, fadeOut);
+  // Loop seam handled by the kit helper (in over first 8, out over last 24).
+  // The canvas-cream background lives on the OUTER fill so it never fades —
+  // prevents the <video> default-black flash at the loop boundary.
+  const seamOpacity = seam(frame, durationInFrames);
 
   return (
     <AbsoluteFill
       style={{ backgroundColor: COLORS.canvas, fontFamily: FONT_SANS }}
     >
       <AbsoluteFill style={{ opacity: seamOpacity }}>
-        <DottedGrid frame={frame} />
-        <AmbientGlow frame={frame} />
+        {/* Depth + ambient background. */}
+        <DottedGrid frame={frame} total={DURATION_FRAMES} />
+        <AmbientGlow
+          frame={frame}
+          total={DURATION_FRAMES}
+          x={KERNEL_X}
+          y={ROW_Y}
+        />
+
+        {/* Steps 1–3 — the light "decision" stage. */}
         <AgentBox frame={frame} />
-        <KernelCube frame={frame} />
+        <KernelStage frame={frame} />
         <PolicyRibbon frame={frame} />
         <RewriteLabel frame={frame} />
         <OriginalEnvelope frame={frame} />
         <RewrittenEnvelope frame={frame} />
         <ReasonAndBasis frame={frame} />
         <ProductionTarget frame={frame} />
-        <AuditCard frame={frame} />
+
+        {/* Step 3→4 — the signed receipt + its persistence to Postgres. */}
+        <SavedReceipt frame={frame} />
+
+        {/* Step 4 — the dark operator-console audit explorer. */}
+        <ConsolePanel frame={frame} />
+
+        {/* Kinetic captions naming each of the four steps. */}
+        <StepCaptions frame={frame} />
+
+        {/* Filmic grade — vignette + grain on top of everything. */}
+        <Vignette />
+        <Grain />
       </AbsoluteFill>
     </AbsoluteFill>
-  );
-};
-
-// ── Background ────────────────────────────────────────────────────────
-
-const DottedGrid: React.FC<{ frame: number }> = ({ frame }) => {
-  // Imperceptible 8px leftward parallax across the full 12s gives the
-  // composition a quiet sense of motion even between beats.
-  const tx = interpolate(frame, [0, DURATION_FRAMES], [0, -8]);
-  return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        backgroundImage: `radial-gradient(${COLORS.edge} 1px, transparent 1px)`,
-        backgroundSize: "24px 24px",
-        opacity: 0.4,
-        transform: `translateX(${tx}px)`,
-      }}
-    />
-  );
-};
-
-const AmbientGlow: React.FC<{ frame: number }> = ({ frame }) => {
-  // Slow sinusoidal scale 0.92↔1.08 over 12s. Barely perceptible per
-  // frame — together with the inner-glow pulse, gives the kernel a
-  // sense of physical presence rather than animated-then-paused.
-  const phase = (frame / DURATION_FRAMES) * Math.PI;
-  const scale = 0.92 + 0.16 * (0.5 + 0.5 * Math.sin(phase));
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: KERNEL_X - 240,
-        top: ROW_Y - 240,
-        width: 480,
-        height: 480,
-        borderRadius: "50%",
-        background:
-          "radial-gradient(closest-side, rgba(99,102,241,0.18), rgba(217,70,239,0.04), transparent)",
-        filter: "blur(24px)",
-        transform: `scale(${scale})`,
-        opacity: 0.6,
-        pointerEvents: "none",
-      }}
-    />
   );
 };
 
 // ── Agent box (left edge) ─────────────────────────────────────────────
 
 const AgentBox: React.FC<{ frame: number }> = ({ frame }) => {
-  const opacity = interpolate(frame, [8, 24], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_DECEL,
-  });
-  const exitOpacity = interpolate(frame, [336, 360], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_INOUT,
-  });
+  const opacity = kitFadeIn(frame, 8, 16);
+  // Clears with the rest of the light stage as the console takes over.
+  const exitOpacity = kitFadeOut(frame, CONSOLE_START, 24);
+  const ty = rise(frame, 8, 18, 12);
   return (
     <div
       style={{
@@ -182,8 +156,9 @@ const AgentBox: React.FC<{ frame: number }> = ({ frame }) => {
         color: COLORS.ink,
         fontFamily: FONT_MONO,
         fontSize: 13,
-        opacity: opacity * exitOpacity,
-        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        opacity: Math.min(opacity, exitOpacity),
+        transform: `translateY(${ty}px)`,
+        boxShadow: SHADOW.card,
       }}
     >
       Agent
@@ -191,40 +166,26 @@ const AgentBox: React.FC<{ frame: number }> = ({ frame }) => {
   );
 };
 
-// ── Kernel cube (center) ──────────────────────────────────────────────
+// ── Kernel stage (cube + anticipation outline + morph warmth) ─────────
 
-const KernelCube: React.FC<{ frame: number }> = ({ frame }) => {
-  // Anticipation outline 66–86, spring-in 66, hold through Beat C and D,
-  // fade out 336–348 (kernel goes first in the lights-out sequence).
-  const anticipationFade = interpolate(
-    frame,
-    [66, 80, 92],
-    [0, 0.35, 0],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
-  );
+const KernelStage: React.FC<{ frame: number }> = ({ frame }) => {
+  // Anticipation dashed outline 66–92.
+  const anticipationFade = interpolate(frame, [66, 80, 92], [0, 0.35, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
   const cubeScale = spring({
     frame: frame - 66,
     fps: FPS,
-    config: WEIGHTY_SPRING,
+    config: SPRING_WEIGHTY,
   });
-  // 1Hz inner-glow pulse during Beats B–D (frames 66–312).
-  const innerPulse =
-    frame >= 66 && frame < 312
-      ? 0.25 + 0.05 * Math.sin(((frame - 66) / 30) * Math.PI * 2)
-      : 0.25;
-  // Warm tint flash during the morph (Beat C, frames 156–204).
-  const warmth = interpolate(
-    frame,
-    [156, 180, 204],
-    [0, 0.22, 0],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
-  );
-  // Cube fades out first in the lights-out sequence at end of loop.
-  const exitOpacity = interpolate(frame, [336, 348], [1, 0], {
+  // Warm rewrite tint flash during the morph (Beat C).
+  const warmth = interpolate(frame, [156, 180, 204], [0, 0.22, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: EASE_INOUT,
   });
+  // Kernel clears as the console takes over (it has done its job by then).
+  const exitOpacity = kitFadeOut(frame, CONSOLE_START - 12, 24);
 
   if (frame < 66) return null;
 
@@ -251,48 +212,17 @@ const KernelCube: React.FC<{ frame: number }> = ({ frame }) => {
           position: "absolute",
           left: KERNEL_X - 60,
           top: ROW_Y - 60,
-          width: 120,
-          height: 120,
-          borderRadius: 22,
-          background: GRADIENT_PRIMARY,
-          boxShadow: "0 20px 56px rgba(99,102,241,0.32)",
-          transform: `scale(${cubeScale})`,
-          opacity: exitOpacity,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "white",
-          fontSize: 9,
-          letterSpacing: "0.22em",
-          textTransform: "uppercase",
-          textAlign: "center",
-          padding: 10,
         }}
       >
-        {/* Inner white glow pulse (1Hz). */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            borderRadius: 22,
-            boxShadow: `inset 0 0 0 1px rgba(255,255,255,${innerPulse})`,
-            pointerEvents: "none",
-          }}
+        <KernelCube
+          frame={frame}
+          size={120}
+          scale={cubeScale}
+          opacity={exitOpacity}
+          pulseStart={66}
+          tint={COLORS.rewrite}
+          tintOpacity={warmth}
         />
-        {/* Warm tint overlay during the morph (Beat C). */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            borderRadius: 22,
-            background: COLORS.rewrite,
-            opacity: warmth,
-            mixBlendMode: "overlay",
-          }}
-        />
-        <div style={{ opacity: 0.85, position: "relative" }}>control</div>
-        <div style={{ opacity: 0.85, position: "relative" }}>layer</div>
       </div>
     </>
   );
@@ -301,17 +231,16 @@ const KernelCube: React.FC<{ frame: number }> = ({ frame }) => {
 // ── Policy ribbon (sweeps across kernel during Beat B) ────────────────
 
 const PolicyRibbon: React.FC<{ frame: number }> = ({ frame }) => {
-  // Visible 92–124. Reveals left-to-right via clip-path.
   if (frame < 92 || frame > 132) return null;
   const reveal = interpolate(frame, [92, 116], [0, 100], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: EASE_DECEL,
+    easing: EASE_OUT,
   });
   const fadeOut = interpolate(frame, [120, 132], [1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: EASE_INOUT,
+    easing: EASE_SOFT,
   });
   return (
     <div
@@ -333,6 +262,7 @@ const PolicyRibbon: React.FC<{ frame: number }> = ({ frame }) => {
         color: COLORS.ink,
         opacity: fadeOut,
         clipPath: `inset(0 ${100 - reveal}% 0 0)`,
+        zIndex: 7,
       }}
     >
       ▸ policy.deploy.ramp
@@ -340,106 +270,33 @@ const PolicyRibbon: React.FC<{ frame: number }> = ({ frame }) => {
   );
 };
 
-// ── REWRITE label (above kernel) ──────────────────────────────────────
+// ── REWRITE label (above kernel) — now a kit DecisionBadge ────────────
 
 const RewriteLabel: React.FC<{ frame: number }> = ({ frame }) => {
-  // Fades in at 116, holds through morph, fades out 220–236.
-  const opacity = interpolate(
-    frame,
-    [116, 128, 220, 236],
-    [0, 1, 1, 0],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE_INOUT },
-  );
+  const opacity = interpolate(frame, [116, 128, 232, 248], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: EASE_SOFT,
+  });
   if (opacity <= 0) return null;
+  // A subtle settle on entrance.
+  const scale = interpolate(frame, [116, 132], [0.92, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: EASE_OUT,
+  });
   return (
     <div
       style={{
         position: "absolute",
-        left: KERNEL_X - 80,
-        top: ROW_Y - 96,
-        width: 160,
-        textAlign: "center",
-        fontFamily: FONT_MONO,
-        fontSize: 13,
-        letterSpacing: "0.22em",
-        textTransform: "uppercase",
-        color: COLORS.rewrite,
-        fontWeight: 600,
-        opacity,
+        left: 0,
+        right: 0,
+        top: ROW_Y - 104,
+        display: "flex",
+        justifyContent: "center",
       }}
     >
-      REWRITE
-    </div>
-  );
-};
-
-// ── Envelope rendering primitives ─────────────────────────────────────
-
-interface EnvelopeBoxProps {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly opacity: number;
-  readonly scale: number;
-  readonly borderColor: string;
-  readonly rampValue: number | string;
-  readonly rampColor: string;
-  readonly rampWeight: number;
-  readonly zIndex?: number;
-}
-
-const EnvelopeBox: React.FC<EnvelopeBoxProps> = ({
-  x,
-  y,
-  width,
-  opacity,
-  scale,
-  borderColor,
-  rampValue,
-  rampColor,
-  rampWeight,
-  zIndex = 4,
-}) => {
-  if (opacity <= 0) return null;
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: x - width / 2,
-        top: y - 28,
-        width,
-        opacity,
-        transform: `scale(${scale})`,
-        transformOrigin: "center center",
-        zIndex,
-      }}
-    >
-      <div
-        style={{
-          background: COLORS.surface,
-          border: `1.5px solid ${borderColor}`,
-          borderRadius: 8,
-          padding: "6px 10px",
-          fontFamily: FONT_MONO,
-          fontSize: 10,
-          color: COLORS.muted,
-          textAlign: "left",
-          lineHeight: 1.45,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-        }}
-      >
-        <div style={{ color: COLORS.faint, fontSize: 9 }}>{"{"}</div>
-        <div style={{ paddingLeft: 8, fontSize: 10 }}>
-          deployment.approval.request
-        </div>
-        <div style={{ paddingLeft: 8, fontSize: 10 }}>
-          rampPercent:{" "}
-          <span style={{ color: rampColor, fontWeight: rampWeight }}>
-            {rampValue}
-          </span>
-        </div>
-        <div style={{ color: COLORS.faint, fontSize: 9 }}>{"}"}</div>
-      </div>
+      <DecisionBadge kind="rewrite" size="md" opacity={opacity} scale={scale} />
     </div>
   );
 };
@@ -447,18 +304,12 @@ const EnvelopeBox: React.FC<EnvelopeBoxProps> = ({
 // ── Original envelope (Beats A–C, then persists in audit lane) ────────
 
 const OriginalEnvelope: React.FC<{ frame: number }> = ({ frame }) => {
-  // Phase 1 (12–60): fade in at Agent, glide to kernel center.
-  // Phase 2 (60–132): sits inside kernel at center.
-  // Phase 3 (132–168): split — clone slides LEFT into audit lane at 55% opacity.
-  // Phase 4 (168–300): held in audit lane.
-  // Phase 5 (300–320): fades out before loop seam.
-
   let x: number;
   if (frame < 12) {
     x = AGENT_X;
   } else if (frame < 60) {
     x = interpolate(frame, [12, 60], [AGENT_X, KERNEL_X], {
-      easing: EASE_DECEL,
+      easing: EASE_OUT,
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
     });
@@ -466,7 +317,7 @@ const OriginalEnvelope: React.FC<{ frame: number }> = ({ frame }) => {
     x = KERNEL_X;
   } else if (frame < 168) {
     x = interpolate(frame, [132, 168], [KERNEL_X, KERNEL_X - 100], {
-      easing: EASE_DECEL,
+      easing: EASE_OUT,
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
     });
@@ -474,56 +325,40 @@ const OriginalEnvelope: React.FC<{ frame: number }> = ({ frame }) => {
     x = KERNEL_X - 100;
   }
 
-  // Opacity stages.
-  const fadeIn = interpolate(frame, [12, 28], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_DECEL,
-  });
+  const fadeIn = kitFadeIn(frame, 12, 16);
   // Drop to 55% as it enters the audit lane.
   const auditFade = interpolate(frame, [144, 168], [1, 0.55], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: EASE_INOUT,
+    easing: EASE_SOFT,
   });
-  const exitFade = interpolate(frame, [300, 320], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_INOUT,
-  });
+  // Clears as the receipt beat takes the stage.
+  const exitFade = kitFadeOut(frame, SAVE_START - 12, 20);
   const opacity = Math.min(fadeIn, auditFade, exitFade);
 
   return (
     <>
-      <EnvelopeBox
+      <EnvelopeCard
         x={x}
         y={ROW_Y}
         width={140}
         opacity={opacity}
-        scale={1}
         borderColor={COLORS.edge}
-        rampValue={100}
-        rampColor={COLORS.ink}
-        rampWeight={500}
+        title="deployment.approval.request"
+        fields={[
+          { key: "rampPercent", value: 100, valueColor: COLORS.ink },
+        ]}
         zIndex={frame < 132 ? 5 : 3}
       />
-      {/* "original (preserved)" tag, visible once cloned into audit lane. */}
-      {frame >= 156 && frame < 320 ? (
+      {frame >= 156 && frame < SAVE_START ? (
         <OriginalLane x={x} opacity={opacity} />
       ) : null}
-      {/* intentHash tag follows the original. */}
       {frame >= 40 ? (
         <HashTag
           x={x}
-          y={ROW_Y + 38}
+          y={ROW_Y + 44}
           text={HASH_H1}
-          opacity={Math.min(
-            opacity,
-            interpolate(frame, [40, 58], [0, 1], {
-              extrapolateLeft: "clamp",
-              extrapolateRight: "clamp",
-            }),
-          )}
+          opacity={Math.min(opacity, kitFadeIn(frame, 40, 18))}
         />
       ) : null}
     </>
@@ -579,18 +414,14 @@ const HashTag: React.FC<{
 // ── Rewritten envelope (Beat C onward) ────────────────────────────────
 
 const RewrittenEnvelope: React.FC<{ frame: number }> = ({ frame }) => {
-  // Materialises at kernel center frame 132 (when the original splits
-  // off). Number morphs 100→25 over frames 156–204 (1.6s). Exits to
-  // production frames 240–276.
+  if (frame < 132) return null;
 
   let x: number;
-  if (frame < 132) {
-    return null;
-  } else if (frame < 240) {
+  if (frame < 240) {
     x = KERNEL_X;
   } else if (frame < 276) {
     x = interpolate(frame, [240, 276], [KERNEL_X, PRODUCTION_X], {
-      easing: EASE_ACCEL,
+      easing: EASE_IN,
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
     });
@@ -598,29 +429,19 @@ const RewrittenEnvelope: React.FC<{ frame: number }> = ({ frame }) => {
     x = PRODUCTION_X;
   }
 
-  // Opacity: fade in 132–148, exit 264–280.
-  const fadeIn = interpolate(frame, [132, 148], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_DECEL,
-  });
-  const fadeOut = interpolate(frame, [264, 284], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_INOUT,
-  });
+  const fadeIn = kitFadeIn(frame, 132, 16);
+  const fadeOut = kitFadeOut(frame, CONSOLE_START - 12, 24);
   const opacity = Math.min(fadeIn, fadeOut);
 
-  // The morph: rampPercent 100→25 over frames 156–204 (expo-out for tail).
+  // The morph: rampPercent 100→25 over frames 156–204 (expo-out tail).
   const rampValue = Math.round(
     interpolate(frame, [156, 204], [100, 25], {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
-      easing: EASE_DECEL,
+      easing: EASE_OUT,
     }),
   );
 
-  // Border colour shifts from edge to rewrite at the midpoint of the morph.
   const isModified = frame >= 180;
   const borderColor = isModified ? COLORS.rewrite : COLORS.edge;
   const rampColor = isModified ? COLORS.rewrite : COLORS.ink;
@@ -629,42 +450,40 @@ const RewrittenEnvelope: React.FC<{ frame: number }> = ({ frame }) => {
   const scale = interpolate(frame, [156, 204], [1.0, 0.94], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: EASE_DECEL,
+    easing: EASE_OUT,
   });
 
   return (
     <>
-      <EnvelopeBox
+      <EnvelopeCard
         x={x}
         y={ROW_Y}
         width={156}
         opacity={opacity}
         scale={scale}
         borderColor={borderColor}
-        rampValue={rampValue}
-        rampColor={rampColor}
-        rampWeight={isModified ? 700 : 500}
+        title="deployment.approval.request"
+        fields={[
+          {
+            key: "rampPercent",
+            value: rampValue,
+            valueColor: rampColor,
+            valueWeight: isModified ? 700 : 500,
+          },
+        ]}
         zIndex={6}
       />
-      {/* "payload mutated" tag — appears post-morph, fades before exit. */}
       {frame >= 204 && frame < 252 ? (
         <PayloadMutatedTag x={x} frame={frame} />
       ) : null}
-      {/* New intentHash tag for the rewritten envelope. */}
       {frame >= 200 && opacity > 0 ? (
         <HashTag
           x={x}
-          y={ROW_Y + 38}
-          text={HASH_H2}
+          y={ROW_Y + 44}
+          text={`h2: ${HASH_H2_SHORT}`}
           opacity={
-            Math.min(
-              opacity,
-              interpolate(frame, [200, 220], [0, 1], {
-                extrapolateLeft: "clamp",
-                extrapolateRight: "clamp",
-                easing: EASE_DECEL,
-              }),
-            ) * (isModified ? 1 : 0)
+            Math.min(opacity, kitFadeIn(frame, 200, 20)) *
+            (isModified ? 1 : 0)
           }
         />
       ) : null}
@@ -676,18 +495,17 @@ const PayloadMutatedTag: React.FC<{ x: number; frame: number }> = ({
   x,
   frame,
 }) => {
-  const opacity = interpolate(
-    frame,
-    [204, 216, 240, 252],
-    [0, 1, 1, 0],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE_INOUT },
-  );
+  const opacity = interpolate(frame, [204, 216, 240, 252], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: EASE_SOFT,
+  });
   return (
     <div
       style={{
         position: "absolute",
         left: x - 80,
-        top: ROW_Y - 56,
+        top: ROW_Y - 60,
         width: 160,
         textAlign: "center",
         fontFamily: FONT_MONO,
@@ -706,47 +524,22 @@ const PayloadMutatedTag: React.FC<{ x: number; frame: number }> = ({
 
 // ── Reason line + basis pill (Beat C, below the rewritten envelope) ───
 
-const REASON_TEXT =
-  'reason: "rampPercent capped to staged-rollout max."';
+const REASON_TEXT = 'reason: "rampPercent capped to staged-rollout max."';
 
 const ReasonAndBasis: React.FC<{ frame: number }> = ({ frame }) => {
-  if (frame < 188 || frame > 280) return null;
+  if (frame < 188 || frame > 252) return null;
 
-  // Reason text types in 188–224, holds, fades out 264–280.
   const typedChars = Math.floor(
     interpolate(frame, [188, 224], [0, REASON_TEXT.length], {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
-      easing: EASE_DECEL,
+      easing: EASE_OUT,
     }),
   );
-  const reasonFade = interpolate(frame, [264, 280], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_INOUT,
-  });
+  const reasonFade = kitFadeOut(frame, SAVE_START - 16, 16);
 
-  // Basis pill: settle-in 208, fade with reason.
-  const basisOpacity =
-    Math.min(
-      interpolate(frame, [208, 224], [0, 1], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-        easing: EASE_DECEL,
-      }),
-      reasonFade,
-    );
-
-  // Basis details below pill.
-  const detailsOpacity =
-    Math.min(
-      interpolate(frame, [220, 236], [0, 1], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-        easing: EASE_DECEL,
-      }),
-      reasonFade,
-    );
+  const basisOpacity = Math.min(kitFadeIn(frame, 208, 16), reasonFade);
+  const detailsOpacity = Math.min(kitFadeIn(frame, 220, 16), reasonFade);
 
   return (
     <>
@@ -754,7 +547,7 @@ const ReasonAndBasis: React.FC<{ frame: number }> = ({ frame }) => {
         style={{
           position: "absolute",
           left: KERNEL_X - 200,
-          top: ROW_Y + 64,
+          top: ROW_Y + 70,
           width: 400,
           textAlign: "center",
           fontFamily: FONT_MONO,
@@ -769,38 +562,26 @@ const ReasonAndBasis: React.FC<{ frame: number }> = ({ frame }) => {
       <div
         style={{
           position: "absolute",
-          left: KERNEL_X - 100,
-          top: ROW_Y + 96,
-          width: 200,
+          left: 0,
+          right: 0,
+          top: ROW_Y + 100,
           display: "flex",
           justifyContent: "center",
           opacity: basisOpacity,
         }}
       >
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            padding: "4px 10px",
-            borderRadius: 14,
-            background: "rgba(249,115,22,0.12)",
-            border: `1px solid ${COLORS.rewrite}`,
-            color: COLORS.rewrite,
-            fontFamily: FONT_MONO,
-            fontSize: 9,
-            letterSpacing: "0.18em",
-            textTransform: "uppercase",
-            fontWeight: 600,
-          }}
-        >
-          business · QUANTITY_CAPPED
-        </span>
+        <DecisionBadge
+          kind="rewrite"
+          size="sm"
+          hideGlyph
+          opacity={basisOpacity}
+        />
       </div>
       <div
         style={{
           position: "absolute",
           left: KERNEL_X - 200,
-          top: ROW_Y + 128,
+          top: ROW_Y + 132,
           width: 400,
           textAlign: "center",
           fontFamily: FONT_MONO,
@@ -809,7 +590,7 @@ const ReasonAndBasis: React.FC<{ frame: number }> = ({ frame }) => {
           opacity: detailsOpacity,
         }}
       >
-        requested: 100 &nbsp;&nbsp; cappedTo: 25
+        business · QUANTITY_CAPPED &nbsp;·&nbsp; requested 100 → capped 25
       </div>
     </>
   );
@@ -818,23 +599,12 @@ const ReasonAndBasis: React.FC<{ frame: number }> = ({ frame }) => {
 // ── Production target (right side) ────────────────────────────────────
 
 const ProductionTarget: React.FC<{ frame: number }> = ({ frame }) => {
-  const opacity = interpolate(frame, [246, 264], [0, 1], {
+  const opacity = kitFadeIn(frame, 246, 18);
+  const exitOpacity = kitFadeOut(frame, CONSOLE_START - 12, 24);
+  const checkOpacity = interpolate(frame, [264, 276, 300], [0, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: EASE_DECEL,
   });
-  const exitOpacity = interpolate(frame, [336, 360], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_INOUT,
-  });
-  // A small ✓ pulse when the envelope arrives.
-  const checkOpacity = interpolate(
-    frame,
-    [264, 276, 296],
-    [0, 1, 0],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
-  );
   return (
     <div
       style={{
@@ -847,8 +617,8 @@ const ProductionTarget: React.FC<{ frame: number }> = ({ frame }) => {
         background: COLORS.surface,
         border: `1.5px solid ${COLORS.edge}`,
         textAlign: "center",
-        opacity: opacity * exitOpacity,
-        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        opacity: Math.min(opacity, exitOpacity),
+        boxShadow: SHADOW.card,
       }}
     >
       <div
@@ -883,17 +653,12 @@ const ProductionTarget: React.FC<{ frame: number }> = ({ frame }) => {
   );
 };
 
-// ── Audit card (Beat D, lower third) ──────────────────────────────────
+// ── Beat D — the signed receipt, then persisted to Postgres ───────────
 
-const AUDIT_ROWS: ReadonlyArray<{
-  label: string;
-  value: string;
-  valueColor?: string;
-  valueWeight?: number;
-}> = [
+const RECEIPT_ROWS: ReadonlyArray<ReceiptRow> = [
   {
-    label: "original",
-    value: "{ deployment.approval.request, ramp: 100, hash: h1 }",
+    label: "intent",
+    value: "deployment.approval.request",
   },
   {
     label: "decision",
@@ -908,144 +673,401 @@ const AUDIT_ROWS: ReadonlyArray<{
   { label: "basis", value: "business · QUANTITY_CAPPED" },
   {
     label: "result",
-    value: "{ deployment.approval.request, ramp: 25, hash: h2 }",
+    value: "{ ramp: 25 }",
     valueColor: COLORS.rewrite,
     valueWeight: 500,
   },
   { label: "at", value: "11:32:08.421Z" },
 ];
 
-const AuditCard: React.FC<{ frame: number }> = ({ frame }) => {
-  if (frame < 264 || frame > 360) return null;
-
-  // Settle-in spring 264 → full at ~290. Fades out last (348–360).
+const SavedReceipt: React.FC<{ frame: number }> = ({ frame }) => {
+  if (frame < SAVE_START) return null;
+  // The card settles in, holds, then clears as it "flies" into the console.
   const cardSpring = spring({
-    frame: frame - 264,
+    frame: frame - SAVE_START,
     fps: FPS,
-    config: SETTLE_SPRING,
+    config: SPRING_SETTLE,
   });
-  const tx = (1 - cardSpring) * 16;
-  const fadeIn = interpolate(frame, [264, 282], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_DECEL,
-  });
-  const fadeOut = interpolate(frame, [348, 360], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: EASE_INOUT,
-  });
-  const opacity = Math.min(fadeIn, fadeOut);
+  const settleY = (1 - cardSpring) * 16;
+  const fadeIn = kitFadeIn(frame, SAVE_START, 18);
+  // Hand off to the console: card slides up + fades as the dark panel rises.
+  const handoff = kitFadeOut(frame, CONSOLE_START - 6, 22);
+  const handoffY = interpolate(
+    frame,
+    [CONSOLE_START - 6, CONSOLE_START + 16],
+    [0, -28],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE_IN },
+  );
+  const opacity = Math.min(fadeIn, handoff);
+  if (opacity <= 0) return null;
 
-  // Row-by-row reveal: 6 rows over frames 280–304 (4 frames per row).
-  const rowReveal = (rowIndex: number) =>
+  // Per-row cascade: 6 rows from frame SAVE_START+16, 4 frames apart.
+  const rowOpacity = (i: number) =>
     interpolate(
       frame,
-      [280 + rowIndex * 4, 280 + rowIndex * 4 + 8],
+      [SAVE_START + 16 + i * 4, SAVE_START + 16 + i * 4 + 8],
       [0, 1],
-      {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-        easing: EASE_DECEL,
-      },
+      { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE_OUT },
     );
 
-  // audit ✓ chip appears at frame 306.
-  const checkOpacity = interpolate(frame, [306, 318], [0, 1], {
+  // The "sealed" chip lands after the rows are in.
+  const sealedOpacity = kitFadeIn(frame, SAVE_START + 44, 12);
+
+  return (
+    <>
+      <ReceiptCard
+        x={WIDTH / 2}
+        y={RECEIPT_Y}
+        width={460}
+        opacity={opacity}
+        translateY={settleY + handoffY}
+        rows={RECEIPT_ROWS}
+        hash={HASH_H2_FULL}
+        rowOpacity={rowOpacity}
+        sealedOpacity={sealedOpacity}
+        sealedLabel="signed"
+      />
+      <PersistBeat frame={frame} />
+    </>
+  );
+};
+
+/**
+ * PersistBeat — the "→ Postgres" save moment: a small content-address chip
+ * travels from the receipt down toward a database glyph, which then confirms
+ * "saved". This is the literal step-3→DB persistence the prior loop lacked.
+ */
+const PersistBeat: React.FC<{ frame: number }> = ({ frame }) => {
+  if (frame < SAVE_BEAT - 8 || frame > CONSOLE_START + 4) return null;
+
+  // Chip flies from above the DB glyph down into it (SAVE_BEAT → +18).
+  const travel = interpolate(frame, [SAVE_BEAT, SAVE_BEAT + 18], [0, 36], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: EASE_DECEL,
+    easing: EASE_IN,
   });
+  const chipOpacity = interpolate(
+    frame,
+    [SAVE_BEAT - 6, SAVE_BEAT, SAVE_BEAT + 16, SAVE_BEAT + 22],
+    [0, 1, 1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE_SOFT },
+  );
+  // The DB glyph + "saved → Postgres" label.
+  const dbOpacity = interpolate(
+    frame,
+    [SAVE_BEAT - 8, SAVE_BEAT - 2, CONSOLE_START - 4, CONSOLE_START + 4],
+    [0, 1, 1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE_SOFT },
+  );
+  // "saved ✓" confirm pulse after the chip lands.
+  const savedOpacity = kitFadeIn(frame, SAVE_BEAT + 18, 10);
+  const dbY = RECEIPT_Y + 132;
+
+  return (
+    <>
+      {/* Travelling content-address chip. */}
+      <div
+        style={{
+          position: "absolute",
+          left: WIDTH / 2 - 70,
+          top: dbY - 44 + travel,
+          width: 140,
+          textAlign: "center",
+          fontFamily: FONT_MONO,
+          fontSize: 9,
+          color: COLORS.rewrite,
+          opacity: chipOpacity,
+        }}
+      >
+        ⛓ {HASH_H2_SHORT}
+      </div>
+      {/* DB glyph + label. */}
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: dbY,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 4,
+          opacity: dbOpacity,
+        }}
+      >
+        <div style={{ fontSize: 22 }}>🛢️</div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontFamily: FONT_MONO,
+            fontSize: 9,
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: COLORS.muted,
+          }}
+        >
+          <span>→ Postgres</span>
+          <span
+            style={{
+              color: COLORS.execute,
+              fontWeight: 700,
+              opacity: savedOpacity,
+            }}
+          >
+            saved ✓
+          </span>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// ── Beat E — the dark operator-console audit explorer ─────────────────
+
+interface ConsoleSeed {
+  readonly kind: Parameters<typeof ConsoleRow>[0]["kind"];
+  readonly time: string;
+  readonly intentKind: string;
+  readonly hash: string;
+}
+
+// Two prior rows already in the explorer; our fresh REWRITE lands on top.
+const PRIOR_ROWS: ReadonlyArray<ConsoleSeed> = [
+  {
+    kind: "execute",
+    time: "11:31:54.077Z",
+    intentKind: "cache.invalidate",
+    hash: "sha256:1c0d…77af",
+  },
+  {
+    kind: "refuse",
+    time: "11:31:40.512Z",
+    intentKind: "secrets.read",
+    hash: "sha256:b42e…0931",
+  },
+];
+
+const ConsolePanel: React.FC<{ frame: number }> = ({ frame }) => {
+  if (frame < CONSOLE_START - 8) return null;
+
+  // The dark panel crossfades in over the light stage, holds, then clears
+  // before the loop seam so frame 0 (all-light) matches frame DURATION.
+  const panelOpacity = interpolate(
+    frame,
+    [CONSOLE_START, CONSOLE_START + 18, LIGHTS_OUT, LIGHTS_OUT + 24],
+    [0, 1, 1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE_SOFT },
+  );
+  if (panelOpacity <= 0) return null;
+
+  const panelW = 540;
+  const panelH = 560;
+  const panelX = WIDTH / 2 - panelW / 2;
+  const panelY = 96;
+
+  // The fresh REWRITE row drops in from above the list.
+  const freshIn = kitFadeIn(frame, CONSOLE_START + 14, 16);
+  const freshTranslate = interpolate(
+    frame,
+    [CONSOLE_START + 14, CONSOLE_START + 32],
+    [-16, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE_OUT },
+  );
+
+  // Prior rows fade in slightly staggered beneath it.
+  const priorOpacity = (i: number) =>
+    kitFadeIn(frame, CONSOLE_START + 22 + i * 8, 16);
+
+  // "live" indicator ticks on once the panel is up.
+  const liveOpacity = kitFadeIn(frame, CONSOLE_START + 20, 14);
 
   return (
     <div
       style={{
         position: "absolute",
-        left: WIDTH / 2 - 240,
-        top: AUDIT_Y,
-        width: 480,
-        padding: 18,
-        borderRadius: 14,
-        background: COLORS.surface,
-        border: `1.5px solid ${COLORS.edge}`,
-        boxShadow: "0 8px 28px rgba(0,0,0,0.06)",
-        opacity,
-        transform: `translateY(${tx}px)`,
+        left: panelX,
+        top: panelY,
+        width: panelW,
+        minHeight: panelH,
+        borderRadius: 18,
+        background: CONSOLE.canvas,
+        border: `1px solid ${CONSOLE.edge}`,
+        boxShadow: SHADOW.consolePanel,
+        opacity: panelOpacity,
+        overflow: "hidden",
+        // faint inner dark grid feel via subtle top sheen
+        backgroundImage: `radial-gradient(${CONSOLE.edge} 1px, transparent 1px)`,
+        backgroundSize: "26px 26px",
       }}
     >
+      {/* Console header. */}
       <div
         style={{
           display: "flex",
-          justifyContent: "space-between",
           alignItems: "center",
-          paddingBottom: 10,
-          marginBottom: 10,
-          borderBottom: `1px solid ${COLORS.edge}`,
+          justifyContent: "space-between",
+          padding: "16px 20px",
+          borderBottom: `1px solid ${CONSOLE.edge}`,
+          background: CONSOLE.panel,
         }}
       >
         <span
           style={{
             fontFamily: FONT_MONO,
-            fontSize: 10,
-            color: COLORS.faint,
-            letterSpacing: "0.22em",
+            fontSize: 11,
+            letterSpacing: "0.18em",
             textTransform: "uppercase",
+            color: CONSOLE.muted,
           }}
         >
-          auditRecord
+          operator console · audit explorer
         </span>
         <span
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: 4,
+            gap: 6,
             fontFamily: FONT_MONO,
             fontSize: 9,
-            color: COLORS.execute,
             letterSpacing: "0.18em",
             textTransform: "uppercase",
-            opacity: checkOpacity,
-            fontWeight: 600,
+            color: COLORS.execute,
+            opacity: liveOpacity,
           }}
         >
-          ✓ sealed
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: COLORS.execute,
+              display: "inline-block",
+            }}
+          />
+          live
         </span>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {AUDIT_ROWS.map((row, i) => (
-          <div
-            key={row.label}
-            style={{
-              display: "flex",
-              gap: 12,
-              fontFamily: FONT_MONO,
-              fontSize: 10,
-              lineHeight: 1.5,
-              opacity: rowReveal(i),
-            }}
-          >
-            <span
-              style={{
-                width: 84,
-                flexShrink: 0,
-                color: COLORS.faint,
-              }}
-            >
-              {row.label}
-            </span>
-            <span
-              style={{
-                color: row.valueColor ?? COLORS.ink,
-                fontWeight: row.valueWeight ?? 400,
-                flex: 1,
-                wordBreak: "break-word",
-              }}
-            >
-              {row.value}
-            </span>
-          </div>
+
+      {/* Row list — the fresh REWRITE on top, priors beneath. */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          padding: 18,
+        }}
+      >
+        <div
+          style={{
+            opacity: freshIn,
+            transform: `translateY(${freshTranslate}px)`,
+          }}
+        >
+          <ConsoleRow
+            kind="rewrite"
+            time="11:32:08.421Z"
+            intentKind="deployment.approval.request"
+            hash={HASH_H2_SHORT}
+            width={panelW - 36}
+            fresh
+          />
+        </div>
+        {PRIOR_ROWS.map((r, i) => (
+          <ConsoleRow
+            key={r.hash}
+            kind={r.kind}
+            time={r.time}
+            intentKind={r.intentKind}
+            hash={r.hash}
+            width={panelW - 36}
+            opacity={priorOpacity(i)}
+            translateY={(1 - priorOpacity(i)) * 8}
+          />
         ))}
       </div>
+    </div>
+  );
+};
+
+// ── Kinetic captions naming each of the four steps ────────────────────
+
+const StepCaptions: React.FC<{ frame: number }> = ({ frame }) => {
+  // Each caption owns a window; we render at most one (the active band).
+  // Captions are measured from their own start (delay 0) and live in the
+  // lower third. Dark grading kicks in once the console panel is up.
+  const captions: ReadonlyArray<{
+    start: number;
+    end: number;
+    eyebrow: string;
+    text: string;
+    dark: boolean;
+    color: string;
+  }> = [
+    {
+      start: 16,
+      end: 92,
+      eyebrow: "step 1 · intent",
+      text: "The agent acts.",
+      dark: false,
+      color: COLORS.muted,
+    },
+    {
+      start: 96,
+      end: 150,
+      eyebrow: "step 2 · the guard",
+      text: "The kernel decides.",
+      dark: false,
+      color: COLORS.escalate,
+    },
+    {
+      start: 156,
+      end: 248,
+      eyebrow: "step 2 · outcome",
+      text: "Rewrite — the payload is clamped.",
+      dark: false,
+      color: COLORS.rewrite,
+    },
+    {
+      start: SAVE_START + 6,
+      end: CONSOLE_START - 4,
+      eyebrow: "step 3 · receipt",
+      text: "A signed receipt is saved.",
+      dark: false,
+      color: COLORS.execute,
+    },
+    {
+      start: CONSOLE_START + 18,
+      end: LIGHTS_OUT,
+      eyebrow: "step 4 · console",
+      text: "The operator console displays it.",
+      dark: true,
+      color: COLORS.confirm,
+    },
+  ];
+
+  const active = captions.find((c) => frame >= c.start && frame < c.end);
+  if (!active) return null;
+
+  // Fade the caption out near the end of its window so the swap is clean.
+  const windowOut = interpolate(
+    frame,
+    [active.end - 12, active.end],
+    [1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE_SOFT },
+  );
+
+  return (
+    <div style={{ opacity: windowOut }}>
+      <Caption
+        frame={frame - active.start}
+        eyebrow={active.eyebrow}
+        text={active.text}
+        bottom={56}
+        dark={active.dark}
+        eyebrowColor={active.color}
+      />
     </div>
   );
 };

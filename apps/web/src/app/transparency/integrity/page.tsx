@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft, ShieldCheck, ShieldAlert } from "lucide-react";
-import { Footer } from "@/sections/FinalCTA";
 import {
   projectIntegrityTransparency,
   type PublicIntegrityBadge,
@@ -155,8 +154,6 @@ export default function ConfigIntegrityTransparencyPage() {
           </div>
         </div>
       </section>
-
-      <Footer />
     </main>
   );
 }

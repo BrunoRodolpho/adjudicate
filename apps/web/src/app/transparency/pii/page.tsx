@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Footer } from "@/sections/FinalCTA";
 import { PUBLIC_COHORT_FLOOR } from "@/lib/public-projection";
 import { projectPiiTransparency } from "@/lib/pii-transparency";
 import { PII_TRANSPARENCY_SAMPLE } from "@/lib/transparency-fixtures";
@@ -166,8 +165,6 @@ export default function PiiTransparencyPage() {
           </p>
         </div>
       </section>
-
-      <Footer />
     </main>
   );
 }

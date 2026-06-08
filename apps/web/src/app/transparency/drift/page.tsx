@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft, Activity, TrendingUp } from "lucide-react";
-import { Footer } from "@/sections/FinalCTA";
 import {
   projectDriftTransparency,
   type DriftSeverityBand,
@@ -169,8 +168,6 @@ export default function DriftTransparencyPage() {
           </div>
         </div>
       </section>
-
-      <Footer />
     </main>
   );
 }

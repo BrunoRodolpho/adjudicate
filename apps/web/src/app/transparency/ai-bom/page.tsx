@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Footer } from "@/sections/FinalCTA";
 import {
   projectAiBomTransparency,
   type PublicAiBom,
@@ -98,8 +97,6 @@ export default function AiBomTransparencyPage() {
           )}
         </div>
       </section>
-
-      <Footer />
     </main>
   );
 }

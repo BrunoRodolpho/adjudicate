@@ -29,7 +29,7 @@ export function FinalCTA() {
             <Book size={16} /> Concepts
           </Button>
           <Button
-            href="#playground"
+            href="/playground"
             variant="ghost"
             className="!text-white hover:!bg-white/20"
           >
@@ -38,54 +38,5 @@ export function FinalCTA() {
         </div>
       </div>
     </section>
-  );
-}
-
-export function Footer() {
-  return (
-    <footer className="border-t border-edge bg-canvas py-8 text-xs text-muted">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6">
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-ink">adjudicate</span>
-          <span className="text-faint">v0.1 · experimental</span>
-        </div>
-        <div className="flex flex-wrap gap-4">
-          <a className="hover:text-ink" href="/architecture">
-            Architecture
-          </a>
-          <a className="hover:text-ink" href="/comparisons">
-            Comparisons
-          </a>
-          <a className="hover:text-ink" href="/introspection">
-            Introspection
-          </a>
-          <span className="text-faint">·</span>
-          <a
-            className="hover:text-ink"
-            href="https://github.com/anthropics/adjudicate"
-            target="_blank"
-            rel="noreferrer"
-          >
-            GitHub
-          </a>
-          <a
-            className="hover:text-ink"
-            href="https://github.com/anthropics/adjudicate/tree/main/docs"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Docs
-          </a>
-          <a
-            className="hover:text-ink"
-            href="https://github.com/anthropics/adjudicate/blob/main/LICENSE"
-            target="_blank"
-            rel="noreferrer"
-          >
-            License
-          </a>
-        </div>
-      </div>
-    </footer>
   );
 }

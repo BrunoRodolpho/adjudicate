@@ -1,40 +1,48 @@
 import { Hero } from "@/sections/Hero";
-import { HowItWorks } from "@/sections/HowItWorks";
-import { PacksSection } from "@/sections/PacksSection";
+import { StepActs } from "@/sections/home/StepActs";
+import { StepDecides } from "@/sections/home/StepDecides";
+import { StepReceipt } from "@/sections/home/StepReceipt";
+import { StepConsole } from "@/sections/home/StepConsole";
+import { WhoItsFor } from "@/sections/home/WhoItsFor";
+import { Positioning } from "@/sections/home/Positioning";
+import { SocialProof } from "@/sections/home/SocialProof";
 import { PlaygroundEntry } from "@/sections/PlaygroundEntry";
-import { Playground } from "@/sections/Playground";
 import { DepthLinks } from "@/sections/DepthLinks";
 import { GetStarted } from "@/sections/GetStarted";
-import { LatestPosts } from "@/sections/LatestPosts";
-import { FinalCTA, Footer } from "@/sections/FinalCTA";
+import { FinalCTA } from "@/sections/FinalCTA";
 
 /**
- * Homepage — conversion-focused for the 99%. The conceptual story
- * (HowItWorks) precedes the playground; Pack context precedes interaction.
+ * Homepage — built around ONE comprehension test: a first-time visitor, after
+ * a single pass and without leaving the page, can answer all four —
+ *   1. What happened?            → StepActs
+ *   2. What did the guard decide? → StepDecides
+ *   3. What was recorded?         → StepReceipt (the centerpiece, real kernel)
+ *   4. Where does the operator see it? → StepConsole (the one dark band)
  *
- * Phase 5 split: depth artifacts moved off the homepage onto dedicated
- * routes so engaged visitors can still reach them but the conversion fold
- * stays uncluttered:
- *   - Problem + PrimitivesDiagram → /architecture
- *   - WedgeTable                  → /comparisons
- *   - GuardMetadataGraph + ConsolePreview → /introspection
+ * The four spine sections run light → light → light → DARK, so the console
+ * step reads as a literal surface change ("you've left marketing, this is the
+ * operator view"). The supporting sections (who it's for, positioning, proof)
+ * follow, then a playground teaser and the get-started / depth / CTA cluster.
  *
- * `DepthLinks` below the playground signposts those three routes for
- * visitors who scrolled past the conversion fold and want more depth.
+ * Off-home now: the inline full <Playground/> (→ /playground), <HowItWorks/>
+ * (→ /how-it-works), and <LatestPosts/> (→ /blog). The homepage stays a tight,
+ * scannable spine — not an encyclopedia.
  */
 export default function HomePage() {
   return (
     <main>
       <Hero />
-      <HowItWorks />
-      <PacksSection />
+      <StepActs />
+      <StepDecides />
+      <StepReceipt />
+      <StepConsole />
+      <WhoItsFor />
+      <Positioning />
+      <SocialProof />
       <PlaygroundEntry />
-      <Playground />
-      <DepthLinks />
       <GetStarted />
-      <LatestPosts />
+      <DepthLinks />
       <FinalCTA />
-      <Footer />
     </main>
   );
 }

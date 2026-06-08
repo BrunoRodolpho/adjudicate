@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { DecisionsGrid } from "@/sections/DecisionsGrid";
 import { WedgeTable } from "@/sections/WedgeTable";
-import { Footer } from "@/sections/FinalCTA";
+import { DepthHeader } from "@/components/ui/DepthHeader";
 
 export const metadata: Metadata = {
   title: "Comparisons · adjudicate",
@@ -33,37 +31,6 @@ export default function ComparisonsPage() {
       />
       <DecisionsGrid />
       <WedgeTable />
-      <Footer />
     </main>
-  );
-}
-
-function DepthHeader({
-  eyebrow,
-  title,
-  subtitle,
-}: {
-  eyebrow: string;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <header className="bg-canvas pb-6 pt-10">
-      <div className="mx-auto max-w-6xl px-6">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-xs uppercase tracking-section text-muted hover:text-ink"
-        >
-          <ArrowLeft size={12} /> Back to homepage
-        </Link>
-        <p className="mt-6 text-xs uppercase tracking-section text-muted">
-          {eyebrow}
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight text-ink md:text-4xl">
-          {title}
-        </h1>
-        <p className="mt-3 max-w-2xl text-base text-muted">{subtitle}</p>
-      </div>
-    </header>
   );
 }

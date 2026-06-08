@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Problem } from "@/sections/Problem";
 import { PrimitivesDiagram } from "@/sections/PrimitivesDiagram";
-import { Footer } from "@/sections/FinalCTA";
+import { DepthHeader } from "@/components/ui/DepthHeader";
+import { Section } from "@/components/ui/Section";
+import { Card } from "@/components/ui/Card";
 
 export const metadata: Metadata = {
   title: "Architecture · adjudicate",
@@ -36,37 +37,46 @@ export default function ArchitecturePage() {
       />
       <Problem />
       <PrimitivesDiagram />
-      <Footer />
-    </main>
-  );
-}
 
-function DepthHeader({
-  eyebrow,
-  title,
-  subtitle,
-}: {
-  eyebrow: string;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <header className="bg-canvas pb-6 pt-10">
-      <div className="mx-auto max-w-6xl px-6">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-xs uppercase tracking-section text-muted hover:text-ink"
-        >
-          <ArrowLeft size={12} /> Back to homepage
-        </Link>
-        <p className="mt-6 text-xs uppercase tracking-section text-muted">
-          {eyebrow}
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight text-ink md:text-4xl">
-          {title}
-        </h1>
-        <p className="mt-3 max-w-2xl text-base text-muted">{subtitle}</p>
-      </div>
-    </header>
+      <Section tone="canvas" className="py-20">
+        <h2 className="text-xs uppercase tracking-section text-muted">
+          Go deeper
+        </h2>
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <Card href="/architecture/data-flow" className="group">
+            <h3 className="flex items-center gap-1.5 text-base font-semibold text-ink">
+              How a decision becomes a durable receipt
+              <ArrowRight
+                size={16}
+                className="text-faint transition-colors group-hover:text-ink"
+                aria-hidden="true"
+              />
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Trace one decision from the AI agent&apos;s intent through the
+              in-process kernel into a tamper-evident AuditRecord — mirrored to
+              a partitioned Postgres table and pushed live to the operator
+              console. Plus the trust boundary that makes this public site safe
+              by construction.
+            </p>
+          </Card>
+          <Card href="/deploy" className="group">
+            <h3 className="flex items-center gap-1.5 text-base font-semibold text-ink">
+              How to deploy adjudicate
+              <ArrowRight
+                size={16}
+                className="text-faint transition-colors group-hover:text-ink"
+                aria-hidden="true"
+              />
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              The library / in-process deployment model and the self-hosted,
+              open-source operator console — how the pieces wire together in a
+              real deployment.
+            </p>
+          </Card>
+        </div>
+      </Section>
+    </main>
   );
 }

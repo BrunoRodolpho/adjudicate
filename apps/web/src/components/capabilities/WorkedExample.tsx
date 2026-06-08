@@ -1,4 +1,5 @@
-import type { Decision, DecisionBasis } from "@adjudicate/core";
+import { ArrowUpRight } from "lucide-react";
+import type { AuditRecord, Decision, DecisionBasis } from "@adjudicate/core";
 import { runPlayground } from "@/lib/kernel-runner";
 import {
   projectRedTeamDefenses,
@@ -9,6 +10,7 @@ import {
   RED_TEAM_TRANSPARENCY_SAMPLE,
   DRIFT_TRANSPARENCY_SAMPLE,
 } from "@/lib/transparency-fixtures";
+import { CONSOLE_REPLICA_RECORDS_BY_HASH } from "@/lib/console-replica-records";
 import type {
   CapabilityContent,
   WorkedExample as WorkedExampleSpec,
@@ -17,6 +19,7 @@ import { ReceiptCard } from "@/components/receipt/ReceiptCard";
 import { DecisionChip } from "@/components/ui/DecisionChip";
 import { Callout } from "@/components/ui/Callout";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { cn } from "@/lib/cn";
 import {
   BarDistribution,
   TimelineChart,
@@ -42,8 +45,22 @@ import {
  *     transparency projection (aggregate-only), wrapped in ConsoleChrome so the
  *     standing "illustrative · sample data" honesty label is always present.
  *
- *   • receipt — a representative ReceiptCard (none of the Tier-1 set use this;
- *     kept for completeness so the dispatch is total).
+ *   • receipt — a REAL committed AuditRecord (resolved from the console-replica
+ *     fixtures by `recordHash`) rendered as a full ReceiptCard. When the record
+ *     carries v5 `metadata.hallucination_score`, a groundedness badge is shown
+ *     above it — the same pattern as the /console decision replica.
+ *
+ *   • replica — a prominent "see it live in the operator console" panel (dark,
+ *     console aesthetic) linking the featured /console replica route.
+ *
+ *   • pack — a card listing a governance pack's declared governed intents +
+ *     the outcome chips its policies produce + the illustrative note.
+ *
+ *   • illustration — a titled explainer card (body prose + optional outcome
+ *     chips) for design-time / upstream-only capabilities with no replica.
+ *
+ * Every Tier-2 (fixture-illustrative) variant carries a visible "illustrative"
+ * label, per the no-fake-live-data invariant.
  */
 
 export async function WorkedExample({
@@ -58,7 +75,13 @@ export async function WorkedExample({
     case "chart":
       return <ChartExample capability={capability} spec={spec} />;
     case "receipt":
-      return <ReceiptOnlyExample capability={capability} />;
+      return <ReceiptExample spec={spec} />;
+    case "replica":
+      return <ReplicaExample capability={capability} spec={spec} />;
+    case "pack":
+      return <PackExample spec={spec} />;
+    case "illustration":
+      return <IllustrationExample spec={spec} />;
   }
 }
 
@@ -332,23 +355,255 @@ const ILLUSTRATIVE_DRIFT_SERIES: readonly TimePoint[] = [
 
 /* ── receipt ───────────────────────────────────────────────────────────── */
 
-function ReceiptOnlyExample({
+/**
+ * receipt — a REAL committed AuditRecord (looked up by `recordHash` from the
+ * console-replica fixtures) rendered as a full ReceiptCard. For
+ * hallucination-scoring the resolved record carries v5
+ * `metadata.hallucination_score`, so we render the groundedness badge above the
+ * card — exactly the pattern the /console decision replica uses — to make the
+ * "the signal rode alongside the audited decision without moving it" point
+ * visible. A dead hash (registry test forbids it) degrades to a Callout.
+ */
+function ReceiptExample({
+  spec,
+}: {
+  readonly spec: Extract<WorkedExampleSpec, { kind: "receipt" }>;
+}) {
+  const record = CONSOLE_REPLICA_RECORDS_BY_HASH.get(spec.recordHash);
+  if (!record) {
+    return (
+      <Callout tone="warn" title="Sample record unavailable">
+        The referenced illustrative record could not be resolved. The package
+        and ADR above remain verifiable.
+      </Callout>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <IllustrativeLabel>
+        A real, committed sample receipt — every hash is verifiable; no live
+        tenant data.
+      </IllustrativeLabel>
+      <HallucinationBadge record={record} />
+      <ReceiptCard record={record} variant="full" />
+    </div>
+  );
+}
+
+/**
+ * Server-only groundedness badge (ADR-124), mirroring the /console decision
+ * replica. The score rides on the audit record's v5 `metadata` — no endpoint.
+ * Absent / non-numeric score → renders nothing.
+ */
+const HALLUCINATION_BUCKET_STYLE: Record<string, string> = {
+  grounded: "border-emerald-500/40 bg-emerald-500/5 text-emerald-600",
+  uncertain: "border-amber-500/40 bg-amber-500/5 text-amber-600",
+  hallucinated: "border-red-500/40 bg-red-500/5 text-red-600",
+};
+
+function HallucinationBadge({ record }: { readonly record: AuditRecord }) {
+  const meta = record.metadata;
+  const score = meta?.["hallucination_score"];
+  if (typeof score !== "number") return null;
+
+  const rawBucket = meta?.["hallucination_bucket"];
+  const bucket = typeof rawBucket === "string" ? rawBucket : "uncertain";
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
+      <span className="text-[10px] uppercase tracking-section text-faint">
+        Hallucination · ADR-124
+      </span>
+      <span
+        className={cn(
+          "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] uppercase tracking-section",
+          HALLUCINATION_BUCKET_STYLE[bucket] ?? "border-edge text-muted",
+        )}
+      >
+        {bucket}
+      </span>
+      <span className="font-mono text-[11px] tabular-nums text-ink/85">
+        score {score.toFixed(2)}
+      </span>
+      <span className="text-[11px] text-muted">
+        — an upstream observability signal, not an argument to the decision.
+      </span>
+    </div>
+  );
+}
+
+/* ── replica ───────────────────────────────────────────────────────────── */
+
+/**
+ * replica — the capability has a featured /console replica view rather than a
+ * single rendered record. We show a prominent, dark "operator console" panel
+ * (ConsoleChrome, which carries the standing illustrative honesty label) with a
+ * one-line description and a button into the replica route.
+ */
+const REPLICA_BLURB: Record<string, { caption: string; line: string }> = {
+  "ai-bom": {
+    caption: "ai-bom · localhost:5180",
+    line: "The full AI bill-of-materials explorer — every model, pack, guard and adapter in the deployment, at version, with its governing policy.",
+  },
+  "config-integrity-seal": {
+    caption: "integrity · localhost:5180",
+    line: "The configuration-integrity surface — the sealed-config health and any drift from the approved value, without exposing the configuration itself.",
+  },
+  "smart-approval-engine": {
+    caption: "approvals · localhost:5180",
+    line: "The Approval Center — the persisted registry of ESCALATEd intents, their decision history, and the audit chain a resolved approval resumes through.",
+  },
+};
+
+function ReplicaExample({
   capability,
+  spec,
 }: {
   readonly capability: CapabilityContent;
+  readonly spec: Extract<WorkedExampleSpec, { kind: "replica" }>;
 }) {
-  // No Tier-1 capability uses the bare "receipt" kind; this keeps the dispatch
-  // total and degrades gracefully if a future Tier-1 entry opts into it.
+  const blurb = REPLICA_BLURB[capability.slug] ?? {
+    caption: "console · localhost:5180",
+    line: "See this capability in the illustrative operator-console replica.",
+  };
+
   return (
-    <Callout tone="info">
-      A representative receipt for{" "}
-      <span className="text-ink">{capability.name}</span> is documented on its
-      reference entry.
-    </Callout>
+    <div className="flex flex-col gap-3">
+      <ConsoleChrome caption={blurb.caption}>
+        <div className="flex flex-col gap-4">
+          <p className="text-[10px] uppercase tracking-section text-console-faint">
+            See it live in the operator console
+          </p>
+          <p className="text-sm leading-relaxed text-console-ink">
+            {blurb.line}
+          </p>
+          <a
+            href={spec.replicaRoute}
+            className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-console-edge bg-console-panel px-3 py-2 text-sm font-medium text-console-ink transition-colors hover:border-console-ink/40"
+          >
+            Open the console replica
+            <ArrowUpRight size={14} aria-hidden="true" />
+          </a>
+          <p className="font-mono text-[10px] text-console-faint">
+            {spec.replicaRoute}
+          </p>
+        </div>
+      </ConsoleChrome>
+      <p className="text-xs text-muted">
+        Illustrative replica · committed sample data, no live tenant detail.
+      </p>
+    </div>
+  );
+}
+
+/* ── pack ──────────────────────────────────────────────────────────────── */
+
+/**
+ * pack — a governance pack's declared governed intents (mono chips) + the
+ * outcome chips its policies most produce + the illustrative note. The pack is
+ * NOT installed in the web kernel-runner, so this is reference content, not a
+ * live run; the note states that plainly and the panel is labelled illustrative.
+ */
+function PackExample({
+  spec,
+}: {
+  readonly spec: Extract<WorkedExampleSpec, { kind: "pack" }>;
+}) {
+  return (
+    <div className="flex flex-col gap-4 rounded-2xl border border-edge bg-surface p-6 shadow-sm">
+      <IllustrativeLabel>Reference pack</IllustrativeLabel>
+
+      <div className="flex flex-col gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          Governed intents · {spec.intents.length}
+        </span>
+        <ul className="flex flex-wrap gap-1.5">
+          {spec.intents.map((intent) => (
+            <li key={intent}>
+              <code className="rounded-md border border-edge bg-canvas px-2 py-0.5 font-mono text-[11px] text-ink/85">
+                {intent}
+              </code>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          Outcomes its policies produce
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {spec.outcomes.map((kind) => (
+            <DecisionChip key={kind} kind={kind} size="sm" />
+          ))}
+        </div>
+      </div>
+
+      {spec.note ? (
+        <Callout tone="info" title="Illustrative — not a live run">
+          {spec.note}
+        </Callout>
+      ) : null}
+    </div>
+  );
+}
+
+/* ── illustration ──────────────────────────────────────────────────────── */
+
+/**
+ * illustration — a titled explainer card for design-time / upstream-only
+ * capabilities that have no live decision row, replica or transparency
+ * projection to feature (policy-coherence analyzer, agent-memory store). Body
+ * prose + optional outcome chips, clearly labelled illustrative.
+ */
+function IllustrationExample({
+  spec,
+}: {
+  readonly spec: Extract<WorkedExampleSpec, { kind: "illustration" }>;
+}) {
+  return (
+    <div className="flex flex-col gap-4 rounded-2xl border border-edge bg-surface p-6 shadow-sm">
+      <IllustrativeLabel>Illustrative explainer</IllustrativeLabel>
+      <h3 className="text-lg font-semibold tracking-tight text-ink">
+        {spec.title}
+      </h3>
+      <p className="max-w-3xl text-sm leading-relaxed text-muted">
+        {spec.body}
+      </p>
+      {spec.outcomes && spec.outcomes.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+            Outcomes
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {spec.outcomes.map((kind) => (
+              <DecisionChip key={kind} kind={kind} size="sm" />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 /* ── shared ────────────────────────────────────────────────────────────── */
+
+/**
+ * The standing "illustrative" honesty label every fixture-illustrative
+ * worked-example variant carries (the no-fake-live-data invariant). A small
+ * amber pill + caption.
+ */
+function IllustrativeLabel({ children }: { readonly children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-2 text-[11px] uppercase tracking-section text-muted">
+      <span className="inline-block h-1.5 w-1.5 rounded-full bg-defer" />
+      <span className="rounded-sm border border-defer/40 bg-defer/10 px-1.5 py-0.5 text-defer">
+        Illustrative
+      </span>
+      <span className="normal-case tracking-normal text-muted">{children}</span>
+    </p>
+  );
+}
 
 function PublicDataLink({
   href,

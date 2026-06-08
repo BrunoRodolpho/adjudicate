@@ -1,4 +1,5 @@
 import { Hero } from "@/sections/Hero";
+import { Reveal } from "@/components/home/Reveal";
 import { StepActs } from "@/sections/home/StepActs";
 import { StepDecides } from "@/sections/home/StepDecides";
 import { StepReceipt } from "@/sections/home/StepReceipt";
@@ -32,10 +33,20 @@ export default function HomePage() {
   return (
     <main>
       <Hero />
-      <StepActs />
-      <StepDecides />
-      <StepReceipt />
-      <StepConsole />
+      {/* Each spine step gently reveals on scroll (static under reduced
+          motion). The #step-* anchors live inside each section, untouched. */}
+      <Reveal>
+        <StepActs />
+      </Reveal>
+      <Reveal>
+        <StepDecides />
+      </Reveal>
+      <Reveal>
+        <StepReceipt />
+      </Reveal>
+      <Reveal>
+        <StepConsole />
+      </Reveal>
       <WhoItsFor />
       <Positioning />
       <SocialProof />

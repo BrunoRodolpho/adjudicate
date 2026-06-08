@@ -19,8 +19,12 @@ import type { DecisionKind } from "@adjudicate/core";
  *                        Incident-response pack, Access-governance pack,
  *                        Release-gating extensions
  *
- * Tier 1 (six) ship a full /capabilities/[slug] page now. Tier 2 (eight) are
- * documented reference entries (registry + stub card) — full pages to follow.
+ * `tier` is now a MATURITY marker, not a page-completeness one: all 14
+ * capabilities render a full /capabilities/[slug] deep-dive. Tier 1 (six) run
+ * the real kernel or a live transparency projection; Tier 2 (eight) are
+ * fixture-illustrative — a real replica record, a featured /console replica, a
+ * pack's declared intents, or a titled illustrative explainer — each clearly
+ * labelled. The registry test still asserts exactly six Tier-1 entries.
  */
 
 export type CapabilityFamily =
@@ -31,9 +35,16 @@ export type CapabilityFamily =
 
 /**
  * How the capability's worked example is rendered:
- *   - live-kernel: runs the real kernel server-side via `runPlayground`.
- *   - chart:       links to a public transparency projection.
- *   - receipt:     shows a representative AuditRecord receipt.
+ *   - live-kernel:  runs the real kernel server-side via `runPlayground`.
+ *   - chart:        links to a public transparency projection.
+ *   - receipt:      renders a REAL AuditRecord from the console-replica fixtures,
+ *                   looked up by `recordHash` (e.g. the hallucinated record).
+ *   - replica:      features the matching /console/<view> replica behind a
+ *                   prominent "See it in the console" panel.
+ *   - pack:         renders a governance pack's governed intents + outcomes
+ *                   (illustrative — the pack is not installed in the web kernel).
+ *   - illustration: a titled illustrative explainer card for capabilities with
+ *                   no replica/transparency surface (design-time / upstream-only).
  */
 export type WorkedExample =
   | {
@@ -43,14 +54,30 @@ export type WorkedExample =
       readonly state?: unknown;
     }
   | { readonly kind: "chart"; readonly transparencyHref: string }
-  | { readonly kind: "receipt" };
+  | { readonly kind: "receipt"; readonly recordHash: string }
+  | { readonly kind: "replica"; readonly replicaRoute: string }
+  | {
+      readonly kind: "pack";
+      readonly intents: ReadonlyArray<string>;
+      readonly outcomes: ReadonlyArray<DecisionKind>;
+      readonly note?: string;
+    }
+  | {
+      readonly kind: "illustration";
+      readonly title: string;
+      readonly body: string;
+      readonly outcomes?: ReadonlyArray<DecisionKind>;
+    };
 
 export interface CapabilityContent {
   /** URL-stable identifier; also the /capabilities/[slug] segment. */
   readonly slug: string;
   readonly name: string;
   readonly family: CapabilityFamily;
-  /** 1 = full page now; 2 = documented reference entry / stub card. */
+  /**
+   * Maturity marker (NOT page-completeness — all 14 render a full page):
+   * 1 = real-kernel / live-projection deep-dive; 2 = fixture-illustrative.
+   */
   readonly tier: 1 | 2;
   readonly oneLiner: string;
   /** Longer prose — what the capability actually does, mechanism-first. */
@@ -124,9 +151,19 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
       sourcePath: "packages/observability/src/hallucination.ts",
     },
     outcomes: ["ESCALATE", "EXECUTE"],
-    workedExample: { kind: "receipt" },
+    workedExample: {
+      kind: "receipt",
+      // The hallucinated console-replica record (ADR-124): a large PIX refund
+      // ESCALATEd to a supervisor, with metadata.hallucination_score = 1. The
+      // groundedness signal rode alongside the audited decision without moving
+      // it — exactly the upstream-only contract this capability documents.
+      recordHash:
+        "026a452517d96354928234a31db860bcb465a2f62eed446b0afd5b979fb38916",
+    },
     consoleAppearance: {
       surface: "Observability hallucination metric (console telemetry panels)",
+      replicaRoute:
+        "/console/decision/026a452517d96354928234a31db860bcb465a2f62eed446b0afd5b979fb38916",
     },
     interactivity: "fixture-illustrative",
   },
@@ -148,9 +185,10 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
       sourcePath: "packages/conformance/src/ai-bom.ts",
     },
     outcomes: ["EXECUTE"],
-    workedExample: { kind: "chart", transparencyHref: "/transparency/ai-bom" },
+    workedExample: { kind: "replica", replicaRoute: "/console/ai-bom" },
     consoleAppearance: {
       surface: "AI-BOM Explorer + public bill-of-materials view",
+      replicaRoute: "/console/ai-bom",
       transparencyRoute: "/transparency/ai-bom",
     },
     interactivity: "fixture-illustrative",
@@ -286,9 +324,10 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
       sourcePath: "packages/conformance/src/config-seal.ts",
     },
     outcomes: ["EXECUTE", "REFUSE"],
-    workedExample: { kind: "chart", transparencyHref: "/transparency/integrity" },
+    workedExample: { kind: "replica", replicaRoute: "/console/integrity" },
     consoleAppearance: {
       surface: "Configuration Integrity aggregation + public integrity view",
+      replicaRoute: "/console/integrity",
       transparencyRoute: "/transparency/integrity",
     },
     interactivity: "fixture-illustrative",
@@ -311,7 +350,12 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
       sourcePath: "packages/analyze/src/tier3.ts",
     },
     outcomes: ["REFUSE", "REWRITE"],
-    workedExample: { kind: "receipt" },
+    workedExample: {
+      kind: "illustration",
+      title: "A structured conflict check, before the policy ships",
+      body:
+        "The AJD-301 analyzer (Tier-3) reads a policy bundle as a whole and reports structured diagnostics: a rule whose guard can never be satisfied, an outcome shadowed by an earlier phase, two thresholds that contradict each other. It is a design-time lint — it runs in CI against the bundle source, not against any live envelope, so it has no runtime decision, no replica row and no transparency projection. The payoff is catching an incoherent policy as a failed check rather than as a production surprise.",
+    },
     consoleAppearance: {
       surface: "Analyze CLI / CI diagnostics (design-time, no console surface)",
     },
@@ -337,9 +381,10 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
       sourcePath: "packages/approval-engine/src/engine.ts",
     },
     outcomes: ["ESCALATE", "EXECUTE", "REFUSE"],
-    workedExample: { kind: "receipt" },
+    workedExample: { kind: "replica", replicaRoute: "/console/approvals" },
     consoleAppearance: {
       surface: "Approval Center (persisted registry + decision history + audit chain)",
+      replicaRoute: "/console/approvals",
     },
     interactivity: "fixture-illustrative",
   },
@@ -361,7 +406,12 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
       sourcePath: "packages/adapter-core/src/persistence.ts",
     },
     outcomes: ["EXECUTE", "REFUSE"],
-    workedExample: { kind: "receipt" },
+    workedExample: {
+      kind: "illustration",
+      title: "Memory enriches context — never the decision",
+      body:
+        "The MemoryStore (ADR-126) folds past decisions and domain knowledge into the planner's context once per iteration, so the model sees more relevant history. Memory is type M, kept strictly distinct from state S, and is never an argument to the envelope, to adjudicate, or to any guard. The guarantee is determinism: given identical (envelope, state, policy) the kernel decision is byte-identical with or without memory. A poisoned memory can at most widen what the model is shown — it cannot move an adjudication — which is why there is no decision row to feature here.",
+    },
     consoleAppearance: {
       surface: "SessionMemoryPanel on the console decision-detail page",
     },
@@ -385,7 +435,17 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
       sourcePath: "packages/pack-incident-response/src/index.ts",
     },
     outcomes: ["DEFER", "REWRITE", "ESCALATE", "REQUEST_CONFIRMATION", "REFUSE", "EXECUTE"],
-    workedExample: { kind: "receipt" },
+    workedExample: {
+      kind: "pack",
+      // The pack's real governed intents (packages/pack-incident-response/src/index.ts).
+      intents: [
+        "incident.remediation.execute",
+        "incident.escalate",
+        "incident.monitor.callback",
+      ],
+      outcomes: ["ESCALATE", "DEFER", "REQUEST_CONFIRMATION", "REWRITE"],
+      note: "Illustrative — the incident-response pack is not installed in the web kernel-runner, so these are the pack's declared intents and the outcomes its policies most produce, not a live run.",
+    },
     consoleAppearance: {
       surface: "Pack catalogue / Decision Lab (incident-response scenarios)",
     },
@@ -409,7 +469,13 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
       sourcePath: "packages/pack-access-governance/src/index.ts",
     },
     outcomes: ["DEFER", "REWRITE", "ESCALATE", "REQUEST_CONFIRMATION", "REFUSE", "EXECUTE"],
-    workedExample: { kind: "receipt" },
+    workedExample: {
+      kind: "pack",
+      // The pack's real governed intents (packages/pack-access-governance/src/index.ts).
+      intents: ["access.request", "access.review.resolve", "access.revoke"],
+      outcomes: ["DEFER", "REFUSE", "REWRITE", "ESCALATE"],
+      note: "Illustrative — the access-governance pack is not installed in the web kernel-runner, so these are the pack's declared intents and the outcomes its policies most produce, not a live run.",
+    },
     consoleAppearance: {
       surface: "Pack catalogue / Decision Lab (access-governance scenarios)",
     },

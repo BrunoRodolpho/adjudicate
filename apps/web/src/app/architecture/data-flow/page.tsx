@@ -11,6 +11,17 @@ export const metadata: Metadata = {
   title: "Data flow · adjudicate",
   description:
     "The end-to-end data flow: an AI agent's intent is adjudicated in-process, the decision is folded into a tamper-evident AuditRecord, mirrored to a partitioned Postgres table, and pushed over Redis + SSE to the operator console's live tail.",
+  openGraph: {
+    title: "Data flow · adjudicate",
+    description:
+      "The end-to-end data flow: an AI agent's intent is adjudicated in-process, the decision is folded into a tamper-evident AuditRecord, mirrored to a partitioned Postgres table, and pushed over Redis + SSE to the operator console's live tail.",
+    type: "website",
+    images: [{ url: "/og-data-flow.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og-data-flow.png"],
+  },
 };
 
 /**

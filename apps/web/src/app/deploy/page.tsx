@@ -12,6 +12,17 @@ export const metadata: Metadata = {
   title: "Deploy · adjudicate",
   description:
     "How to deploy adjudicate — a library that runs in-process, in your request path, before the side-effect. Optional Postgres audit. Self-hosted operator console.",
+  openGraph: {
+    title: "Deploy · adjudicate",
+    description:
+      "How to deploy adjudicate — a library that runs in-process, in your request path, before the side-effect. Optional Postgres audit. Self-hosted operator console.",
+    type: "website",
+    images: [{ url: "/og-deploy.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og-deploy.png"],
+  },
 };
 
 /**

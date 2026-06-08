@@ -1,6 +1,7 @@
 import { ArrowRight, BookOpen } from "lucide-react";
 import { HeroKernelLoop } from "@/components/motion/HeroKernelLoop";
 import { HeroOutcomeStrip } from "@/components/motion/HeroOutcomeStrip";
+import { ActiveStepStrip } from "@/components/home/ActiveStepStrip";
 import { Button } from "@/components/ui/Button";
 
 /**
@@ -8,18 +9,11 @@ import { Button } from "@/components/ui/Button";
  *
  * Headline names the product category; the subhead is the literal four-step
  * sentence the rest of the page proves: AI acts → guard decides → receipt
- * saved → console shows. A 4-chip anchor rail lets a visitor jump straight to
- * any step. The HeroKernelLoop video + HeroOutcomeStrip carry the visual
- * proof; the inline mechanism panel was retired in favour of the dedicated
- * Step-3 receipt below.
+ * saved → console shows. A 4-chip anchor rail (ActiveStepStrip) lets a visitor
+ * jump straight to any step and tracks the section currently in view. The
+ * HeroKernelLoop video + HeroOutcomeStrip carry the visual proof; the inline
+ * mechanism panel was retired in favour of the dedicated Step-3 receipt below.
  */
-
-const STEPS: ReadonlyArray<{ label: string; href: string }> = [
-  { label: "AI acts", href: "#step-acts" },
-  { label: "Guard decides", href: "#step-decides" },
-  { label: "Receipt saved", href: "#step-receipt" },
-  { label: "Console shows", href: "#step-console" },
-];
 
 export function Hero() {
   return (
@@ -66,30 +60,9 @@ export function Hero() {
             </span>
           </p>
 
-          {/* 4-chip anchor rail — the spine, jumpable. */}
-          <nav
-            aria-label="The four steps"
-            className="flex flex-wrap items-center justify-center gap-x-2 gap-y-2"
-          >
-            {STEPS.map((step, idx) => (
-              <span key={step.href} className="flex items-center gap-2">
-                <a
-                  href={step.href}
-                  className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1.5 text-xs font-medium text-muted transition hover:border-ink/30 hover:text-ink"
-                >
-                  <span className="flex size-5 items-center justify-center rounded-full bg-edge font-mono text-[11px] text-ink">
-                    {idx + 1}
-                  </span>
-                  {step.label}
-                </a>
-                {idx < STEPS.length - 1 ? (
-                  <span className="text-faint" aria-hidden="true">
-                    &rarr;
-                  </span>
-                ) : null}
-              </span>
-            ))}
-          </nav>
+          {/* 4-chip anchor rail — the spine, jumpable; tracks the section
+              currently in view (static under reduced motion). */}
+          <ActiveStepStrip />
 
           <div className="flex flex-wrap justify-center gap-3">
             <Button href="/playground" variant="primary">

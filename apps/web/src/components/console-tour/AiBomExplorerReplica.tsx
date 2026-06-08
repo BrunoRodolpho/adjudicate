@@ -1,0 +1,430 @@
+import type { ReactNode } from "react";
+import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { DataTable, type DataTableColumn } from "@/components/console-kit/a11y/DataTable";
+import {
+  AI_BOM_TRANSPARENCY_SAMPLE,
+  type AiBomTransparencySample,
+} from "@/lib/transparency-fixtures";
+import { cn } from "@/lib/cn";
+
+/**
+ * AiBomExplorerReplica — a faithful, STATIC replica of the operator console's
+ * AI-BOM Explorer (ADR-130), mirroring apps/console/src/app/ai-bom/page.tsx.
+ *
+ * SERVER component. It renders inside {@link ConsoleChrome} (the reviewed
+ * honesty boundary — the standing "Illustrative replica · sample data" label is
+ * non-removable) over a two-pane layout:
+ *
+ *   Left rail  — every reference pack's BOM summary (health dot, conformance,
+ *                signed/unsigned, truncated bomDigest). The representative
+ *                selected pack is highlighted; selection is static (no client).
+ *   Detail     — the full BOM for the selected pack: model, conformance/health,
+ *                intents/signals/basis chips, a tools DataTable, vector stores,
+ *                prompt HASHES (SHA-256 only, never prompt text), and guardrails.
+ *
+ * The only data ever rendered is the committed, clearly-illustrative
+ * {@link AI_BOM_TRANSPARENCY_SAMPLE}. Every BOM field is non-sensitive BY DESIGN
+ * (hashes + component references, never contents — ADR-127): no raw prompts, no
+ * retrieved documents, no tool invocations, no signature bytes. There is no
+ * clock, RNG, network, or admin/DB access in this path — the data is fixed
+ * literals, so the surface renders identically everywhere.
+ *
+ * The console's live "Download JSON" affordance (a Blob export needing a client)
+ * is intentionally rendered here as an inert note: this replica is a static
+ * display, and there is no live BOM to export.
+ */
+
+const TOOL_COLUMNS: readonly DataTableColumn[] = [
+  { key: "name", header: "Name" },
+  { key: "description", header: "Description" },
+  { key: "version", header: "Version" },
+  { key: "schemaDigest", header: "Schema digest" },
+];
+
+const RAG_COLUMNS: readonly DataTableColumn[] = [
+  { key: "name", header: "Name" },
+  { key: "kind", header: "Kind" },
+  { key: "version", header: "Version" },
+  { key: "embeddingModel", header: "Embedding model" },
+];
+
+const PROMPT_COLUMNS: readonly DataTableColumn[] = [
+  { key: "id", header: "Prompt id" },
+  { key: "sha256", header: "SHA-256" },
+];
+
+/** Truncate a hash to `head…tail` for dense display. Pure, no deps. */
+function truncateHash(hash: string, head = 6, tail = 4): string {
+  if (hash.length <= head + tail + 1) return hash;
+  return `${hash.slice(0, head)}…${hash.slice(-tail)}`;
+}
+
+export function AiBomExplorerReplica({
+  className,
+}: {
+  readonly className?: string;
+}) {
+  const boms = AI_BOM_TRANSPARENCY_SAMPLE;
+  // Static selection — the first reference pack is the representative detail.
+  const selected = boms[0]!;
+
+  return (
+    <ConsoleChrome caption="ai-bom · localhost:5180" className={className}>
+      <div className="flex flex-col gap-4" data-testid="aibom-replica">
+        <header className="flex items-baseline justify-between border-b border-console-edge pb-3">
+          <h2 className="text-[10px] uppercase tracking-section text-console-muted">
+            AI-BOM Explorer · AI Bill-of-Materials
+          </h2>
+          <span className="text-[10px] text-console-faint">ADR-130</span>
+        </header>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
+          {/* Left rail — pack list. */}
+          <section className="flex flex-col gap-2">
+            <header className="text-[10px] uppercase tracking-section text-console-faint">
+              Packs
+            </header>
+            <ul
+              aria-label="Installed packs"
+              data-testid="aibom-rail"
+              className="flex flex-col gap-1"
+            >
+              {boms.map((b) => (
+                <PackRailItem
+                  key={b.packId}
+                  bom={b}
+                  active={b.packId === selected.packId}
+                />
+              ))}
+            </ul>
+          </section>
+
+          {/* Detail pane. */}
+          <section className="flex flex-col gap-4">
+            <BomDetail bom={selected} />
+          </section>
+        </div>
+      </div>
+    </ConsoleChrome>
+  );
+}
+
+function PackRailItem({
+  bom,
+  active,
+}: {
+  readonly bom: AiBomTransparencySample;
+  readonly active: boolean;
+}) {
+  // The committed transparency sample carries no live `signature` object, so the
+  // public posture is honestly "unsigned" (ADR-130: the signature value is never
+  // published).
+  const signed = false;
+  return (
+    <li
+      aria-current={active ? "true" : undefined}
+      className={cn(
+        "flex w-full flex-col gap-1 rounded-sm border px-2.5 py-2 text-left",
+        active
+          ? "border-console-ink/30 bg-console-edge text-console-ink"
+          : "border-console-edge bg-console-panel/40 text-console-muted",
+      )}
+    >
+      <span className="flex items-center justify-between gap-2">
+        <span className="truncate font-medium text-console-ink">{bom.packId}</span>
+        <span className="shrink-0 text-[10px] tabular-nums text-console-faint">
+          @{bom.packVersion}
+        </span>
+      </span>
+      <span className="flex items-center gap-2 text-[10px]">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            bom.conformance.passed ? "bg-emerald-400" : "bg-red-400",
+          )}
+        />
+        <span className="uppercase tracking-section text-console-faint">
+          {bom.healthTier}
+        </span>
+        <span
+          className={cn(
+            "ml-auto uppercase tracking-section",
+            signed ? "text-emerald-300" : "text-console-faint",
+          )}
+        >
+          {signed ? "signed" : "unsigned"}
+        </span>
+      </span>
+      <code className="truncate font-mono text-[10px] text-console-faint">
+        {truncateHash(bom.bomDigest)}
+      </code>
+    </li>
+  );
+}
+
+function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
+  const toolRows = bom.tools.map((t, i) => ({
+    _key: `${t.name}:${i}`,
+    name: <span className="text-console-ink">{t.name}</span>,
+    description: <span className="text-console-muted">{t.description ?? "—"}</span>,
+    version: (
+      <span className="tabular-nums text-console-muted">{t.version ?? "—"}</span>
+    ),
+    schemaDigest: (
+      <code className="font-mono text-console-faint">
+        {t.schemaDigest ? truncateHash(t.schemaDigest) : "—"}
+      </code>
+    ),
+  }));
+
+  const ragRows = bom.rag.map((r, i) => ({
+    _key: `${r.name}:${i}`,
+    name: <span className="text-console-ink">{r.name}</span>,
+    kind: <span className="text-console-muted">{r.kind ?? "—"}</span>,
+    version: (
+      <span className="tabular-nums text-console-muted">{r.version ?? "—"}</span>
+    ),
+    embeddingModel: (
+      <span className="text-console-muted">{r.embeddingModel ?? "—"}</span>
+    ),
+  }));
+
+  const promptRows = bom.promptHashes.map((p, i) => ({
+    _key: `${p.id}:${i}`,
+    id: <span className="text-console-ink">{p.id}</span>,
+    sha256: (
+      <code className="font-mono text-console-faint">{truncateHash(p.sha256)}</code>
+    ),
+  }));
+
+  // Group guardrail basis codes by category (deterministic insertion order).
+  const guardrailsByCategory = (() => {
+    const map = new Map<string, string[]>();
+    for (const g of bom.guardrails) {
+      const list = map.get(g.category) ?? [];
+      list.push(g.basisCode);
+      map.set(g.category, list);
+    }
+    return [...map.entries()];
+  })();
+
+  return (
+    <div className="flex flex-col gap-4" data-testid="aibom-detail">
+      {/* Header. */}
+      <header className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <h3
+            className="text-sm font-medium text-console-ink"
+            data-testid="aibom-detail-heading"
+          >
+            {bom.packId}
+            <span className="ml-1 text-console-faint">@{bom.packVersion}</span>
+          </h3>
+          {/* The live console exports the BOM via a client-side Blob download.
+              This static replica has no live BOM, so the affordance is an inert
+              note rather than a no-op control. */}
+          <span
+            className="rounded-sm border border-console-edge px-2 py-1 text-[10px] uppercase tracking-section text-console-faint"
+            title="The live console exports the BOM as JSON. This replica is a static display, so export is illustrative only."
+          >
+            Download JSON · illustrative
+          </span>
+        </div>
+        <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-2">
+          <Field label="Contract" value={bom.contract} />
+          <Field label="Kernel min" value={bom.kernelMinVersion} />
+          <Field label="BOM version" value={bom.bomVersion} />
+          <Field label="Generated at" value={bom.generatedAt} />
+          <Field label="Frameworks" value={bom.frameworks.join(", ")} />
+          {/* The committed sample omits the live signature object, so the public
+              posture is honestly "no". */}
+          <Field label="Signed" value="no" emphasize />
+          <FieldCode label="Fingerprint" value={bom.fingerprint} />
+          <FieldCode label="BOM digest" value={bom.bomDigest} />
+        </dl>
+      </header>
+
+      {/* Model. */}
+      <DetailSection title="Model">
+        {bom.model ? (
+          <p className="text-[11px] text-console-ink">
+            {bom.model.provider}/{bom.model.model}
+            {bom.model.modelVersion ? ` @${bom.model.modelVersion}` : ""}
+          </p>
+        ) : (
+          <p className="text-[11px] italic text-console-faint">Not declared.</p>
+        )}
+      </DetailSection>
+
+      {/* Health + conformance. */}
+      <DetailSection title="Conformance & health">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-4">
+          <Field
+            label="Conformance"
+            value={`${bom.conformance.passed ? "passed" : "FAILED"} (${bom.conformance.passedCount}/${bom.conformance.total})`}
+            emphasize={!bom.conformance.passed}
+          />
+          <Field label="Failed" value={String(bom.conformance.failedCount)} />
+          <Field
+            label="Health"
+            value={`${bom.healthTier} (${bom.healthScore.score}/${bom.healthScore.maxScore})`}
+          />
+          <FieldCode label="Report digest" value={bom.conformance.reportDigest} />
+        </dl>
+      </DetailSection>
+
+      {/* Intents / signals / basis codes. */}
+      <DetailSection title="Intents, signals & basis codes">
+        <div className="flex flex-col gap-2">
+          <ChipList label="Intents" items={bom.intents} />
+          <ChipList label="Signals" items={bom.signals} />
+          <ChipList label="Basis codes" items={bom.basisCodes} />
+        </div>
+      </DetailSection>
+
+      {/* Tools. */}
+      <DetailSection title="Tools">
+        {bom.tools.length > 0 ? (
+          <DataTable
+            caption="Declared tools"
+            columns={TOOL_COLUMNS}
+            rows={toolRows}
+            getRowKey={(row, i) => String(row._key ?? i)}
+          />
+        ) : (
+          <p className="text-[11px] italic text-console-faint">None declared.</p>
+        )}
+      </DetailSection>
+
+      {/* Vector stores (RAG). */}
+      <DetailSection title="Vector stores (RAG)">
+        {bom.rag.length > 0 ? (
+          <DataTable
+            caption="Declared retrieval / vector stores"
+            columns={RAG_COLUMNS}
+            rows={ragRows}
+            getRowKey={(row, i) => String(row._key ?? i)}
+          />
+        ) : (
+          <p className="text-[11px] italic text-console-faint">None declared.</p>
+        )}
+      </DetailSection>
+
+      {/* Prompt hashes — SHA-256 only, never prompt text. */}
+      <DetailSection title="Prompt hashes">
+        {bom.promptHashes.length > 0 ? (
+          <DataTable
+            caption="Declared prompt-template hashes (hashes only, never contents)"
+            columns={PROMPT_COLUMNS}
+            rows={promptRows}
+            getRowKey={(row, i) => String(row._key ?? i)}
+          />
+        ) : (
+          <p className="text-[11px] italic text-console-faint">
+            No declared prompt templates.
+          </p>
+        )}
+      </DetailSection>
+
+      {/* Guardrails. */}
+      <DetailSection title="Guardrails">
+        {guardrailsByCategory.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            {guardrailsByCategory.map(([category, codes]) => (
+              <div key={category} className="flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-section text-console-faint">
+                  {category}
+                </span>
+                <ChipList label={category} items={codes} hideLabel />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] italic text-console-faint">None declared.</p>
+        )}
+      </DetailSection>
+    </div>
+  );
+}
+
+function DetailSection({
+  title,
+  children,
+}: {
+  readonly title: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <section className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
+      <header className="mb-2 text-[10px] uppercase tracking-section text-console-faint">
+        {title}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function Field({
+  label,
+  value,
+  emphasize = false,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly emphasize?: boolean;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 border-b border-console-edge/50 py-0.5">
+      <dt className="text-console-faint">{label}</dt>
+      <dd className={cn("text-right", emphasize ? "text-red-300" : "text-console-ink")}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function FieldCode({ label, value }: { readonly label: string; readonly value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 border-b border-console-edge/50 py-0.5">
+      <dt className="text-console-faint">{label}</dt>
+      <dd className="text-right">
+        <code className="break-all font-mono text-console-ink" title={value}>
+          {value}
+        </code>
+      </dd>
+    </div>
+  );
+}
+
+function ChipList({
+  label,
+  items,
+  hideLabel = false,
+}: {
+  readonly label: string;
+  readonly items: ReadonlyArray<string>;
+  readonly hideLabel?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {!hideLabel ? (
+        <span className="mr-1 text-[10px] uppercase tracking-section text-console-faint">
+          {label}
+        </span>
+      ) : null}
+      {items.length > 0 ? (
+        items.map((item) => (
+          <code
+            key={item}
+            className="rounded-sm border border-console-edge bg-console-canvas/40 px-1.5 py-0.5 font-mono text-[10px] text-console-ink"
+          >
+            {item}
+          </code>
+        ))
+      ) : (
+        <span className="text-[11px] italic text-console-faint">None</span>
+      )}
+    </div>
+  );
+}

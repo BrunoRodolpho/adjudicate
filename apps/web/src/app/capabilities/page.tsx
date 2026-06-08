@@ -15,6 +15,17 @@ export const metadata: Metadata = {
   title: "Capabilities · adjudicate",
   description:
     "All 14 adjudicate capabilities, each mapped to a real package and ADR, grouped into four families.",
+  openGraph: {
+    title: "Capabilities · adjudicate",
+    description:
+      "All 14 adjudicate capabilities, each mapped to a real package and ADR, grouped into four families.",
+    type: "website",
+    images: [{ url: "/og-capabilities.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og-capabilities.png"],
+  },
 };
 
 /** Display order + copy for the four capability families. */
@@ -45,17 +56,19 @@ const FAMILIES: ReadonlyArray<{
   },
 ];
 
-/** One capability card. Tier 1 links to its detail page; Tier 2 is reference-only. */
+/**
+ * One capability card. Every card now links to its full /capabilities/[slug]
+ * deep-dive — `tier` is shown only as a subtle maturity badge, not as a gate.
+ */
 function CapabilityCard({ cap }: { readonly cap: CapabilityContent }) {
-  const href = cap.tier === 1 ? `/capabilities/${cap.slug}` : undefined;
   return (
-    <Card href={href} className="flex h-full flex-col gap-3">
+    <Card href={`/capabilities/${cap.slug}`} className="flex h-full flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <Badge tone="adr">{cap.adr.id}</Badge>
         {cap.tier === 1 ? (
-          <Badge tone="shipped">Shipped · Tier 1</Badge>
+          <Badge tone="shipped">Tier 1</Badge>
         ) : (
-          <Badge tone="roadmap">Reference · Tier 2</Badge>
+          <Badge tone="roadmap">Tier 2</Badge>
         )}
       </div>
 
@@ -75,17 +88,8 @@ function CapabilityCard({ cap }: { readonly cap: CapabilityContent }) {
       </div>
 
       <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-section text-muted">
-        {cap.tier === 1 ? (
-          <>
-            Open capability
-            <ArrowRight size={12} aria-hidden="true" />
-          </>
-        ) : (
-          <>
-            Reference
-            <ArrowRight size={12} aria-hidden="true" />
-          </>
-        )}
+        Open capability
+        <ArrowRight size={12} aria-hidden="true" />
       </p>
     </Card>
   );
@@ -93,9 +97,9 @@ function CapabilityCard({ cap }: { readonly cap: CapabilityContent }) {
 
 /**
  * /capabilities — the catalogue index. The 14 capabilities, each grounded in a
- * real package + ADR, grouped into the four families. Tier 1 cards link to the
- * full /capabilities/[slug] page; Tier 2 cards are concise documented
- * references (full pages to follow).
+ * real package + ADR, grouped into the four families. Every card links to its
+ * full /capabilities/[slug] deep-dive; the Tier badge is a subtle maturity
+ * marker (Tier 1 = real-kernel/live-projection, Tier 2 = fixture-illustrative).
  */
 export default function CapabilitiesPage() {
   return (
@@ -104,7 +108,7 @@ export default function CapabilitiesPage() {
         <DepthHeader
           eyebrow="Capabilities"
           title="14 capabilities, four families."
-          subtitle="Every capability maps to a real package and a real ADR. Six ship a full page today; the other eight are documented references."
+          subtitle="Every capability maps to a real package and a real ADR, and every one opens a full deep-dive. The Tier badge marks maturity: Tier 1 runs the real kernel or a live projection; Tier 2 is fixture-illustrative."
         />
 
         <div className="mt-12 flex flex-col gap-16">

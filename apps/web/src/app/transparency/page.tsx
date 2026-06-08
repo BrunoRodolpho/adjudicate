@@ -7,6 +7,17 @@ export const metadata: Metadata = {
   title: "Transparency · adjudicate",
   description:
     "Public, aggregates-only governance transparency: drift, red-team defenses, PII handling, command risk, configuration integrity, and AI bills-of-materials for the reference packs.",
+  openGraph: {
+    title: "Transparency · adjudicate",
+    description:
+      "Public, aggregates-only governance transparency: drift, red-team defenses, PII handling, command risk, configuration integrity, and AI bills-of-materials for the reference packs.",
+    type: "website",
+    images: [{ url: "/og-transparency.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og-transparency.png"],
+  },
 };
 
 /**

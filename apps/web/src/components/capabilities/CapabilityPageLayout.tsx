@@ -10,21 +10,26 @@ import type { CapabilityContent } from "@/content/capabilities";
 import { WorkedExample } from "@/components/capabilities/WorkedExample";
 
 /**
- * CapabilityPageLayout — the Tier-1 capability deep-dive page body.
+ * CapabilityPageLayout — the capability deep-dive page body. Renders ALL 14
+ * capabilities (Tier 1 and Tier 2 alike) — `tier` is a maturity marker, not a
+ * page-completeness one.
  *
  * SERVER component. Given one {@link CapabilityContent} it renders, top to
  * bottom:
  *
  *   1. DepthHeader (back to /capabilities) — name + one-liner + the ADR /
- *      shipped badges + the outcome chips.
+ *      maturity badges + the outcome chips. The maturity badge reads
+ *      `tier` / `interactivity`: a Tier-1 real-kernel page says "Shipped ·
+ *      Tier 1"; a Tier-2 fixture-illustrative page says "Illustrative ·
+ *      Tier 2" (honest about what its worked example is).
  *   2. A StepStrip anchored on Step 2 ("Guard decides") with a note framing
  *      this capability as what happens at that step.
  *   3. "What it does" — the mechanism-first prose.
  *   4. PROVENANCE — the governing ADR file on GitHub + the implementing
  *      package source file on GitHub (the verifiable-claim convention from
  *      content/primitives.ts: REPO_BASE + repo-relative path).
- *   5. The WORKED EXAMPLE (real kernel, chart, or focused summary — see
- *      {@link WorkedExample}).
+ *   5. The WORKED EXAMPLE (real kernel, chart, receipt, replica, pack, or
+ *      illustration — see {@link WorkedExample}).
  *   6. "How it appears in the console" — a link/illustration to the replica or
  *      transparency route.
  *   7. A "Public data" band linking the matching /transparency projection when
@@ -40,6 +45,10 @@ export function CapabilityPageLayout({
   const consoleHref =
     capability.consoleAppearance.replicaRoute ??
     capability.consoleAppearance.transparencyRoute;
+  const realKernel = capability.interactivity === "real-kernel";
+  const maturityBadge = realKernel
+    ? `Shipped · Tier ${capability.tier}`
+    : `Illustrative · Tier ${capability.tier}`;
 
   return (
     <main>
@@ -57,7 +66,9 @@ export function CapabilityPageLayout({
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone="adr">{capability.adr.id}</Badge>
-              <Badge tone="shipped">Shipped · Tier 1</Badge>
+              <Badge tone={realKernel ? "shipped" : "roadmap"}>
+                {maturityBadge}
+              </Badge>
               <Badge tone="neutral">{capability.pkg.name}</Badge>
             </div>
             <div className="flex flex-wrap gap-1.5">

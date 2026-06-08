@@ -23,6 +23,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CAPABILITIES } from "./capabilities";
+import { CONSOLE_REPLICA_RECORDS_BY_HASH } from "../lib/console-replica-records";
 
 // This file lives at apps/web/src/content/capabilities.test.ts. Walk four
 // levels up (content → src → web → apps) to reach the repository root.
@@ -114,16 +115,77 @@ describe("CAPABILITIES registry", () => {
     ]);
   });
 
-  it("every live-kernel worked example carries an intentKind + payload", () => {
+  it("every worked-example kind is well-formed for its variant", () => {
     for (const c of CAPABILITIES) {
-      if (c.workedExample.kind === "live-kernel") {
-        expect(typeof c.workedExample.intentKind).toBe("string");
-        expect(c.workedExample.intentKind.length).toBeGreaterThan(0);
-        expect(c.workedExample.payload).toBeTypeOf("object");
+      const w = c.workedExample;
+      switch (w.kind) {
+        case "live-kernel":
+          expect(typeof w.intentKind).toBe("string");
+          expect(w.intentKind.length).toBeGreaterThan(0);
+          expect(w.payload).toBeTypeOf("object");
+          break;
+        case "chart":
+          expect(w.transparencyHref.startsWith("/transparency/")).toBe(true);
+          break;
+        case "receipt":
+          // The hash must resolve to a REAL fixture record — a dead hash would
+          // render an empty receipt on the public page, so fail here instead.
+          expect(typeof w.recordHash).toBe("string");
+          expect(w.recordHash.length).toBeGreaterThan(0);
+          expect(CONSOLE_REPLICA_RECORDS_BY_HASH.has(w.recordHash)).toBe(true);
+          break;
+        case "replica":
+          expect(w.replicaRoute.startsWith("/console")).toBe(true);
+          break;
+        case "pack":
+          expect(w.intents.length).toBeGreaterThan(0);
+          expect(w.outcomes.length).toBeGreaterThan(0);
+          break;
+        case "illustration":
+          expect(w.title.length).toBeGreaterThan(0);
+          expect(w.body.length).toBeGreaterThan(0);
+          break;
       }
-      if (c.workedExample.kind === "chart") {
-        expect(c.workedExample.transparencyHref.startsWith("/transparency/")).toBe(true);
-      }
+    }
+  });
+
+  // The hallucination-scoring receipt MUST feature the hallucinated record
+  // (metadata.hallucination_score === 1) — the whole point of the example.
+  it("hallucination-scoring features the hallucinated fixture record", () => {
+    const cap = CAPABILITIES.find((c) => c.slug === "hallucination-scoring");
+    expect(cap?.workedExample.kind).toBe("receipt");
+    if (cap?.workedExample.kind !== "receipt") return;
+    const rec = CONSOLE_REPLICA_RECORDS_BY_HASH.get(cap.workedExample.recordHash);
+    expect(rec).toBeDefined();
+    expect(
+      (rec?.metadata as { hallucination_score?: number } | undefined)
+        ?.hallucination_score,
+    ).toBe(1);
+    // consoleAppearance.replicaRoute deep-links the same record's decision page.
+    expect(cap.consoleAppearance.replicaRoute).toBe(
+      `/console/decision/${cap.workedExample.recordHash}`,
+    );
+  });
+
+  // The two governance packs render their REAL declared intents.
+  it("the governance packs declare their real intents", () => {
+    const expected: Record<string, readonly string[]> = {
+      "incident-response-pack": [
+        "incident.remediation.execute",
+        "incident.escalate",
+        "incident.monitor.callback",
+      ],
+      "access-governance-pack": [
+        "access.request",
+        "access.review.resolve",
+        "access.revoke",
+      ],
+    };
+    for (const [slug, intents] of Object.entries(expected)) {
+      const cap = CAPABILITIES.find((c) => c.slug === slug);
+      expect(cap?.workedExample.kind).toBe("pack");
+      if (cap?.workedExample.kind !== "pack") continue;
+      expect(cap.workedExample.intents).toEqual(intents);
     }
   });
 

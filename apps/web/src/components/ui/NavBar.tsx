@@ -163,8 +163,14 @@ function DesktopEntry({
 }
 
 /**
- * Hover/focus dropdown for a nav group. Uses a CSS group so the panel opens
- * on pointer hover and on keyboard focus within, with no extra client state.
+ * Hover/focus dropdown for a nav group (desktop). Opens on pointer hover and on
+ * keyboard focus; closes on mouse-leave, on focus leaving the subtree, on Escape,
+ * and — crucially — once an item is chosen.
+ *
+ * This is controlled rather than pure-CSS on purpose: client-side navigation
+ * keeps the NavBar mounted, so a `:hover`/`:focus-within` panel would stay open
+ * after a click (the chosen link keeps focus and the cursor stays over the
+ * panel). The `open` state plus the pathname effect force it shut on navigation.
  */
 function DesktopDropdown({
   group,
@@ -174,11 +180,34 @@ function DesktopDropdown({
   readonly pathname: string;
 }) {
   const active = isGroupActive(pathname, group);
+  const [open, setOpen] = useState(false);
+
+  // Route changed (client-side nav keeps this mounted) — drop the panel so the
+  // chosen item's retained focus/hover can't hold it open.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
   return (
-    <div className="group relative">
+    <div
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={(e) => {
+        // Close only when focus leaves the dropdown subtree entirely.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setOpen(false);
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setOpen(false);
+      }}
+    >
       <button
         type="button"
         aria-haspopup="true"
+        aria-expanded={open}
         className={cn(
           "inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm transition-colors",
           active ? "text-ink" : "text-muted hover:text-ink",
@@ -188,13 +217,19 @@ function DesktopDropdown({
         <ChevronDown
           size={14}
           aria-hidden="true"
-          className="transition-transform group-hover:rotate-180"
+          className={cn("transition-transform", open && "rotate-180")}
         />
       </button>
       <div
-        className="invisible absolute left-0 top-full pt-2 opacity-0 transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+        className={cn(
+          "absolute left-0 top-full pt-2 transition-opacity",
+          open ? "visible opacity-100" : "invisible opacity-0",
+        )}
       >
-        <ul className="w-72 rounded-xl border border-edge bg-surface p-2 shadow-xl">
+        <ul
+          className="w-72 rounded-xl border border-edge bg-surface p-2 shadow-xl"
+          onClick={() => setOpen(false)}
+        >
           {group.items.map((item) => (
             <li key={item.label}>
               <DropdownItem item={item} pathname={pathname} />

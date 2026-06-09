@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, ArrowRight, ShieldCheck } from "lucide-react";
-import { Stagger } from "@/components/motion/Stagger";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { DrawOnScroll } from "@/components/motion/DrawOnScroll";
 import { DecisionChip } from "@/components/ui/DecisionChip";
 import { Button } from "@/components/ui/Button";
@@ -45,7 +45,7 @@ export function MagicMomentSplit({
         stagger={0.12}
       >
         {/* LEFT — what the agent proposed (danger-tinted). */}
-        <Stagger.Item className="h-full">
+        <StaggerItem className="h-full">
           <article
             aria-label="The action the agent proposed"
             className="flex h-full flex-col gap-4 rounded-2xl border-2 border-dashed border-refuse/50 bg-refuse/5 p-5 shadow-sm"
@@ -71,10 +71,10 @@ export function MagicMomentSplit({
               agent</em>.
             </p>
           </article>
-        </Stagger.Item>
+        </StaggerItem>
 
         {/* CONNECTOR — drawn arrow on desktop; chip on mobile. */}
-        <Stagger.Item className="flex items-center justify-center">
+        <StaggerItem className="flex items-center justify-center">
           <span className="sr-only">rewritten to</span>
           {/* Desktop: a drawn left→right arrow bridging the panes. */}
           <DrawOnScroll
@@ -103,10 +103,10 @@ export function MagicMomentSplit({
             aria-hidden="true"
             className="rotate-90 text-rewrite-strong lg:hidden"
           />
-        </Stagger.Item>
+        </StaggerItem>
 
         {/* RIGHT — what adjudicate decided (safe-tinted). */}
-        <Stagger.Item className="h-full">
+        <StaggerItem className="h-full">
           <article
             aria-label="The decision adjudicate returned"
             className="flex h-full flex-col gap-4 rounded-2xl border border-execute/40 bg-execute/5 p-5 shadow-sm"
@@ -141,12 +141,12 @@ export function MagicMomentSplit({
               {proposedRamp}% to {rewrittenRamp}%.
             </p>
           </article>
-        </Stagger.Item>
+        </StaggerItem>
       </Stagger>
 
       {/* Compact, REAL receipt line — proves the decision is recorded. */}
       <Stagger className="flex flex-col gap-3" delay={0.36}>
-        <Stagger.Item>
+        <StaggerItem>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-edge bg-canvas px-4 py-3 font-mono text-[11px]">
             <span className="uppercase tracking-section text-muted">
               receipt
@@ -158,7 +158,7 @@ export function MagicMomentSplit({
             </span>
             <span className="text-faint">· signed · append-only</span>
           </div>
-        </Stagger.Item>
+        </StaggerItem>
       </Stagger>
 
       {/* Caption + CTA. */}

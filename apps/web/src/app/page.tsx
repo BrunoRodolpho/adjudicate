@@ -5,6 +5,7 @@ import { StepActs } from "@/sections/home/StepActs";
 import { OutcomesBento } from "@/sections/home/OutcomesBento";
 import { StepReceipt } from "@/sections/home/StepReceipt";
 import { StepConsole } from "@/sections/home/StepConsole";
+import { RecipesTeaser } from "@/sections/home/RecipesTeaser";
 import { WhoItsFor } from "@/sections/home/WhoItsFor";
 import { Positioning } from "@/sections/home/Positioning";
 import { SocialProof } from "@/sections/home/SocialProof";
@@ -58,6 +59,9 @@ export default function HomePage() {
       </Reveal>
       {/* Secondary sections — wrapped in Reveal for a gentle cascade
           (AUDIT P1: "all secondary sections lack Reveal"). */}
+      <Reveal>
+        <RecipesTeaser />
+      </Reveal>
       <Reveal>
         <WhoItsFor />
       </Reveal>

@@ -38,6 +38,7 @@ export function isNavGroup(entry: NavEntry): entry is NavGroup {
 export const PRIMARY_NAV: ReadonlyArray<NavEntry> = [
   { label: "How it works", href: "/how-it-works" },
   { label: "Capabilities", href: "/capabilities" },
+  { label: "Recipes", href: "/recipes" },
   { label: "Console", href: "/console" },
   { label: "Playground", href: "/playground" },
   {
@@ -95,6 +96,7 @@ export const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
     links: [
       { label: "How it works", href: "/how-it-works" },
       { label: "Capabilities", href: "/capabilities" },
+      { label: "Recipes", href: "/recipes" },
       { label: "Console", href: "/console" },
       { label: "Playground", href: "/playground" },
     ],

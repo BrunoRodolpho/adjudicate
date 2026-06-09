@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { CAPABILITIES } from "@/content/capabilities";
 import { POSTS } from "@/content/blog";
+import { RECIPES } from "@/content/recipes";
 
 /** Absolute origin, mirroring `metadataBase` in `app/layout.tsx`. */
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:5181";
@@ -11,11 +12,10 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:5181";
  * Static paths are listed explicitly (they correspond to `page.tsx` files on
  * disk); dynamic paths are derived from the same registries the pages render
  * from — capability slugs from `CAPABILITIES`, post slugs from `POSTS` — so a
- * new capability or post enters the sitemap automatically. Routes behind a
- * dynamic segment with no registry (e.g. `/console/decision/[intentHash]`) are
- * intentionally excluded: they are per-record drill-downs, not stable pages.
- *
- * The Recipes section does not exist yet; a later phase will add it here.
+ * new capability, post or recipe enters the sitemap automatically. Routes
+ * behind a dynamic segment with no registry (e.g.
+ * `/console/decision/[intentHash]`) are intentionally excluded: they are
+ * per-record drill-downs, not stable pages.
  */
 const STATIC_PATHS = [
   // ── Top-level marketing + product ──────────────────────────────────────
@@ -24,6 +24,7 @@ const STATIC_PATHS = [
   "/deploy",
   "/playground",
   "/capabilities",
+  "/recipes",
   // ── Console (operator surface index + nine static views) ───────────────
   "/console",
   "/console/ai-bom",
@@ -66,10 +67,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
     lastModified,
   }));
 
+  const recipeEntries: MetadataRoute.Sitemap = RECIPES.map((recipe) => ({
+    url: new URL(`/recipes/${recipe.slug}`, SITE_URL).toString(),
+    lastModified,
+  }));
+
   const blogEntries: MetadataRoute.Sitemap = POSTS.map((post) => ({
     url: new URL(`/blog/${post.slug}`, SITE_URL).toString(),
     lastModified: new Date(post.date),
   }));
 
-  return [...staticEntries, ...capabilityEntries, ...blogEntries];
+  return [
+    ...staticEntries,
+    ...capabilityEntries,
+    ...recipeEntries,
+    ...blogEntries,
+  ];
 }

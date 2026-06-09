@@ -13,7 +13,7 @@ import {
 import type { DecisionKind } from "@adjudicate/core";
 import { Section } from "@/components/ui/Section";
 import { DecisionChip } from "@/components/ui/DecisionChip";
-import { Stagger } from "@/components/motion/Stagger";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { HoverLift } from "@/components/motion/HoverLift";
 import { DECISIONS } from "@/content/decisions";
 import { cn } from "@/lib/cn";
@@ -215,7 +215,7 @@ function BentoTile({ tile }: { readonly tile: OutcomeTile }) {
   const isResolved = tile.kind === RESOLVED;
 
   return (
-    <Stagger.Item as="li">
+    <StaggerItem as="li">
       <HoverLift
         className={cn(
           "h-full rounded-xl border bg-canvas",
@@ -299,6 +299,6 @@ function BentoTile({ tile }: { readonly tile: OutcomeTile }) {
           </div>
         </details>
       </HoverLift>
-    </Stagger.Item>
+    </StaggerItem>
   );
 }

@@ -7,9 +7,7 @@
  * internal App Router path consumed by next/link.
  */
 
-const GITHUB_REPO = "https://github.com/anthropics/adjudicate";
-const GITHUB_DOCS = "https://github.com/anthropics/adjudicate/tree/main/docs";
-const GITHUB_LICENSE = "https://github.com/anthropics/adjudicate/blob/main/LICENSE";
+import { GITHUB_REPO, GITHUB_DOCS, GITHUB_LICENSE } from "./github";
 
 export interface NavLink {
   readonly label: string;

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Callout } from "@/components/ui/Callout";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { EXAMPLES } from "@/content/examples";
+import { githubTree } from "@/content/github";
 
 export const metadata: Metadata = {
   title: "Deploy · adjudicate",
@@ -92,7 +93,7 @@ export default function DeployPage() {
         </p>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <Card href="https://github.com/anthropics/adjudicate/tree/main/packages/anthropic" external>
+          <Card href={githubTree("packages/anthropic")} external>
             <div className="flex items-start justify-between gap-3">
               <p className="font-mono text-sm font-medium text-ink">
                 @adjudicate/anthropic
@@ -103,7 +104,7 @@ export default function DeployPage() {
               Anthropic adapter — wraps the Claude SDK loop around the kernel.
             </p>
           </Card>
-          <Card href="https://github.com/anthropics/adjudicate/tree/main/packages/openai" external>
+          <Card href={githubTree("packages/openai")} external>
             <div className="flex items-start justify-between gap-3">
               <p className="font-mono text-sm font-medium text-ink">
                 @adjudicate/openai

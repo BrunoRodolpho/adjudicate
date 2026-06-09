@@ -1,5 +1,6 @@
 import { ArrowRight, Github, Book } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { GITHUB_REPO, githubBlob } from "@/content/github";
 
 export function FinalCTA() {
   return (
@@ -13,7 +14,7 @@ export function FinalCTA() {
         </p>
         <div className="mt-2 flex flex-wrap justify-center gap-3">
           <a
-            href="https://github.com/anthropics/adjudicate"
+            href={GITHUB_REPO}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-medium text-indigo-700 shadow-md hover:shadow-lg"
@@ -21,7 +22,7 @@ export function FinalCTA() {
             <Github size={16} /> Star on GitHub
           </a>
           <Button
-            href="https://github.com/anthropics/adjudicate/blob/main/docs/concepts.md"
+            href={githubBlob("docs/concepts.md")}
             variant="outline"
             external
             className="!border-white/40 !bg-white/10 !text-white hover:!bg-white/20"

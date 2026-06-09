@@ -9,12 +9,7 @@
  * `githubHref` is the canonical browse URL on the OSS mirror.
  */
 
-const GITHUB_REPO = "https://github.com/anthropics/adjudicate";
-
-/** Build the canonical GitHub browse URL for a repo-root-relative path. */
-function githubTree(path: string): string {
-  return `${GITHUB_REPO}/tree/main/${path}`;
-}
+import { githubTree } from "./github";
 
 export interface ExampleEntry {
   /** Stable URL/key slug — matches the example directory name. */

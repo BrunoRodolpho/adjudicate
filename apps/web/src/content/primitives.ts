@@ -62,4 +62,4 @@ export const PRIMITIVES: ReadonlyArray<PrimitiveContent> = [
   },
 ];
 
-export const REPO_BASE = "https://github.com/anthropics/adjudicate/blob/main/";
+export { GITHUB_BLOB_BASE as REPO_BASE } from "./github";

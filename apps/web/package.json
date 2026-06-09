@@ -39,6 +39,7 @@
     "og:render-dataflow": "remotion still video/og-index.ts DataFlowOG public/og-data-flow.png --frame=0 --image-format=png",
     "og:render-transparency": "remotion still video/og-index.ts TransparencyOG public/og-transparency.png --frame=0 --image-format=png",
     "og:render-all": "pnpm run og:render-homepage && pnpm run og:render-architecture && pnpm run og:render-comparisons && pnpm run og:render-introspection && pnpm run og:render-capabilities && pnpm run og:render-console && pnpm run og:render-deploy && pnpm run og:render-dataflow && pnpm run og:render-transparency",
+    "og:render-capabilities-each": "tsx scripts/render-capability-og.ts",
     "video:render-all": "pnpm run hero:render-all && pnpm run video:render-howitworks-all && pnpm run receipt:render-all && pnpm run console-tail:render-all && pnpm run og:render-all"
   },
   "dependencies": {

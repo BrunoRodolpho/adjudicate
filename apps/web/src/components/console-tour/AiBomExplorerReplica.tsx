@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useState, type ReactNode } from "react";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
 import { DataTable, type DataTableColumn } from "@/components/console-kit/a11y/DataTable";
 import {
@@ -8,16 +10,19 @@ import {
 import { cn } from "@/lib/cn";
 
 /**
- * AiBomExplorerReplica — a faithful, STATIC replica of the operator console's
+ * AiBomExplorerReplica — a faithful replica of the operator console's
  * AI-BOM Explorer (ADR-130), mirroring apps/console/src/app/ai-bom/page.tsx.
  *
- * SERVER component. It renders inside {@link ConsoleChrome} (the reviewed
- * honesty boundary — the standing "Illustrative replica · sample data" label is
- * non-removable) over a two-pane layout:
+ * CLIENT component. Interactivity is purely local React state over the committed
+ * fixtures (no network, no clock, no RNG, no admin/DB). It renders inside
+ * {@link ConsoleChrome} (the reviewed honesty boundary — the standing
+ * "Illustrative replica · sample data" label is non-removable) over a two-pane
+ * layout:
  *
  *   Left rail  — every reference pack's BOM summary (health dot, conformance,
- *                signed/unsigned, truncated bomDigest). The representative
- *                selected pack is highlighted; selection is static (no client).
+ *                signed/unsigned, truncated bomDigest), each a real <button>.
+ *                Clicking (or keyboard-activating) a pack selects it; the
+ *                selected pack carries aria-current and a focus-visible ring.
  *   Detail     — the full BOM for the selected pack: model, conformance/health,
  *                intents/signals/basis chips, a tools DataTable, vector stores,
  *                prompt HASHES (SHA-256 only, never prompt text), and guardrails.
@@ -65,8 +70,12 @@ export function AiBomExplorerReplica({
   readonly className?: string;
 }) {
   const boms = AI_BOM_TRANSPARENCY_SAMPLE;
-  // Static selection — the first reference pack is the representative detail.
-  const selected = boms[0]!;
+  // Selection is local client state. The first reference pack is the initial
+  // selection; clicking a rail item selects another. Data is the committed
+  // fixture only — no network, clock, or RNG.
+  const [selectedPackId, setSelectedPackId] = useState<string>(boms[0]!.packId);
+  const selected =
+    boms.find((b) => b.packId === selectedPackId) ?? boms[0]!;
 
   return (
     <ConsoleChrome caption="ai-bom · localhost:5180" className={className}>
@@ -94,6 +103,7 @@ export function AiBomExplorerReplica({
                   key={b.packId}
                   bom={b}
                   active={b.packId === selected.packId}
+                  onSelect={() => setSelectedPackId(b.packId)}
                 />
               ))}
             </ul>
@@ -112,53 +122,64 @@ export function AiBomExplorerReplica({
 function PackRailItem({
   bom,
   active,
+  onSelect,
 }: {
   readonly bom: AiBomTransparencySample;
   readonly active: boolean;
+  readonly onSelect: () => void;
 }) {
   // The committed transparency sample carries no live `signature` object, so the
   // public posture is honestly "unsigned" (ADR-130: the signature value is never
   // published).
   const signed = false;
   return (
-    <li
-      aria-current={active ? "true" : undefined}
-      className={cn(
-        "flex w-full flex-col gap-1 rounded-sm border px-2.5 py-2 text-left",
-        active
-          ? "border-console-ink/30 bg-console-edge text-console-ink"
-          : "border-console-edge bg-console-panel/40 text-console-muted",
-      )}
-    >
-      <span className="flex items-center justify-between gap-2">
-        <span className="truncate font-medium text-console-ink">{bom.packId}</span>
-        <span className="shrink-0 text-[10px] tabular-nums text-console-faint">
-          @{bom.packVersion}
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={active ? "true" : undefined}
+        aria-label={`Show AI-BOM for ${bom.packId}`}
+        className={cn(
+          "flex w-full flex-col gap-1 rounded-sm border px-2.5 py-2 text-left",
+          "motion-safe:transition-colors",
+          "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400/60",
+          active
+            ? "border-console-ink/30 bg-console-edge text-console-ink"
+            : "border-console-edge bg-console-panel/40 text-console-muted hover:bg-console-edge/40",
+        )}
+      >
+        <span className="flex items-center justify-between gap-2">
+          <span className="truncate font-medium text-console-ink">
+            {bom.packId}
+          </span>
+          <span className="shrink-0 text-[10px] tabular-nums text-console-faint">
+            @{bom.packVersion}
+          </span>
         </span>
-      </span>
-      <span className="flex items-center gap-2 text-[10px]">
-        <span
-          aria-hidden="true"
-          className={cn(
-            "h-1.5 w-1.5 rounded-full",
-            bom.conformance.passed ? "bg-emerald-400" : "bg-red-400",
-          )}
-        />
-        <span className="uppercase tracking-section text-console-faint">
-          {bom.healthTier}
+        <span className="flex items-center gap-2 text-[10px]">
+          <span
+            aria-hidden="true"
+            className={cn(
+              "h-1.5 w-1.5 rounded-full",
+              bom.conformance.passed ? "bg-emerald-400" : "bg-red-400",
+            )}
+          />
+          <span className="uppercase tracking-section text-console-faint">
+            {bom.healthTier}
+          </span>
+          <span
+            className={cn(
+              "ml-auto uppercase tracking-section",
+              signed ? "text-emerald-300" : "text-console-faint",
+            )}
+          >
+            {signed ? "signed" : "unsigned"}
+          </span>
         </span>
-        <span
-          className={cn(
-            "ml-auto uppercase tracking-section",
-            signed ? "text-emerald-300" : "text-console-faint",
-          )}
-        >
-          {signed ? "signed" : "unsigned"}
-        </span>
-      </span>
-      <code className="truncate font-mono text-[10px] text-console-faint">
-        {truncateHash(bom.bomDigest)}
-      </code>
+        <code className="truncate font-mono text-[10px] text-console-faint">
+          {truncateHash(bom.bomDigest)}
+        </code>
+      </button>
     </li>
   );
 }

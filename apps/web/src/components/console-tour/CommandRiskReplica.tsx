@@ -1,3 +1,6 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import type { AuditRecord } from "@adjudicate/core";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
 import { BarDistribution } from "@/components/console-kit/charts/BarDistribution";
@@ -15,16 +18,22 @@ import { cn } from "@/lib/cn";
  * surface (ADR-134, ADR-123): the shell-command-risk dispositions emitted by
  * `createCommandRiskGuard`.
  *
- * SERVER component, rendered inside {@link ConsoleChrome} (the reviewed honesty
- * boundary — the standing "Illustrative replica · sample data" label is
- * non-removable). Three regions over committed sample fixtures:
+ * CLIENT component (interactivity = local React state over the committed
+ * fixtures only — no network, no clock, no RNG). Rendered inside
+ * {@link ConsoleChrome} (the reviewed honesty boundary — the standing
+ * "Illustrative replica · sample data" label is non-removable). Three regions
+ * over committed sample fixtures:
  *
  *   1. Risk distribution by category — a {@link BarDistribution} of counts per
  *      category, from the aggregate-only `command-risk-transparency` projection.
+ *      A segmented category filter (All / destructive / credential / network)
+ *      emphasises the matching bar and scopes the blocked-commands table.
  *   2. Disposition totals — blocked / rewritten / confirm tallies, derived from
- *      the command-risk sample records.
+ *      the command-risk sample records. Totals are the FULL-window tallies and
+ *      are unaffected by the filter (they describe the whole sample).
  *   3. Blocked-commands table — the refuse-disposition drill-down, showing ONLY
- *      timestamp + intent kind + decision + category.
+ *      timestamp + intent kind + decision + category, filtered to the chosen
+ *      category.
  *
  * SECURITY — NO COMMAND TEXT, EVER. The real guard threads the RAW command
  * string (which routinely embeds live secrets) and the matched rule ids (which
@@ -33,12 +42,32 @@ import { cn } from "@/lib/cn";
  * only) and (b) the closed-enum `category` carried in the sample records' basis
  * detail. NEITHER the chart, the totals, nor the blocked-commands table has any
  * field that could carry command text or a rule id — redaction is by
- * construction, so this UI cannot leak a command even if it tried. No clock, no
- * RNG, no network, no admin/DB access — fixed literals only.
+ * construction, so this UI cannot leak a command even if it tried. The category
+ * filter only ever reads the same closed-enum `category` — it CANNOT introduce a
+ * command-text column in any state. No clock, no RNG, no network, no admin/DB
+ * access — fixed literals only.
  */
 
 /** Closed-enum command-risk disposition. */
 type CommandRiskDisposition = "refuse" | "rewrite" | "confirm";
+
+/**
+ * Category filter selection. `"all"` plus the three command-risk categories the
+ * replica surfaces. Closed enum — the control can never select anything that
+ * carries command text.
+ */
+type CategoryFilter = "all" | "destructive" | "credential" | "network";
+
+/** Segmented-control options, in display order (severity-ish, mirrors chart). */
+const CATEGORY_FILTERS: ReadonlyArray<{
+  readonly value: CategoryFilter;
+  readonly label: string;
+}> = [
+  { value: "all", label: "All" },
+  { value: "destructive", label: "Destructive" },
+  { value: "credential", label: "Credential" },
+  { value: "network", label: "Network" },
+];
 
 /** Map an AuditRecord decision kind to a command-risk disposition (or none). */
 function dispositionFor(
@@ -90,48 +119,74 @@ export function CommandRiskReplica({
 }: {
   readonly className?: string;
 }) {
+  // Selected category filter — local client state over the committed fixtures
+  // only. Closed enum, so it can never select anything that carries command text.
+  const [filter, setFilter] = useState<CategoryFilter>("all");
+
   // Region 1 — category distribution from the aggregate-only public projection.
   // The public buckets carry only `category` + a cohort-floored count: `value`
   // is the chart-safe number (small cohorts lifted to the floor so a bar can't
   // reveal an exact small value), `display` is the honest "<5" / "N" label. We
   // chart `value` and format the legend with `display` so a censored bucket
-  // reads "<5" rather than its floored bar height.
-  const categoryBuckets = projectCommandRiskTransparency(
-    COMMAND_RISK_TRANSPARENCY_SAMPLE,
-  )
-    // Drop the always-zero `safe` category — it carries no audit basis.
-    .filter((b) => b.category !== "safe");
-  const categoryBars: readonly SeriesPoint[] = categoryBuckets.map((b) => ({
-    label: b.categoryLabel,
-    value: b.value,
-  }));
-  const categoryDisplay = new Map<number, string>(
-    categoryBuckets.map((b) => [b.value, b.display]),
-  );
+  // reads "<5" rather than its floored bar height. Filter-independent → memoised.
+  const { categoryBars, categoryDisplay, activeBarLabel } = useMemo(() => {
+    const buckets = projectCommandRiskTransparency(
+      COMMAND_RISK_TRANSPARENCY_SAMPLE,
+    )
+      // Drop the always-zero `safe` category — it carries no audit basis.
+      .filter((b) => b.category !== "safe");
+    return {
+      categoryBars: buckets.map(
+        (b): SeriesPoint => ({ label: b.categoryLabel, value: b.value }),
+      ),
+      categoryDisplay: new Map<number, string>(
+        buckets.map((b) => [b.value, b.display]),
+      ),
+      // Map the selected filter back to its chart label so we can mark its row.
+      activeBarLabel: new Map<CategoryFilter, string>(
+        buckets.map((b) => [b.category as CategoryFilter, b.categoryLabel]),
+      ),
+    };
+  }, []);
 
   // Regions 2 & 3 — derived from the committed command-risk sample records. We
   // read ONLY the decision kind (→ disposition), the closed-enum category, the
-  // intent kind, and the timestamp. Never the command text.
-  const commandRecords = CONSOLE_REPLICA_RECORDS.filter(isCommandRiskRecord);
+  // intent kind, and the timestamp. Never the command text. Filter-independent.
+  const { dispositionTotals, blockedRecords } = useMemo(() => {
+    const commandRecords = CONSOLE_REPLICA_RECORDS.filter(isCommandRiskRecord);
 
-  const dispositionTotals: Record<CommandRiskDisposition, number> = {
-    refuse: 0,
-    rewrite: 0,
-    confirm: 0,
-  };
-  for (const r of commandRecords) {
-    const d = dispositionFor(r.decision.kind);
-    if (d) dispositionTotals[d] += 1;
-  }
+    const totals: Record<CommandRiskDisposition, number> = {
+      refuse: 0,
+      rewrite: 0,
+      confirm: 0,
+    };
+    for (const r of commandRecords) {
+      const d = dispositionFor(r.decision.kind);
+      if (d) totals[d] += 1;
+    }
 
-  // The blocked-commands list is the `refuse`-disposition drill-down, newest
-  // first. NO command column — redacted by construction.
-  const blockedRecords = commandRecords
-    .filter((r) => dispositionFor(r.decision.kind) === "refuse")
-    .slice()
-    .sort((a, b) => b.at.localeCompare(a.at));
+    // The blocked-commands list is the `refuse`-disposition drill-down, newest
+    // first. NO command column — redacted by construction.
+    const blocked = commandRecords
+      .filter((r) => dispositionFor(r.decision.kind) === "refuse")
+      .slice()
+      .sort((a, b) => b.at.localeCompare(a.at));
 
-  const rows = blockedRecords.map((r) => {
+    return { dispositionTotals: totals, blockedRecords: blocked };
+  }, []);
+
+  // Scope the blocked-commands table to the chosen category. The filter reads
+  // the SAME closed-enum `category` as the column — it cannot add command text.
+  const visibleRecords =
+    filter === "all"
+      ? blockedRecords
+      : blockedRecords.filter((r) => categoryFor(r) === filter);
+
+  // The label of the currently emphasised bar (none when "all" is selected).
+  const emphasisedBarLabel =
+    filter === "all" ? undefined : activeBarLabel.get(filter);
+
+  const rows = visibleRecords.map((r) => {
     const category = categoryFor(r) ?? "—";
     const token = decisionTheme[r.decision.kind];
     return {
@@ -170,14 +225,81 @@ export function CommandRiskReplica({
           </span>
         </header>
 
+        {/* Category filter — segmented control. Scopes the blocked-commands
+            table and emphasises the matching bar. Closed-enum selection, so it
+            can never surface command text in any state. */}
+        <div
+          role="radiogroup"
+          aria-label="Filter blocked commands by category"
+          data-testid="command-risk-filter"
+          className="flex flex-wrap items-center gap-1.5"
+        >
+          <span className="mr-1 text-[10px] uppercase tracking-section text-console-faint">
+            Category
+          </span>
+          {CATEGORY_FILTERS.map((opt) => {
+            const active = filter === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => setFilter(opt.value)}
+                data-active={active ? "true" : undefined}
+                className={cn(
+                  "rounded-sm border px-2 py-1 text-[10px] font-medium uppercase tracking-wide",
+                  "motion-safe:transition-colors",
+                  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400/60",
+                  active
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                    : "border-console-edge bg-console-panel text-console-muted hover:bg-console-edge/40",
+                )}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Aggregate context: category distribution + disposition totals. */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <section className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
-            <BarDistribution
-              title="Risk distribution by category"
-              data={categoryBars}
-              valueFormat={(n) => categoryDisplay.get(n) ?? n.toLocaleString()}
-            />
+          <section
+            className={cn(
+              "rounded-sm border bg-console-panel/40 p-3",
+              "motion-safe:transition-colors",
+              emphasisedBarLabel
+                ? "border-emerald-500/40 ring-1 ring-inset ring-emerald-500/20"
+                : "border-console-edge",
+            )}
+            // The shared BarDistribution owns its bars, so we emphasise the
+            // active category by dimming the non-matching legend rows + bars via
+            // a data attribute on this wrapper (chart-safe: counts only, never
+            // command text). The full distribution is always charted.
+            data-emphasis={emphasisedBarLabel ?? undefined}
+          >
+            <div
+              className={cn(
+                emphasisedBarLabel &&
+                  "[&_svg_g:not([data-active])]:opacity-30 [&_li:not([data-active])]:opacity-40 motion-safe:[&_svg_g]:transition-opacity motion-safe:[&_li]:transition-opacity",
+              )}
+            >
+              <BarDistribution
+                title="Risk distribution by category"
+                data={categoryBars}
+                activeLabel={emphasisedBarLabel}
+                valueFormat={(n) => categoryDisplay.get(n) ?? n.toLocaleString()}
+              />
+            </div>
+            {emphasisedBarLabel ? (
+              <p
+                className="mt-1 text-[10px] uppercase tracking-section text-emerald-300"
+                data-testid="command-risk-bar-emphasis"
+                aria-live="polite"
+              >
+                ▸ Emphasising {emphasisedBarLabel}
+              </p>
+            ) : null}
           </section>
 
           <section className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
@@ -213,20 +335,37 @@ export function CommandRiskReplica({
 
         {/* Blocked-commands list — refuse-disposition drill-down. NO command. */}
         <section className="flex flex-col gap-2">
-          <header className="flex items-baseline justify-between">
+          <header className="flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-[10px] uppercase tracking-section text-console-faint">
               Blocked commands
+              <span
+                className="ml-2 tabular-nums text-console-faint"
+                data-testid="blocked-count"
+                aria-live="polite"
+              >
+                {filter === "all"
+                  ? `${visibleRecords.length} total`
+                  : `${visibleRecords.length} in ${filter}`}
+              </span>
             </h3>
             <span className="text-[10px] italic text-console-faint">
               Command text is never shown — redacted by construction.
             </span>
           </header>
           <DataTable
-            caption="Blocked command-risk dispositions"
+            caption={
+              filter === "all"
+                ? "Blocked command-risk dispositions"
+                : `Blocked command-risk dispositions — ${filter} category`
+            }
             columns={TABLE_COLUMNS}
             rows={rows}
             getRowKey={(row, i) => String(row["_key"] ?? i)}
-            emptyMessage="No blocked commands in this window."
+            emptyMessage={
+              filter === "all"
+                ? "No blocked commands in this window."
+                : `No blocked ${filter} commands in this window.`
+            }
           />
         </section>
       </div>

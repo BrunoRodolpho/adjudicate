@@ -40,9 +40,21 @@ export async function generateMetadata({
   if (!cap) {
     return { title: "Capability · adjudicate" };
   }
+  const title = `${cap.name} · Capabilities · adjudicate`;
+  const ogImage = "/og/capabilities/" + cap.slug + ".png";
   return {
-    title: `${cap.name} · Capabilities · adjudicate`,
+    title,
     description: cap.oneLiner,
+    openGraph: {
+      title,
+      description: cap.oneLiner,
+      type: "website",
+      images: [{ url: ogImage, width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      images: [ogImage],
+    },
   };
 }
 

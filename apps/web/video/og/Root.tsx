@@ -8,6 +8,10 @@ import { ConsoleOG } from "./ConsoleOG";
 import { DeployOG } from "./DeployOG";
 import { DataFlowOG } from "./DataFlowOG";
 import { TransparencyOG } from "./TransparencyOG";
+import {
+  CapabilityDetailOG,
+  capabilityDetailDefaultProps,
+} from "./CapabilityDetailOG";
 
 /**
  * Composition registry for the four per-route OG images.
@@ -99,6 +103,15 @@ export const RemotionRoot: React.FC = () => {
         fps={FPS}
         width={OG_WIDTH}
         height={OG_HEIGHT}
+      />
+      <Composition
+        id="CapabilityDetailOG"
+        component={CapabilityDetailOG}
+        durationInFrames={1}
+        fps={FPS}
+        width={OG_WIDTH}
+        height={OG_HEIGHT}
+        defaultProps={capabilityDetailDefaultProps}
       />
     </>
   );

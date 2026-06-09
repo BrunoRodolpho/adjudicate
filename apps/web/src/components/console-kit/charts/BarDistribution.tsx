@@ -26,6 +26,13 @@ export interface BarDistributionProps {
   readonly valueFormat?: (n: number) => string;
   /** Explicit scale ceiling. Defaults to the largest value in `data`. */
   readonly max?: number;
+  /**
+   * Optional: the `label` of the datum to emphasise. The matching bar group and
+   * legend row get a `data-active` attribute so callers can style emphasis (e.g.
+   * dim the rest) via CSS without forking the chart. Purely additive — when
+   * unset, output is unchanged. Deterministic (no clock/RNG).
+   */
+  readonly activeLabel?: string;
   readonly className?: string;
 }
 
@@ -38,6 +45,7 @@ export function BarDistribution({
   title,
   valueFormat = formatCount,
   max,
+  activeLabel,
   className,
 }: BarDistributionProps) {
   if (data.length === 0) {
@@ -78,7 +86,14 @@ export function BarDistribution({
           const w = (clamped / scaleMax) * inner;
           const y = i * ROW_HEIGHT + barTopOffset;
           return (
-            <g key={`${d.label}-${i}`}>
+            <g
+              key={`${d.label}-${i}`}
+              data-active={
+                activeLabel !== undefined && d.label === activeLabel
+                  ? "true"
+                  : undefined
+              }
+            >
               {/* track */}
               <rect
                 x={PAD_X}
@@ -107,6 +122,11 @@ export function BarDistribution({
         {data.map((d, i) => (
           <li
             key={`${d.label}-${i}`}
+            data-active={
+              activeLabel !== undefined && d.label === activeLabel
+                ? "true"
+                : undefined
+            }
             className="flex items-center justify-between gap-2 text-[11px]"
             style={{ height: ROW_HEIGHT }}
           >

@@ -1,3 +1,6 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import { AlertTriangle, CircleCheck } from "lucide-react";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
 import { SR_ONLY } from "@/components/console-kit/charts/BarDistribution";
@@ -13,23 +16,25 @@ import {
 import { cn } from "@/lib/cn";
 
 /**
- * TokenGovernanceReplica — a static replica of the operator console's Token
- * Governance surface (ADR-135, follows ADR-120).
+ * TokenGovernanceReplica — a replica of the operator console's Token Governance
+ * surface (ADR-135, follows ADR-120).
  *
- * SERVER component. It renders inside {@link ConsoleChrome} (the reviewed
- * honesty boundary — the standing "Illustrative replica · sample data" label is
- * non-removable), and shows three sub-views over committed sample fixtures in
- * `lib/token-replica`:
+ * CLIENT component. Interactivity is local React state over committed sample
+ * fixtures ONLY — no network, no clock, no RNG, no admin/DB access; every value
+ * is a fixed literal so the surface renders deterministically. It renders inside
+ * {@link ConsoleChrome} (the reviewed honesty boundary — the standing
+ * "Illustrative replica · sample data" label is non-removable):
  *
+ *   0. Scope filter — a segmented control (All / Tenant / Session) that scopes
+ *      the budget-exhaustion timeline AND the budget tables to that scope. It is
+ *      a labelled `role="radiogroup"` of `aria-checked` buttons, keyboard-able.
  *   1. Tenant budgets — per-tenant consumed/budget/remaining with a horizontal
  *      BurnBar, banded ok/near/over. The band is conveyed by ICON + LABEL,
  *      never colour alone (a11y).
  *   2. Session budgets — per-session rows with a tenant chip.
  *   3. Budget-exhaustion timeline — newest-first budget crossings (scope badge,
- *      synthetic id, consumed/budget).
+ *      synthetic id, consumed/budget), filtered to the chosen scope.
  *
- * There is no clock, no RNG, no network, and no admin/DB access in this path —
- * the data is fixed literals, so the surface renders identically everywhere.
  * apps/web reads no DATABASE_URL/REDIS_URL/admin token and fetches no /api/admin
  * or SSE endpoint. All tenant/session ids are SYNTHETIC and anonymous
  * (`tenant-demo`, `sess-alpha`) — they map to no real customer.
@@ -42,15 +47,37 @@ const BAND_STYLE: Record<TokenBand, { text: string; bar: string }> = {
   over: { text: "text-red-300", bar: "bg-red-400/60" },
 };
 
+/** The exhaustion-scope filter. "all" shows both scopes. */
+type ScopeFilter = "all" | "tenant" | "session";
+
+const SCOPE_OPTIONS: readonly { value: ScopeFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "tenant", label: "Tenant" },
+  { value: "session", label: "Session" },
+];
+
 export function TokenGovernanceReplica({
   className,
 }: {
   readonly className?: string;
 }) {
+  const [scope, setScope] = useState<ScopeFilter>("all");
+
+  const showTenants = scope !== "session";
+  const showSessions = scope !== "tenant";
+
+  const exhaustionEvents = useMemo(
+    () =>
+      scope === "all"
+        ? TOKEN_REPLICA_EXHAUSTION_EVENTS
+        : TOKEN_REPLICA_EXHAUSTION_EVENTS.filter((e) => e.scope === scope),
+    [scope],
+  );
+
   return (
     <ConsoleChrome caption="tokens · localhost:5180" className={className}>
       <div className="flex flex-col gap-4">
-        <header className="flex items-baseline justify-between border-b border-console-edge pb-3">
+        <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-console-edge pb-3">
           <h2 className="text-[10px] uppercase tracking-section text-console-muted">
             Token Governance · tenant &amp; session burn-down
           </h2>
@@ -59,167 +86,210 @@ export function TokenGovernanceReplica({
           </span>
         </header>
 
+        {/* Scope filter — segmented control scoping the tables + timeline. */}
+        <div
+          role="radiogroup"
+          aria-label="Filter token governance by scope"
+          className="inline-flex items-center gap-1 self-start rounded-sm border border-console-edge bg-console-panel/40 p-0.5"
+        >
+          {SCOPE_OPTIONS.map((opt) => {
+            const active = opt.value === scope;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => setScope(opt.value)}
+                data-scope={opt.value}
+                className={cn(
+                  "rounded-sm px-2.5 py-1 text-[10px] uppercase tracking-section transition-colors",
+                  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400/60",
+                  active
+                    ? "bg-emerald-500/15 text-emerald-300"
+                    : "text-console-muted hover:bg-console-edge/40",
+                )}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Sub-view A — Tenant budgets. */}
-        <section className="flex flex-col gap-2">
-          <header className="flex items-baseline justify-between">
-            <h3 className="text-[10px] uppercase tracking-section text-console-faint">
-              Tenant budgets
-            </h3>
-            <span className="text-[10px] tabular-nums text-console-faint">
-              total {TOKEN_REPLICA_TOTAL_CONSUMED.toLocaleString()}
-            </span>
-          </header>
-          <div className="overflow-auto rounded-sm border border-console-edge bg-console-panel/40">
-            <table className="w-full border-collapse text-[11px]">
-              <caption className={SR_ONLY}>
-                Per-tenant token budgets, with a burn bar banded within / near /
-                over budget.
-              </caption>
-              <thead>
-                <tr className="border-b border-console-edge text-left text-console-faint">
-                  <Th>Tenant</Th>
-                  <Th align="right">Consumed</Th>
-                  <Th align="right">Budget</Th>
-                  <Th align="right">Remaining</Th>
-                  <Th align="right">Sessions</Th>
-                  <Th>Burn</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {TOKEN_REPLICA_TENANTS.map((t) => {
-                  const band = bandFor(t.consumed, t.budget);
-                  const style = BAND_STYLE[band];
-                  return (
-                    <tr
-                      key={t.tenantId}
-                      data-band={band}
-                      className="border-b border-console-edge/50 last:border-0"
-                    >
-                      <th
-                        scope="row"
-                        className="px-3 py-1.5 text-left font-mono font-normal text-console-ink"
+        {showTenants ? (
+          <section className="flex flex-col gap-2" data-testid="token-tenants">
+            <header className="flex items-baseline justify-between">
+              <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+                Tenant budgets
+              </h3>
+              <span className="text-[10px] tabular-nums text-console-faint">
+                total {TOKEN_REPLICA_TOTAL_CONSUMED.toLocaleString()}
+              </span>
+            </header>
+            <div className="overflow-auto rounded-sm border border-console-edge bg-console-panel/40">
+              <table className="w-full border-collapse text-[11px]">
+                <caption className={SR_ONLY}>
+                  Per-tenant token budgets, with a burn bar banded within / near
+                  / over budget.
+                </caption>
+                <thead>
+                  <tr className="border-b border-console-edge text-left text-console-faint">
+                    <Th>Tenant</Th>
+                    <Th align="right">Consumed</Th>
+                    <Th align="right">Budget</Th>
+                    <Th align="right">Remaining</Th>
+                    <Th align="right">Sessions</Th>
+                    <Th>Burn</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {TOKEN_REPLICA_TENANTS.map((t) => {
+                    const band = bandFor(t.consumed, t.budget);
+                    const style = BAND_STYLE[band];
+                    return (
+                      <tr
+                        key={t.tenantId}
+                        data-band={band}
+                        className="border-b border-console-edge/50 last:border-0"
                       >
-                        <span className="inline-flex items-center gap-1.5">
-                          <BandIcon band={band} />
-                          {t.tenantId}
-                        </span>
-                      </th>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-console-ink">
-                        {t.consumed.toLocaleString()}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-console-muted">
-                        {t.budget?.toLocaleString() ?? "—"}
-                      </td>
-                      <td
-                        className={cn(
-                          "px-3 py-1.5 text-right tabular-nums",
-                          style.text,
-                        )}
-                      >
-                        {t.remaining?.toLocaleString() ?? "—"}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-console-muted">
-                        {t.sessionCount.toLocaleString()}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <BurnBar
-                          consumed={t.consumed}
-                          budget={t.budget}
-                          band={band}
-                          label={`tenant ${t.tenantId}`}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                        <th
+                          scope="row"
+                          className="px-3 py-1.5 text-left font-mono font-normal text-console-ink"
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            <BandIcon band={band} />
+                            {t.tenantId}
+                          </span>
+                        </th>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-console-ink">
+                          {t.consumed.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-console-muted">
+                          {t.budget?.toLocaleString() ?? "—"}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-3 py-1.5 text-right tabular-nums",
+                            style.text,
+                          )}
+                        >
+                          {t.remaining?.toLocaleString() ?? "—"}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-console-muted">
+                          {t.sessionCount.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <BurnBar
+                            consumed={t.consumed}
+                            budget={t.budget}
+                            band={band}
+                            label={`tenant ${t.tenantId}`}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
 
         {/* Sub-view B — Session budgets. */}
-        <section className="flex flex-col gap-2">
-          <h3 className="text-[10px] uppercase tracking-section text-console-faint">
-            Session budgets
-          </h3>
-          <div className="overflow-auto rounded-sm border border-console-edge bg-console-panel/40">
-            <table className="w-full border-collapse text-[11px]">
-              <caption className={SR_ONLY}>
-                Per-session token budgets, tagged to their tenant, banded within /
-                near / over budget.
-              </caption>
-              <thead>
-                <tr className="border-b border-console-edge text-left text-console-faint">
-                  <Th>Session</Th>
-                  <Th>Tenant</Th>
-                  <Th align="right">Consumed</Th>
-                  <Th align="right">Budget</Th>
-                  <Th align="right">Remaining</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {TOKEN_REPLICA_SESSIONS.map((s) => {
-                  const band = bandFor(s.consumed, s.budget);
-                  const style = BAND_STYLE[band];
-                  return (
-                    <tr
-                      key={s.sessionId}
-                      data-band={band}
-                      className="border-b border-console-edge/50 last:border-0"
-                    >
-                      <th
-                        scope="row"
-                        className="px-3 py-1.5 text-left font-mono font-normal text-console-ink"
+        {showSessions ? (
+          <section className="flex flex-col gap-2" data-testid="token-sessions">
+            <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+              Session budgets
+            </h3>
+            <div className="overflow-auto rounded-sm border border-console-edge bg-console-panel/40">
+              <table className="w-full border-collapse text-[11px]">
+                <caption className={SR_ONLY}>
+                  Per-session token budgets, tagged to their tenant, banded
+                  within / near / over budget.
+                </caption>
+                <thead>
+                  <tr className="border-b border-console-edge text-left text-console-faint">
+                    <Th>Session</Th>
+                    <Th>Tenant</Th>
+                    <Th align="right">Consumed</Th>
+                    <Th align="right">Budget</Th>
+                    <Th align="right">Remaining</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {TOKEN_REPLICA_SESSIONS.map((s) => {
+                    const band = bandFor(s.consumed, s.budget);
+                    const style = BAND_STYLE[band];
+                    return (
+                      <tr
+                        key={s.sessionId}
+                        data-band={band}
+                        className="border-b border-console-edge/50 last:border-0"
                       >
-                        <span className="inline-flex items-center gap-1.5">
-                          <BandIcon band={band} />
-                          {s.sessionId}
-                        </span>
-                      </th>
-                      <td className="px-3 py-1.5">
-                        {s.tenantId ? (
-                          <span className="rounded-sm border border-console-edge bg-console-canvas/60 px-1.5 py-0.5 text-[10px] text-console-muted">
-                            {s.tenantId}
+                        <th
+                          scope="row"
+                          className="px-3 py-1.5 text-left font-mono font-normal text-console-ink"
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            <BandIcon band={band} />
+                            {s.sessionId}
                           </span>
-                        ) : (
-                          <span className="text-console-faint">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-console-ink">
-                        {s.consumed.toLocaleString()}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-console-muted">
-                        {s.budget?.toLocaleString() ?? "—"}
-                      </td>
-                      <td
-                        className={cn(
-                          "px-3 py-1.5 text-right tabular-nums",
-                          style.text,
-                        )}
-                      >
-                        {s.remaining?.toLocaleString() ?? "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                        </th>
+                        <td className="px-3 py-1.5">
+                          {s.tenantId ? (
+                            <span className="rounded-sm border border-console-edge bg-console-canvas/60 px-1.5 py-0.5 text-[10px] text-console-muted">
+                              {s.tenantId}
+                            </span>
+                          ) : (
+                            <span className="text-console-faint">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-console-ink">
+                          {s.consumed.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-console-muted">
+                          {s.budget?.toLocaleString() ?? "—"}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-3 py-1.5 text-right tabular-nums",
+                            style.text,
+                          )}
+                        >
+                          {s.remaining?.toLocaleString() ?? "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
 
-        {/* Sub-view C — Budget-exhaustion timeline. */}
-        <section className="flex flex-col gap-2">
-          <h3 className="text-[10px] uppercase tracking-section text-console-faint">
-            Budget-exhaustion timeline
-          </h3>
+        {/* Sub-view C — Budget-exhaustion timeline, scoped to the filter. */}
+        <section className="flex flex-col gap-2" data-testid="token-exhaustion">
+          <header className="flex items-baseline justify-between">
+            <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+              Budget-exhaustion timeline
+            </h3>
+            {scope !== "all" ? (
+              <span className="text-[10px] uppercase tracking-section text-console-faint">
+                {scope}-scope crossings
+              </span>
+            ) : null}
+          </header>
           <div className="overflow-hidden rounded-sm border border-console-edge bg-console-panel/40">
-            {TOKEN_REPLICA_EXHAUSTION_EVENTS.length === 0 ? (
+            {exhaustionEvents.length === 0 ? (
               <p className="px-3 py-8 text-center text-[11px] italic text-console-faint">
-                No budget exhaustions recorded — usage is within configured caps.
+                {scope === "all"
+                  ? "No budget exhaustions recorded — usage is within configured caps."
+                  : `No ${scope}-scope budget exhaustions recorded in this window.`}
               </p>
             ) : (
               <ul className="divide-y divide-console-edge/50">
-                {TOKEN_REPLICA_EXHAUSTION_EVENTS.map((e) => (
+                {exhaustionEvents.map((e) => (
                   <li
                     key={e.id}
                     className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[11px]"

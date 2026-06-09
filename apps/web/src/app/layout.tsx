@@ -1,17 +1,31 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import { Providers } from "./providers";
+import { AnnouncementBanner } from "@/components/ui/AnnouncementBanner";
 import { NavBar } from "@/components/ui/NavBar";
 import { SiteFooter } from "@/components/ui/SiteFooter";
+import { SITE } from "@/content/site";
+import { GITHUB_REPO } from "@/content/github";
 import "./globals.css";
 
+/** Absolute origin the site is served from — also the JSON-LD canonical URL. */
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:5181";
+
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:5181",
-  ),
+  metadataBase: new URL(SITE_URL),
   title: "adjudicate · a decision kernel for AI actions",
   description:
     "A decision kernel for AI actions — a control layer between AI intent and system execution. Six possible decisions, every one auditable.",
+  keywords: [
+    "AI agent guardrails",
+    "LLM tool-call policy",
+    "AI agent control layer",
+    "human-in-the-loop AI",
+    "deterministic AI gates",
+    "LLM action governance",
+    "AI agent audit log",
+    "prevent LLM API abuse",
+  ],
   icons: { icon: "/favicon.svg" },
   openGraph: {
     title: "adjudicate · a decision kernel for AI actions",
@@ -24,6 +38,48 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     images: ["/og-homepage.png"],
   },
+};
+
+/**
+ * Schema.org structured data describing the project as an open-source
+ * developer tool. `softwareVersion` tracks the published kernel
+ * (`@adjudicate/core`) via `SITE.coreVersion`; `url` mirrors `metadataBase`.
+ * Emitted as a single JSON-LD graph so the SoftwareApplication and its
+ * publishing Organization are linked by `@id`.
+ */
+const ORG_ID = `${SITE_URL}#organization`;
+const STRUCTURED_DATA = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${SITE_URL}#software`,
+      name: "adjudicate",
+      url: SITE_URL,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Any",
+      softwareVersion: SITE.coreVersion,
+      description:
+        "Guardrails for AI agents — a deterministic control layer between LLM tool-calls and execution. Every AI action is adjudicated to one of six outcomes (execute, refuse, rewrite, defer, escalate, request-confirmation) with a signed audit receipt.",
+      offers: {
+        "@type": "Offer",
+        price: 0,
+        priceCurrency: "USD",
+      },
+      isAccessibleForFree: true,
+      license: `${GITHUB_REPO}/blob/main/LICENSE`,
+      author: { "@id": ORG_ID },
+      publisher: { "@id": ORG_ID },
+    },
+    {
+      "@type": "Organization",
+      "@id": ORG_ID,
+      name: "adjudicate",
+      url: SITE_URL,
+      logo: `${SITE_URL}/favicon.svg`,
+      sameAs: [GITHUB_REPO],
+    },
+  ],
 };
 
 /**
@@ -62,6 +118,13 @@ export default function RootLayout({
         `}</style>
       </head>
       <body>
+        <Script
+          id="adjudicate-jsonld"
+          type="application/ld+json"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }}
+        />
+        <AnnouncementBanner />
         <NavBar />
         <Providers>{children}</Providers>
         <SiteFooter />

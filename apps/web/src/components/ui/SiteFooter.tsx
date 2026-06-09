@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DecisionChip } from "@/components/ui/DecisionChip";
 import { DECISIONS_ORDER } from "@/content/decisions";
 import { FOOTER_COLUMNS, type NavLink } from "@/content/nav";
+import { SITE } from "@/content/site";
 
 /**
  * Global site footer. Every column comes from `content/nav.ts`; the Trust
@@ -34,8 +35,10 @@ export function SiteFooter() {
 
         <div className="mt-12 flex flex-col gap-5 border-t border-edge pt-6 md:flex-row md:items-center md:justify-between">
           <p className="text-xs text-muted">
-            <span className="font-mono text-ink">adjudicate</span>
-            <span className="text-faint"> · v0.1 · experimental</span>
+            <span className="font-mono text-ink">{SITE.name}</span>
+            <span className="text-faint">
+              {` · ${SITE.versionLabel} · ${SITE.status}`}
+            </span>
           </p>
           <ul
             aria-label="The six decision outcomes"

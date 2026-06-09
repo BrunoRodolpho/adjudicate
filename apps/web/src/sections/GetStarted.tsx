@@ -45,15 +45,20 @@ export function GetStarted() {
           subtitle="Add the package, define a guard, adjudicate an envelope. No DSL, no policy language — TypeScript end-to-end."
         />
 
+        <p className="mt-6 max-w-3xl text-base leading-relaxed text-muted">
+          Adjudicate runs in three lines of setup — install the package, define
+          a guard, call <code className="font-mono text-sm text-ink">adjudicate()</code>.
+        </p>
+
         <div className="mt-10 grid gap-6 md:grid-cols-3">
           <Step n={1} title="Install">
-            <CodeBlock code={INSTALL} language="shell" />
+            <CodeBlock code={INSTALL} language="shell" copyable />
           </Step>
           <Step n={2} title="Define a guard">
-            <CodeBlock code={DEFINE_GUARD} language="ts" />
+            <CodeBlock code={DEFINE_GUARD} language="ts" copyable />
           </Step>
           <Step n={3} title="Adjudicate">
-            <CodeBlock code={ADJUDICATE} language="ts" />
+            <CodeBlock code={ADJUDICATE} language="ts" copyable />
           </Step>
         </div>
       </div>

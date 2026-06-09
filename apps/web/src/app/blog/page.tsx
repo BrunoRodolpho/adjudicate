@@ -1,9 +1,27 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { POSTS } from "@/content/blog";
 
-export const metadata = {
-  title: "adjudicate · blog",
+const BLOG_TITLE = "adjudicate · blog";
+const BLOG_DESCRIPTION =
+  "Notes from the kernel — engineering and design writing on guardrails for AI agents, the six decision outcomes, and the audit ledger.";
+
+export const metadata: Metadata = {
+  title: BLOG_TITLE,
+  description: BLOG_DESCRIPTION,
+  openGraph: {
+    title: BLOG_TITLE,
+    description: BLOG_DESCRIPTION,
+    type: "article",
+    images: [{ url: "/og-homepage.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: BLOG_TITLE,
+    description: BLOG_DESCRIPTION,
+    images: ["/og-homepage.png"],
+  },
 };
 
 export default function BlogIndexPage() {

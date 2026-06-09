@@ -7,6 +7,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, Github, Menu, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
+import { SITE } from "@/content/site";
 import {
   PRIMARY_NAV,
   NAV_GITHUB_HREF,
@@ -78,7 +79,7 @@ export function NavBar() {
           aria-label="adjudicate home"
         >
           <span className="font-mono text-sm font-medium text-ink">adjudicate</span>
-          <span className="font-mono text-[11px] text-faint">v0.1</span>
+          <span className="font-mono text-[11px] text-faint">{SITE.versionLabel}</span>
         </Link>
 
         {/* Desktop nav */}
@@ -310,7 +311,9 @@ function MobileSheet({
               <span className="font-mono text-sm font-medium text-ink">
                 adjudicate
               </span>
-              <span className="font-mono text-[11px] text-faint">v0.1</span>
+              <span className="font-mono text-[11px] text-faint">
+                {SITE.versionLabel}
+              </span>
             </span>
             <button
               type="button"

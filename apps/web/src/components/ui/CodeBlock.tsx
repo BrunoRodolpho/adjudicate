@@ -6,27 +6,39 @@ import { CopyButton } from "@/components/ui/CopyButton";
  * highlighting is a follow-up; for v1 we render plain text in a monospace
  * dark surface so code reads cleanly against the light marketing canvas.
  *
- * Optionally renders a chrome bar (filename + copy button). When no chrome
- * is shown and a `language` is given, the language label is kept inline so
- * existing callers render exactly as before.
+ * Three rendering paths, all server-renderable (CopyButton is the only
+ * client island):
+ *   - `filename` set  → chrome bar with filename + copy button.
+ *   - `copyable` set  → no chrome; a floating copy button sits in the
+ *     top-right of the code surface (1-click copy without a filename).
+ *   - neither set     → plain block; if `language` is given it is kept
+ *     inline so existing callers render exactly as before.
  */
 export function CodeBlock({
   code,
   language,
   filename,
+  copyable = false,
   className,
 }: {
   code: string;
   language?: string;
   filename?: string;
+  /**
+   * Show a copy-to-clipboard affordance without a filename chrome bar.
+   * Defaults to false for backward compatibility. Ignored when `filename`
+   * is set (the chrome bar already carries a copy button).
+   */
+  copyable?: boolean;
   className?: string;
 }) {
   const showChrome = Boolean(filename);
+  const showFloatingCopy = !showChrome && copyable;
 
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border border-edge bg-zinc-900",
+        "relative overflow-hidden rounded-lg border border-edge bg-zinc-900",
         className,
       )}
     >
@@ -43,9 +55,20 @@ export function CodeBlock({
           <CopyButton value={code} className="-mr-1 shrink-0" />
         </div>
       ) : null}
+      {showFloatingCopy ? (
+        <CopyButton
+          value={code}
+          className="absolute right-2 top-2 z-10 bg-zinc-900/80 backdrop-blur"
+        />
+      ) : null}
       <pre className="overflow-x-auto px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-100">
         {!showChrome && language ? (
-          <div className="mb-2 text-[10px] uppercase tracking-section text-zinc-500">
+          <div
+            className={cn(
+              "mb-2 text-[10px] uppercase tracking-section text-zinc-500",
+              showFloatingCopy && "pr-16",
+            )}
+          >
             {language}
           </div>
         ) : null}

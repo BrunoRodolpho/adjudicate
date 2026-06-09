@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { findPost, POSTS } from "@/content/blog";
@@ -10,11 +11,30 @@ export function generateStaticParams() {
   return POSTS.map((p) => ({ slug: p.slug }));
 }
 
-export async function generateMetadata({ params }: PageProps) {
+export async function generateMetadata({
+  params,
+}: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const post = findPost(slug);
+  if (!post) {
+    return { title: "Post not found · adjudicate" };
+  }
+  const title = `${post.title} · adjudicate`;
   return {
-    title: post ? `${post.title} · adjudicate` : "Post not found · adjudicate",
+    title,
+    description: post.summary,
+    openGraph: {
+      title,
+      description: post.summary,
+      type: "article",
+      images: [{ url: "/og-homepage.png", width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description: post.summary,
+      images: ["/og-homepage.png"],
+    },
   };
 }
 

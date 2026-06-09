@@ -1,5 +1,6 @@
 "use client";
 
+import { motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, Loader2, Play } from "lucide-react";
 import { useId, useState } from "react";
 import type { DecisionKind } from "@adjudicate/core";
@@ -8,8 +9,16 @@ import type { PlaygroundResponse } from "@/lib/kernel-runner";
 import { DecisionChip } from "@/components/ui/DecisionChip";
 import { ReceiptCard } from "@/components/receipt/ReceiptCard";
 import { ConsoleHandoff } from "@/components/playground/ConsoleHandoff";
+import {
+  disclosureRevealVariants,
+  resultRevealVariants,
+} from "@/lib/motion";
 import { cn } from "@/lib/cn";
-import { decisionSentence, guardFiredSentence } from "./guided-narration";
+import {
+  decisionSentence,
+  guardFiredSentence,
+  plainOutcomeSummary,
+} from "./guided-narration";
 
 /**
  * One GUIDED step: a plain-language "The AI proposes…" line and a single
@@ -44,6 +53,16 @@ interface GuidedStepProps {
   readonly result: PlaygroundResponse | null;
   /** Lift the run result up to the runner (drives StepStrip + collapse). */
   readonly onResult: (result: PlaygroundResponse) => void;
+  /**
+   * Lift the in-flight flag up so the runner can advance the StepStrip to
+   * "Guard decides" (phase 2) while the kernel is computing.
+   */
+  readonly onBusyChange?: (busy: boolean) => void;
+  /**
+   * Whether this is the final step of the story. Drives the context-aware
+   * ConsoleHandoff copy ("All steps above produced signed receipts…").
+   */
+  readonly isLastStep?: boolean;
 }
 
 export function GuidedStep({
@@ -52,14 +71,22 @@ export function GuidedStep({
   mode,
   result,
   onResult,
+  onBusyChange,
+  isLastStep = false,
 }: GuidedStepProps) {
+  const reduce = useReducedMotion();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const receiptId = useId();
 
+  function setBusyFlag(next: boolean) {
+    setBusy(next);
+    onBusyChange?.(next);
+  }
+
   async function run() {
-    setBusy(true);
+    setBusyFlag(true);
     setError(null);
     try {
       const res = await fetch("/api/playground/adjudicate", {
@@ -82,7 +109,7 @@ export function GuidedStep({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error.");
     } finally {
-      setBusy(false);
+      setBusyFlag(false);
     }
   }
 
@@ -105,6 +132,9 @@ export function GuidedStep({
   const actualKind: DecisionKind | null = result?.decision.kind ?? null;
   const mismatch =
     actualKind !== null && actualKind !== step.expectedKind;
+  // Context-aware console handoff: the closing step frames the whole story,
+  // an earlier step frames "more receipts will land here as you go".
+  const handoffContext = isLastStep ? "guided-final" : "guided-step";
 
   return (
     <div className="rounded-xl border border-edge bg-surface p-5">
@@ -163,16 +193,26 @@ export function GuidedStep({
         ) : null}
 
         {result && actualKind ? (
-          <div className="mt-4 flex flex-col gap-3">
+          <motion.div
+            className="mt-4 flex flex-col gap-3"
+            initial={reduce ? false : "hidden"}
+            animate="visible"
+            variants={reduce ? undefined : resultRevealVariants}
+          >
             <p className="text-[12px] text-muted">
               {guardFiredSentence(result.trace)}
             </p>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
               <DecisionChip kind={actualKind} size="md" className="self-start" />
-              <p className="text-[14px] leading-snug text-ink">
-                {decisionSentence(step, actualKind)}
-              </p>
+              <div className="flex flex-col gap-0.5">
+                <p className="text-[14px] font-medium leading-snug text-ink">
+                  {plainOutcomeSummary(actualKind)}
+                </p>
+                <p className="text-[13px] leading-snug text-muted">
+                  {decisionSentence(step, actualKind)}
+                </p>
+              </div>
             </div>
 
             {mismatch ? (
@@ -210,14 +250,20 @@ export function GuidedStep({
                   : "See the receipt the kernel saved"}
               </button>
               {showReceipt ? (
-                <div id={receiptId} className="mt-3">
+                <motion.div
+                  id={receiptId}
+                  className="mt-3"
+                  initial={reduce ? false : "hidden"}
+                  animate="visible"
+                  variants={reduce ? undefined : disclosureRevealVariants}
+                >
                   <ReceiptCard result={result} variant="compact" showTrace />
-                </div>
+                </motion.div>
               ) : null}
             </div>
 
-            <ConsoleHandoff className="mt-1" />
-          </div>
+            <ConsoleHandoff className="mt-1" context={handoffContext} />
+          </motion.div>
         ) : null}
       </div>
     </div>

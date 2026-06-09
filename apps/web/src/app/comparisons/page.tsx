@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DecisionsGrid } from "@/sections/DecisionsGrid";
 import { WedgeTable } from "@/sections/WedgeTable";
+import { ComparisonPreamble } from "@/sections/ComparisonPreamble";
 import { DepthHeader } from "@/components/ui/DepthHeader";
 
 export const metadata: Metadata = {
@@ -29,6 +30,7 @@ export default function ComparisonsPage() {
         title="Why allow/deny isn't enough."
         subtitle="Permission engines like OPA and Cedar return yes/no on a single proposed action. Adjudicate returns six structured decisions — including the four that AI-mediated systems actually need."
       />
+      <ComparisonPreamble />
       <DecisionsGrid />
       <WedgeTable />
     </main>

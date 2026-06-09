@@ -1,4 +1,5 @@
-import { ArrowUpRight } from "lucide-react";
+import { Fragment } from "react";
+import { ArrowRight, ArrowUpRight, FileCode2, ScanSearch, ListChecks } from "lucide-react";
 import type { AuditRecord, Decision, DecisionBasis } from "@adjudicate/core";
 import { runPlayground } from "@/lib/kernel-runner";
 import {
@@ -81,7 +82,7 @@ export async function WorkedExample({
     case "pack":
       return <PackExample spec={spec} />;
     case "illustration":
-      return <IllustrationExample spec={spec} />;
+      return <IllustrationExample capability={capability} spec={spec} />;
   }
 }
 
@@ -554,11 +555,20 @@ function PackExample({
  * illustration — a titled explainer card for design-time / upstream-only
  * capabilities that have no live decision row, replica or transparency
  * projection to feature (policy-coherence analyzer, agent-memory store). Body
- * prose + optional outcome chips, clearly labelled illustrative.
+ * prose + a per-capability visual scaffold (a small flow/box diagram) + optional
+ * outcome chips, clearly labelled illustrative.
+ *
+ * The diagram gives the dense prose a visual anchor: policy-coherence-analyzer
+ * gets a Policy bundle → Static lint → Diagnostics flow with example findings;
+ * agent-memory-store gets a two-lane box diagram showing that the decision lane
+ * (Envelope + State S → Kernel) and the memory lane (Memory M → Prompt only)
+ * never cross. Pure CSS/SVG, no motion, kept compact (~under 250px).
  */
 function IllustrationExample({
+  capability,
   spec,
 }: {
+  readonly capability: CapabilityContent;
   readonly spec: Extract<WorkedExampleSpec, { kind: "illustration" }>;
 }) {
   return (
@@ -567,6 +577,9 @@ function IllustrationExample({
       <h3 className="text-lg font-semibold tracking-tight text-ink">
         {spec.title}
       </h3>
+
+      <IllustrationDiagram slug={capability.slug} />
+
       <p className="max-w-3xl text-sm leading-relaxed text-muted">
         {spec.body}
       </p>
@@ -583,6 +596,159 @@ function IllustrationExample({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Per-capability visual scaffold for the illustration-kind worked examples.
+ * Dispatches on slug; returns null for any capability without a bespoke
+ * diagram (so the card simply falls back to prose). Static — no motion.
+ */
+function IllustrationDiagram({ slug }: { readonly slug: string }) {
+  if (slug === "policy-coherence-analyzer") return <PolicyCoherenceDiagram />;
+  if (slug === "agent-memory-store") return <AgentMemoryDiagram />;
+  return null;
+}
+
+/**
+ * Policy-coherence-analyzer scaffold: a left-to-right three-step flow
+ * (Policy bundle → Static lint → Diagnostics) over a list of example
+ * diagnostics. Reinforces that the analyzer is a design-time pass over the
+ * bundle source, not a runtime decision.
+ */
+function PolicyCoherenceDiagram() {
+  const steps = [
+    { icon: FileCode2, label: "Policy bundle", sub: "rules + phases" },
+    { icon: ScanSearch, label: "Static lint", sub: "AJD-301 · CI" },
+    { icon: ListChecks, label: "Diagnostics", sub: "structured findings" },
+  ] as const;
+
+  const diagnostics = [
+    "Rule shadow: a Phase-1 REFUSE shadows a Phase-2 REWRITE that can never fire.",
+    "Dead rule: a guard whose condition is unsatisfiable for every envelope.",
+    "Threshold conflict: two rules set contradictory caps on the same field.",
+  ] as const;
+
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border border-edge bg-canvas p-4">
+      <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-stretch gap-2">
+        {steps.map((step, i) => (
+          <Fragment key={step.label}>
+            <div className="flex flex-col items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-3 text-center">
+              <step.icon size={18} className="text-ink/70" aria-hidden="true" />
+              <span className="text-xs font-semibold leading-tight text-ink">
+                {step.label}
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+                {step.sub}
+              </span>
+            </div>
+            {i < steps.length - 1 ? (
+              <div className="flex items-center justify-center">
+                <ArrowRight size={16} className="text-faint" aria-hidden="true" />
+              </div>
+            ) : null}
+          </Fragment>
+        ))}
+      </div>
+
+      <ul className="flex flex-col gap-1.5">
+        {diagnostics.map((d) => {
+          const [head, ...rest] = d.split(":");
+          return (
+            <li
+              key={d}
+              className="flex items-start gap-2 text-xs leading-relaxed text-muted"
+            >
+              <span
+                className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-refuse"
+                aria-hidden="true"
+              />
+              <span>
+                <span className="font-medium text-ink">{head}:</span>
+                {rest.join(":")}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Agent-memory-store scaffold: a two-lane box diagram. The decision lane
+ * (Envelope + State S → Kernel → decision) and the memory lane (Memory M →
+ * Prompt only) run in parallel and never cross — the visual proof that M is
+ * upstream-only and cannot move an adjudication.
+ */
+function AgentMemoryDiagram() {
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-edge bg-canvas p-4">
+      {/* Decision lane — drives the kernel. */}
+      <div className="flex flex-col gap-1.5">
+        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          Decision lane · drives the kernel
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <LaneBox label="Envelope + State S" tone="ink" />
+          <ArrowRight size={16} className="text-faint" aria-hidden="true" />
+          <LaneBox label="Kernel · adjudicate" tone="ink" />
+          <ArrowRight size={16} className="text-faint" aria-hidden="true" />
+          <LaneBox label="Decision (deterministic)" tone="execute" />
+        </div>
+      </div>
+
+      {/* The isolation barrier. */}
+      <div className="flex items-center gap-3" aria-hidden="true">
+        <span className="h-px flex-1 bg-edge" />
+        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          never crosses
+        </span>
+        <span className="h-px flex-1 bg-edge" />
+      </div>
+
+      {/* Memory lane — prompt-only, never an argument to the decision. */}
+      <div className="flex flex-col gap-1.5">
+        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          Memory lane · prompt only
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <LaneBox label="Memory M" tone="defer" />
+          <ArrowRight size={16} className="text-faint" aria-hidden="true" />
+          <LaneBox label="Prompt / planner context" tone="muted" />
+          <span className="rounded-md border border-edge bg-surface px-2 py-1 text-[10px] uppercase tracking-section text-faint">
+            not envelope · not state · not a guard
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const LANE_TONE: Record<string, string> = {
+  ink: "border-edge bg-surface text-ink",
+  execute: "border-execute/40 bg-execute/10 text-execute",
+  defer: "border-defer/40 bg-defer/10 text-defer",
+  muted: "border-edge bg-surface text-muted",
+};
+
+function LaneBox({
+  label,
+  tone,
+}: {
+  readonly label: string;
+  readonly tone: keyof typeof LANE_TONE | string;
+}) {
+  return (
+    <span
+      className={cn(
+        "rounded-lg border px-3 py-1.5 text-xs font-medium",
+        LANE_TONE[tone] ?? LANE_TONE.ink,
+      )}
+    >
+      {label}
+    </span>
   );
 }
 

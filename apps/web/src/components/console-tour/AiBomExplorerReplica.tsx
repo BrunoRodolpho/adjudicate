@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { RevealStack, RevealStackItem } from "./ChartReveal";
 import { DataTable, type DataTableColumn } from "@/components/console-kit/a11y/DataTable";
 import {
   AI_BOM_TRANSPARENCY_SAMPLE,
@@ -231,9 +232,9 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
   })();
 
   return (
-    <div className="flex flex-col gap-4" data-testid="aibom-detail">
+    <RevealStack className="flex flex-col gap-4" data-testid="aibom-detail">
       {/* Header. */}
-      <header className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
+      <RevealStackItem className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
         <div className="flex items-baseline justify-between gap-2">
           <h3
             className="text-sm font-medium text-console-ink"
@@ -264,10 +265,14 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
           <FieldCode label="Fingerprint" value={bom.fingerprint} />
           <FieldCode label="BOM digest" value={bom.bomDigest} />
         </dl>
-      </header>
+      </RevealStackItem>
 
       {/* Model. */}
-      <DetailSection title="Model">
+      <RevealStackItem>
+        <DetailSection
+          title="Model"
+          description="The LLM powering this pack — the provider and model the kernel adjudicates around."
+        >
         {bom.model ? (
           <p className="text-[11px] text-console-ink">
             {bom.model.provider}/{bom.model.model}
@@ -276,10 +281,15 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
         ) : (
           <p className="text-[11px] italic text-console-faint">Not declared.</p>
         )}
-      </DetailSection>
+        </DetailSection>
+      </RevealStackItem>
 
       {/* Health + conformance. */}
-      <DetailSection title="Conformance & health">
+      <RevealStackItem>
+        <DetailSection
+          title="Conformance & health"
+          description="Pass/fail and score against this pack's declared guardrails — its readiness signal."
+        >
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-4">
           <Field
             label="Conformance"
@@ -293,19 +303,29 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
           />
           <FieldCode label="Report digest" value={bom.conformance.reportDigest} />
         </dl>
-      </DetailSection>
+        </DetailSection>
+      </RevealStackItem>
 
       {/* Intents / signals / basis codes. */}
-      <DetailSection title="Intents, signals & basis codes">
+      <RevealStackItem>
+        <DetailSection
+          title="Intents, signals & basis codes"
+          description="The actions this pack governs, the signals it reads, and the basis codes it can cite."
+        >
         <div className="flex flex-col gap-2">
           <ChipList label="Intents" items={bom.intents} />
           <ChipList label="Signals" items={bom.signals} />
           <ChipList label="Basis codes" items={bom.basisCodes} />
         </div>
-      </DetailSection>
+        </DetailSection>
+      </RevealStackItem>
 
       {/* Tools. */}
-      <DetailSection title="Tools">
+      <RevealStackItem>
+        <DetailSection
+          title="Tools"
+          description="Side-effecting tools the pack can call — each with a schema digest for tamper-evidence."
+        >
         {bom.tools.length > 0 ? (
           <DataTable
             caption="Declared tools"
@@ -316,10 +336,15 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
         ) : (
           <p className="text-[11px] italic text-console-faint">None declared.</p>
         )}
-      </DetailSection>
+        </DetailSection>
+      </RevealStackItem>
 
       {/* Vector stores (RAG). */}
-      <DetailSection title="Vector stores (RAG)">
+      <RevealStackItem>
+        <DetailSection
+          title="Vector stores (RAG)"
+          description="Retrieval sources that ground the model's answers, with their embedding models."
+        >
         {bom.rag.length > 0 ? (
           <DataTable
             caption="Declared retrieval / vector stores"
@@ -330,10 +355,15 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
         ) : (
           <p className="text-[11px] italic text-console-faint">None declared.</p>
         )}
-      </DetailSection>
+        </DetailSection>
+      </RevealStackItem>
 
       {/* Prompt hashes — SHA-256 only, never prompt text. */}
-      <DetailSection title="Prompt hashes">
+      <RevealStackItem>
+        <DetailSection
+          title="Prompt hashes"
+          description="SHA-256 fingerprints of the pack's prompt templates — proof of what shipped, never the prompt text."
+        >
         {bom.promptHashes.length > 0 ? (
           <DataTable
             caption="Declared prompt-template hashes (hashes only, never contents)"
@@ -346,10 +376,15 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
             No declared prompt templates.
           </p>
         )}
-      </DetailSection>
+        </DetailSection>
+      </RevealStackItem>
 
       {/* Guardrails. */}
-      <DetailSection title="Guardrails">
+      <RevealStackItem>
+        <DetailSection
+          title="Guardrails"
+          description="The safeguard rules active in this pack, grouped by category — what it actually enforces."
+        >
         {guardrailsByCategory.length > 0 ? (
           <div className="flex flex-col gap-2">
             {guardrailsByCategory.map(([category, codes]) => (
@@ -364,22 +399,33 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
         ) : (
           <p className="text-[11px] italic text-console-faint">None declared.</p>
         )}
-      </DetailSection>
-    </div>
+        </DetailSection>
+      </RevealStackItem>
+    </RevealStack>
   );
 }
 
 function DetailSection({
   title,
+  description,
   children,
 }: {
   readonly title: string;
+  /** One-line, plain-language note on why this section matters (a11y + clarity). */
+  readonly description?: string;
   readonly children: ReactNode;
 }) {
   return (
     <section className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
-      <header className="mb-2 text-[10px] uppercase tracking-section text-console-faint">
-        {title}
+      <header className="mb-2 flex flex-col gap-0.5">
+        <span className="text-[10px] uppercase tracking-section text-console-faint">
+          {title}
+        </span>
+        {description ? (
+          <span className="text-[10px] leading-relaxed text-console-faint">
+            {description}
+          </span>
+        ) : null}
       </header>
       {children}
     </section>

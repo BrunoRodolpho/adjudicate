@@ -3,6 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { ChartReveal } from "./ChartReveal";
 import { TimelineChart } from "@/components/console-kit/charts/TimelineChart";
 import type { Band } from "@/components/console-kit/charts/types";
 import { SR_ONLY } from "@/components/console-kit/charts/BarDistribution";
@@ -52,6 +53,22 @@ const VIOLATION_KIND_LABEL: Record<string, string> = {
   signature_failed: "Signature failed",
   signature_missing: "Signature missing",
   policy_error: "Policy error",
+};
+
+/**
+ * Plain-language impact of each violation kind, surfaced as the badge's
+ * accessible label + tooltip so the "why it matters" lands without operator
+ * jargon (AUDIT a11y/content).
+ */
+const VIOLATION_KIND_IMPACT: Record<string, string> = {
+  digest_mismatch:
+    "Digest mismatch: the seal no longer matches the pack's content — the configuration changed since it was sealed.",
+  signature_failed:
+    "Signature failed: the seal's signature did not verify — its authenticity can't be trusted.",
+  signature_missing:
+    "Signature missing: the seal carries no signature, so its origin can't be attested.",
+  policy_error:
+    "Policy error: the sealed policy failed to load or evaluate cleanly.",
 };
 
 const STABILITY_THEME: Record<
@@ -173,7 +190,7 @@ function ActiveSealsPanel({
 }) {
   return (
     <Panel title="Active seals" testId="integrity-seals">
-      <div className="overflow-auto rounded-sm border border-console-edge bg-console-panel/40">
+      <ChartReveal className="overflow-auto rounded-sm border border-console-edge bg-console-panel/40">
         <table className="w-full border-collapse text-[11px]">
           <caption className={SR_ONLY}>
             Per-pack configuration-seal verification status — select a row to see
@@ -271,7 +288,7 @@ function ActiveSealsPanel({
             })}
           </tbody>
         </table>
-      </div>
+      </ChartReveal>
     </Panel>
   );
 }
@@ -325,7 +342,15 @@ function SelectedSealPanel({
               {violation.violations.map((v, i) => (
                 <li key={`${v.kind}:${i}`} className="flex flex-col gap-0.5">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-sm border border-red-400/40 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-red-300">
+                    <span
+                      className="rounded-sm border border-red-400/40 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-red-300"
+                      title={VIOLATION_KIND_IMPACT[v.kind]}
+                      aria-label={
+                        VIOLATION_KIND_IMPACT[v.kind] ??
+                        VIOLATION_KIND_LABEL[v.kind] ??
+                        v.kind
+                      }
+                    >
                       {VIOLATION_KIND_LABEL[v.kind] ?? v.kind}
                     </span>
                     {v.basisCode === "seal_mismatch" ? (
@@ -388,12 +413,14 @@ function KillSwitchTimelinePanel({
         </dl>
 
         {report.totalEvents > 0 ? (
-          <TimelineChart
-            title="Activations by source"
-            points={points}
-            band={theme.band}
-            yFormat={(n) => n.toLocaleString()}
-          />
+          <ChartReveal>
+            <TimelineChart
+              title="Activations by source"
+              points={points}
+              band={theme.band}
+              yFormat={(n) => n.toLocaleString()}
+            />
+          </ChartReveal>
         ) : (
           <p className="text-[11px] italic text-console-faint">
             Kill switch never engaged — no activations recorded.

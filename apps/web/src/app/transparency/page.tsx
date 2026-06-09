@@ -1,7 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import {
+  ArrowLeft,
+  ShieldAlert,
+  Activity,
+  FileCheck2,
+  EyeOff,
+  Terminal,
+  Coins,
+  Boxes,
+  type LucideIcon,
+} from "lucide-react";
 import { PUBLIC_COHORT_FLOOR } from "@/lib/public-projection";
+import {
+  RevealGrid,
+  RevealGridItem,
+} from "@/components/transparency/RevealGrid";
 
 export const metadata: Metadata = {
   title: "Transparency · adjudicate",
@@ -94,40 +108,22 @@ export default function TransparencyPage() {
           >
             Public views
           </h2>
-          <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {PUBLIC_VIEWS.map((v) => {
-              const body = (
-                <>
-                  <h3 className="text-sm font-medium text-ink">{v.title}</h3>
-                  <p className="mt-1.5 text-xs leading-relaxed text-muted">
-                    {v.exposes}
-                  </p>
-                  {v.href ? (
-                    <p className="mt-2 text-xs uppercase tracking-section text-ink">
-                      View →
-                    </p>
-                  ) : null}
-                </>
-              );
-              return (
-                <li key={v.title}>
-                  {v.href ? (
-                    <Link
-                      href={v.href}
-                      className="flex h-full flex-col rounded-sm border border-edge bg-surface p-4 transition-colors hover:border-ink/30"
-                    >
-                      {body}
-                    </Link>
-                  ) : (
-                    <div className="flex h-full flex-col rounded-sm border border-edge bg-surface p-4">
-                      {body}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          <p className="mt-4 text-xs text-faint">
+
+          {VIEW_GROUPS.map((group) => (
+            <div key={group.title} className="mt-8 first:mt-4">
+              <h3 className="text-sm font-medium text-ink">{group.title}</h3>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">
+                {group.blurb}
+              </p>
+              <RevealGrid className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {group.views.map((v) => (
+                  <ViewCard key={v.title} view={v} />
+                ))}
+              </RevealGrid>
+            </div>
+          ))}
+
+          <p className="mt-8 text-xs text-faint">
             Operator-only surfaces — the Approval Center and the live audit tail —
             are never published here; they require authenticated console access.
           </p>
@@ -137,54 +133,123 @@ export default function TransparencyPage() {
   );
 }
 
+function ViewCard({ view }: { readonly view: PublicView }) {
+  const Icon = view.icon;
+  const body = (
+    <>
+      <div className="flex items-center gap-2.5">
+        <Icon
+          size={18}
+          aria-hidden
+          className="shrink-0 text-muted transition-colors group-hover:text-ink"
+        />
+        <h4 className="text-sm font-medium text-ink">{view.title}</h4>
+      </div>
+      <p className="mt-1.5 text-xs leading-relaxed text-muted">{view.exposes}</p>
+      {view.href ? (
+        <p className="mt-auto pt-3 text-xs uppercase tracking-section text-ink">
+          View
+          <span className="ml-1 inline-block transition-transform group-hover:translate-x-0.5">
+            →
+          </span>
+        </p>
+      ) : null}
+    </>
+  );
+  return (
+    <RevealGridItem className="h-full">
+      {view.href ? (
+        <Link
+          href={view.href}
+          className="group flex h-full flex-col rounded-sm border border-edge bg-surface p-4 transition-colors hover:border-ink/30 hover:shadow-sm"
+        >
+          {body}
+        </Link>
+      ) : (
+        <div className="flex h-full flex-col rounded-sm border border-edge bg-surface p-4">
+          {body}
+        </div>
+      )}
+    </RevealGridItem>
+  );
+}
+
 interface PublicView {
   readonly title: string;
   readonly exposes: string;
+  readonly icon: LucideIcon;
   /** Live public route, when one ships. Cards without an href are placeholders. */
   readonly href?: string;
 }
 
-const PUBLIC_VIEWS: readonly PublicView[] = [
+interface ViewGroup {
+  readonly title: string;
+  readonly blurb: string;
+  readonly views: readonly PublicView[];
+}
+
+const VIEW_GROUPS: readonly ViewGroup[] = [
   {
-    title: "PII handling",
-    href: "/transparency/pii",
-    exposes:
-      "How often sensitive fields are redacted or blocked, by sensitivity class — counts only, never the values themselves.",
+    title: "Risk & compliance",
+    blurb:
+      "Is the system being attacked, drifting, or tampered with — and can an auditor verify what each pack runs?",
+    views: [
+      {
+        title: "Red-team defenses",
+        href: "/transparency/red-team",
+        icon: ShieldAlert,
+        exposes:
+          "Whether each shipped pack still defends against the adversarial suite — a clean/regressed badge with defended totals.",
+      },
+      {
+        title: "Behavioral drift",
+        href: "/transparency/drift",
+        icon: Activity,
+        exposes:
+          "Whether decision distributions are shifting, by severity and dimension — a status summary, not the underlying records.",
+      },
+      {
+        title: "Configuration integrity",
+        href: "/transparency/integrity",
+        icon: FileCheck2,
+        exposes:
+          "Whether pack configuration seals verify and the kill-switch stability class — no digests, reasons, or actors.",
+      },
+      {
+        title: "AI bill-of-materials",
+        href: "/transparency/ai-bom",
+        icon: Boxes,
+        exposes:
+          "Models, tools, vector stores, prompt hashes, and conformance for each reference pack (EU AI Act / NIST AI RMF aligned).",
+      },
+    ],
   },
   {
-    title: "AI bill-of-materials",
-    href: "/transparency/ai-bom",
-    exposes:
-      "Models, tools, vector stores, prompt hashes, and conformance for each reference pack (EU AI Act / NIST AI RMF aligned).",
-  },
-  {
-    title: "Behavioral drift",
-    href: "/transparency/drift",
-    exposes:
-      "Whether decision distributions are shifting, by severity and dimension — a status summary, not the underlying records.",
-  },
-  {
-    title: "Red-team defenses",
-    href: "/transparency/red-team",
-    exposes:
-      "Whether each shipped pack still defends against the adversarial suite — a clean/regressed badge with defended totals.",
-  },
-  {
-    title: "Command risk",
-    href: "/transparency/command-risk",
-    exposes:
-      "The distribution of classified command risk (destructive / network / credential / safe) — categories and counts only.",
-  },
-  {
-    title: "Token governance",
-    href: "/transparency/tokens",
-    exposes:
-      "An aggregate token-budget burn-down — a banded percent of budget used, coarsely rounded. Never session/tenant ids or raw counts.",
-  },
-  {
-    title: "Configuration integrity",
-    href: "/transparency/integrity",
-    exposes:
-      "Whether pack configuration seals verify and the kill-switch stability class — no digests, reasons, or actors.",
+    title: "Operations",
+    blurb:
+      "The day-to-day governance signals — what we contain, what we refuse, and how much budget is left.",
+    views: [
+      {
+        title: "PII handling",
+        href: "/transparency/pii",
+        icon: EyeOff,
+        exposes:
+          "How often sensitive fields are redacted or blocked, by sensitivity class — counts only, never the values themselves.",
+      },
+      {
+        title: "Command risk",
+        href: "/transparency/command-risk",
+        icon: Terminal,
+        exposes:
+          "The distribution of classified command risk (destructive / network / credential / safe) — categories and counts only.",
+      },
+      {
+        title: "Token governance",
+        href: "/transparency/tokens",
+        icon: Coins,
+        exposes:
+          "An aggregate token-budget burn-down — a banded percent of budget used, coarsely rounded. Never session/tenant ids or raw counts.",
+      },
+    ],
   },
 ];

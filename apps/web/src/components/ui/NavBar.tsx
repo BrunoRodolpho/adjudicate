@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, Github, Menu, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { EASE_OUT } from "@/lib/motion";
 import { Button } from "@/components/ui/Button";
 import { SITE } from "@/content/site";
 import {
@@ -78,8 +79,12 @@ export function NavBar() {
           className="flex items-baseline gap-1.5"
           aria-label="adjudicate home"
         >
-          <span className="font-mono text-sm font-medium text-ink">adjudicate</span>
-          <span className="font-mono text-[11px] text-faint">{SITE.versionLabel}</span>
+          <span className="font-mono text-sm font-medium tracking-tight text-ink">
+            adjudicate
+          </span>
+          <span className="rounded-sm border border-edge px-1 py-px font-mono text-[10px] uppercase tracking-section text-muted">
+            {SITE.versionLabel}
+          </span>
         </Link>
 
         {/* Desktop nav */}
@@ -182,6 +187,7 @@ function DesktopDropdown({
 }) {
   const active = isGroupActive(pathname, group);
   const [open, setOpen] = useState(false);
+  const reduce = useReducedMotion();
 
   // Route changed (client-side nav keeps this mounted) — drop the panel so the
   // chosen item's retained focus/hover can't hold it open.
@@ -221,23 +227,28 @@ function DesktopDropdown({
           className={cn("transition-transform", open && "rotate-180")}
         />
       </button>
-      <div
-        className={cn(
-          "absolute left-0 top-full pt-2 transition-opacity",
-          open ? "visible opacity-100" : "invisible opacity-0",
-        )}
-      >
-        <ul
-          className="w-72 rounded-xl border border-edge bg-surface p-2 shadow-xl"
-          onClick={() => setOpen(false)}
-        >
-          {group.items.map((item) => (
-            <li key={item.label}>
-              <DropdownItem item={item} pathname={pathname} />
-            </li>
-          ))}
-        </ul>
-      </div>
+      <AnimatePresence>
+        {open ? (
+          <motion.div
+            className="absolute left-0 top-full pt-2"
+            initial={reduce ? { opacity: 1 } : { opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8 }}
+            transition={{ duration: 0.18, ease: EASE_OUT }}
+          >
+            <ul
+              className="w-72 rounded-xl border border-edge bg-surface p-2 shadow-xl"
+              onClick={() => setOpen(false)}
+            >
+              {group.items.map((item) => (
+                <li key={item.label}>
+                  <DropdownItem item={item} pathname={pathname} />
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

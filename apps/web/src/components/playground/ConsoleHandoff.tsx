@@ -10,8 +10,41 @@ import { cn } from "@/lib/cn";
  * aesthetic with a small inset "console chip" so the reader understands that
  * the receipt they just produced is the same artifact the real Audit Explorer
  * renders. Links to `/console/audit-explorer`.
+ *
+ * The copy is context-aware so the bridge reads as a value-driven next step
+ * rather than boilerplate: a mid-story guided step hints that more receipts
+ * will accumulate; the final step frames the whole run; the sandbox uses the
+ * generic single-receipt framing.
  */
-export function ConsoleHandoff({ className }: { readonly className?: string }) {
+
+export type ConsoleHandoffContext = "guided-step" | "guided-final" | "sandbox";
+
+const COPY: Record<
+  ConsoleHandoffContext,
+  { readonly title: string; readonly hint: string }
+> = {
+  "guided-step": {
+    title: "Receipts like this populate your operator console",
+    hint: "Open the Audit Explorer to see how signed receipts land in the live feed.",
+  },
+  "guided-final": {
+    title: "Every step above produced a signed receipt",
+    hint: "View them together in the Audit Explorer, exactly as an operator would.",
+  },
+  sandbox: {
+    title: "This receipt would now appear in your operator console",
+    hint: "Open the Audit Explorer to see how signed receipts land in the live feed.",
+  },
+};
+
+export function ConsoleHandoff({
+  className,
+  context = "sandbox",
+}: {
+  readonly className?: string;
+  readonly context?: ConsoleHandoffContext;
+}) {
+  const { title, hint } = COPY[context];
   return (
     <Link
       href="/console/audit-explorer"
@@ -29,13 +62,8 @@ export function ConsoleHandoff({ className }: { readonly className?: string }) {
       </span>
 
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-ink">
-          This receipt would now appear in your operator console
-        </span>
-        <span className="mt-0.5 block text-[13px] text-muted">
-          Open the Audit Explorer to see how signed receipts land in the live
-          feed.
-        </span>
+        <span className="block text-sm font-medium text-ink">{title}</span>
+        <span className="mt-0.5 block text-[13px] text-muted">{hint}</span>
       </span>
 
       <ArrowRight className="h-4 w-4 shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-ink" />

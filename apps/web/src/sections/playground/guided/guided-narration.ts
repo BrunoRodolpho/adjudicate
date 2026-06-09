@@ -62,6 +62,59 @@ const GUARD_FRIENDLY: Record<string, string> = {
   dataClassificationGuard: "the PII-scan rule",
 };
 
+// ── Guard / phase → "what that rule does" ──────────────────────────────
+//
+// One plain-English clause describing each rule's JOB, appended to the
+// "X made the call" sentence so a newcomer learns WHY the kernel landed where
+// it did, not just which rule fired. Keyed by the same guard names / phases as
+// the friendly-label maps above; anything unmapped simply omits the clause.
+
+const GUARD_JOB: Record<string, string> = {
+  validateAmount: "It checks the refund stays within the original charge.",
+  validateRefundAmount:
+    "It checks the refund stays within the original charge.",
+  escalateLargeRefunds:
+    "It sends unusually large refunds to a human for sign-off.",
+  requireConfirmation:
+    "It asks the caller to confirm before a sensitive action runs.",
+  clampRampPercent:
+    "It caps how much traffic a deployment can take in one move.",
+  requireApproval:
+    "It blocks production deploys that have no recorded approval.",
+  awaitDocuments: "It waits for the required documents to arrive.",
+  awaitVendor: "It waits for the external vendor's result before proceeding.",
+  tokenBudgetGuard:
+    "It checks the request won't push the session past its token budget.",
+  commandRiskGuard:
+    "It classifies how risky a command is and gates the dangerous ones.",
+  dataClassificationGuard:
+    "It scans the payload for classified data before it leaves the system.",
+};
+
+const PHASE_JOB: Record<string, string> = {
+  kill: "It halts everything while an emergency stop is engaged.",
+  schema: "It rejects requests whose shape doesn't match the contract.",
+  taint: "It stops untrusted input from reaching a privileged action.",
+  auth: "It verifies the caller is allowed to perform this action.",
+  default: "It applies the Pack's fallback decision when no rule matched.",
+};
+
+/**
+ * One plain-English clause describing what the matched rule does, or `null`
+ * when the rule isn't in the curated maps. Best-effort: named guard job →
+ * phase job → none.
+ */
+function guardJob(
+  trace: ReadonlyArray<AdjudicationTraceEntry>,
+): string | null {
+  const entry = matchedEntry(trace);
+  if (!entry) return null;
+  if (entry.guardName && GUARD_JOB[entry.guardName]) {
+    return GUARD_JOB[entry.guardName]!;
+  }
+  return PHASE_JOB[entry.phase] ?? null;
+}
+
 /**
  * Turn a guard's raw `Function.name` (camelCase / PascalCase identifier) into
  * a readable lower-case phrase, e.g. `validateRefundAmount` → "validate
@@ -109,15 +162,44 @@ export function friendlyGuardName(
 }
 
 /**
- * One-line "which guard fired" sentence for the result region, e.g.
- * "The token-budget rule made the call." Capitalises the leading article.
+ * The "which guard fired" sentence for the result region, e.g. "The
+ * token-budget rule made the call. It checks the request won't push the
+ * session past its token budget." Capitalises the leading article and appends
+ * a one-clause description of the rule's job when one is known.
  */
 export function guardFiredSentence(
   trace: ReadonlyArray<AdjudicationTraceEntry>,
 ): string {
   const name = friendlyGuardName(trace);
   const lead = name.charAt(0).toUpperCase() + name.slice(1);
-  return `${lead} made the call.`;
+  const job = guardJob(trace);
+  return job ? `${lead} made the call. ${job}` : `${lead} made the call.`;
+}
+
+/**
+ * The shortest possible plain-English gloss of WHAT the kernel did, keyed only
+ * by the decision kind — no Pack/scenario context. This is the very first
+ * thing a newcomer should read about an outcome ("The kernel approved the
+ * request as-is."). The richer, scenario-aware sentence still follows via
+ * {@link decisionSentence}; this is the one-glance anchor above it.
+ *
+ * Mirrors the wording used by the sandbox receipt so both modes read the same.
+ */
+const PLAIN_OUTCOME: Record<DecisionKind, string> = {
+  EXECUTE: "The kernel approved the request as-is.",
+  REFUSE: "The kernel blocked the request.",
+  REWRITE: "The kernel approved a modified version.",
+  DEFER: "The kernel paused the request pending a signal.",
+  ESCALATE: "The kernel routed the request to a reviewer.",
+  REQUEST_CONFIRMATION: "The kernel asked the caller to confirm.",
+};
+
+/**
+ * Plain-English, kind-only summary of the outcome. Safe for any surface that
+ * renders a decision; see {@link PLAIN_OUTCOME}.
+ */
+export function plainOutcomeSummary(kind: DecisionKind): string {
+  return PLAIN_OUTCOME[kind];
 }
 
 /**

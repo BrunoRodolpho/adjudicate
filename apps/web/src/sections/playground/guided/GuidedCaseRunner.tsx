@@ -34,14 +34,17 @@ export function GuidedCaseRunner({
   const [results, setResults] = useState<
     Record<string, PlaygroundResponse>
   >({});
+  const [running, setRunning] = useState(false);
 
   const steps = guidedCase.steps;
   const activeStep = steps[activeIndex];
   const activeResult = activeStep ? results[activeStep.id] ?? null : null;
 
-  // StepStrip phase: before the active step runs we sit on "AI acts" (1);
-  // once it has a verdict the receipt is written, so light "Receipt saved" (3).
-  const stripPhase = activeResult ? 3 : 1;
+  // StepStrip phase tracks the active step through the spine as it runs:
+  //   idle, no result   → 1 "AI acts" (the AI's proposal is on screen)
+  //   in flight          → 2 "Guard decides" (kernel computing; chip pulses)
+  //   result in hand     → 3 "Receipt saved" (a signed receipt now exists)
+  const stripPhase = running ? 2 : activeResult ? 3 : 1;
 
   const isLastStep = activeIndex === steps.length - 1;
 
@@ -74,7 +77,7 @@ export function GuidedCaseRunner({
         <p className="mb-2 text-[10px] font-medium uppercase tracking-section text-faint">
           What happens on every run
         </p>
-        <StepStrip active={stripPhase} />
+        <StepStrip active={stripPhase} pulse={running} />
       </div>
 
       {/* Steps */}
@@ -92,6 +95,8 @@ export function GuidedCaseRunner({
                 mode={isPast ? "collapsed" : "active"}
                 result={results[step.id] ?? null}
                 onResult={(r) => recordResult(step.id, r)}
+                onBusyChange={isActive ? setRunning : undefined}
+                isLastStep={isLastStep}
               />
               {/* Advance control: only on the active step, once it has run. */}
               {isActive && activeResult && !isLastStep ? (

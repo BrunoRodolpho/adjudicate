@@ -60,9 +60,10 @@ export function GuidedCasePicker({
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1.5">
         <p className="text-[14px] leading-relaxed text-muted">
-          Pick a real business situation. Each one is a short story you run a
-          step at a time — the AI proposes an action, and you watch the kernel
-          decide. No JSON, no setup.
+          Pick a real business situation from an installed Pack. Each one is a
+          short story you run a step at a time — the AI proposes an action, and
+          you watch the real kernel decide. No JSON, no setup; best for a first
+          look. Jump to the sandbox when you&apos;re ready to configure your own.
         </p>
       </div>
 

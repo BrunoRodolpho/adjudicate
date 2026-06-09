@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { ChartReveal } from "./ChartReveal";
 import {
   BarDistribution,
   StackedAreaChart,
@@ -113,6 +114,11 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
           testId="red-team-passfail"
         >
           <div className="flex flex-col gap-1">
+            <p className="text-[10px] leading-relaxed text-console-faint">
+              Defended = the adversarial probe was blocked by a guard. Escaped =
+              the probe bypassed the guards (a policy regression). Any non-zero
+              escape reads red.
+            </p>
             <p
               data-testid="red-team-summary"
               className={cn(
@@ -139,10 +145,12 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
           testId="red-team-categories"
         >
           <div data-testid="red-team-categories-chart">
-            <BarDistribution
-              title="Adversarial scenarios per attack vector"
-              data={vectorData}
-            />
+            <ChartReveal>
+              <BarDistribution
+                title="Adversarial scenarios per attack vector"
+                data={vectorData}
+              />
+            </ChartReveal>
           </div>
         </Panel>
 
@@ -156,10 +164,12 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
             className="flex flex-col gap-3"
             data-testid="red-team-trend-chart"
           >
-            <StackedAreaChart
-              title="Defended vs escaped per recorded run"
-              series={series}
-            />
+            <ChartReveal>
+              <StackedAreaChart
+                title="Defended vs escaped per recorded run"
+                series={series}
+              />
+            </ChartReveal>
 
             {/* Selected-run marker, aligned to the trend's ascending x-axis. A
                 UI annotation over the SAME timeline — not chart data, so it does

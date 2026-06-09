@@ -68,8 +68,8 @@ export function Playground() {
       <div className="mx-auto max-w-5xl px-6">
         <SectionHeading
           eyebrow="Live playground"
-          title="Try it — the kernel below is real."
-          subtitle="Every decision runs the real Packs server-side and produces a signed receipt. Start guided, then open the sandbox to configure your own."
+          title="Watch the kernel decide."
+          subtitle="Every decision runs the real Packs server-side and produces a signed receipt. Start guided to see a complete business story, or jump to the sandbox to configure your own test. Real kernel, real time."
           align="center"
         />
 

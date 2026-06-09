@@ -1,6 +1,9 @@
+"use client";
+
 import { Callout } from "@/components/ui/Callout";
 import { PUBLIC_COHORT_FLOOR } from "@/lib/public-projection";
 import { cn } from "@/lib/cn";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 
 /**
  * TrustBoundaryPanel — the side-by-side contrast between the authenticated
@@ -12,8 +15,15 @@ import { cn } from "@/lib/cn";
  * The boundary isn't a limitation of the public site — it's the structural
  * proof that the public surface is trustworthy.
  *
- * Server component. Renders as a two-column comparison on wide viewports and a
- * stacked, per-attribute layout on mobile.
+ * Renders as a two-column comparison on wide viewports and a stacked,
+ * per-attribute layout on mobile.
+ *
+ * Motion (AUDIT P1): the body rows fade + rise in a `Stagger` as the panel
+ * scrolls into view, so the contrast between the two columns lands one
+ * attribute at a time. Each row gets a subtle `motion-safe` hover lift (a
+ * tiny translate + shadow, raised above its neighbours via z-index so the
+ * shared seams stay clean). Transform/opacity-only — no layout shift, and
+ * under `prefers-reduced-motion` the rows render statically with no lift.
  */
 
 interface BoundaryRow {
@@ -93,39 +103,44 @@ export function TrustBoundaryPanel({
           ))}
         </div>
 
-        {ROWS.map((row, idx) => (
-          <div
-            key={row.label}
-            className={cn(
-              "md:grid md:grid-cols-[10rem_1fr_1fr]",
-              idx > 0 && "border-t border-edge",
-            )}
-          >
-            <div className="bg-canvas p-4">
-              <p className="text-xs font-semibold uppercase tracking-section text-muted">
-                {row.label}
-              </p>
-            </div>
-            {COLS.map((c) => (
-              <div
-                key={c.key}
-                className={cn(
-                  "border-t border-edge p-4 md:border-l-2 md:border-t-0",
-                  c.accent,
-                )}
-              >
-                {/* Mobile-only side label. */}
-                <p className="mb-1 text-[11px] font-medium text-ink md:hidden">
-                  {c.title}
-                  <span className="ml-1.5 font-normal text-muted">{c.sub}</span>
-                </p>
-                <p className="text-sm leading-relaxed text-muted">
-                  {row[c.key]}
+        <Stagger>
+          {ROWS.map((row, idx) => (
+            <StaggerItem
+              key={row.label}
+              className={cn(
+                "relative transition-shadow md:grid md:grid-cols-[10rem_1fr_1fr]",
+                "motion-safe:transition-transform motion-safe:hover:-translate-y-0.5 hover:z-10 hover:shadow-md",
+                idx > 0 && "border-t border-edge",
+              )}
+            >
+              <div className="bg-canvas p-4">
+                <p className="text-xs font-semibold uppercase tracking-section text-muted">
+                  {row.label}
                 </p>
               </div>
-            ))}
-          </div>
-        ))}
+              {COLS.map((c) => (
+                <div
+                  key={c.key}
+                  className={cn(
+                    "border-t border-edge p-4 md:border-l-2 md:border-t-0",
+                    c.accent,
+                  )}
+                >
+                  {/* Mobile-only side label. */}
+                  <p className="mb-1 text-[11px] font-medium text-ink md:hidden">
+                    {c.title}
+                    <span className="ml-1.5 font-normal text-muted">
+                      {c.sub}
+                    </span>
+                  </p>
+                  <p className="text-sm leading-relaxed text-muted">
+                    {row[c.key]}
+                  </p>
+                </div>
+              ))}
+            </StaggerItem>
+          ))}
+        </Stagger>
       </div>
 
       <Callout

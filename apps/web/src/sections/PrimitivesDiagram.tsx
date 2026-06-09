@@ -24,6 +24,7 @@ export function PrimitivesDiagram() {
               rel="noreferrer"
               initial={{ opacity: 0, y: 12 }}
               whileInView={{ opacity: 1, y: 0 }}
+              whileHover={{ scale: 1.02 }}
               viewport={{ once: true, margin: "-50px" }}
               transition={{ duration: 0.4, delay: idx * 0.04 }}
               className="group flex flex-col gap-2 rounded-xl border border-edge bg-canvas p-5 transition-colors hover:border-indigo-300 hover:bg-indigo-50/50"

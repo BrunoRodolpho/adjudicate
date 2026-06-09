@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { POSTS } from "@/content/blog";
+import {
+  RevealGrid,
+  RevealGridItem,
+} from "@/components/transparency/RevealGrid";
 
 const BLOG_TITLE = "adjudicate · blog";
 const BLOG_DESCRIPTION =
@@ -38,29 +42,43 @@ export default function BlogIndexPage() {
           <h1 className="text-4xl font-semibold tracking-tight text-ink">
             Notes from the kernel.
           </h1>
+          <p className="max-w-2xl text-base leading-relaxed text-muted">
+            We write about kernel design, decision governance, and the practical
+            lessons of shipping open-source policy. Posts range from technical
+            deep-dives — how DEFER resumes safely, how token budgets stay
+            replay-verifiable — to operational playbooks for keeping an AI agent
+            from draining production. Check back for launch post-mortems,
+            threat-model updates, and the design philosophy behind the six
+            outcomes.
+          </p>
         </header>
-        <ul className="flex flex-col gap-6">
+        <RevealGrid className="flex flex-col gap-6">
           {POSTS.map((p) => (
-            <li
-              key={p.slug}
-              className="rounded-xl border border-edge bg-surface p-5"
-            >
-              <span className="text-xs uppercase tracking-section text-faint">
-                {p.date}
-              </span>
-              <h2 className="mt-1 text-xl font-semibold text-ink">{p.title}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                {p.summary}
-              </p>
+            <RevealGridItem key={p.slug}>
               <Link
                 href={`/blog/${p.slug}`}
-                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                className="group block rounded-xl border border-edge bg-surface p-5 transition-all hover:border-ink/40 hover:shadow-sm"
               >
-                Read post <ArrowRight size={14} />
+                <span className="text-xs uppercase tracking-section text-faint">
+                  {p.date} · {p.author}
+                </span>
+                <h2 className="mt-1 text-xl font-semibold text-ink">
+                  {p.title}
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-muted">
+                  {p.summary}
+                </p>
+                <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 group-hover:text-indigo-700">
+                  Read post
+                  <ArrowRight
+                    size={14}
+                    className="transition-transform group-hover:translate-x-0.5"
+                  />
+                </span>
               </Link>
-            </li>
+            </RevealGridItem>
           ))}
-        </ul>
+        </RevealGrid>
       </section>
     </main>
   );

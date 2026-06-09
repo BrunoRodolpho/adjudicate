@@ -141,7 +141,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "Scores model output groundedness as an observability signal feeding release gates and drift, without perturbing the decision.",
     whatItDoes:
-      "An observability-layer scorer attaches a groundedness/hallucination metric to a turn's telemetry. It is upstream-only: the score informs dashboards, release-gating thresholds and drift baselines, but is never an argument to the kernel decision — a low score widens what operators see, it does not silently alter an adjudication.",
+      "An observability-layer scorer attaches a groundedness/hallucination metric to a turn's telemetry. It is upstream-only: the score informs dashboards, release-gating thresholds and drift baselines, but is never an argument to the kernel decision — a low score widens what operators see, it does not silently alter an adjudication. The problem it solves: model output can be confidently wrong, and a guard that only checks structure can't tell. Reach for it when you ship LLM features whose answers feed downstream actions and you need an early-warning signal for ungrounded output. It pairs with Tier-1 capabilities as a downstream risk gate — feeding release-gating thresholds and drift baselines — which is why operators typically gate releases or escalate reviews when scores drop below a configured threshold, rather than waiting for a user to catch the error.",
     adr: {
       id: "ADR-124",
       path: "docs/architecture/adr/ADR-124-hallucination-scoring.md",
@@ -175,7 +175,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "Generates a signed manifest of every model, pack, guard and adapter in the deployment — a supply-chain inventory for AI.",
     whatItDoes:
-      "The conformance package walks the installed packs, guards, models and adapters and emits a deterministic AI-BOM manifest: what is running, at what version, governed by which policies. It is the provenance artifact auditors ask for, and the public transparency view exposes aggregate composition without leaking tenant detail.",
+      "The conformance package walks the installed packs, guards, models and adapters and emits a deterministic AI-BOM manifest: what is running, at what version, governed by which policies. It is the provenance artifact auditors ask for, and the public transparency view exposes aggregate composition without leaking tenant detail. The problem it solves: when a regulator or security review asks \"what AI is actually in production, and what governs it?\", most teams have to reconstruct the answer by hand. Reach for it when you owe an attestation — an EU AI Act conformance check, a SOC 2 inventory, an incident post-mortem. It composes with the rest of the kernel by inventorying the very guards and packs that enforce your Tier-1 decisions, so the same manifest that satisfies an auditor also tells you which capabilities defend each pack.",
     adr: {
       id: "ADR-127",
       path: "docs/architecture/adr/ADR-127-ai-bom.md",
@@ -203,7 +203,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "Runs a deterministic adversarial test suite against a policy bundle and reports how many attack vectors the kernel refused.",
     whatItDoes:
-      "A seeded PRNG drives a catalogue of adversarial scenarios (prompt-injection, taint-laundering, privilege escalation) through the real kernel and records the decision for each. Determinism means the same seed reproduces the same run, so defense posture becomes a regression-testable number with a history, not a one-off pentest.",
+      "A seeded PRNG drives a catalogue of adversarial scenarios (prompt-injection, taint-laundering, privilege escalation) through the real kernel and records the decision for each. Determinism means the same seed reproduces the same run, so defense posture becomes a regression-testable number with a history, not a one-off pentest. The problem it solves: a guard that looked airtight last month can quietly regress after a policy edit or model swap, and you won't know until an attacker finds the gap. Reach for it in CI on every policy change and on a schedule against shipped packs. It is the proving ground for your Tier-1 guards — each scenario it defends is a PII, command-risk or budget rule holding under attack — so a regressed run is a direct signal that a guard needs investigation before release.",
     adr: {
       id: "ADR-118",
       path: "docs/architecture/adr/ADR-118-red-team.md",
@@ -228,7 +228,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "Detects statistical drift in the decision-outcome distribution over time, flagging silent behavioral regressions.",
     whatItDoes:
-      "A detector compares a rolling window of decision-outcome distributions against a baseline using a distance metric, surfacing when the kernel's behavior shifts — e.g. a sudden spike in REWRITEs or a collapse in REFUSEs that would otherwise pass unnoticed. History is retained so drift can be trended and alerted on.",
+      "A detector compares a rolling window of decision-outcome distributions against a baseline using a distance metric, surfacing when the kernel's behavior shifts — e.g. a sudden spike in REWRITEs or a collapse in REFUSEs that would otherwise pass unnoticed. History is retained so drift can be trended and alerted on. The problem it solves: a model update, a new pack version, or a subtle policy change can shift how often your system refuses or rewrites without any single decision looking wrong. Reach for it as a continuous monitor once you have enough decision volume for a baseline — it is the smoke alarm for governance health. It watches the aggregate output of every Tier-1 guard at once, so an elevated band tells operators something changed system-wide and points them to the dimension (intent kind, pack, outcome) that moved, turning a silent regression into an alert they can act on.",
     adr: {
       id: "ADR-119",
       path: "docs/architecture/adr/ADR-119-behavioral-drift.md",
@@ -314,7 +314,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "Seals the active policy/pack configuration into a verifiable hash so tampering or drift from the approved config is detectable.",
     whatItDoes:
-      "The conformance package computes a deterministic seal over the loaded configuration (packs, policies, thresholds). At runtime the seal is checked against the approved value, so an unauthorised edit to what the kernel enforces is caught and surfaced — the public integrity view shows the seal's health without exposing the configuration itself.",
+      "The conformance package computes a deterministic seal over the loaded configuration (packs, policies, thresholds). At runtime the seal is checked against the approved value, so an unauthorised edit to what the kernel enforces is caught and surfaced — the public integrity view shows the seal's health without exposing the configuration itself. The problem it solves: your guards are only as trustworthy as the configuration they run, and a quiet edit to a threshold or a swapped pack can weaken every decision after it. Reach for it the moment your policy config becomes change-controlled — when an unapproved edit should be an incident, not a deploy. It is the integrity floor under every Tier-1 capability: the seal proves the PII, command-risk and budget rules in force are exactly the ones you approved, so when the seal verifies, operators can trust the decisions; when it drifts, they know the config moved before the kernel ever does.",
     adr: {
       id: "ADR-121",
       path: "docs/architecture/adr/ADR-121-config-integrity-seal.md",
@@ -340,7 +340,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "Statically analyses a policy bundle for contradictions, dead rules and unreachable outcomes before it ships.",
     whatItDoes:
-      "A Tier-3 analyzer inspects a policy bundle as a whole and reports diagnostics: rules that can never fire, outcomes shadowed by an earlier phase, contradictory thresholds. It is a design-time lint for governance — catching an incoherent policy in CI rather than as a production surprise.",
+      "A Tier-3 analyzer inspects a policy bundle as a whole and reports diagnostics: rules that can never fire, outcomes shadowed by an earlier phase, contradictory thresholds. It is a design-time lint for governance — catching an incoherent policy in CI rather than as a production surprise. The problem it solves: live tests only exercise the rules they happen to hit, so a dead rule or a contradiction can sit unnoticed until exactly the wrong envelope arrives. Reach for it in CI before a policy ships — run this design-time linter on the bundle source to surface structural issues no live test can find. It is the upstream complement to Red Team's runtime probing: where Red Team proves your guards hold under attack, the analyzer proves the policy is internally coherent in the first place — letting teams fix the bundle before a policy reaches production.",
     adr: {
       id: "ADR-125",
       path: "docs/architecture/adr/ADR-125-policy-coherence-analyzer.md",
@@ -371,7 +371,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "Orchestrates human approvals for ESCALATEd intents — registry, channels and a resolvable decision the kernel can resume on.",
     whatItDoes:
-      "When the kernel ESCALATEs, the approval engine parks the request in a registry, routes it to an approval channel, and exposes a resolvable handle. Once a human decides, the original intent resumes through the kernel with the approval recorded — turning ESCALATE from a dead-end into an auditable, resumable human-in-the-loop step.",
+      "When the kernel ESCALATEs, the approval engine parks the request in a registry, routes it to an approval channel, and exposes a resolvable handle. Once a human decides, the original intent resumes through the kernel with the approval recorded — turning ESCALATE from a dead-end into an auditable, resumable human-in-the-loop step. The problem it solves: without it, an ESCALATE just stops the agent — there is nowhere for the request to wait, no one notified, no clean way to pick it back up. Reach for it whenever some actions are too consequential to fully automate but too frequent to handle out-of-band: large refunds, sensitive-resource grants, destructive deploys. It is the workflow that makes every Tier-1 ESCALATE actionable — the registry it persists, the channel it routes to, and the audit chain a resolved approval resumes through turn human review into a first-class, replayable part of the decision.",
     adr: {
       id: "ADR-122",
       path: "docs/architecture/adr/ADR-122-approval-engine.md",
@@ -396,7 +396,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "Cross-session planner context that flows upstream into the prompt only — never into the hash, state or any guard.",
     whatItDoes:
-      "A MemoryStore folds past decisions and domain knowledge into the planner's context once per iteration, feeding both plan and prompt. Critically it is upstream-only: memory is type M, distinct from state S, and is never an argument to the envelope, adjudicate or any guard — so given identical (envelope, state, policy) the kernel decision is byte-identical with or without memory. A poisoned memory can at most widen what the model is shown; it cannot move a decision.",
+      "A MemoryStore folds past decisions and domain knowledge into the planner's context once per iteration, feeding both plan and prompt. Critically it is upstream-only: memory is type M, distinct from state S, and is never an argument to the envelope, adjudicate or any guard — so given identical (envelope, state, policy) the kernel decision is byte-identical with or without memory. A poisoned memory can at most widen what the model is shown; it cannot move a decision. The problem it solves: agents that forget across sessions repeat work and lose context, but the usual fix — feeding history straight into the decision path — opens a memory-poisoning attack surface. Reach for it when you want cross-session continuity (a planner that remembers prior outcomes and domain facts) without trusting that memory with authority. It is deliberately isolated from every Tier-1 guard: memory enriches what the model proposes, but the kernel still adjudicates the proposal under the same deterministic rules, so better recall never becomes a weaker decision.",
     adr: {
       id: "ADR-126",
       path: "docs/architecture/adr/ADR-126-agent-memory-store.md",
@@ -425,7 +425,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "A governance pack for AI-driven incident remediation that exercises all six outcomes — clamping blast radius and gating destructive ops.",
     whatItDoes:
-      "The pack governs an incident → remediation lifecycle: it DEFERs while a dependent service is down, REWRITEs an untrusted auto-remediation's blast radius down to bounds, ESCALATEs when an operator exceeds the radius threshold, REQUEST_CONFIRMATIONs before destructive remediation, and REFUSEs unknown or already-resolved incidents. A worked lighthouse for the decision algebra in an ops setting.",
+      "The pack governs an incident → remediation lifecycle: it DEFERs while a dependent service is down, REWRITEs an untrusted auto-remediation's blast radius down to bounds, ESCALATEs when an operator exceeds the radius threshold, REQUEST_CONFIRMATIONs before destructive remediation, and REFUSEs unknown or already-resolved incidents. A worked lighthouse for the decision algebra in an ops setting. The problem it solves: AI-driven remediation is fast but blunt — left unchecked it can amplify an outage by acting on a stale or oversized fix. Reach for it when you let agents touch production during incidents and need bounded autonomy: who can trigger a fix, what blast radius is safe, and when a human must sign off. It composes the Tier-1 primitives into a domain workflow — the same clamp, escalate and confirm decisions, wired to incident semantics — so an infra team gets least-blast-radius remediation without writing the algebra from scratch.",
     adr: {
       id: "ADR-116",
       path: "docs/architecture/adr/ADR-116-post-v1-extension-discipline.md",
@@ -459,7 +459,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "A governance pack for agent access requests — least-privilege clamps, sensitive-resource escalation and confirmed revokes.",
     whatItDoes:
-      "The pack governs an access request → review → grant/revoke lifecycle across all six outcomes: DEFER a request with no resolved review, REWRITE an over-provisioned request down to least privilege, ESCALATE sensitive-resource access to a human reviewer, REQUEST_CONFIRMATION before a destructive revoke, REFUSE unknown resources or rejected reviews. Justification text is PII-classified per the data-classification guard.",
+      "The pack governs an access request → review → grant/revoke lifecycle across all six outcomes: DEFER a request with no resolved review, REWRITE an over-provisioned request down to least privilege, ESCALATE sensitive-resource access to a human reviewer, REQUEST_CONFIRMATION before a destructive revoke, REFUSE unknown resources or rejected reviews. Justification text is PII-classified per the data-classification guard. The problem it solves: agents (and the humans behind them) tend to over-ask for access, and ad-hoc grant flows drift toward over-privilege and unsafe revokes. Reach for it when AI or automation participates in access decisions and you want least-privilege enforced by default: down-scope what's over-provisioned, escalate the sensitive, confirm before destroying. It wires the Tier-1 primitives into an access-control domain — and leans on the PII / data-classification guard to keep justification text safe — so an access workflow inherits the same auditable, six-outcome discipline as the rest of the kernel.",
     adr: {
       id: "ADR-116",
       path: "docs/architecture/adr/ADR-116-post-v1-extension-discipline.md",

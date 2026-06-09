@@ -1,10 +1,12 @@
 "use client";
 
+import { motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ConsoleHandoff } from "@/components/playground/ConsoleHandoff";
 import { ReceiptCard } from "@/components/receipt/ReceiptCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import type { PlaygroundResponse } from "@/lib/kernel-runner";
+import { resultRevealVariants } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
 /**
@@ -16,8 +18,11 @@ import { cn } from "@/lib/cn";
  * kernel/transport failure) render in a refuse-tinted box so a failed run is
  * unmistakable but never alarming.
  *
- * Reduced-motion: the only animation is the spinner, gated behind
- * `motion-reduce:animate-none`.
+ * Motion: the run is the point, so the receipt (and the error alert) fade +
+ * rise in when they land — the same "materialization" beat the guided step
+ * uses. The spinner stays gated behind `motion-reduce:animate-none`. Under
+ * `prefers-reduced-motion` the whole result region renders immediately with no
+ * transform (the `useReducedMotion` short-circuit).
  */
 export function SandboxResult({
   result,
@@ -30,6 +35,15 @@ export function SandboxResult({
   readonly busy: boolean;
   readonly className?: string;
 }) {
+  const reduce = useReducedMotion();
+  const motionProps = reduce
+    ? {}
+    : {
+        initial: "hidden" as const,
+        animate: "visible" as const,
+        variants: resultRevealVariants,
+      };
+
   return (
     <div
       className={cn("flex flex-col gap-4", className)}
@@ -48,7 +62,8 @@ export function SandboxResult({
       ) : null}
 
       {error && !busy ? (
-        <div
+        <motion.div
+          {...motionProps}
           role="alert"
           className="flex gap-3 rounded-xl border border-refuse/40 bg-refuse/5 p-4"
         >
@@ -65,20 +80,20 @@ export function SandboxResult({
               {error}
             </p>
           </div>
-        </div>
+        </motion.div>
       ) : null}
 
       {result && !busy ? (
-        <>
+        <motion.div {...motionProps} className="flex flex-col gap-4">
           <ReceiptCard result={result} variant="full" />
-          <ConsoleHandoff />
-        </>
+          <ConsoleHandoff context="sandbox" />
+        </motion.div>
       ) : null}
 
       {!result && !error && !busy ? (
         <EmptyState
-          title="No run yet"
-          hint="Adjust the inputs on the left and press Run to see the real kernel decision and its signed receipt here."
+          title="Your receipt will appear here"
+          hint="Configure a Pack and intent, edit the payload, and run the real kernel. The receipt below shows every decision step, guard match, and signature — ideal for testing edge cases or debugging policy rules."
           className="border-edge text-muted"
         />
       ) : null}

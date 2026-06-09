@@ -1,8 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle, CircleCheck } from "lucide-react";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { RevealRows, RevealRow } from "./ChartReveal";
+import { EASE_OUT, REVEAL_VIEWPORT } from "@/lib/motion";
 import { SR_ONLY } from "@/components/console-kit/charts/BarDistribution";
 import {
   bandFor,
@@ -143,12 +146,13 @@ export function TokenGovernanceReplica({
                     <Th>Burn</Th>
                   </tr>
                 </thead>
-                <tbody>
+                <RevealRows as="tbody">
                   {TOKEN_REPLICA_TENANTS.map((t) => {
                     const band = bandFor(t.consumed, t.budget);
                     const style = BAND_STYLE[band];
                     return (
-                      <tr
+                      <RevealRow
+                        as="tr"
                         key={t.tenantId}
                         data-band={band}
                         className="border-b border-console-edge/50 last:border-0"
@@ -187,10 +191,10 @@ export function TokenGovernanceReplica({
                             label={`tenant ${t.tenantId}`}
                           />
                         </td>
-                      </tr>
+                      </RevealRow>
                     );
                   })}
-                </tbody>
+                </RevealRows>
               </table>
             </div>
           </section>
@@ -217,12 +221,13 @@ export function TokenGovernanceReplica({
                     <Th align="right">Remaining</Th>
                   </tr>
                 </thead>
-                <tbody>
+                <RevealRows as="tbody">
                   {TOKEN_REPLICA_SESSIONS.map((s) => {
                     const band = bandFor(s.consumed, s.budget);
                     const style = BAND_STYLE[band];
                     return (
-                      <tr
+                      <RevealRow
+                        as="tr"
                         key={s.sessionId}
                         data-band={band}
                         className="border-b border-console-edge/50 last:border-0"
@@ -259,10 +264,10 @@ export function TokenGovernanceReplica({
                         >
                           {s.remaining?.toLocaleString() ?? "—"}
                         </td>
-                      </tr>
+                      </RevealRow>
                     );
                   })}
-                </tbody>
+                </RevealRows>
               </table>
             </div>
           </section>
@@ -288,9 +293,10 @@ export function TokenGovernanceReplica({
                   : `No ${scope}-scope budget exhaustions recorded in this window.`}
               </p>
             ) : (
-              <ul className="divide-y divide-console-edge/50">
+              <RevealRows as="ul" className="divide-y divide-console-edge/50">
                 {exhaustionEvents.map((e) => (
-                  <li
+                  <RevealRow
+                    as="li"
                     key={e.id}
                     className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[11px]"
                   >
@@ -312,9 +318,9 @@ export function TokenGovernanceReplica({
                     <span className="ml-auto tabular-nums text-red-300">
                       {e.consumed.toLocaleString()} / {e.budget.toLocaleString()}
                     </span>
-                  </li>
+                  </RevealRow>
                 ))}
-              </ul>
+              </RevealRows>
             )}
           </div>
         </section>
@@ -392,6 +398,7 @@ function BurnBar({
   readonly band: TokenBand;
   readonly label: string;
 }) {
+  const reduce = useReducedMotion();
   const pct =
     budget !== undefined && budget > 0
       ? Math.round((consumed / budget) * 100)
@@ -401,16 +408,27 @@ function BurnBar({
     budget !== undefined
       ? `${label}: ${consumed.toLocaleString()} of ${budget.toLocaleString()} tokens, ${pct}%, ${TOKEN_BAND_LABEL[band]}`
       : `${label}: ${consumed.toLocaleString()} tokens, no budget configured`;
+  const fillClass = cn("h-full origin-left rounded-sm", BAND_STYLE[band].bar);
   return (
     <div
       role="img"
       aria-label={aria}
       className="h-2 w-full min-w-[80px] overflow-hidden rounded-sm bg-console-canvas"
     >
-      <div
-        className={cn("h-full rounded-sm", BAND_STYLE[band].bar)}
-        style={{ width: `${widthPct}%` }}
-      />
+      {/* Fill animates in via scaleX (transform-only — the width is fixed, so
+          there is no layout shift). Reduced-motion: rendered at full extent. */}
+      {reduce ? (
+        <div className={fillClass} style={{ width: `${widthPct}%` }} />
+      ) : (
+        <motion.div
+          className={fillClass}
+          style={{ width: `${widthPct}%` }}
+          initial={{ scaleX: 0 }}
+          whileInView={{ scaleX: 1 }}
+          viewport={REVEAL_VIEWPORT}
+          transition={{ duration: 0.7, ease: EASE_OUT }}
+        />
+      )}
     </div>
   );
 }

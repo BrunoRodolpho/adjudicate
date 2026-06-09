@@ -7,6 +7,8 @@ import {
   type PublicDriftStatus,
 } from "@/lib/drift-transparency";
 import { DRIFT_TRANSPARENCY_SAMPLE } from "@/lib/transparency-fixtures";
+import { Reveal } from "@/components/home/Reveal";
+import { PulseIcon } from "@/components/transparency/PulseIcon";
 
 export const metadata: Metadata = {
   title: "Behavioral drift · Transparency · adjudicate",
@@ -77,6 +79,31 @@ export default function DriftTransparencyPage() {
         </div>
       </header>
 
+      <section aria-labelledby="explainer-heading" className="bg-canvas pb-8">
+        <div className="mx-auto max-w-6xl px-6">
+          <h2 id="explainer-heading" className="sr-only">
+            What behavioral drift is
+          </h2>
+          <div className="max-w-2xl rounded-sm border border-edge bg-surface p-4">
+            <p className="text-xs uppercase tracking-section text-muted">
+              What this shows
+            </p>
+            <p className="mt-2 text-sm text-muted">
+              <span className="text-ink">Behavioral drift</span> means the
+              agent&apos;s decisions are shifting away from their expected
+              pattern — a sudden change in the mix of outcomes (more refusals, a
+              never-seen intent kind). That usually signals one of three things:
+              a model update, a new pack version, or a real governance problem.
+              The <span className="text-ink">severity band</span> below tells you
+              how urgent it is; if you ever see{" "}
+              <span className="text-ink">High</span>, the right move is to compare
+              the recent decision distribution against the baseline in the
+              operator console before shipping anything new.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section aria-labelledby="status-heading" className="bg-canvas pb-16">
         <div className="mx-auto max-w-6xl px-6">
           <h2 id="status-heading" className="sr-only">
@@ -92,16 +119,18 @@ export default function DriftTransparencyPage() {
             {/* Drift indicator. */}
             <div className="flex items-center gap-3">
               {healthy ? (
-                <Activity
+                <PulseIcon
+                  icon={Activity}
                   size={28}
-                  aria-hidden
-                  className="shrink-0 text-emerald-400"
+                  pulse={false}
+                  className="text-emerald-400"
                 />
               ) : (
-                <TrendingUp
+                <PulseIcon
+                  icon={TrendingUp}
                   size={28}
-                  aria-hidden
-                  className="shrink-0 text-amber-400"
+                  pulse
+                  className="text-amber-400"
                 />
               )}
               <div className="flex flex-col">
@@ -152,7 +181,7 @@ export default function DriftTransparencyPage() {
             </p>
           </div>
 
-          <div className="mt-6 max-w-2xl rounded-sm border border-edge bg-surface p-4">
+          <Reveal className="mt-6 max-w-2xl rounded-sm border border-edge bg-surface p-4">
             <p className="text-xs uppercase tracking-section text-muted">
               What this does not show
             </p>
@@ -165,7 +194,7 @@ export default function DriftTransparencyPage() {
               allowlist that carries only a coarse severity band, an alert count,
               and a single dimension name.
             </p>
-          </div>
+          </Reveal>
         </div>
       </section>
     </main>

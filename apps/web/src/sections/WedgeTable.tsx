@@ -1,7 +1,10 @@
+"use client";
+
 import { Check, Minus, X } from "lucide-react";
 import { WEDGE } from "@/content/wedge";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { CodeBlock } from "@/components/ui/CodeBlock";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 
 function Mark({ value }: { value: "yes" | "no" | "partial" | "seam" }) {
   if (value === "yes")
@@ -54,9 +57,13 @@ export function WedgeTable() {
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <Stagger as="tbody" stagger={0.06}>
               {WEDGE.map((row) => (
-                <tr key={row.capability} className="border-b border-edge/60 last:border-b-0">
+                <StaggerItem
+                  as="tr"
+                  key={row.capability}
+                  className="group border-b border-edge/60 transition-shadow last:border-b-0 motion-safe:transition-transform motion-safe:hover:-translate-y-0.5 hover:shadow-md"
+                >
                   <td className="px-5 py-4 align-top text-ink">
                     {row.capability}
                     {row.snippet ? (
@@ -71,9 +78,9 @@ export function WedgeTable() {
                   <td className="px-5 py-4 align-top">
                     <Mark value={row.adjudicate} />
                   </td>
-                </tr>
+                </StaggerItem>
               ))}
-            </tbody>
+            </Stagger>
           </table>
         </div>
       </div>

@@ -5,6 +5,9 @@ import { DepthHeader } from "@/components/ui/DepthHeader";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { DecisionChip } from "@/components/ui/DecisionChip";
+import { Reveal } from "@/components/home/Reveal";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { HoverLift } from "@/components/motion/HoverLift";
 import {
   CAPABILITIES,
   type CapabilityContent,
@@ -59,39 +62,50 @@ const FAMILIES: ReadonlyArray<{
 /**
  * One capability card. Every card now links to its full /capabilities/[slug]
  * deep-dive — `tier` is shown only as a subtle maturity badge, not as a gate.
+ *
+ * Wrapped in StaggerItem + HoverLift so the grid cascades in on scroll and each
+ * card lifts on hover (the same affordance the /recipes index uses). Both are
+ * reduced-motion-safe; the Card supplies the border + base hover.
  */
 function CapabilityCard({ cap }: { readonly cap: CapabilityContent }) {
   return (
-    <Card href={`/capabilities/${cap.slug}`} className="flex h-full flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <Badge tone="adr">{cap.adr.id}</Badge>
-        {cap.tier === 1 ? (
-          <Badge tone="shipped">Tier 1</Badge>
-        ) : (
-          <Badge tone="roadmap">Tier 2</Badge>
-        )}
-      </div>
+    <StaggerItem className="h-full">
+      <HoverLift className="h-full">
+        <Card
+          href={`/capabilities/${cap.slug}`}
+          className="flex h-full flex-col gap-3"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <Badge tone="adr">{cap.adr.id}</Badge>
+            {cap.tier === 1 ? (
+              <Badge tone="shipped">Tier 1</Badge>
+            ) : (
+              <Badge tone="roadmap">Tier 2</Badge>
+            )}
+          </div>
 
-      <div>
-        <h3 className="text-base font-semibold leading-tight text-ink">
-          {cap.name}
-        </h3>
-        <p className="mt-1.5 text-sm leading-relaxed text-muted">
-          {cap.oneLiner}
-        </p>
-      </div>
+          <div>
+            <h3 className="text-base font-semibold leading-tight text-ink">
+              {cap.name}
+            </h3>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted">
+              {cap.oneLiner}
+            </p>
+          </div>
 
-      <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
-        {cap.outcomes.map((kind) => (
-          <DecisionChip key={kind} kind={kind} size="sm" />
-        ))}
-      </div>
+          <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
+            {cap.outcomes.map((kind) => (
+              <DecisionChip key={kind} kind={kind} size="sm" />
+            ))}
+          </div>
 
-      <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-section text-muted">
-        Open capability
-        <ArrowRight size={12} aria-hidden="true" />
-      </p>
-    </Card>
+          <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-section text-muted">
+            Open capability
+            <ArrowRight size={12} aria-hidden="true" />
+          </p>
+        </Card>
+      </HoverLift>
+    </StaggerItem>
   );
 }
 
@@ -105,11 +119,13 @@ export default function CapabilitiesPage() {
   return (
     <main>
       <Section>
-        <DepthHeader
-          eyebrow="Capabilities"
-          title="14 capabilities, four families."
-          subtitle="Every capability maps to a real package and a real ADR, and every one opens a full deep-dive. The Tier badge marks maturity: Tier 1 runs the real kernel or a live projection; Tier 2 is fixture-illustrative."
-        />
+        <Reveal>
+          <DepthHeader
+            eyebrow="Capabilities"
+            title="14 capabilities, four families."
+            subtitle="Every capability maps to a real package and a real ADR, and every one opens a full deep-dive. The Tier badge marks maturity: Tier 1 runs the real kernel or a live projection; Tier 2 is fixture-illustrative."
+          />
+        </Reveal>
 
         <div className="mt-12 flex flex-col gap-16">
           {FAMILIES.map((family) => {
@@ -122,11 +138,11 @@ export default function CapabilitiesPage() {
                   </h2>
                   <p className="mt-1 text-sm text-muted">{family.blurb}</p>
                 </div>
-                <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Stagger className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {caps.map((cap) => (
                     <CapabilityCard key={cap.slug} cap={cap} />
                   ))}
-                </div>
+                </Stagger>
               </div>
             );
           })}

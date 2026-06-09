@@ -63,6 +63,25 @@ const AUDIT_SNIPPET = `import { createPostgresAuditSink } from "@adjudicate/audi
 // intent_audit table; persistence is deployment-specific, not required to run.
 const auditSink = createPostgresAuditSink({ write });`;
 
+/**
+ * A representative intent_audit row for a DEFER outcome — the shape that lands
+ * in the partitioned table when the kernel parks an intent on an external
+ * signal. Illustrative sample data: hashes are fabricated and no raw payload,
+ * command text, or PII is shown — only the governance fields a row carries.
+ */
+const AUDIT_ROW_SNIPPET = `// Illustrative sample row — intent_audit (partitioned by month).
+{
+  "intentHash": "9f4c1ad7…c4f2",   // dedup key — same intent, same hash
+  "decision":   "DEFER",
+  "recordedAt": "2026-06-08T14:02:11Z",
+  "auditHash":  "a31e…",            // tamper-evident over the whole record
+  "metadata": {
+    "reason":  "awaiting_payment_confirmation",
+    "signal":  "payment.confirmed",
+    "timeoutMs": 900000             // re-evaluate if the signal never arrives
+  }
+}`;
+
 export default function DeployPage() {
   return (
     <main>
@@ -158,6 +177,34 @@ export default function DeployPage() {
           code={AUDIT_SNIPPET}
         />
 
+        <p className="mt-8 max-w-3xl text-base leading-relaxed text-muted">
+          To make the trail concrete: when the kernel{" "}
+          <strong className="text-ink">DEFERs</strong> an intent — parking it
+          until an external signal arrives — here is the kind of row that lands
+          in <code className="font-mono text-sm text-ink">intent_audit</code>.
+          The <code className="font-mono text-sm text-ink">metadata</code> jsonb
+          column carries the why (the awaited signal and its timeout); no raw
+          payload or command text is ever stored in these illustrative fields.
+        </p>
+
+        <CodeBlock
+          className="mt-4"
+          language="json"
+          filename="intent_audit · sample row (DEFER)"
+          code={AUDIT_ROW_SNIPPET}
+        />
+
+        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-muted">
+          That same row is what an operator reads end-to-end in the{" "}
+          <a
+            href="#operator-console"
+            className="font-medium text-ink underline decoration-edge underline-offset-2 hover:decoration-ink"
+          >
+            operator console
+          </a>{" "}
+          — from the durable mirror, and live over the bus.
+        </p>
+
         <Callout className="mt-6" tone="warn" title="Bring your own retention.">
           Partitions are created and dropped on your schedule — typically a 7-year
           window for financial intents, 2 years for general transactional audit.
@@ -166,7 +213,7 @@ export default function DeployPage() {
       </Section>
 
       {/* (c) Operator console */}
-      <Section>
+      <Section id="operator-console">
         <h2 className="text-2xl font-semibold tracking-tight text-ink">
           Operator console
         </h2>

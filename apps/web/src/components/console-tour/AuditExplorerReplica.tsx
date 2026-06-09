@@ -2,6 +2,7 @@
 
 import { AuditTableReplica } from "./AuditTableReplica";
 import { useSimulatedTail } from "./useSimulatedTail";
+import { ChartReveal } from "./ChartReveal";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
 import { CONSOLE_REPLICA_RECORDS } from "@/lib/console-replica-records";
 import { cn } from "@/lib/cn";
@@ -91,10 +92,12 @@ export function AuditExplorerReplica() {
           </p>
         ) : null}
 
-        <AuditTableReplica
-          records={tail.records}
-          highlightHashes={tail.newHashes}
-        />
+        <ChartReveal>
+          <AuditTableReplica
+            records={tail.records}
+            highlightHashes={tail.newHashes}
+          />
+        </ChartReveal>
       </div>
     </ConsoleChrome>
   );

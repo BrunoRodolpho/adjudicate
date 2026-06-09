@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { DecisionChip } from "@/components/ui/DecisionChip";
 import { StepStrip } from "@/components/ui/StepStrip";
 import { Callout } from "@/components/ui/Callout";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { REPO_BASE } from "@/content/primitives";
 import type { CapabilityContent } from "@/content/capabilities";
 import { WorkedExample } from "@/components/capabilities/WorkedExample";
@@ -61,9 +62,15 @@ export function CapabilityPageLayout({
       />
 
       <Section className="pt-10">
-        <div className="flex flex-col gap-16">
+        {/*
+          The body blocks cascade in as the reader scrolls: the outer Stagger
+          drives each StaggerItem-wrapped block through revealVariants (fade +
+          small rise). Reduced-motion-safe — under prefers-reduced-motion both
+          render as plain elements with everything visible at once.
+        */}
+        <Stagger className="flex flex-col gap-16">
           {/* Badges + outcomes. */}
-          <div className="flex flex-col gap-4">
+          <StaggerItem className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone="adr">{capability.adr.id}</Badge>
               <Badge tone={realKernel ? "shipped" : "roadmap"}>
@@ -76,10 +83,10 @@ export function CapabilityPageLayout({
                 <DecisionChip key={kind} kind={kind} size="sm" />
               ))}
             </div>
-          </div>
+          </StaggerItem>
 
           {/* Step-2 context note. */}
-          <div className="flex flex-col gap-4 rounded-xl border border-edge bg-surface p-6">
+          <StaggerItem className="flex flex-col gap-4 rounded-xl border border-edge bg-surface p-6">
             <StepStrip active={2} />
             <p className="text-sm leading-relaxed text-muted">
               This is what happens at{" "}
@@ -88,109 +95,119 @@ export function CapabilityPageLayout({
               proposed action and disposes it into one of the six outcomes
               above, with a structured basis the receipt carries forward.
             </p>
-          </div>
+          </StaggerItem>
 
           {/* What it does. */}
-          <Block id="what-it-does" title="What it does">
-            <p className="max-w-3xl text-base leading-relaxed text-muted">
-              {capability.whatItDoes}
-            </p>
-          </Block>
+          <StaggerItem>
+            <Block id="what-it-does" title="What it does">
+              <p className="max-w-3xl text-base leading-relaxed text-muted">
+                {capability.whatItDoes}
+              </p>
+            </Block>
+          </StaggerItem>
 
           {/* Provenance. */}
-          <Block
-            id="provenance"
-            title="Provenance"
-            subtitle="Every claim on this page resolves to a real ADR and a real source file. These links go straight to the code."
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <ProvenanceCard
-                href={adrHref}
-                icon={FileText}
-                eyebrow="Governing ADR"
-                primary={capability.adr.id}
-                secondary={capability.adr.path}
-              />
-              <ProvenanceCard
-                href={sourceHref}
-                icon={Package}
-                eyebrow="Implementing package"
-                primary={capability.pkg.name}
-                secondary={capability.pkg.sourcePath}
-              />
-            </div>
-          </Block>
+          <StaggerItem>
+            <Block
+              id="provenance"
+              title="Provenance"
+              subtitle="Every claim on this page resolves to a real ADR and a real source file. These links go straight to the code."
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ProvenanceCard
+                  href={adrHref}
+                  icon={FileText}
+                  eyebrow="Governing ADR"
+                  primary={capability.adr.id}
+                  secondary={capability.adr.path}
+                />
+                <ProvenanceCard
+                  href={sourceHref}
+                  icon={Package}
+                  eyebrow="Implementing package"
+                  primary={capability.pkg.name}
+                  secondary={capability.pkg.sourcePath}
+                />
+              </div>
+            </Block>
+          </StaggerItem>
 
           {/* Worked example. */}
-          <Block
-            id="worked-example"
-            title="Worked example"
-            subtitle={
-              capability.interactivity === "real-kernel"
-                ? "The real kernel, run server-side at render time — not a mock."
-                : "An illustrative example projected from public, aggregate-only sample data."
-            }
-          >
-            <WorkedExample capability={capability} />
-          </Block>
+          <StaggerItem>
+            <Block
+              id="worked-example"
+              title="Worked example"
+              subtitle={
+                capability.interactivity === "real-kernel"
+                  ? "The real kernel, run server-side at render time — not a mock."
+                  : "An illustrative example projected from public, aggregate-only sample data."
+              }
+            >
+              <WorkedExample capability={capability} />
+            </Block>
+          </StaggerItem>
 
           {/* How it appears in the console. */}
-          <Block
-            id="console"
-            title="How it appears in the console"
-            subtitle="Where an operator sees this capability in the running system."
-          >
-            <div className="flex flex-col gap-4 rounded-xl border border-edge bg-surface p-6">
-              <p className="text-sm leading-relaxed text-muted">
-                {capability.consoleAppearance.surface}
-              </p>
-              {consoleHref ? (
-                <a
-                  href={consoleHref}
-                  className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm font-medium text-ink transition-colors hover:border-ink/30"
-                >
-                  {capability.consoleAppearance.replicaRoute
-                    ? "Open the console replica"
-                    : "Open the public view"}
-                  <ArrowUpRight size={14} aria-hidden="true" />
-                </a>
-              ) : (
-                <Callout tone="info">
-                  This capability surfaces inside the operator console; there is
-                  no public replica route for it yet.
-                </Callout>
-              )}
-            </div>
-          </Block>
+          <StaggerItem>
+            <Block
+              id="console"
+              title="How it appears in the console"
+              subtitle="Where an operator sees this capability in the running system."
+            >
+              <div className="flex flex-col gap-4 rounded-xl border border-edge bg-surface p-6">
+                <p className="text-sm leading-relaxed text-muted">
+                  {capability.consoleAppearance.surface}
+                </p>
+                {consoleHref ? (
+                  <a
+                    href={consoleHref}
+                    className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm font-medium text-ink transition-colors hover:border-ink/30"
+                  >
+                    {capability.consoleAppearance.replicaRoute
+                      ? "Open the console replica"
+                      : "Open the public view"}
+                    <ArrowUpRight size={14} aria-hidden="true" />
+                  </a>
+                ) : (
+                  <Callout tone="info">
+                    This capability surfaces inside the operator console; there
+                    is no public replica route for it yet.
+                  </Callout>
+                )}
+              </div>
+            </Block>
+          </StaggerItem>
 
           {/* Public data band. */}
           {capability.consoleAppearance.transparencyRoute ? (
-            <Block
-              id="public-data"
-              title="Public data"
-              subtitle="The matching public transparency projection — aggregate-only, illustrative sample data, no tenant detail."
-            >
-              <a
-                href={capability.consoleAppearance.transparencyRoute}
-                className="flex items-center justify-between gap-4 rounded-xl border border-edge bg-surface p-6 transition-colors hover:border-ink/30"
+            <StaggerItem>
+              <Block
+                id="public-data"
+                title="Public data"
+                subtitle="The matching public transparency projection — aggregate-only, illustrative sample data, no tenant detail."
               >
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-ink">
-                    Public transparency view
-                  </span>
-                  <code className="text-xs text-muted">
-                    {capability.consoleAppearance.transparencyRoute}
-                  </code>
-                </div>
-                <ArrowUpRight
-                  size={18}
-                  className="shrink-0 text-faint"
-                  aria-hidden="true"
-                />
-              </a>
-            </Block>
+                <a
+                  href={capability.consoleAppearance.transparencyRoute}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-edge bg-surface p-6 transition-colors hover:border-ink/30"
+                >
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium text-ink">
+                      Public transparency view
+                    </span>
+                    <code className="text-xs text-muted">
+                      {capability.consoleAppearance.transparencyRoute}
+                    </code>
+                  </div>
+                  <ArrowUpRight
+                    size={18}
+                    className="shrink-0 text-faint"
+                    aria-hidden="true"
+                  />
+                </a>
+              </Block>
+            </StaggerItem>
           ) : null}
-        </div>
+        </Stagger>
       </Section>
     </main>
   );

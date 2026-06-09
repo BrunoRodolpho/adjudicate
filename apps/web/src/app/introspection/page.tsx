@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { GuardMetadataGraph } from "@/sections/GuardMetadataGraph";
 import { ConsolePreview } from "@/sections/ConsolePreview";
+import { GuardMetadataPrimer } from "@/sections/GuardMetadataPrimer";
 import { DepthHeader } from "@/components/ui/DepthHeader";
 
 export const metadata: Metadata = {
@@ -28,8 +29,9 @@ export default function IntrospectionPage() {
       <DepthHeader
         eyebrow="Depth · introspection"
         title="Your policy is no longer a black box."
-        subtitle="Every guard carries optional structured metadata that downstream tooling — auditors, analyzers, the operator console — can read programmatically. The graph below renders one descriptor per shipped Pack."
+        subtitle="GuardMetadata is a layer of structured labels on every policy rule — so auditors, analyzers, and the operator console can read what governs your AI actions programmatically, not by guessing from a name. The primer below explains the five description kinds; the graph renders one descriptor per shipped Pack."
       />
+      <GuardMetadataPrimer />
       <GuardMetadataGraph />
       <ConsolePreview />
     </main>

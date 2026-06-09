@@ -6,6 +6,11 @@ import {
   type PublicRedTeamDefense,
 } from "@/lib/red-team-transparency";
 import { RED_TEAM_TRANSPARENCY_SAMPLE } from "@/lib/transparency-fixtures";
+import { Reveal } from "@/components/home/Reveal";
+import {
+  RevealGrid,
+  RevealGridItem,
+} from "@/components/transparency/RevealGrid";
 
 export const metadata: Metadata = {
   title: "Red-team defenses · Transparency · adjudicate",
@@ -58,6 +63,32 @@ export default function RedTeamTransparencyPage() {
         </div>
       </header>
 
+      <section aria-labelledby="explainer-heading" className="bg-canvas pb-8">
+        <div className="mx-auto max-w-6xl px-6">
+          <h2 id="explainer-heading" className="sr-only">
+            What red-team defenses are
+          </h2>
+          <div className="max-w-2xl rounded-sm border border-edge bg-surface p-4">
+            <p className="text-xs uppercase tracking-section text-muted">
+              What this shows
+            </p>
+            <p className="mt-2 text-sm text-muted">
+              Each pack is stress-tested against a known adversarial suite —{" "}
+              <span className="text-ink">prompt injection</span>,{" "}
+              <span className="text-ink">taint escalation</span>, and{" "}
+              <span className="text-ink">tool-scope attacks</span> — replayed
+              through the pure kernel on every change. The cards below report
+              whether those defenses held in the most recent run. A{" "}
+              <span className="text-ink">clean</span> pack passed every scenario;
+              a <span className="text-ink">regressed</span> pack let at least one
+              probe through and needs immediate investigation. Read the totals as
+              &ldquo;held the line on N of M attacks&rdquo; — the goal is always
+              the full suite.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section aria-labelledby="defenses-heading" className="bg-canvas pb-16">
         <div className="mx-auto max-w-6xl px-6">
           <h2 id="defenses-heading" className="sr-only">
@@ -72,17 +103,17 @@ export default function RedTeamTransparencyPage() {
               Transparency data temporarily unavailable.
             </p>
           ) : (
-            <ul
+            <RevealGrid
               data-testid="red-team-defenses"
               className="grid gap-3 sm:grid-cols-2"
             >
               {defenses.map((d) => (
                 <DefenseCard key={d.packId} defense={d} />
               ))}
-            </ul>
+            </RevealGrid>
           )}
 
-          <div className="mt-6 max-w-2xl rounded-sm border border-edge bg-surface p-4">
+          <Reveal className="mt-6 max-w-2xl rounded-sm border border-edge bg-surface p-4">
             <p className="text-xs uppercase tracking-section text-muted">
               What this does not show
             </p>
@@ -95,7 +126,7 @@ export default function RedTeamTransparencyPage() {
               allowlist that carries only two counts and a clean/regressed band
               per pack.
             </p>
-          </div>
+          </Reveal>
 
           <p className="mt-4 text-xs text-faint">
             As of <time dateTime={AS_OF}>{AS_OF.slice(0, 10)}</time> ·{" "}
@@ -113,7 +144,7 @@ export default function RedTeamTransparencyPage() {
 function DefenseCard({ defense }: { defense: PublicRedTeamDefense }) {
   const clean = defense.lastRunStatus === "clean";
   return (
-    <li
+    <RevealGridItem
       data-testid="red-team-defense-card"
       data-pack={defense.packId}
       role="group"
@@ -145,7 +176,7 @@ function DefenseCard({ defense }: { defense: PublicRedTeamDefense }) {
           {clean ? "Clean" : "Regressed"}
         </span>
       </div>
-    </li>
+    </RevealGridItem>
   );
 }
 

@@ -4,6 +4,11 @@ import { ArrowLeft } from "lucide-react";
 import { PUBLIC_COHORT_FLOOR } from "@/lib/public-projection";
 import { projectPiiTransparency } from "@/lib/pii-transparency";
 import { PII_TRANSPARENCY_SAMPLE } from "@/lib/transparency-fixtures";
+import { Reveal } from "@/components/home/Reveal";
+import {
+  AnimatedBarRows,
+  type BarRow,
+} from "@/components/transparency/AnimatedBarRows";
 
 export const metadata: Metadata = {
   title: "PII handling · Transparency · adjudicate",
@@ -23,6 +28,27 @@ export default function PiiTransparencyPage() {
   const buckets = projectPiiTransparency(PII_TRANSPARENCY_SAMPLE);
   const maxValue = buckets.reduce((m, b) => Math.max(m, b.value), 0);
 
+  const rows: BarRow[] = buckets.map((bucket) => {
+    const widthPct =
+      maxValue > 0
+        ? Math.max(2, Math.round((bucket.value / maxValue) * 100))
+        : 0;
+    return {
+      key: `${bucket.sensitivityLevel}-${bucket.disposition}`,
+      widthPct,
+      display: bucket.display,
+      censored: bucket.censored,
+      leading: (
+        <>
+          <th scope="row" className="px-4 py-3 font-medium text-ink">
+            {bucket.sensitivityLabel}
+          </th>
+          <td className="px-4 py-3 text-muted">{bucket.dispositionLabel}</td>
+        </>
+      ),
+    };
+  });
+
   return (
     <main>
       <header className="bg-canvas pb-6 pt-10">
@@ -37,11 +63,21 @@ export default function PiiTransparencyPage() {
             Public · transparency · PII handling
           </p>
           <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight text-ink md:text-4xl">
-            How sensitive fields are handled.
+            See how sensitive data is contained.
           </h1>
           <p className="mt-3 max-w-2xl text-base text-muted">
-            How often sensitive fields are redacted or blocked, broken down by
-            sensitivity class — counts only, never the values themselves.
+            Sensitive fields are never refused wholesale — they can only be{" "}
+            <span className="text-ink">redacted</span> or{" "}
+            <span className="text-ink">blocked</span>. This view shows how often
+            each sensitivity class takes each path, so you can see the guard is
+            actually containing data instead of just logging it after the fact.
+          </p>
+          <p className="mt-3 max-w-2xl text-sm text-muted">
+            Concrete example: when a user asks for a refund, an email address in
+            the request is redacted before it reaches a downstream tool — keeping
+            a phishing-grade identifier out of side-effects. The counts below are
+            the aggregate of those decisions, by class, never the values
+            themselves.
           </p>
         </div>
       </header>
@@ -71,100 +107,58 @@ export default function PiiTransparencyPage() {
         </div>
       </section>
 
-      <section aria-labelledby="table-heading" className="bg-canvas pb-16">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2
-            id="table-heading"
-            className="text-xs uppercase tracking-section text-muted"
-          >
-            Handlings by sensitivity and disposition
-          </h2>
+      <Reveal>
+        <section aria-labelledby="table-heading" className="bg-canvas pb-16">
+          <div className="mx-auto max-w-6xl px-6">
+            <h2
+              id="table-heading"
+              className="text-xs uppercase tracking-section text-muted"
+            >
+              Handlings by sensitivity and disposition
+            </h2>
 
-          <div className="mt-4 overflow-hidden rounded-sm border border-edge bg-surface">
-            <table className="w-full border-collapse text-left text-sm">
-              <caption className="sr-only">
-                Illustrative aggregate counts of PII handlings by sensitivity
-                class and disposition. Counts below {PUBLIC_COHORT_FLOOR} are shown
-                as &ldquo;&lt;{PUBLIC_COHORT_FLOOR}&rdquo;.
-              </caption>
-              <thead>
-                <tr className="border-b border-edge">
-                  <th
-                    scope="col"
-                    className="px-4 py-2.5 text-xs font-medium uppercase tracking-section text-muted"
-                  >
-                    Sensitivity
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-4 py-2.5 text-xs font-medium uppercase tracking-section text-muted"
-                  >
-                    Disposition
-                  </th>
-                  <th
-                    scope="col"
-                    className="w-1/2 px-4 py-2.5 text-xs font-medium uppercase tracking-section text-muted"
-                  >
-                    Count
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {buckets.map((bucket) => {
-                  const widthPct =
-                    maxValue > 0
-                      ? Math.max(2, Math.round((bucket.value / maxValue) * 100))
-                      : 0;
-                  return (
-                    <tr
-                      key={`${bucket.sensitivityLevel}-${bucket.disposition}`}
-                      className="border-b border-edge last:border-b-0"
+            <div className="mt-4 overflow-hidden rounded-sm border border-edge bg-surface">
+              <table className="w-full border-collapse text-left text-sm">
+                <caption className="sr-only">
+                  Illustrative aggregate counts of PII handlings by sensitivity
+                  class and disposition. Counts below {PUBLIC_COHORT_FLOOR} are
+                  shown as &ldquo;&lt;{PUBLIC_COHORT_FLOOR}&rdquo;.
+                </caption>
+                <thead>
+                  <tr className="border-b border-edge">
+                    <th
+                      scope="col"
+                      className="px-4 py-2.5 text-xs font-medium uppercase tracking-section text-muted"
                     >
-                      <th
-                        scope="row"
-                        className="px-4 py-3 font-medium text-ink"
-                      >
-                        {bucket.sensitivityLabel}
-                      </th>
-                      <td className="px-4 py-3 text-muted">
-                        {bucket.dispositionLabel}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="h-2 flex-1 overflow-hidden rounded-sm bg-canvas"
-                            aria-hidden="true"
-                          >
-                            <div
-                              className="h-full rounded-sm bg-ink/70"
-                              style={{ width: `${widthPct}%` }}
-                            />
-                          </div>
-                          <span className="w-12 shrink-0 text-right tabular-nums font-medium text-ink">
-                            {bucket.display}
-                          </span>
-                          {bucket.censored ? (
-                            <span className="sr-only">
-                              fewer than {PUBLIC_COHORT_FLOOR}, exact count
-                              suppressed by the small-cohort floor
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      Sensitivity
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-2.5 text-xs font-medium uppercase tracking-section text-muted"
+                    >
+                      Disposition
+                    </th>
+                    <th
+                      scope="col"
+                      className="w-1/2 px-4 py-2.5 text-xs font-medium uppercase tracking-section text-muted"
+                    >
+                      Count
+                    </th>
+                  </tr>
+                </thead>
+                <AnimatedBarRows rows={rows} floor={PUBLIC_COHORT_FLOOR} />
+              </table>
+            </div>
 
-          <p className="mt-4 text-xs text-faint">
-            Bars are scaled to the largest visible cohort and are for relative
-            comparison only; censored cohorts (&ldquo;&lt;{PUBLIC_COHORT_FLOOR}
-            &rdquo;) are floored so they never reveal an exact small value.
-          </p>
-        </div>
-      </section>
+            <p className="mt-4 text-xs text-faint">
+              Bars are scaled to the largest visible cohort and are for relative
+              comparison only; censored cohorts (&ldquo;&lt;
+              {PUBLIC_COHORT_FLOOR}&rdquo;) are floored so they never reveal an
+              exact small value.
+            </p>
+          </div>
+        </section>
+      </Reveal>
     </main>
   );
 }

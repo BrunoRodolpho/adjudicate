@@ -9,6 +9,8 @@ import {
   CONFIG_INTEGRITY_TRANSPARENCY_SAMPLE,
   type KillSwitchStabilityClass,
 } from "@/lib/transparency-fixtures";
+import { Reveal } from "@/components/home/Reveal";
+import { PulseIcon } from "@/components/transparency/PulseIcon";
 
 export const metadata: Metadata = {
   title: "Configuration integrity · Transparency · adjudicate",
@@ -38,6 +40,14 @@ const STABILITY_LABEL: Record<KillSwitchStabilityClass, string> = {
   recurring_incidents: "Recurring incidents",
   storm: "Storm",
 };
+
+/** Least-concerning → most-concerning, for the state-transition strip. */
+const STABILITY_ORDER: readonly KillSwitchStabilityClass[] = [
+  "stable",
+  "single_incident",
+  "recurring_incidents",
+  "storm",
+];
 
 const STABILITY_TONE: Record<KillSwitchStabilityClass, string> = {
   stable: "border-emerald-500/40 text-emerald-300",
@@ -77,6 +87,61 @@ export default function ConfigIntegrityTransparencyPage() {
         </div>
       </header>
 
+      <section aria-labelledby="explainer-heading" className="bg-canvas pb-8">
+        <div className="mx-auto max-w-6xl px-6">
+          <h2 id="explainer-heading" className="sr-only">
+            What configuration integrity is
+          </h2>
+          <div className="max-w-2xl rounded-sm border border-edge bg-surface p-4">
+            <p className="text-xs uppercase tracking-section text-muted">
+              What this shows
+            </p>
+            <p className="mt-2 text-sm text-muted">
+              Each pack&apos;s configuration is{" "}
+              <span className="text-ink">cryptographically sealed</span> — a
+              digest proves nothing has changed since deployment. If a seal stops
+              verifying, the config was altered out-of-band and the kernel can no
+              longer trust it. Separately, the{" "}
+              <span className="text-ink">kill-switch stability class</span> tracks
+              how often the emergency stop has been pulled. The two signals
+              together are a governance-health read: is the policy intact, and is
+              the system calm?
+            </p>
+            {/* Plain, server-rendered state-transition strip for the stability
+                classes — least-concerning to most-concerning, left to right. */}
+            <ol
+              aria-label="Kill-switch stability classes, from least to most concerning"
+              className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] uppercase tracking-section"
+            >
+              {STABILITY_ORDER.map((cls, i) => {
+                const isCurrent = cls === badge.killSwitchStability;
+                return (
+                  <li key={cls} className="flex items-center gap-1.5">
+                    <span
+                      className={
+                        isCurrent
+                          ? `rounded-sm border px-1.5 py-0.5 ${STABILITY_TONE[cls]}`
+                          : "rounded-sm border border-edge px-1.5 py-0.5 text-faint"
+                      }
+                    >
+                      {STABILITY_LABEL[cls]}
+                      {isCurrent ? (
+                        <span className="sr-only"> (current)</span>
+                      ) : null}
+                    </span>
+                    {i < STABILITY_ORDER.length - 1 ? (
+                      <span aria-hidden className="text-faint">
+                        →
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </div>
+      </section>
+
       <section aria-labelledby="badge-heading" className="bg-canvas pb-16">
         <div className="mx-auto max-w-6xl px-6">
           <h2 id="badge-heading" className="sr-only">
@@ -92,16 +157,21 @@ export default function ConfigIntegrityTransparencyPage() {
             {/* Seal indicator. */}
             <div className="flex items-center gap-3">
               {badge.allSealsVerified ? (
-                <ShieldCheck
+                <PulseIcon
+                  icon={ShieldCheck}
                   size={28}
-                  aria-hidden
-                  className="shrink-0 text-emerald-400"
+                  pulse={false}
+                  className="text-emerald-400"
                 />
               ) : (
-                <ShieldAlert
+                <PulseIcon
+                  icon={ShieldAlert}
                   size={28}
-                  aria-hidden
-                  className="shrink-0 text-amber-400"
+                  pulse={
+                    badge.killSwitchStability === "recurring_incidents" ||
+                    badge.killSwitchStability === "storm"
+                  }
+                  className="text-amber-400"
                 />
               )}
               <div className="flex flex-col">
@@ -138,7 +208,7 @@ export default function ConfigIntegrityTransparencyPage() {
             </p>
           </div>
 
-          <div className="mt-6 max-w-2xl rounded-sm border border-edge bg-surface p-4">
+          <Reveal className="mt-6 max-w-2xl rounded-sm border border-edge bg-surface p-4">
             <p className="text-xs uppercase tracking-section text-muted">
               What this does not show
             </p>
@@ -151,7 +221,7 @@ export default function ConfigIntegrityTransparencyPage() {
               from an allowlist that carries only counts and a closed stability
               class.
             </p>
-          </div>
+          </Reveal>
         </div>
       </section>
     </main>

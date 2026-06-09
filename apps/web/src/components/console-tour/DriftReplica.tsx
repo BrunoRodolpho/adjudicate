@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { ChartReveal } from "./ChartReveal";
 import { DataTable, type DataTableColumn } from "@/components/console-kit/a11y";
 import { TimelineChart } from "@/components/console-kit/charts";
 import {
@@ -165,9 +166,15 @@ export function DriftReplica({ className }: { readonly className?: string }) {
           subtitle={`${totalObserved.toLocaleString()} observed · baseline ${baselineWindow} / recent ${recentWindow} · threshold ${alertThreshold}`}
           testId="drift-dimensions"
         >
+          <p className="mb-2 text-[10px] leading-relaxed text-console-faint">
+            TVD (total variation distance) measures how far each dimension&apos;s
+            recent decision mix has moved from its baseline: 0 means no change, a
+            higher value means behaviour has shifted. Anything at or above the
+            threshold raises a drift alert.
+          </p>
           <div
             role="group"
-            aria-label="Select a drift dimension to focus"
+            aria-label="Select a drift dimension to focus. TVD (total variation distance) measures how far behaviour has shifted from baseline."
             className="flex flex-wrap gap-2"
           >
             {dimensions.map((d) => {
@@ -234,12 +241,14 @@ export function DriftReplica({ className }: { readonly className?: string }) {
           testId="drift-timeline"
         >
           <div className="flex flex-col gap-2" data-testid="drift-timeline-chart">
-            <TimelineChart
-              title={`${selected} TVD per recorded snapshot`}
-              points={points}
-              band={timelineBand}
-              yFormat={(n) => n.toFixed(2)}
-            />
+            <ChartReveal>
+              <TimelineChart
+                title={`${selected} TVD per recorded snapshot`}
+                points={points}
+                band={timelineBand}
+                yFormat={(n) => n.toFixed(2)}
+              />
+            </ChartReveal>
           </div>
         </Panel>
       </div>

@@ -4,6 +4,8 @@
 
 **Totals:** 128 findings across 6 clusters — P0 **1** · P1 **62** · P2 **65**.  By lens: motion 53 · content 36 · visual 18 · clarity 16 · a11y 5
 
+> **Resolution — round 2 COMPLETE.** All **P0 (1) + P1 (62)** addressed: the **Home + Hero** cluster in Phase 3 (hero reposition closing the P0, MagicMoment, OutcomesBento, black-box reframe, motion kit + secondary-section content/motion); the **Console / Capabilities / Playground / Architecture / Transparency+Chrome** clusters in Phase 6 (chart-reveal motion, thin-page enrichment, page reveals, hover/stagger, a11y tooltips). Remaining **P2 (65)** are deferred polish. Verified: `build` (56 routes prerender) + **148 unit** + **35 e2e** green; invariants intact (no command text, no DB/Redis, illustrative/SIMULATED labels, generated counts); all motion reduced-motion-gated + transform/opacity-only.
+
 ## P0 — do first
 
 - **Hero section headline and copy** _( clarity )_ — Headline 'A decision kernel for AI actions' is abstract without outcome framing. The subhead is strong (the 4-step sentence) but new visitors may not immediately connect the product to their problem.  

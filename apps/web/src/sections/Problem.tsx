@@ -4,7 +4,17 @@ import { motion } from "framer-motion";
 import { ArrowRight, Database, AlertTriangle } from "lucide-react";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 
-const PHASES = ["state", "taint", "auth", "business"] as const;
+/**
+ * The four kernel phases, each with a one-line gloss of what it gates. The
+ * gloss surfaces on hover/focus as a native title + aria-label (AUDIT P2) so
+ * the animated phase strip becomes demonstrative, not just decorative.
+ */
+const PHASES = [
+  { id: "state", gates: "Checks the request is valid for the current state." },
+  { id: "taint", gates: "Validates actor provenance — is the caller trusted?" },
+  { id: "auth", gates: "Confirms the actor is authorized for this kind." },
+  { id: "business", gates: "Applies domain rules — caps, ramps, thresholds." },
+] as const;
 
 export function Problem() {
   return (
@@ -57,7 +67,7 @@ export function Problem() {
               <div className="flex flex-1 items-center gap-1">
                 {PHASES.map((p, idx) => (
                   <motion.div
-                    key={p}
+                    key={p.id}
                     initial={{ opacity: 0.3 }}
                     animate={{ opacity: [0.3, 1, 0.3] }}
                     transition={{
@@ -65,9 +75,12 @@ export function Problem() {
                       repeat: Infinity,
                       delay: idx * 0.4,
                     }}
-                    className="flex-1 rounded-sm border border-edge bg-canvas px-1.5 py-1 text-center text-[10px] uppercase tracking-section text-muted"
+                    tabIndex={0}
+                    title={`${p.id} — ${p.gates}`}
+                    aria-label={`${p.id} phase: ${p.gates}`}
+                    className="flex-1 cursor-help rounded-sm border border-edge bg-canvas px-1.5 py-1 text-center text-[10px] uppercase tracking-section text-muted transition-colors hover:border-indigo-300 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
                   >
-                    {p}
+                    {p.id}
                   </motion.div>
                 ))}
               </div>

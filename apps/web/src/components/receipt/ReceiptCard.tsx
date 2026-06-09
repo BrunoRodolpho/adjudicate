@@ -110,6 +110,22 @@ const OUTCOME_BORDER_CHIP: Record<DecisionKind, string> = {
   REQUEST_CONFIRMATION: "border-confirm/30",
 };
 
+/**
+ * The shortest plain-English gloss of WHAT the kernel did, keyed only by the
+ * decision kind. Rendered as the first line a reader sees in the DECISION
+ * section — before the raw refusal codes, diffs, and signals below it. Wording
+ * is kept in lock-step with the playground's guided narration so a receipt
+ * reads the same whether it lands in guided mode, the sandbox, or the console.
+ */
+const PLAIN_OUTCOME_SUMMARY: Record<DecisionKind, string> = {
+  EXECUTE: "The kernel approved the request as-is.",
+  REFUSE: "The kernel blocked the request.",
+  REWRITE: "The kernel approved a modified version.",
+  DEFER: "The kernel paused the request pending a signal.",
+  ESCALATE: "The kernel routed the request to a reviewer.",
+  REQUEST_CONFIRMATION: "The kernel asked the caller to confirm.",
+};
+
 // ── View model ─────────────────────────────────────────────────────────
 
 interface ReceiptModel {
@@ -209,17 +225,35 @@ function SectionHeader({
   label,
   outcome,
   outcomeText,
+  emphasis = false,
 }: {
   readonly label: string;
   readonly outcome?: string;
   readonly outcomeText?: string;
+  /**
+   * Render the header a half-step louder. Used by the DECISION section so the
+   * card's centerpiece is scannable at a glance against the supporting
+   * (collapsible) detail sections, which all share the quiet `[10px]` heading.
+   */
+  readonly emphasis?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between border-b border-edge px-4 py-2.5">
-      <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+      <span
+        className={cn(
+          "font-mono uppercase tracking-section",
+          emphasis
+            ? cn("text-[11px] font-semibold", outcomeText ?? "text-ink")
+            : "text-[10px] text-faint",
+        )}
+      >
         {label}
         {outcome ? (
-          <span className={cn("ml-1.5", outcomeText)}>· {outcome}</span>
+          <span
+            className={cn("ml-1.5", emphasis ? undefined : outcomeText)}
+          >
+            · {outcome}
+          </span>
         ) : null}
       </span>
     </div>
@@ -238,7 +272,7 @@ function InputSection({
   const segments = envelopeToSegments(envelope);
   return (
     <details className="border-b border-edge">
-      <summary className="cursor-pointer list-none">
+      <summary aria-label="Show input envelope" className="cursor-pointer list-none">
         <SectionHeader
           label="INPUT · envelope"
           outcome={envelope.taint}
@@ -255,6 +289,7 @@ function InputSection({
         <JsonSegmentView
           segments={segments}
           highlightClass={OUTCOME_TEXT_CLASS[kind]}
+          label="Request envelope (JSON)"
         />
       </div>
     </details>
@@ -391,9 +426,15 @@ function DecisionSection({
         label="DECISION"
         outcome={kind.toLowerCase()}
         outcomeText={OUTCOME_TEXT_CLASS[kind]}
+        emphasis
       />
       <div className="flex flex-col gap-3 px-4 py-3">
-        {compact ? null : <DecisionChip kind={kind} size="md" />}
+        <div className="flex flex-col gap-1.5">
+          {compact ? null : <DecisionChip kind={kind} size="md" />}
+          <p className={cn("text-[13px] font-medium leading-snug", OUTCOME_TEXT_CLASS[kind])}>
+            {PLAIN_OUTCOME_SUMMARY[kind]}
+          </p>
+        </div>
         <DecisionBody decision={decision} record={record} />
       </div>
     </div>
@@ -573,17 +614,20 @@ function BasisSection({
 }) {
   if (basis.length === 0) return null;
   return (
-    <div className="border-b border-edge">
-      <SectionHeader
-        label={`BASIS · ${basis.length}`}
-        outcomeText={OUTCOME_TEXT_CLASS[kind]}
-      />
+    <details className="border-b border-edge">
+      <summary aria-label="Show decision basis" className="cursor-pointer list-none">
+        <SectionHeader
+          label={`BASIS · ${basis.length}`}
+          outcome="why"
+          outcomeText={OUTCOME_TEXT_CLASS[kind]}
+        />
+      </summary>
       <ul className="flex flex-col gap-2 px-4 py-3">
         {basis.map((b, i) => (
           <BasisRow key={i} basis={b} kind={kind} />
         ))}
       </ul>
-    </div>
+    </details>
   );
 }
 
@@ -639,11 +683,14 @@ function AuditSection({
 }) {
   const segments = auditToSegments(record);
   return (
-    <div className="border-b border-edge">
-      <SectionHeader
-        label={`AUDIT · record v${record.version}`}
-        outcomeText={OUTCOME_TEXT_CLASS[kind]}
-      />
+    <details className="border-b border-edge">
+      <summary aria-label="Show audit record" className="cursor-pointer list-none">
+        <SectionHeader
+          label={`AUDIT · record v${record.version}`}
+          outcome="expand"
+          outcomeText={OUTCOME_TEXT_CLASS[kind]}
+        />
+      </summary>
       <div className="flex flex-col gap-2 px-4 py-3">
         {kind === "REWRITE" ? (
           <p className="text-[11px] text-muted">
@@ -658,9 +705,10 @@ function AuditSection({
         <JsonSegmentView
           segments={segments}
           highlightClass={OUTCOME_TEXT_CLASS[kind]}
+          label="Audit record (JSON)"
         />
       </div>
-    </div>
+    </details>
   );
 }
 
@@ -713,7 +761,7 @@ function CryptoSection({
 
   return (
     <details className="group">
-      <summary className="cursor-pointer list-none">
+      <summary aria-label="Show cryptographic detail" className="cursor-pointer list-none">
         <SectionHeader
           label="CRYPTOGRAPHIC DETAIL"
           outcome="expand"
@@ -768,12 +816,18 @@ function CryptoSection({
 function JsonSegmentView({
   segments,
   highlightClass,
+  label,
 }: {
   readonly segments: ReadonlyArray<JsonSegment>;
   readonly highlightClass: string;
+  /** Accessible name for the JSON block, e.g. "Request envelope (JSON)". */
+  readonly label?: string;
 }) {
   return (
-    <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-ink/85">
+    <pre
+      aria-label={label}
+      className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-ink/85"
+    >
       {segments.map((seg, i) => (
         <span key={i}>
           <span className="text-muted">{seg.before}</span>

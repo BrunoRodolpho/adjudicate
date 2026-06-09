@@ -1,6 +1,7 @@
 import { FileSearch } from "lucide-react";
 import type { AuditRecord } from "@adjudicate/core";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { ChartReveal } from "./ChartReveal";
 import { ReceiptCard } from "@/components/receipt/ReceiptCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CONSOLE_REPLICA_RECORDS_BY_HASH } from "@/lib/console-replica-records";
@@ -46,10 +47,10 @@ export function DecisionTraceReplica({
 
   return (
     <ConsoleChrome caption="decision · localhost:5180">
-      <div className="flex flex-col gap-4">
+      <ChartReveal className="flex flex-col gap-4">
         <HallucinationBadge record={record} />
         <ReceiptCard record={record} variant="full" showTrace />
-      </div>
+      </ChartReveal>
     </ConsoleChrome>
   );
 }
@@ -66,6 +67,13 @@ const BUCKET_STYLE: Record<string, string> = {
   hallucinated: "border-red-500/40 text-red-300",
 };
 
+/** Plain-language meaning of each groundedness bucket (a11y + clarity). */
+const BUCKET_MEANING: Record<string, string> = {
+  grounded: "the response is well-supported by its context",
+  uncertain: "the response is only partly supported by its context",
+  hallucinated: "the response is poorly supported by its context",
+};
+
 function HallucinationBadge({ record }: { readonly record: AuditRecord }) {
   const meta = record.metadata;
   const score = meta?.["hallucination_score"];
@@ -73,11 +81,16 @@ function HallucinationBadge({ record }: { readonly record: AuditRecord }) {
 
   const rawBucket = meta?.["hallucination_bucket"];
   const bucket = typeof rawBucket === "string" ? rawBucket : "uncertain";
+  const meaning = BUCKET_MEANING[bucket] ?? "groundedness is uncertain";
 
   return (
     <div
       data-testid="hallucination-badge"
       className="flex flex-wrap items-center gap-2 rounded-lg border border-console-edge bg-console-panel px-3 py-2"
+      aria-label={`Hallucination score (ADR-124): ${score.toFixed(
+        2,
+      )}, bucket ${bucket} — ${meaning}. A score closer to 1.0 indicates a higher risk of hallucination.`}
+      title={`Groundedness signal (ADR-124). ${bucket}: ${meaning}. Closer to 1.0 = higher hallucination risk.`}
     >
       <span className="text-[10px] uppercase tracking-section text-console-faint">
         Hallucination · ADR-124

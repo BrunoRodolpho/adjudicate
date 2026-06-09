@@ -31,6 +31,41 @@ export const revealVariants: Variants = {
 };
 
 /**
+ * Result materialization — fade + small rise, tuned for an `animate`-on-mount
+ * moment rather than a scroll reveal (slightly quicker than `revealVariants`).
+ *
+ * Use for content that appears in response to a user action and should feel
+ * "earned" the instant it lands: the playground's guided step result and the
+ * sandbox receipt. Pair `initial="hidden"` + `animate="visible"` on a
+ * `motion.div`. Transform/opacity-only (no layout shift). Always gate behind a
+ * `useReducedMotion()` short-circuit so reduced-motion renders the content
+ * immediately with no transform.
+ */
+export const resultRevealVariants: Variants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.4, ease: EASE_OUT },
+  },
+};
+
+/**
+ * Disclosure slide-down — for a receipt (or panel) that expands beneath a
+ * toggle. Fades + rises in with a short lead-in delay so it reads as a
+ * follow-on to the click rather than a simultaneous flash. Transform/opacity
+ * only; pair with a `useReducedMotion()` short-circuit.
+ */
+export const disclosureRevealVariants: Variants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.35, ease: EASE_OUT, delay: 0.1 },
+  },
+};
+
+/**
  * Parent container that staggers children carrying `revealVariants`.
  * Pair `initial="hidden"` + `whileInView="visible"` on the container and
  * give each child `variants={revealVariants}`.

@@ -1,10 +1,18 @@
 import { ArrowRight, Terminal } from "lucide-react";
 import Link from "next/link";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { cn } from "@/lib/cn";
 
 /**
  * Dark band advertising the operator console (apps/console at port 5180).
  * Switches to the console's zinc-950 aesthetic so the visual transition
  * signals "you've moved from marketing to operator surface."
+ *
+ * Motion (AUDIT P2): the mock audit-explorer rows fade + rise in a
+ * reduced-motion-safe `Stagger` as the band scrolls into view, so the tail
+ * reads as if it's filling in. The newest row carries a subtle motion-safe
+ * pulse on its badge to suggest a live feed. Transform/opacity-only; under
+ * `prefers-reduced-motion` the rows render statically and the pulse is dropped.
  */
 export function ConsolePreview() {
   return (
@@ -52,14 +60,14 @@ export function ConsolePreview() {
               <span className="text-zinc-300">audit.query</span>
               <span>{`{ since: "now-24h", decisionKind: undefined }`}</span>
             </div>
-            <div className="space-y-1">
-              <Row badge="execute" kind="EXECUTE" intent="pix.charge.refund" hash="ae12c891" />
+            <Stagger className="space-y-1" stagger={0.06}>
+              <Row badge="execute" kind="EXECUTE" intent="pix.charge.refund" hash="ae12c891" live />
               <Row badge="defer" kind="DEFER" intent="kyc.start" hash="44b9ef02" />
               <Row badge="rewrite" kind="REWRITE" intent="deployment.approval.request" hash="3f7a8c10" />
               <Row badge="escalate" kind="ESCALATE" intent="deployment.approval.request" hash="91e2dd6b" />
               <Row badge="refuse" kind="REFUSE" intent="pix.charge.refund" hash="cd03ab8f" />
               <Row badge="confirm" kind="CONFIRM?" intent="deployment.rollback.execute" hash="2a18ff4d" />
-            </div>
+            </Stagger>
           </div>
         </div>
       </div>
@@ -81,19 +89,28 @@ function Row({
   kind,
   intent,
   hash,
+  live = false,
 }: {
   badge: string;
   kind: string;
   intent: string;
   hash: string;
+  /** Marks the newest row — its badge gets a subtle motion-safe pulse. */
+  live?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <span className={`rounded-sm px-1.5 py-0.5 text-[10px] uppercase tracking-section ${BADGE_CLASS[badge]}`}>
+    <StaggerItem className="flex items-center gap-3">
+      <span
+        className={cn(
+          "rounded-sm px-1.5 py-0.5 text-[10px] uppercase tracking-section",
+          BADGE_CLASS[badge],
+          live && "motion-safe:animate-pulse",
+        )}
+      >
         {kind}
       </span>
       <span className="text-zinc-300">{intent}</span>
       <span className="ml-auto text-zinc-600">{hash}</span>
-    </div>
+    </StaggerItem>
   );
 }

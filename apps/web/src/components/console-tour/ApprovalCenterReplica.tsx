@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { Lock, TriangleAlert } from "lucide-react";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { RevealRows, RevealRow } from "./ChartReveal";
 import {
   APPROVAL_REPLICA_CHAIN,
   APPROVAL_REPLICA_CHAIN_INTENT_KIND,
@@ -208,13 +209,19 @@ export function ApprovalCenterReplica({
           hidden={tab !== "pending"}
           className="flex flex-col gap-2"
         >
-          <header className="flex items-baseline justify-between">
-            <h3 className="text-[10px] uppercase tracking-section text-console-faint">
-              Pending queue
-            </h3>
-            <span className="text-[10px] tabular-nums text-console-faint">
-              {APPROVAL_REPLICA_PENDING.length} awaiting review
-            </span>
+          <header className="flex flex-col gap-1">
+            <div className="flex items-baseline justify-between">
+              <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+                Pending queue
+              </h3>
+              <span className="text-[10px] tabular-nums text-console-faint">
+                {APPROVAL_REPLICA_PENDING.length} awaiting review
+              </span>
+            </div>
+            <p className="text-[10px] leading-relaxed text-console-faint">
+              Each item is a REQUEST_CONFIRMATION — the AI system paused and asked
+              a human to confirm before it executes a risky action.
+            </p>
           </header>
           <div className="overflow-hidden rounded-sm border border-console-edge bg-console-panel/40">
             {APPROVAL_REPLICA_PENDING.length === 0 ? (
@@ -222,9 +229,9 @@ export function ApprovalCenterReplica({
                 No approval requests.
               </p>
             ) : (
-              <ul className="divide-y divide-console-edge/50">
+              <RevealRows as="ul" className="divide-y divide-console-edge/50">
                 {APPROVAL_REPLICA_PENDING.map((a) => (
-                  <li key={a.id} className="flex flex-col gap-1 px-3 py-2">
+                  <RevealRow as="li" key={a.id} className="flex flex-col gap-1 px-3 py-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-[11px] text-console-muted">
                         {a.intentKind}
@@ -233,16 +240,21 @@ export function ApprovalCenterReplica({
                         pending
                       </span>
                     </div>
-                    <p className="text-[11px] text-console-ink">{a.prompt}</p>
+                    <p
+                      className="text-[11px] text-console-ink"
+                      aria-label={`Awaiting human review — the AI system requested confirmation before executing this action: ${a.prompt}`}
+                    >
+                      {a.prompt}
+                    </p>
                     <div className="flex flex-wrap items-center gap-x-3 text-[10px] text-console-faint">
                       <span className="font-mono">{a.sessionId}</span>
                       <time title={a.requestedAt} className="tabular-nums">
                         {formatClock(a.requestedAt)}
                       </time>
                     </div>
-                  </li>
+                  </RevealRow>
                 ))}
-              </ul>
+              </RevealRows>
             )}
           </div>
         </section>
@@ -307,7 +319,7 @@ export function ApprovalCenterReplica({
                       {/* CLAIMED actor — forgeable header until OIDC. */}
                       <span title="Claimed actor — attested via a forgeable header, not a verified identity (ADR-136)">
                         {e.resolvedBy}
-                        <span className="ml-1 text-[9px] uppercase tracking-section text-console-faint">
+                        <span className="ml-1 rounded-sm border border-amber-400/40 px-1 py-0.5 text-[9px] uppercase tracking-section text-amber-300">
                           claimed
                         </span>
                       </span>
@@ -334,12 +346,14 @@ export function ApprovalCenterReplica({
             </span>
           </h3>
           <div className="rounded-sm border border-console-edge bg-console-panel/40 px-3 py-2">
-            <ol
+            <RevealRows
+              as="ol"
               className="flex flex-col gap-1.5"
               data-testid="approval-chain-steps"
             >
               {APPROVAL_REPLICA_CHAIN.map((step, i) => (
-                <li
+                <RevealRow
+                  as="li"
                   key={`${step.kind}-${i}`}
                   className="rounded-sm border border-console-edge/50 px-2 py-1.5 text-[11px]"
                 >
@@ -375,9 +389,9 @@ export function ApprovalCenterReplica({
                       <span className="font-mono">{step.supersedesReason}</span>
                     ) : null}
                     {step.actor ? (
-                      <span title="Claimed actor — forgeable header, not a verified identity (ADR-136)">
+                      <span title="Claimed actor — attested via a forgeable header, not a verified identity (ADR-136)">
                         by {step.actor}{" "}
-                        <span className="text-[9px] uppercase tracking-section">
+                        <span className="rounded-sm border border-amber-400/40 px-1 py-0.5 text-[9px] uppercase tracking-section text-amber-300">
                           claimed
                         </span>
                       </span>
@@ -391,9 +405,9 @@ export function ApprovalCenterReplica({
                       </Link>
                     ) : null}
                   </div>
-                </li>
+                </RevealRow>
               ))}
-            </ol>
+            </RevealRows>
           </div>
         </section>
       </div>

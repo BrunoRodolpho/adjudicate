@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { DecisionChip } from "@/components/ui/DecisionChip";
-import { DECISIONS_ORDER } from "@/content/decisions";
+import { Reveal } from "@/components/home/Reveal";
+import { FooterChips } from "@/components/ui/FooterChips";
 import { FOOTER_COLUMNS, type NavLink } from "@/content/nav";
 import { SITE } from "@/content/site";
 
@@ -16,7 +16,7 @@ export function SiteFooter() {
   return (
     <footer className="border-t border-edge bg-canvas">
       <div className="mx-auto max-w-6xl px-6 py-14">
-        <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
+        <Reveal className="grid grid-cols-2 gap-8 md:grid-cols-4">
           {FOOTER_COLUMNS.map((column) => (
             <div key={column.title}>
               <h2 className="text-[11px] uppercase tracking-section text-muted">
@@ -31,7 +31,7 @@ export function SiteFooter() {
               </ul>
             </div>
           ))}
-        </div>
+        </Reveal>
 
         <div className="mt-12 flex flex-col gap-5 border-t border-edge pt-6 md:flex-row md:items-center md:justify-between">
           <p className="text-xs text-muted">
@@ -40,16 +40,7 @@ export function SiteFooter() {
               {` · ${SITE.versionLabel} · ${SITE.status}`}
             </span>
           </p>
-          <ul
-            aria-label="The six decision outcomes"
-            className="flex flex-wrap gap-1.5"
-          >
-            {DECISIONS_ORDER.map((kind) => (
-              <li key={kind}>
-                <DecisionChip kind={kind} size="sm" />
-              </li>
-            ))}
-          </ul>
+          <FooterChips />
         </div>
       </div>
     </footer>

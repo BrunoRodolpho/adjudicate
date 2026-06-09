@@ -3,6 +3,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { projectTokenBurndownTransparency } from "@/lib/token-burndown-transparency";
 import { TOKEN_BURNDOWN_TRANSPARENCY_SAMPLE } from "@/lib/transparency-fixtures";
+import { Reveal } from "@/components/home/Reveal";
+import { AnimatedBurnBar } from "@/components/transparency/AnimatedBurnBar";
 
 export const metadata: Metadata = {
   title: "Token governance · Transparency · adjudicate",
@@ -85,6 +87,33 @@ export default function TokenGovernanceTransparencyPage() {
         </div>
       </section>
 
+      <section aria-labelledby="explainer-heading" className="bg-canvas pb-8">
+        <div className="mx-auto max-w-6xl px-6">
+          <h2 id="explainer-heading" className="sr-only">
+            What token budgets are
+          </h2>
+          <div className="max-w-3xl rounded-sm border border-edge bg-surface p-4">
+            <p className="text-xs uppercase tracking-section text-muted">
+              What this shows
+            </p>
+            <p className="mt-2 text-sm text-muted">
+              A <span className="text-ink">token budget</span> caps how many
+              tokens an AI deployment can consume in a period. As you approach the
+              limit, the kernel starts <span className="text-ink">deferring</span>{" "}
+              or <span className="text-ink">rejecting</span> new actions instead
+              of letting an agent loop run up an unbounded bill. This page shows
+              how much of that budget is gone — so &ldquo;how much is left&rdquo;
+              is a single glance, not a spreadsheet.
+            </p>
+            <p className="mt-2 text-xs text-faint">
+              For rough orientation only (illustrative, not a target): a typical
+              SaaS deployment sits around 50–70% by mid-period; a conservative
+              enterprise nearer 30–40%.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section aria-labelledby="burndown-heading" className="bg-canvas pb-16">
         <div className="mx-auto max-w-6xl px-6">
           <h2
@@ -94,32 +123,13 @@ export default function TokenGovernanceTransparencyPage() {
             Token budget · this period
           </h2>
 
-          <div className="mt-4 max-w-2xl rounded-sm border border-edge bg-surface p-5">
-            <div className="flex items-baseline justify-between">
-              <span className="text-2xl font-semibold tabular-nums text-ink">
-                {burndown.pctUsed}%
-              </span>
-              <span
-                className={`text-xs uppercase tracking-section ${style.text}`}
-                data-testid="token-band"
-              >
-                {burndown.bandLabel}
-              </span>
-            </div>
-
-            {/* Burn bar — role="img" with a full text fallback; band conveyed by
-                text + the label above, never colour alone. Static fill (no
-                animation) respects reduced-motion by construction. */}
-            <div
-              role="img"
-              aria-label={`Token budget: ${burndown.pctUsed}% used, ${burndown.bandLabel}`}
-              className="mt-3 h-3 w-full overflow-hidden rounded-sm bg-canvas"
-            >
-              <div
-                className={`h-full rounded-sm ${style.bar}`}
-                style={{ width: `${burndown.pctUsed}%` }}
-              />
-            </div>
+          <Reveal className="mt-4 max-w-2xl rounded-sm border border-edge bg-surface p-5">
+            <AnimatedBurnBar
+              pctUsed={burndown.pctUsed}
+              bandLabel={burndown.bandLabel}
+              barClass={style.bar}
+              textClass={style.text}
+            />
 
             <p className="mt-3 text-sm text-muted">
               <span className="tabular-nums text-ink">
@@ -131,7 +141,7 @@ export default function TokenGovernanceTransparencyPage() {
               </span>{" "}
               tokens used this period.
             </p>
-          </div>
+          </Reveal>
 
           <p className="mt-4 max-w-2xl text-xs text-faint">
             Figures are coarsely rounded approximations for a single illustrative

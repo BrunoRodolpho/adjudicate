@@ -1,5 +1,6 @@
 import { cn } from "@/lib/cn";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { ChartReveal } from "./ChartReveal";
 import {
   OutcomeChart,
   OutcomeChartLegend,
@@ -43,7 +44,9 @@ export function DashboardReplica({ className }: { readonly className?: string })
             </span>
             <OutcomeChartLegend />
           </div>
-          <OutcomeChart buckets={CONSOLE_REPLICA_OUTCOME_BUCKETS} />
+          <ChartReveal>
+            <OutcomeChart buckets={CONSOLE_REPLICA_OUTCOME_BUCKETS} />
+          </ChartReveal>
         </section>
 
         {/* Six decision-total tiles, decision-colored. */}
@@ -89,9 +92,13 @@ export function DashboardReplica({ className }: { readonly className?: string })
           </div>
 
           <div className="rounded-sm border border-console-edge bg-console-panel/40 lg:col-span-2">
-            <header className="border-b border-console-edge px-3 py-1.5">
+            <header className="flex flex-col gap-0.5 border-b border-console-edge px-3 py-1.5">
               <span className="text-[10px] uppercase tracking-section text-console-faint">
                 Top refusals
+              </span>
+              <span className="text-[10px] leading-relaxed text-console-faint">
+                The rejection codes the kernel cited most when it blocked an
+                action — the recurring reasons worth reviewing first.
               </span>
             </header>
             <ul className="flex flex-col gap-1 px-3 py-2 text-[11px]">
@@ -101,7 +108,12 @@ export function DashboardReplica({ className }: { readonly className?: string })
                   className="flex items-center justify-between gap-3 rounded-sm border border-console-edge bg-console-canvas/40 px-2 py-1.5"
                 >
                   <span className="flex min-w-0 flex-col">
-                    <code className="truncate text-console-ink">{r.code}</code>
+                    <code
+                      className="truncate text-console-ink"
+                      title={`${r.code} — ${r.label}. A basis code the kernel cited when refusing an action.`}
+                    >
+                      {r.code}
+                    </code>
                     <span className="truncate text-[10px] text-console-faint">
                       {r.label}
                     </span>

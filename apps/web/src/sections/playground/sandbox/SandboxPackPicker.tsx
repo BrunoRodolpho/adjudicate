@@ -37,9 +37,17 @@ export function SandboxPackPicker({
 }) {
   const activePack =
     SANDBOX_SCHEMAS.find((p) => p.packId === packId) ?? SANDBOX_SCHEMAS[0]!;
+  const activeIntent =
+    activePack.intents.find((i) => i.intentKind === intentKind) ??
+    activePack.intents[0]!;
 
   return (
     <div className="flex flex-col gap-4">
+      <p className="text-[13px] leading-relaxed text-muted">
+        Choose an installed Pack (e.g. Payments, Deployments) and the intent
+        kind you want to put through the kernel.
+      </p>
+
       {/* ── Step 1 · Pack ─────────────────────────────────────────────── */}
       <fieldset className="flex flex-col gap-2">
         <legend className="font-mono text-[10px] uppercase tracking-section text-faint">
@@ -109,6 +117,12 @@ export function SandboxPackPicker({
             className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-faint"
           />
         </div>
+        <p className="text-[12px] leading-snug text-muted">
+          <code className="font-mono text-ink/80">
+            {activeIntent.intentKind}
+          </code>{" "}
+          — {activeIntent.label.toLowerCase()}.
+        </p>
       </div>
     </div>
   );

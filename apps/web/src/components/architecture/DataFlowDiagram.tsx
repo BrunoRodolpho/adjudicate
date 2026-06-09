@@ -1,15 +1,25 @@
+"use client";
+
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { Reveal } from "@/components/home/Reveal";
 
 /**
  * DataFlowDiagram — the end-to-end pipeline from an AI agent's intent to a
  * durable, tamper-evident receipt visible in the operator console.
  *
- * Server component. The pipeline is a CSS flex/grid layout (no SVG library,
- * no new deps): a horizontal spine on wide viewports that stacks vertically on
- * mobile, with the connector arrows rotating accordingly. Every node is
- * annotated with the REAL package / source file it maps to, so a reader can
- * follow the claim straight into the repo.
+ * The pipeline is a CSS flex/grid layout (no SVG library, no new deps): a
+ * horizontal spine on wide viewports that stacks vertically on mobile, with the
+ * connector arrows rotating accordingly. Every node is annotated with the REAL
+ * package / source file it maps to, so a reader can follow the claim straight
+ * into the repo.
+ *
+ * Motion (AUDIT P1): each stage is a reduced-motion-safe `Stagger` container —
+ * nodes, flow edges, and outcome chips fade + rise into view left-to-right as
+ * the diagram scrolls in, giving the abstract pipeline a sense of *flow* from
+ * intent to receipt. Transform/opacity-only (no layout shift); under
+ * `prefers-reduced-motion` every element renders statically and fully visible.
  *
  * Verified against:
  *   - packages/adapter-core/src/loop.ts        (createAdjudicatedAgent, in-process)
@@ -59,7 +69,7 @@ function PipelineNode({
   readonly className?: string;
 }) {
   return (
-    <div
+    <StaggerItem
       className={cn(
         "flex h-full flex-col rounded-xl border bg-surface p-4 shadow-sm",
         TONE_RING[tone],
@@ -80,14 +90,14 @@ function PipelineNode({
           {source}
         </code>
       ) : null}
-    </div>
+    </StaggerItem>
   );
 }
 
 /** Edge label that sits between two nodes — the data that flows across. */
 function FlowEdge({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="flex items-center justify-center gap-2 py-1 lg:flex-col lg:py-0">
+    <StaggerItem className="flex items-center justify-center gap-2 py-1 lg:flex-col lg:py-0">
       <span
         className="text-faint lg:hidden"
         aria-hidden="true"
@@ -103,7 +113,7 @@ function FlowEdge({ children }: { readonly children: ReactNode }) {
       <code className="rounded-full border border-edge bg-canvas px-2 py-0.5 text-center text-[10px] leading-tight text-muted">
         {children}
       </code>
-    </div>
+    </StaggerItem>
   );
 }
 
@@ -119,9 +129,15 @@ const OUTCOMES: ReadonlyArray<{ kind: string; dot: string; text: string }> = [
 /** The 6-outcome chip cluster, using the decision tokens. */
 function OutcomeChips() {
   return (
-    <ul className="mt-3 flex flex-wrap gap-1.5">
+    <Stagger
+      as="ul"
+      className="mt-3 flex flex-wrap gap-1.5"
+      stagger={0.05}
+      delay={0.15}
+    >
       {OUTCOMES.map((o) => (
-        <li
+        <StaggerItem
+          as="li"
           key={o.kind}
           className="inline-flex items-center gap-1 rounded-full border border-edge bg-canvas px-1.5 py-0.5"
         >
@@ -132,9 +148,9 @@ function OutcomeChips() {
           <code className={cn("text-[9.5px] font-medium", o.text)}>
             {o.kind}
           </code>
-        </li>
+        </StaggerItem>
       ))}
-    </ul>
+    </Stagger>
   );
 }
 
@@ -142,7 +158,7 @@ export function DataFlowDiagram({ className }: { readonly className?: string }) 
   return (
     <div className={className}>
       {/* Stage 1 — the in-process decision path (agent → kernel → record). */}
-      <div className="grid items-stretch gap-2 lg:grid-cols-[1fr_auto_1.1fr_auto_1.2fr]">
+      <Stagger className="grid items-stretch gap-2 lg:grid-cols-[1fr_auto_1.1fr_auto_1.2fr]">
         <PipelineNode
           tone="agent"
           label="AI agent"
@@ -165,10 +181,10 @@ export function DataFlowDiagram({ className }: { readonly className?: string }) 
         >
           <OutcomeChips />
         </PipelineNode>
-      </div>
+      </Stagger>
 
       {/* Stage 2 — the record is built and emitted to the sink. */}
-      <div className="mt-2 grid items-stretch gap-2 lg:grid-cols-[1fr_auto_1.1fr_auto_1.2fr]">
+      <Stagger className="mt-2 grid items-stretch gap-2 lg:grid-cols-[1fr_auto_1.1fr_auto_1.2fr]">
         <PipelineNode
           tone="audit"
           label="buildAuditRecord()"
@@ -189,17 +205,17 @@ export function DataFlowDiagram({ className }: { readonly className?: string }) 
           detail="The sink resolves only after the record is durably committed. Optional + deployment-specific — and where the path fans out to two destinations."
           source="@adjudicate/core · sink.ts → AuditSink"
         />
-      </div>
+      </Stagger>
 
       {/* Branch marker. */}
-      <div className="mt-3 flex items-center justify-center">
+      <Reveal className="mt-3 flex items-center justify-center">
         <span className="rounded-full border border-edge bg-canvas px-3 py-1 text-[10px] uppercase tracking-section text-muted">
           fans out to two destinations
         </span>
-      </div>
+      </Reveal>
 
       {/* Stage 3 — durable store branch + real-time bus branch. */}
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+      <Stagger className="mt-3 grid gap-3 lg:grid-cols-2">
         {/* Branch A — durable Postgres mirror. */}
         <PipelineNode
           tone="store"
@@ -208,8 +224,10 @@ export function DataFlowDiagram({ className }: { readonly className?: string }) 
           source="@adjudicate/audit-postgres · migrations 001–010"
         />
 
-        {/* Branch B — real-time bus → SSE → console live tail. */}
-        <div className="grid items-stretch gap-2">
+        {/* Branch B — real-time bus → SSE → console live tail. A nested
+            Stagger so its own children cascade (variant propagation does not
+            cross the plain wrapper div, so this drives them directly). */}
+        <Stagger className="grid items-stretch gap-2">
           <PipelineNode
             tone="bus"
             label="AuditEventBus over Redis"
@@ -223,18 +241,18 @@ export function DataFlowDiagram({ className }: { readonly className?: string }) 
             detail="The bus drives a Server-Sent Events stream the operator console reads to render its live audit tail — push, not poll."
             source="apps/console · api/admin/stream/route.ts"
           />
-        </div>
-      </div>
+        </Stagger>
+      </Stagger>
 
       {/* Terminus — the operator console. */}
-      <div className="mt-3 grid grid-cols-1">
+      <Stagger className="mt-3 grid grid-cols-1">
         <PipelineNode
           tone="console"
           label="Operator console (:5180)"
           detail="Operators query the durable mirror over the admin-sdk tRPC API (40+ procedures) and watch the live tail in real time — the authenticated ground-truth surface."
           source="apps/console · @adjudicate/admin-sdk (tRPC)"
         />
-      </div>
+      </Stagger>
     </div>
   );
 }

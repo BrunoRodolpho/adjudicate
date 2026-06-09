@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { AuditRecord } from "@adjudicate/core";
 import { ConsoleChrome } from "@/components/console-kit/chrome/ConsoleChrome";
+import { ChartReveal } from "./ChartReveal";
 import { BarDistribution } from "@/components/console-kit/charts/BarDistribution";
 import type { SeriesPoint } from "@/components/console-kit/charts/types";
 import { DataTable } from "@/components/console-kit/a11y/DataTable";
@@ -278,7 +279,7 @@ export function CommandRiskReplica({
             // command text). The full distribution is always charted.
             data-emphasis={emphasisedBarLabel ?? undefined}
           >
-            <div
+            <ChartReveal
               className={cn(
                 emphasisedBarLabel &&
                   "[&_svg_g:not([data-active])]:opacity-30 [&_li:not([data-active])]:opacity-40 motion-safe:[&_svg_g]:transition-opacity motion-safe:[&_li]:transition-opacity",
@@ -290,7 +291,7 @@ export function CommandRiskReplica({
                 activeLabel={emphasisedBarLabel}
                 valueFormat={(n) => categoryDisplay.get(n) ?? n.toLocaleString()}
               />
-            </div>
+            </ChartReveal>
             {emphasisedBarLabel ? (
               <p
                 className="mt-1 text-[10px] uppercase tracking-section text-emerald-300"
@@ -314,9 +315,18 @@ export function CommandRiskReplica({
                 label="Blocked"
                 value={dispositionTotals.refuse}
                 emphasize={dispositionTotals.refuse > 0}
+                hint="Blocked: the command was refused entirely and never ran."
               />
-              <SummaryStat label="Rewritten" value={dispositionTotals.rewrite} />
-              <SummaryStat label="Confirm" value={dispositionTotals.confirm} />
+              <SummaryStat
+                label="Rewritten"
+                value={dispositionTotals.rewrite}
+                hint="Rewritten: the command was modified to a safer form before it ran."
+              />
+              <SummaryStat
+                label="Confirm"
+                value={dispositionTotals.confirm}
+                hint="Confirm: the command was routed to a human for approval before running."
+              />
             </dl>
             {/* CONFIRM-queue cross-link: commands routed to
                 REQUEST_CONFIRMATION are reviewed in the Approval Center. */}
@@ -352,21 +362,23 @@ export function CommandRiskReplica({
               Command text is never shown — redacted by construction.
             </span>
           </header>
-          <DataTable
-            caption={
-              filter === "all"
-                ? "Blocked command-risk dispositions"
-                : `Blocked command-risk dispositions — ${filter} category`
-            }
-            columns={TABLE_COLUMNS}
-            rows={rows}
-            getRowKey={(row, i) => String(row["_key"] ?? i)}
-            emptyMessage={
-              filter === "all"
-                ? "No blocked commands in this window."
-                : `No blocked ${filter} commands in this window.`
-            }
-          />
+          <ChartReveal>
+            <DataTable
+              caption={
+                filter === "all"
+                  ? "Blocked command-risk dispositions"
+                  : `Blocked command-risk dispositions — ${filter} category`
+              }
+              columns={TABLE_COLUMNS}
+              rows={rows}
+              getRowKey={(row, i) => String(row["_key"] ?? i)}
+              emptyMessage={
+                filter === "all"
+                  ? "No blocked commands in this window."
+                  : `No blocked ${filter} commands in this window.`
+              }
+            />
+          </ChartReveal>
         </section>
       </div>
     </ConsoleChrome>
@@ -378,13 +390,19 @@ function SummaryStat({
   label,
   value,
   emphasize = false,
+  hint,
 }: {
   readonly label: string;
   readonly value: number;
   readonly emphasize?: boolean;
+  /** Plain-language meaning of the disposition (surfaced as a tooltip). */
+  readonly hint?: string;
 }) {
   return (
-    <div className="flex flex-col gap-0.5 rounded-sm border border-console-edge bg-console-canvas/40 px-3 py-2">
+    <div
+      className="flex flex-col gap-0.5 rounded-sm border border-console-edge bg-console-canvas/40 px-3 py-2"
+      title={hint}
+    >
       <dt className="text-[10px] uppercase tracking-section text-console-faint">
         {label}
       </dt>

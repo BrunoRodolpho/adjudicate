@@ -41,3 +41,44 @@ export const staggerContainer: Variants = {
     transition: { staggerChildren: 0.08, delayChildren: 0.04 },
   },
 };
+
+/**
+ * Build a stagger container with a custom child spacing / lead-in delay.
+ * Same contract as `staggerContainer` (children carry `revealVariants`),
+ * but lets callers dial the cadence per section. Spacing in seconds.
+ */
+export function makeStaggerContainer(
+  staggerSeconds = 0.08,
+  delaySeconds = 0.04,
+): Variants {
+  return {
+    hidden: {},
+    visible: {
+      transition: {
+        staggerChildren: staggerSeconds,
+        delayChildren: delaySeconds,
+      },
+    },
+  };
+}
+
+/**
+ * SVG stroke "draw-on" variants for `motion.path` (and friends).
+ * Animates `pathLength` 0 → 1 plus a short opacity lead-in so the stroke
+ * appears to be drawn as it scrolls into view. Transform/opacity-class only
+ * (no layout) — pathLength is a presentation attribute, not geometry.
+ *
+ * Pair `initial="hidden"` + `whileInView="visible"` (or drive from a parent
+ * container's variants) and set `viewport={REVEAL_VIEWPORT}`.
+ */
+export const drawVariants: Variants = {
+  hidden: { pathLength: 0, opacity: 0 },
+  visible: {
+    pathLength: 1,
+    opacity: 1,
+    transition: {
+      pathLength: { duration: 0.9, ease: EASE_OUT },
+      opacity: { duration: 0.2, ease: EASE_OUT },
+    },
+  },
+};

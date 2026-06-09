@@ -1,18 +1,23 @@
-import { ArrowRight, BookOpen } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { HeroKernelLoop } from "@/components/motion/HeroKernelLoop";
 import { HeroOutcomeStrip } from "@/components/motion/HeroOutcomeStrip";
 import { ActiveStepStrip } from "@/components/home/ActiveStepStrip";
 import { Button } from "@/components/ui/Button";
+import { CodeBlock } from "@/components/ui/CodeBlock";
 
 /**
- * Hero — the four-step spine in miniature, above the fold.
+ * Hero — outcome-first repositioning (round-2 AUDIT P0).
  *
- * Headline names the product category; the subhead is the literal four-step
- * sentence the rest of the page proves: AI acts → guard decides → receipt
- * saved → console shows. A 4-chip anchor rail (ActiveStepStrip) lets a visitor
- * jump straight to any step and tracks the section currently in view. The
- * HeroKernelLoop video + HeroOutcomeStrip carry the visual proof; the inline
- * mechanism panel was retired in favour of the dedicated Step-3 receipt below.
+ * The headline now leads with the *outcome* — guardrails that go beyond
+ * block-or-allow — instead of the product category. The subhead is the literal
+ * decision spine the rest of the page proves: the agent proposes, adjudicate
+ * decides (one of six), and every decision is a signed receipt.
+ *
+ * The CTA cluster mixes a high-intent primary ("Try the 5-min demo" → the live
+ * /playground kernel), a one-click copyable install chip, and a low-commitment
+ * tertiary ghost ("How it works"). A 4-chip anchor rail (ActiveStepStrip) lets
+ * a visitor jump to any spine step and tracks the section in view. The
+ * HeroKernelLoop video + HeroOutcomeStrip carry the visual proof below.
  */
 
 export function Hero() {
@@ -42,21 +47,22 @@ export function Hero() {
         {/* Row 1 — copy header, centered. */}
         <header className="mx-auto flex max-w-3xl flex-col items-center gap-6 text-center">
           <span className="inline-flex w-fit items-center gap-2 rounded-full border border-edge bg-surface/80 px-3 py-1 text-[11px] uppercase tracking-section text-muted backdrop-blur-sm">
-            Execution mediation · v0.1
+            Open-source · AI-agent guardrails · v1
           </span>
           <h1 className="text-4xl font-bold leading-[1.05] tracking-tight text-ink md:text-6xl">
-            A decision kernel for{" "}
+            Guardrails for AI agents that go{" "}
             <span className="bg-gradient-primary bg-clip-text text-transparent drop-shadow-sm">
-              AI actions
+              beyond block-or-allow
             </span>
             .
           </h1>
           <p className="max-w-2xl text-base leading-relaxed text-muted md:text-lg">
-            Your AI tries to act.{" "}
-            <span className="font-medium text-ink">A guard decides.</span> A
-            signed receipt is saved.{" "}
+            Your agent proposes an action.{" "}
+            <span className="font-medium text-ink">adjudicate decides</span> —
+            execute, rewrite, defer, escalate, or refuse — before anything
+            touches production.{" "}
             <span className="font-medium text-ink">
-              Your console shows every one.
+              Every decision, a signed receipt.
             </span>
           </p>
 
@@ -64,13 +70,22 @@ export function Hero() {
               currently in view (static under reduced motion). */}
           <ActiveStepStrip />
 
-          <div className="flex flex-wrap justify-center gap-3">
-            <Button href="/playground" variant="primary">
-              See it run <ArrowRight size={16} />
-            </Button>
-            <Button href="/how-it-works" variant="ghost">
-              <BookOpen size={16} /> Read the mechanism
-            </Button>
+          {/* CTA cluster: live demo (primary), one-click install (copyable
+              chip), and a low-commitment mechanism link (tertiary ghost). */}
+          <div className="flex w-full flex-col items-center gap-3">
+            <div className="flex flex-wrap justify-center gap-3">
+              <Button href="/playground" variant="primary">
+                Try the 5-min demo <ArrowRight size={16} />
+              </Button>
+              <Button href="/how-it-works" variant="ghost">
+                How it works
+              </Button>
+            </div>
+            <CodeBlock
+              code="pnpm add @adjudicate/core"
+              copyable
+              className="w-full max-w-xs"
+            />
           </div>
         </header>
 

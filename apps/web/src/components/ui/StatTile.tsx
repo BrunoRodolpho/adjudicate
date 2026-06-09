@@ -1,8 +1,13 @@
+import { CountUp } from "@/components/motion/CountUp";
 import { cn } from "@/lib/cn";
 
 /**
  * A single headline statistic: large mono value, label, optional hint.
- * Server component.
+ *
+ * Numeric values animate from 0 → value on scroll-into-view via {@link CountUp}
+ * (a client component); string values (e.g. the "✓" guarantees) render
+ * statically. Reduced-motion is handled inside CountUp — the final value shows
+ * immediately. Server component; CountUp is the only client island it mounts.
  */
 export function StatTile({
   value,
@@ -18,7 +23,7 @@ export function StatTile({
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       <span className="font-mono text-3xl font-semibold tracking-tight text-ink md:text-4xl">
-        {value}
+        {typeof value === "number" ? <CountUp value={value} /> : value}
       </span>
       <span className="text-sm font-medium text-ink">{label}</span>
       {hint ? (

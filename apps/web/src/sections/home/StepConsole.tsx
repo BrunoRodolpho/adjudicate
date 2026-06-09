@@ -1,66 +1,33 @@
-import type { DecisionKind } from "@adjudicate/core";
 import { ArrowRight, Filter, RotateCcw, Power } from "lucide-react";
 import type { ReactNode } from "react";
+import { ConsoleAuditRows, type AuditRow } from "./ConsoleAuditRows";
 import { Section } from "@/components/ui/Section";
 import { Button } from "@/components/ui/Button";
 import { DECISIONS } from "@/content/decisions";
 import { runPlayground } from "@/lib/kernel-runner";
-import { cn } from "@/lib/cn";
 
 /**
- * Step 4 — "Where does the operator see it?"
+ * Step 4 — "Where does the operator see it?" — the black box, read back.
  *
- * Server component, DARK band (Section tone="console"). The receipt from
+ * Async server component, DARK band (Section tone="console"). The receipt from
  * Step 3 lands in the operator's Audit Explorer as one decision-coloured row
  * among the live tail. Operators read every receipt, filter, replay, and pull
- * the kill switch. CTA hands off to the real console.
+ * the kill switch. CTA hands off to the real console (and /architecture/data-flow).
  *
  * The highlighted REWRITE row carries the REAL intentHash from the same
- * deterministic kernel run that produced the Step-3 receipt.
+ * deterministic kernel run that produced the Step-3 receipt — closing the
+ * "black box recorder" loop: the signed receipt you just saw, read back here.
+ *
+ * The rows animate in (staggered translateX + opacity, REWRITE row gently
+ * pulsed) inside the client <ConsoleAuditRows>; everything else stays a server
+ * component. Reduced-motion renders the rows static.
  */
-
-interface Row {
-  readonly kind: DecisionKind;
-  readonly intent: string;
-  readonly hash: string;
-  readonly highlight?: boolean;
-}
-
-// Dark-surface decision tokens. The DECISIONS palette tokens are tuned for the
-// light canvas; on zinc-950 we lift the chip to a translucent tint + the
-// decision hue so each outcome stays unmistakable against the dark band.
-const DARK_CHIP: Record<DecisionKind, string> = {
-  EXECUTE: "border-execute/40 bg-execute/15 text-execute",
-  REFUSE: "border-refuse/40 bg-refuse/15 text-refuse",
-  REWRITE: "border-rewrite/50 bg-rewrite/15 text-rewrite",
-  DEFER: "border-defer/40 bg-defer/15 text-defer",
-  ESCALATE: "border-escalate/40 bg-escalate/15 text-escalate",
-  REQUEST_CONFIRMATION: "border-confirm/40 bg-confirm/15 text-confirm",
-};
-
-const DARK_BAR: Record<DecisionKind, string> = {
-  EXECUTE: "bg-execute",
-  REFUSE: "bg-refuse",
-  REWRITE: "bg-rewrite",
-  DEFER: "bg-defer",
-  ESCALATE: "bg-escalate",
-  REQUEST_CONFIRMATION: "bg-confirm",
-};
-
-const SHORT_LABEL: Record<DecisionKind, string> = {
-  EXECUTE: "EXECUTE",
-  REFUSE: "REFUSE",
-  REWRITE: "REWRITE",
-  DEFER: "DEFER",
-  ESCALATE: "ESCALATE",
-  REQUEST_CONFIRMATION: "CONFIRM?",
-};
 
 function shortHash(hash: string): string {
   return hash.replace(/^sha256:/, "").slice(0, 10);
 }
 
-async function buildRows(): Promise<ReadonlyArray<Row>> {
+async function buildRows(): Promise<ReadonlyArray<AuditRow>> {
   // Real hash for the highlighted row — same deterministic run as Step 3.
   let scenarioHash = "3f7a8c10ab";
   try {
@@ -102,9 +69,10 @@ export async function StepConsole() {
           Operators read every receipt.
         </h2>
         <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
-          The receipt lands in the Audit Explorer the moment it&apos;s written.
-          Operators filter by outcome, replay any decision, and pull the kill
-          switch if anything looks wrong.
+          The black box, read back. The signed receipt from Step 3 lands in the
+          Audit Explorer the moment it&apos;s written — same intentHash, now one
+          row in the live tail. Operators filter by outcome, replay any
+          decision, and pull the kill switch if anything looks wrong.
         </p>
       </div>
 
@@ -126,44 +94,7 @@ export async function StepConsole() {
           <span>intentHash</span>
         </div>
 
-        <ul className="divide-y divide-zinc-800/70">
-          {rows.map((row, i) => (
-            <li
-              key={`${row.hash}-${i}`}
-              className={cn(
-                "relative grid grid-cols-[120px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 transition-colors",
-                row.highlight ? "bg-rewrite/[0.07]" : "hover:bg-zinc-800/40",
-              )}
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "absolute inset-y-0 left-0 w-0.5",
-                  row.highlight ? DARK_BAR[row.kind] : "bg-transparent",
-                )}
-              />
-              <span
-                className={cn(
-                  "inline-flex w-fit items-center rounded-md border px-2 py-0.5 font-mono text-[10px] uppercase tracking-section",
-                  DARK_CHIP[row.kind],
-                )}
-              >
-                {SHORT_LABEL[row.kind]}
-              </span>
-              <span className="min-w-0 truncate font-mono text-[12px] text-zinc-300">
-                {row.intent}
-              </span>
-              <span className="flex items-center gap-2 font-mono text-[11px] text-zinc-500">
-                {shortHashDisplay(row.hash)}
-                {row.highlight ? (
-                  <span className="rounded-sm bg-rewrite/20 px-1.5 py-0.5 text-[9px] uppercase tracking-section text-rewrite">
-                    your receipt
-                  </span>
-                ) : null}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <ConsoleAuditRows rows={rows} />
       </div>
 
       {/* Operator capability chips. */}
@@ -179,17 +110,20 @@ export async function StepConsole() {
         </Capability>
       </div>
 
-      <div className="mt-10 flex justify-center">
+      <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
         <Button href="/console" variant="primary">
           Open the console <ArrowRight size={16} />
         </Button>
+        <a
+          href="/architecture/data-flow"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-400 underline-offset-4 transition-colors hover:text-zinc-200 hover:underline"
+        >
+          See how a receipt is recorded &amp; replayed
+          <ArrowRight size={14} aria-hidden="true" />
+        </a>
       </div>
     </Section>
   );
-}
-
-function shortHashDisplay(hash: string): string {
-  return `${hash.slice(0, 10)}…`;
 }
 
 function Capability({

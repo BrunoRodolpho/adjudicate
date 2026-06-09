@@ -27,7 +27,7 @@ export function SocialProof() {
       <SectionHeading
         eyebrow="Built in the open"
         title="A real kernel, not a pitch deck."
-        subtitle="Every number below is counted from this repository at build time."
+        subtitle="Every number below is counted directly from the codebase at build time — no estimates, no fiction. The tests exercise every decision path; the capabilities are guarding logic you can use today. This is a working kernel, not a roadmap."
         align="center"
       />
 

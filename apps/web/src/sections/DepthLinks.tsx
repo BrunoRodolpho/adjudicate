@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, Layers, GitCompare, Microscope } from "lucide-react";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 
 /**
  * Three-card "for depth" section signposting the dedicated routes that
@@ -9,6 +10,11 @@ import { ArrowRight, Layers, GitCompare, Microscope } from "lucide-react";
  * Audience: visitors who reached the playground already convinced and
  * want to dig deeper into the mechanism, the comparisons, or the
  * introspection tooling.
+ *
+ * AUDIT P1: each card now states when/why to visit (what you'll find there),
+ * the cards cascade in on scroll, and the icon scales + colours on hover. The
+ * card lift and icon scale are transform-only and `motion-safe:`-gated so they
+ * vanish under reduced motion; the colour shift remains as a static affordance.
  */
 export function DepthLinks() {
   return (
@@ -25,29 +31,29 @@ export function DepthLinks() {
             Three dedicated routes for the audiences that want more than the homepage.
           </p>
         </div>
-        <div className="mt-10 grid gap-4 md:grid-cols-3">
+        <Stagger as="div" className="mt-10 grid gap-4 md:grid-cols-3">
           <DepthCard
             href="/architecture"
             icon={Layers}
             title="Architecture"
             audience="For evaluators"
-            description="Why a kernel sits between AI intent and side-effect, and the seven primitives underneath."
+            description="Why a kernel belongs between AI intent and side-effect. Walk the seven primitives, the six-decision algebra, and the hash-chained audit model — the case for the design, end to end."
           />
           <DepthCard
             href="/comparisons"
             icon={GitCompare}
             title="Comparisons"
             audience="For OPA / Cedar users"
-            description="How the six-decision algebra differs from allow/deny — capability by capability."
+            description="How the six-decision algebra goes beyond allow/deny, capability by capability. Read this when you already have a policy engine and need to know what rewrite, defer, and escalate buy you."
           />
           <DepthCard
             href="/introspection"
             icon={Microscope}
             title="Introspection"
             audience="For auditors / analyzers"
-            description="Programmatic introspection of every guard governing your AI actions, plus the operator console preview."
+            description="Query every guard governing your AI actions programmatically, then see them surfaced in the operator console preview. Start here if you need to prove coverage, not just trust it."
           />
-        </div>
+        </Stagger>
       </div>
     </section>
   );
@@ -67,21 +73,26 @@ function DepthCard({
   description: string;
 }) {
   return (
-    <Link
-      href={href}
-      className="group flex flex-col gap-3 rounded-xl border border-edge bg-surface p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg"
-    >
-      <div className="flex items-center justify-between">
-        <Icon size={20} className="text-muted group-hover:text-indigo-600" />
-        <span className="text-[10px] uppercase tracking-section text-faint">
-          {audience}
+    <StaggerItem className="h-full">
+      <Link
+        href={href}
+        className="group flex h-full flex-col gap-3 rounded-xl border border-edge bg-surface p-6 shadow-sm transition-all hover:border-indigo-300 hover:shadow-lg motion-safe:hover:-translate-y-0.5"
+      >
+        <div className="flex items-center justify-between">
+          <Icon
+            size={20}
+            className="text-muted transition duration-200 group-hover:text-indigo-600 motion-safe:group-hover:scale-110"
+          />
+          <span className="text-[10px] uppercase tracking-section text-faint">
+            {audience}
+          </span>
+        </div>
+        <h3 className="text-lg font-semibold text-ink">{title}</h3>
+        <p className="text-sm leading-relaxed text-muted">{description}</p>
+        <span className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-indigo-600 transition-all group-hover:gap-2">
+          Open <ArrowRight size={12} />
         </span>
-      </div>
-      <h3 className="text-lg font-semibold text-ink">{title}</h3>
-      <p className="text-sm leading-relaxed text-muted">{description}</p>
-      <span className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-indigo-600 group-hover:gap-2 transition-all">
-        Open <ArrowRight size={12} />
-      </span>
-    </Link>
+      </Link>
+    </StaggerItem>
   );
 }

@@ -12,6 +12,7 @@ import { SocialProof } from "@/sections/home/SocialProof";
 import { PlaygroundEntry } from "@/sections/PlaygroundEntry";
 import { DepthLinks } from "@/sections/DepthLinks";
 import { GetStarted } from "@/sections/GetStarted";
+import { FAQ } from "@/sections/home/FAQ";
 import { FinalCTA } from "@/sections/FinalCTA";
 
 /**
@@ -76,6 +77,9 @@ export default function HomePage() {
       </Reveal>
       <Reveal>
         <GetStarted />
+      </Reveal>
+      <Reveal>
+        <FAQ />
       </Reveal>
       <Reveal>
         <DepthLinks />

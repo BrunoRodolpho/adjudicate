@@ -127,6 +127,8 @@ export const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
   {
     title: "Project",
     links: [
+      { label: "Roadmap", href: "/roadmap" },
+      { label: "Contribute", href: "/contribute" },
       { label: "GitHub", href: GITHUB_REPO, external: true },
       { label: "Docs", href: GITHUB_DOCS, external: true },
       { label: "License", href: GITHUB_LICENSE, external: true },

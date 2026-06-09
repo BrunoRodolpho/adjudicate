@@ -34,3 +34,8 @@ export function githubTree(path: string): string {
 /** Common destinations linked from the nav/footer. */
 export const GITHUB_DOCS = githubTree("docs");
 export const GITHUB_LICENSE = githubBlob("LICENSE");
+
+/** Contributor onboarding destinations (CONTRIBUTING guide + curated issue queues). */
+export const GITHUB_CONTRIBUTING = githubBlob("CONTRIBUTING.md");
+export const GITHUB_ISSUES = `${GITHUB_REPO}/issues`;
+export const GITHUB_GOOD_FIRST_ISSUES = `${GITHUB_REPO}/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22`;

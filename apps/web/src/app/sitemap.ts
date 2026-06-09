@@ -41,6 +41,9 @@ const STATIC_PATHS = [
   "/architecture/data-flow",
   "/comparisons",
   "/introspection",
+  // ── Project (roadmap + contributor onboarding) ─────────────────────────
+  "/roadmap",
+  "/contribute",
   // ── Transparency (trust hub index + seven sub-views) ───────────────────
   "/transparency",
   "/transparency/ai-bom",

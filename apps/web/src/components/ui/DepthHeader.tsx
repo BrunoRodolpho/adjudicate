@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { BrandGlow } from "@/components/ui/BrandGlow";
 
 /**
  * Reusable depth-page header. Matches the markup the depth routes
@@ -23,8 +24,9 @@ export function DepthHeader({
   readonly className?: string;
 }) {
   return (
-    <header className={cn("bg-canvas pb-6 pt-10", className)}>
-      <div className="mx-auto max-w-6xl px-6">
+    <header className={cn("relative overflow-hidden bg-canvas pb-6 pt-10", className)}>
+      <BrandGlow />
+      <div className="relative z-10 mx-auto max-w-6xl px-6">
         <Link
           href={backHref}
           className="inline-flex items-center gap-1.5 text-xs uppercase tracking-section text-muted transition-colors hover:text-ink"

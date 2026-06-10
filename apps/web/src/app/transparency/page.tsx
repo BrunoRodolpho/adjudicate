@@ -45,21 +45,21 @@ export const metadata: Metadata = {
 export default function TransparencyPage() {
   return (
     <main>
-      <header className="bg-canvas pb-6 pt-10">
+      <header className="bg-canvas pb-8 pt-10">
         <div className="mx-auto max-w-6xl px-6">
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 text-xs uppercase tracking-section text-muted hover:text-ink"
+            className="inline-flex items-center gap-1.5 rounded-sm text-eyebrow uppercase text-muted transition-colors hover:text-ink focus-ring"
           >
-            <ArrowLeft size={12} /> Back to homepage
+            <ArrowLeft size={12} aria-hidden="true" /> Back to homepage
           </Link>
-          <p className="mt-6 text-xs uppercase tracking-section text-muted">
+          <p className="mt-6 text-eyebrow uppercase text-muted">
             Public · transparency
           </p>
-          <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight text-ink md:text-4xl">
+          <h1 className="mt-2 text-h1 text-ink md:text-h1-lg">
             Governance in the open.
           </h1>
-          <p className="mt-3 max-w-2xl text-base text-muted">
+          <p className="mt-3 max-w-measure text-lead text-muted">
             The same governance signals operators see in the console — published
             as public, aggregates-only summaries. No raw data ever crosses this
             boundary.
@@ -161,12 +161,12 @@ function ViewCard({ view }: { readonly view: PublicView }) {
       {view.href ? (
         <Link
           href={view.href}
-          className="group flex h-full flex-col rounded-sm border border-edge bg-surface p-4 transition-colors hover:border-ink/30 hover:shadow-sm"
+          className="group flex h-full flex-col rounded-xl bg-surface p-4 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-sm focus-ring"
         >
           {body}
         </Link>
       ) : (
-        <div className="flex h-full flex-col rounded-sm border border-edge bg-surface p-4">
+        <div className="flex h-full flex-col rounded-xl bg-surface p-4 shadow-xs">
           {body}
         </div>
       )}

@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import {
   projectAiBomTransparency,
   type PublicAiBom,
@@ -10,6 +8,7 @@ import {
   RevealArticle,
   RevealSection,
 } from "@/components/transparency/RevealArticle";
+import { TransparencyLayout } from "@/components/transparency/TransparencyLayout";
 
 export const metadata: Metadata = {
   title: "AI bill-of-materials · Transparency · adjudicate",
@@ -31,83 +30,45 @@ export default function AiBomTransparencyPage() {
   const boms = projectAiBomTransparency(AI_BOM_TRANSPARENCY_SAMPLE);
 
   return (
-    <main>
-      <header className="bg-canvas pb-6 pt-10">
-        <div className="mx-auto max-w-6xl px-6">
-          <Link
-            href="/transparency"
-            className="inline-flex items-center gap-1.5 text-xs uppercase tracking-section text-muted hover:text-ink"
-          >
-            <ArrowLeft size={12} /> Back to transparency
-          </Link>
-          <p className="mt-6 text-xs uppercase tracking-section text-muted">
-            Public · transparency · AI bill-of-materials
+    <TransparencyLayout
+      slug="ai-bom"
+      eyebrow="AI bill-of-materials"
+      title="Know exactly what goes into each pack."
+      lead="An AI bill-of-materials answers a compliance question in one place: what model, tools, data, and guardrails does this pack actually run? Each card is a machine-readable manifest — aligned to EU AI Act (Art. 11) and the NIST AI RMF — so an auditor can verify the pack without trusting a screenshot."
+      hero={
+        boms.length === 0 ? (
+          <p className="text-body-sm italic text-muted">
+            No published manifests yet.
           </p>
-          <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight text-ink md:text-4xl">
-            Know exactly what goes into each pack.
-          </h1>
-          <p className="mt-3 max-w-2xl text-base text-muted">
-            An AI bill-of-materials answers a compliance question in one place:{" "}
-            <span className="text-ink">
-              what model, tools, data, and guardrails does this pack actually
-              run?
-            </span>{" "}
-            Each card is a machine-readable manifest — model, tools, vector
-            stores, prompt hashes, guardrails, and conformance — aligned to{" "}
-            EU AI Act (Art. 11) and the NIST AI RMF, so an auditor can verify the
-            pack without trusting a screenshot.
-          </p>
-        </div>
-      </header>
-
-      <section aria-labelledby="note-heading" className="bg-canvas pb-8">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2 id="note-heading" className="sr-only">
-            About this data
-          </h2>
-          <div className="max-w-3xl rounded-sm border border-edge bg-surface p-4">
-            <p className="text-xs uppercase tracking-section text-muted">
-              Illustrative sample · hashes and references only
-            </p>
-            <p className="mt-2 text-sm text-muted">
-              A bill-of-materials is a{" "}
-              <span className="text-ink">manifest of components and hashes,
-              not contents</span>. These figures are{" "}
-              <span className="text-ink">illustrative sample data</span> for the
-              shipped reference packs, not a live deployment. Prompt entries are{" "}
-              <span className="text-ink">SHA-256 hashes of declared
-              templates</span> — never the template text. Vector-store and tool
-              entries are <span className="text-ink">references</span> (names,
-              kinds, schema digests) — never retrieved documents or invocations.
-              No raw prompts, no contents, no signature values ever appear here.
-            </p>
+        ) : (
+          <div className="flex flex-col gap-6">
+            <h2 className="text-eyebrow uppercase text-muted">
+              Reference pack manifests
+            </h2>
+            {boms.map((bom) => (
+              <BomCard key={`${bom.packId}@${bom.packVersion}`} bom={bom} />
+            ))}
           </div>
-        </div>
-      </section>
-
-      <section aria-labelledby="boms-heading" className="bg-canvas pb-16">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2
-            id="boms-heading"
-            className="text-xs uppercase tracking-section text-muted"
-          >
-            Reference pack manifests
-          </h2>
-
-          {boms.length === 0 ? (
-            <p className="mt-4 text-sm italic text-muted">
-              No published manifests yet.
-            </p>
-          ) : (
-            <div className="mt-4 flex flex-col gap-6">
-              {boms.map((bom) => (
-                <BomCard key={`${bom.packId}@${bom.packVersion}`} bom={bom} />
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-    </main>
+        )
+      }
+      shows={
+        <p>
+          A bill-of-materials is a <strong>manifest of components and hashes,
+          not contents</strong>. Prompt entries are <strong>SHA-256 hashes of
+          declared templates</strong> — never the template text. Vector-store
+          and tool entries are <strong>references</strong> (names, kinds, schema
+          digests) — never retrieved documents or invocations.
+        </p>
+      }
+      notShown={
+        <p>
+          These are <strong>illustrative sample data</strong> for the shipped
+          reference packs, not a live deployment. No <strong>raw prompts,
+          contents, or signature values</strong> ever appear here — only hashes
+          and component references, from which the BOM digest is recomputable.
+        </p>
+      }
+    />
   );
 }
 
@@ -119,11 +80,11 @@ export default function AiBomTransparencyPage() {
 function healthTierTone(tier: string): string {
   switch (tier.toLowerCase()) {
     case "gold":
-      return "border-emerald-500/40 text-emerald-300";
+      return "border-execute/40 bg-execute/10 text-execute-strong";
     case "silver":
-      return "border-teal-500/40 text-teal-300";
+      return "border-confirm/40 bg-confirm/10 text-confirm-strong";
     case "bronze":
-      return "border-amber-500/40 text-amber-300";
+      return "border-defer/40 bg-defer/10 text-defer-strong";
     default:
       return "border-edge text-muted";
   }
@@ -131,7 +92,7 @@ function healthTierTone(tier: string): string {
 
 function BomCard({ bom }: { bom: PublicAiBom }) {
   return (
-    <RevealArticle className="overflow-hidden rounded-sm border border-edge bg-surface">
+    <RevealArticle className="overflow-hidden rounded-xl bg-canvas shadow-xs">
       <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-edge px-5 py-4">
         <div>
           <h3 className="text-base font-semibold text-ink">
@@ -187,8 +148,8 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
                 <span
                   className={
                     bom.conformance.passed
-                      ? "rounded-sm border border-emerald-500/40 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-emerald-300"
-                      : "rounded-sm border border-red-500/50 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-red-300"
+                      ? "rounded-sm border border-execute/40 bg-execute/10 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-execute-strong"
+                      : "rounded-sm border border-refuse/50 bg-refuse/10 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-refuse-strong"
                   }
                 >
                   {bom.conformance.passed ? "Passed" : "FAILED"}

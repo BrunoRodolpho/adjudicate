@@ -27,7 +27,7 @@ export function Section({
   return (
     <section
       id={id}
-      className={cn("py-24 md:py-32", TONE_STYLES[tone], className)}
+      className={cn("py-section md:py-section-lg", TONE_STYLES[tone], className)}
     >
       <div className="mx-auto max-w-6xl px-6">{children}</div>
     </section>

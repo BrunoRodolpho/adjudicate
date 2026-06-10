@@ -69,3 +69,21 @@ export function findPost(slug: string): Post | undefined {
 export const BLOG_TAGS: ReadonlyArray<string> = [
   ...new Set(POSTS.flatMap((p) => p.tags)),
 ];
+
+/** URL-safe slug for a tag — the route segment of /blog/tags/[tag]. */
+export function tagToSlug(tag: string): string {
+  return tag
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+/** The original tag label for a route slug, or undefined if none matches. */
+export function tagFromSlug(slug: string): string | undefined {
+  return BLOG_TAGS.find((t) => tagToSlug(t) === slug);
+}
+
+/** Posts carrying the tag whose slug matches, newest-first (POSTS order). */
+export function postsByTagSlug(slug: string): ReadonlyArray<Post> {
+  return POSTS.filter((p) => p.tags.some((t) => tagToSlug(t) === slug));
+}

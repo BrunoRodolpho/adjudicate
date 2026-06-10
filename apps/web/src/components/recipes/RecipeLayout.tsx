@@ -11,6 +11,7 @@ import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { CAPABILITIES } from "@/content/capabilities";
 import type { Recipe } from "@/content/recipes";
 import { WorkedOutcome } from "@/components/recipes/WorkedOutcome";
+import { maturityFor } from "@/lib/maturity";
 
 /**
  * RecipeLayout — the Guardrail-Recipe page body. SERVER component, sharing the
@@ -31,6 +32,7 @@ import { WorkedOutcome } from "@/components/recipes/WorkedOutcome";
  */
 export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
   const isLive = recipe.live !== null;
+  const maturity = maturityFor(isLive);
   const playgroundHref = `/playground?intent=${encodeURIComponent(recipe.intentKind)}`;
 
   return (
@@ -48,9 +50,7 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
         <div className="flex flex-col gap-8">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="neutral">{recipe.guardOrPack.npmPackage}</Badge>
-            <Badge tone={isLive ? "shipped" : "roadmap"}>
-              {isLive ? "Live · real kernel" : "Illustrative"}
-            </Badge>
+            <Badge tone={maturity.tone}>{maturity.label}</Badge>
             <DecisionChip kind={recipe.outcome} size="sm" />
           </div>
           <Reveal>

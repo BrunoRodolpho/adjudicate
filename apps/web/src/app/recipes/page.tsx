@@ -10,6 +10,7 @@ import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { HoverLift } from "@/components/motion/HoverLift";
 import { DecisionFan } from "@/components/DecisionFan";
 import { BrandGlow } from "@/components/ui/BrandGlow";
+import { maturityFor } from "@/lib/maturity";
 import { RECIPES, type Recipe } from "@/content/recipes";
 
 const TITLE = "Guardrail Recipes · adjudicate";
@@ -47,8 +48,8 @@ function RecipeCard({ recipe }: { readonly recipe: Recipe }) {
           className="flex h-full flex-col gap-3"
         >
           <div className="flex items-center justify-between gap-2">
-            <Badge tone={isLive ? "shipped" : "roadmap"}>
-              {isLive ? "Live · real kernel" : "Illustrative"}
+            <Badge tone={maturityFor(isLive).tone}>
+              {maturityFor(isLive).label}
             </Badge>
             <DecisionChip kind={recipe.outcome} size="sm" />
           </div>

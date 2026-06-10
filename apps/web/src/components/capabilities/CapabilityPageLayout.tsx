@@ -9,6 +9,7 @@ import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { REPO_BASE } from "@/content/primitives";
 import type { CapabilityContent } from "@/content/capabilities";
 import { WorkedExample } from "@/components/capabilities/WorkedExample";
+import { maturityFor } from "@/lib/maturity";
 
 /**
  * CapabilityPageLayout — the capability deep-dive page body. Renders ALL 14
@@ -45,9 +46,7 @@ export function CapabilityPageLayout({
     capability.consoleAppearance.transparencyRoute;
   const transparencyRoute = capability.consoleAppearance.transparencyRoute;
   const realKernel = capability.interactivity === "real-kernel";
-  const maturityBadge = realKernel
-    ? `Shipped · Tier ${capability.tier}`
-    : `Illustrative · Tier ${capability.tier}`;
+  const maturity = maturityFor(realKernel);
 
   return (
     <main>
@@ -65,9 +64,7 @@ export function CapabilityPageLayout({
           <StaggerItem className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone="adr">{capability.adr.id}</Badge>
-              <Badge tone={realKernel ? "shipped" : "roadmap"}>
-                {maturityBadge}
-              </Badge>
+              <Badge tone={maturity.tone}>{maturity.label}</Badge>
               <Badge tone="neutral">{capability.pkg.name}</Badge>
             </div>
             <div className="flex flex-wrap gap-1.5">

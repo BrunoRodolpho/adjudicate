@@ -10,6 +10,7 @@ import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { HoverLift } from "@/components/motion/HoverLift";
 import { FamilyMap } from "@/components/FamilyMap";
 import { BrandGlow } from "@/components/ui/BrandGlow";
+import { maturityFor } from "@/lib/maturity";
 import {
   CAPABILITIES,
   type CapabilityContent,
@@ -79,11 +80,9 @@ function CapabilityCard({ cap }: { readonly cap: CapabilityContent }) {
         >
           <div className="flex items-center justify-between gap-2">
             <Badge tone="adr">{cap.adr.id}</Badge>
-            {cap.tier === 1 ? (
-              <Badge tone="shipped">Tier 1</Badge>
-            ) : (
-              <Badge tone="roadmap">Tier 2</Badge>
-            )}
+            <Badge tone={maturityFor(cap.interactivity === "real-kernel").tone}>
+              {maturityFor(cap.interactivity === "real-kernel").label}
+            </Badge>
           </div>
 
           <div>

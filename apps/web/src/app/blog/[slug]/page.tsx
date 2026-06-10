@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
-import { findPost, POSTS } from "@/content/blog";
+import { findPost, POSTS, tagToSlug } from "@/content/blog";
 import { GITHUB_ISSUES } from "@/content/github";
 
 interface PageProps {
@@ -64,6 +64,20 @@ export default async function BlogPostPage({ params }: PageProps) {
           {/* Front-matter intro: a one-line standfirst so a reader knows the
               shape of the post before diving into the technical body. */}
           <p className="mt-1 text-lead text-muted">{post.summary}</p>
+          {post.tags.length > 0 ? (
+            <ul className="mt-1 flex flex-wrap gap-2">
+              {post.tags.map((t) => (
+                <li key={t}>
+                  <Link
+                    href={`/blog/tags/${tagToSlug(t)}`}
+                    className="focus-ring inline-block rounded-full bg-surface-2 px-2.5 py-1 text-meta uppercase tracking-section text-muted transition-colors hover:text-ink"
+                  >
+                    {t}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </header>
         <Body />
 

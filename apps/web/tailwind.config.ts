@@ -156,8 +156,10 @@ const config: Config = {
       },
 
       backgroundImage: {
+        // Restrained 2-stop indigo→violet (the brand + escalate pair). The old
+        // 3-stop ended in fuchsia #D946EF — retired to keep colour discipline.
         "gradient-primary":
-          "linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #D946EF 100%)",
+          "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)",
         "gradient-flow": "linear-gradient(135deg, #22D3EE 0%, #34D399 100%)",
         "gradient-defer": "linear-gradient(135deg, #F59E0B 0%, #F97316 100%)",
       },

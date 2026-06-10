@@ -46,8 +46,8 @@ export default function ArchitecturePage() {
       />
       <section className="relative overflow-hidden border-y border-edge bg-surface py-12">
         <BrandGlow />
-        <div className="relative z-10 mx-auto max-w-3xl px-6">
-          <DecisionFan className="h-auto w-full" />
+        <div className="relative z-10 mx-auto max-w-5xl overflow-x-auto px-6">
+          <DecisionFan className="h-auto w-full min-w-[600px]" />
         </div>
       </section>
       <Problem />

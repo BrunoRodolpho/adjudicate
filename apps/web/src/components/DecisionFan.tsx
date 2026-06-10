@@ -78,7 +78,7 @@ export function DecisionFan({ className }: { readonly className?: string }) {
             key={`p-${kind}`}
             d={`M ${kerRight} ${kerMidY} C ${kerRight + 80} ${kerMidY}, ${OUT_X - 90} ${y}, ${OUT_X - 14} ${y}`}
             className={STROKE[kind]}
-            strokeWidth={2.5}
+            strokeWidth={3}
             strokeOpacity={dim ? 0.45 : 1}
             fill="none"
           />

@@ -108,11 +108,13 @@ export default function RecipesPage() {
 
         <div className="relative mt-10 overflow-hidden rounded-2xl border border-edge bg-surface px-6 py-10">
           <BrandGlow />
-          <div className="relative z-10 mx-auto max-w-3xl">
+          <div className="relative z-10 mx-auto max-w-4xl">
             <p className="mb-5 text-center text-eyebrow uppercase text-muted">
               Every recipe resolves to one of six signed decisions
             </p>
-            <DecisionFan className="h-auto w-full" />
+            <div className="overflow-x-auto">
+              <DecisionFan className="h-auto w-full min-w-[600px]" />
+            </div>
           </div>
         </div>
 

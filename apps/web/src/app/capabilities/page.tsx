@@ -138,8 +138,8 @@ export default function CapabilitiesPage() {
 
         <div className="relative mt-10 overflow-hidden rounded-2xl border border-edge bg-surface px-6 py-10">
           <BrandGlow />
-          <div className="relative z-10 mx-auto max-w-3xl">
-            <FamilyMap className="h-auto w-full" />
+          <div className="relative z-10 mx-auto max-w-4xl overflow-x-auto">
+            <FamilyMap className="h-auto w-full min-w-[560px]" />
           </div>
         </div>
 

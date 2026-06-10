@@ -46,7 +46,7 @@ export function FamilyMap({ className }: { readonly className?: string }) {
             key={`b-${f.label}`}
             d={`M ${kerRight} ${kerMidY} C ${kerRight + 70} ${kerMidY}, ${NODE.x - 70} ${cy}, ${NODE.x} ${cy}`}
             className={f.stroke}
-            strokeWidth={2.5}
+            strokeWidth={3}
             strokeOpacity={0.9}
             fill="none"
           />

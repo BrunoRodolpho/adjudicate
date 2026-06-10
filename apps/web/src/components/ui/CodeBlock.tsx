@@ -38,7 +38,9 @@ export function CodeBlock({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-lg border border-edge bg-zinc-900",
+        // min-w-0 + max-w-full so a long code line never forces the block wider
+        // than its (possibly flex) parent — overflow-x-auto on <pre> scrolls it.
+        "relative min-w-0 max-w-full overflow-hidden rounded-lg border border-edge bg-zinc-900",
         className,
       )}
     >

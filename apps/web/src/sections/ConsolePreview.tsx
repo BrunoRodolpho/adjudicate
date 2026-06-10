@@ -18,7 +18,7 @@ export function ConsolePreview() {
   return (
     <section className="bg-zinc-950 py-20 text-zinc-100">
       <div className="mx-auto grid max-w-6xl items-center gap-10 px-6 md:grid-cols-2">
-        <div className="flex flex-col gap-5">
+        <div className="flex min-w-0 flex-col gap-5">
           <span className="inline-flex w-fit items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-[11px] uppercase tracking-section text-zinc-400">
             <Terminal size={12} /> Operator console
           </span>
@@ -45,7 +45,7 @@ export function ConsolePreview() {
         </div>
 
         {/* Mock screenshot — a stylised representation of the Audit Explorer. */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 shadow-2xl">
+        <div className="min-w-0 rounded-xl border border-zinc-800 bg-zinc-900 p-3 shadow-2xl">
           <div className="mb-3 flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-rose-500/70" />
             <span className="h-2.5 w-2.5 rounded-full bg-amber-500/70" />
@@ -54,7 +54,7 @@ export function ConsolePreview() {
               audit-explorer · localhost:5180
             </span>
           </div>
-          <div className="rounded-md border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] text-zinc-400">
+          <div className="overflow-x-auto rounded-md border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] text-zinc-400">
             <div className="mb-2 flex items-center gap-2 text-zinc-500">
               <span>{`>`}</span>
               <span className="text-zinc-300">audit.query</span>

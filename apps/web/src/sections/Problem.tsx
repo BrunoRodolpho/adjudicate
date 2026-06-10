@@ -61,10 +61,10 @@ export function Problem() {
               </span>
             }
           >
-            <div className="flex items-center justify-between gap-2 text-sm">
+            <div className="flex min-w-0 items-center justify-between gap-2 text-sm">
               <Pill label="LLM" />
-              <ArrowRight size={16} className="text-faint" />
-              <div className="flex flex-1 items-center gap-1">
+              <ArrowRight size={16} className="shrink-0 text-faint" />
+              <div className="flex min-w-0 flex-1 items-center gap-1">
                 {PHASES.map((p, idx) => (
                   <motion.div
                     key={p.id}
@@ -113,7 +113,7 @@ function Panel({
   const tintBorder = tint === "brand" ? "border-brand/30" : "border-rose-200";
   const tintBg = tint === "brand" ? "bg-brand/5" : "bg-rose-50";
   return (
-    <div className={`rounded-2xl border ${tintBorder} ${tintBg} p-6 shadow-sm`}>
+    <div className={`min-w-0 rounded-2xl border ${tintBorder} ${tintBg} p-6 shadow-sm`}>
       <div className="mb-5 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-ink">{title}</h3>
         {statusIcon}

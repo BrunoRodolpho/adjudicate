@@ -67,3 +67,4 @@ infra/terraform/environments/dev/tfplan
 # UI/UX audit raw screenshots (large; regenerate via audit-artifacts/crawl.spec.ts)
 audit-artifacts/screenshots/
 audit-artifacts/recrawl-after/
+audit-artifacts/recrawl-final/

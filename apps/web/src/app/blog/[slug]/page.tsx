@@ -49,7 +49,7 @@ export default async function BlogPostPage({ params }: PageProps) {
   const otherPosts = POSTS.filter((p) => p.slug !== post.slug);
   return (
     <main className="bg-canvas">
-      <article className="mx-auto max-w-3xl px-6 py-24">
+      <article className="mx-auto max-w-measure px-6 py-24">
         <header className="mb-8 flex flex-col gap-3">
           <Link
             href="/blog"

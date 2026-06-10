@@ -122,7 +122,14 @@ export default function CapabilitiesPage() {
         <Reveal>
           <DepthHeader
             eyebrow="Capabilities"
-            title="14 capabilities, four families."
+            title={
+              <>
+                14 capabilities,{" "}
+                <span className="bg-gradient-primary bg-clip-text text-transparent">
+                  four families.
+                </span>
+              </>
+            }
             subtitle="Every capability maps to a real package and a real ADR, and every one opens a full deep-dive. The Tier badge marks maturity: Tier 1 runs the real kernel or a live projection; Tier 2 is fixture-illustrative."
           />
         </Reveal>

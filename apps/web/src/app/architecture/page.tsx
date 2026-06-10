@@ -5,6 +5,8 @@ import { PrimitivesDiagram } from "@/sections/PrimitivesDiagram";
 import { DepthHeader } from "@/components/ui/DepthHeader";
 import { Section } from "@/components/ui/Section";
 import { Card } from "@/components/ui/Card";
+import { DecisionFan } from "@/components/DecisionFan";
+import { BrandGlow } from "@/components/ui/BrandGlow";
 
 export const metadata: Metadata = {
   title: "Architecture · adjudicate",
@@ -32,9 +34,22 @@ export default function ArchitecturePage() {
     <main>
       <DepthHeader
         eyebrow="Depth · architecture"
-        title="The mechanism, in detail."
+        title={
+          <>
+            The mechanism,{" "}
+            <span className="bg-gradient-primary bg-clip-text text-transparent">
+              in detail.
+            </span>
+          </>
+        }
         subtitle="Why a kernel sits between AI intent and side-effect — and the seven primitives that compose it."
       />
+      <section className="relative overflow-hidden border-y border-edge bg-surface py-12">
+        <BrandGlow />
+        <div className="relative z-10 mx-auto max-w-3xl px-6">
+          <DecisionFan className="h-auto w-full" />
+        </div>
+      </section>
       <Problem />
       <PrimitivesDiagram />
 

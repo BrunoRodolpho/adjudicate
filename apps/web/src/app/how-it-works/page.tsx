@@ -22,7 +22,14 @@ export default function HowItWorksPage() {
     <main>
       <DepthHeader
         eyebrow="How it works"
-        title="The mechanism, frame by frame."
+        title={
+          <>
+            The mechanism,{" "}
+            <span className="bg-gradient-primary bg-clip-text text-transparent">
+              frame by frame.
+            </span>
+          </>
+        }
         subtitle="One requested action — a 100% production deploy — followed from interception through decision to audit record."
       />
       <HowItWorks />

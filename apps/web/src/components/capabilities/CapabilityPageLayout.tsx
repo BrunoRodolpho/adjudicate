@@ -15,26 +15,23 @@ import { WorkedExample } from "@/components/capabilities/WorkedExample";
  * capabilities (Tier 1 and Tier 2 alike) — `tier` is a maturity marker, not a
  * page-completeness one.
  *
- * SERVER component. Given one {@link CapabilityContent} it renders, top to
- * bottom:
+ * SERVER component. Composed as alternating tonal bands so a long single-column
+ * page gains pacing instead of reading as one flat white scroll (the R4
+ * re-score's recurring note on the whole 14-page cluster):
  *
- *   1. DepthHeader (back to /capabilities) — name + one-liner + the ADR /
- *      maturity badges + the outcome chips. The maturity badge reads
- *      `tier` / `interactivity`: a Tier-1 real-kernel page says "Shipped ·
- *      Tier 1"; a Tier-2 fixture-illustrative page says "Illustrative ·
- *      Tier 2" (honest about what its worked example is).
- *   2. A StepStrip anchored on Step 2 ("Guard decides") with a note framing
- *      this capability as what happens at that step.
- *   3. "What it does" — the mechanism-first prose.
- *   4. PROVENANCE — the governing ADR file on GitHub + the implementing
- *      package source file on GitHub (the verifiable-claim convention from
- *      content/primitives.ts: REPO_BASE + repo-relative path).
- *   5. The WORKED EXAMPLE (real kernel, chart, receipt, replica, pack, or
- *      illustration — see {@link WorkedExample}).
- *   6. "How it appears in the console" — a link/illustration to the replica or
- *      transparency route.
- *   7. A "Public data" band linking the matching /transparency projection when
- *      `consoleAppearance.transparencyRoute` is set.
+ *   1. DepthHeader (canvas) — name + one-liner + back.
+ *   2. INTRO band (surface) — badges + outcome chips, the "what it does"
+ *      mechanism as a measured editorial lead (not a wide prose wall), and the
+ *      Step-2 "Guard decides" context as a subtle inset.
+ *   3. WORKED EXAMPLE band (canvas) — the signature moment, given its own band.
+ *   4. PROVENANCE + WHERE IT SURFACES band (surface) — the governing ADR + the
+ *      implementing source file, then the console replica and the public
+ *      transparency projection merged into one "where an operator sees it" grid
+ *      (previously two thin, placeholder-feeling sections).
+ *
+ * Cards sit a tone *above* their band (bg-canvas on a surface band) and lift on
+ * shadow rather than a hairline border, so the surfaces read as material, not
+ * boxed.
  */
 export function CapabilityPageLayout({
   capability,
@@ -46,6 +43,7 @@ export function CapabilityPageLayout({
   const consoleHref =
     capability.consoleAppearance.replicaRoute ??
     capability.consoleAppearance.transparencyRoute;
+  const transparencyRoute = capability.consoleAppearance.transparencyRoute;
   const realKernel = capability.interactivity === "real-kernel";
   const maturityBadge = realKernel
     ? `Shipped · Tier ${capability.tier}`
@@ -61,15 +59,9 @@ export function CapabilityPageLayout({
         backLabel="Back to capabilities"
       />
 
-      <Section className="pt-8 md:pt-12">
-        {/*
-          The body blocks cascade in as the reader scrolls: the outer Stagger
-          drives each StaggerItem-wrapped block through revealVariants (fade +
-          small rise). Reduced-motion-safe — under prefers-reduced-motion both
-          render as plain elements with everything visible at once.
-        */}
-        <Stagger className="flex flex-col gap-16">
-          {/* Badges + outcomes. */}
+      {/* ── Intro band ─────────────────────────────────────────────────── */}
+      <Section tone="surface" className="pt-8 md:pt-12">
+        <Stagger className="flex flex-col gap-8">
           <StaggerItem className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone="adr">{capability.adr.id}</Badge>
@@ -85,28 +77,54 @@ export function CapabilityPageLayout({
             </div>
           </StaggerItem>
 
-          {/* Step-2 context note. */}
-          <StaggerItem className="flex flex-col gap-4 rounded-xl border border-edge bg-surface p-6">
-            <StepStrip active={2} />
-            <p className="text-sm leading-relaxed text-muted">
-              This is what happens at{" "}
-              <span className="font-medium text-ink">Step 2 — Guard decides</span>{" "}
-              for {capability.name.toLowerCase()}: the kernel adjudicates the
-              proposed action and disposes it into one of the six outcomes
-              above, with a structured basis the receipt carries forward.
-            </p>
-          </StaggerItem>
-
-          {/* What it does. */}
+          {/* What it does — a measured editorial lead, not a wide prose wall. */}
           <StaggerItem>
-            <Block id="what-it-does" title="What it does">
-              <p className="max-w-3xl text-base leading-relaxed text-muted">
+            <section id="what-it-does">
+              <h2 className="text-eyebrow uppercase tracking-section text-brand-ink">
+                What it does
+              </h2>
+              <p className="mt-3 max-w-measure text-lead leading-relaxed text-muted-strong">
                 {capability.whatItDoes}
               </p>
-            </Block>
+            </section>
           </StaggerItem>
 
-          {/* Provenance. */}
+          {/* Step-2 context — a subtle inset, lifted off the band. */}
+          <StaggerItem>
+            <div className="flex max-w-measure flex-col gap-3 rounded-xl bg-canvas p-5 shadow-xs">
+              <StepStrip active={2} />
+              <p className="text-sm leading-relaxed text-muted">
+                This is what happens at{" "}
+                <span className="font-medium text-ink">
+                  Step 2 — Guard decides
+                </span>{" "}
+                for {capability.name.toLowerCase()}: the kernel adjudicates the
+                proposed action and disposes it into one of the six outcomes
+                above, with a structured basis the receipt carries forward.
+              </p>
+            </div>
+          </StaggerItem>
+        </Stagger>
+      </Section>
+
+      {/* ── Worked example band (signature moment) ─────────────────────── */}
+      <Section tone="canvas">
+        <Block
+          id="worked-example"
+          title="Worked example"
+          subtitle={
+            realKernel
+              ? "The real kernel, run server-side at render time — not a mock."
+              : "An illustrative example projected from public, aggregate-only sample data."
+          }
+        >
+          <WorkedExample capability={capability} />
+        </Block>
+      </Section>
+
+      {/* ── Provenance + where it surfaces band ────────────────────────── */}
+      <Section tone="surface">
+        <Stagger className="flex flex-col gap-16">
           <StaggerItem>
             <Block
               id="provenance"
@@ -132,81 +150,69 @@ export function CapabilityPageLayout({
             </Block>
           </StaggerItem>
 
-          {/* Worked example. */}
           <StaggerItem>
             <Block
-              id="worked-example"
-              title="Worked example"
-              subtitle={
-                capability.interactivity === "real-kernel"
-                  ? "The real kernel, run server-side at render time — not a mock."
-                  : "An illustrative example projected from public, aggregate-only sample data."
-              }
+              id="surfaces"
+              title="Where it surfaces"
+              subtitle="Where an operator sees this capability in the running system — and the matching public, aggregate-only transparency view."
             >
-              <WorkedExample capability={capability} />
-            </Block>
-          </StaggerItem>
+              <div
+                className={
+                  transparencyRoute
+                    ? "grid gap-4 sm:grid-cols-2"
+                    : "grid gap-4"
+                }
+              >
+                <div className="flex flex-col gap-4 rounded-xl bg-canvas p-6 shadow-xs">
+                  <span className="text-xs uppercase tracking-section text-muted">
+                    Operator console
+                  </span>
+                  <p className="text-sm leading-relaxed text-muted">
+                    {capability.consoleAppearance.surface}
+                  </p>
+                  {consoleHref ? (
+                    <a
+                      href={consoleHref}
+                      className="focus-ring mt-auto inline-flex w-fit items-center gap-1.5 rounded-lg bg-surface px-3 py-2 text-sm font-medium text-ink shadow-xs transition-shadow hover:shadow-sm"
+                    >
+                      {capability.consoleAppearance.replicaRoute
+                        ? "Open the console replica"
+                        : "Open the public view"}
+                      <ArrowUpRight size={14} aria-hidden="true" />
+                    </a>
+                  ) : (
+                    <Callout tone="info">
+                      This capability surfaces inside the operator console;
+                      there is no public replica route for it yet.
+                    </Callout>
+                  )}
+                </div>
 
-          {/* How it appears in the console. */}
-          <StaggerItem>
-            <Block
-              id="console"
-              title="How it appears in the console"
-              subtitle="Where an operator sees this capability in the running system."
-            >
-              <div className="flex flex-col gap-4 rounded-xl border border-edge bg-surface p-6">
-                <p className="text-sm leading-relaxed text-muted">
-                  {capability.consoleAppearance.surface}
-                </p>
-                {consoleHref ? (
+                {transparencyRoute ? (
                   <a
-                    href={consoleHref}
-                    className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm font-medium text-ink transition-colors hover:border-ink/30"
+                    href={transparencyRoute}
+                    className="focus-ring group flex flex-col gap-2 rounded-xl bg-canvas p-6 shadow-xs transition-shadow hover:shadow-sm"
                   >
-                    {capability.consoleAppearance.replicaRoute
-                      ? "Open the console replica"
-                      : "Open the public view"}
-                    <ArrowUpRight size={14} aria-hidden="true" />
+                    <span className="flex items-center justify-between text-xs uppercase tracking-section text-muted">
+                      Public transparency view
+                      <ArrowUpRight
+                        size={16}
+                        className="text-faint transition-colors group-hover:text-brand-ink"
+                        aria-hidden="true"
+                      />
+                    </span>
+                    <p className="text-sm leading-relaxed text-muted">
+                      Aggregate-only, illustrative sample data — no tenant
+                      detail — published as a public projection.
+                    </p>
+                    <code className="mt-auto break-all text-[11px] text-muted">
+                      {transparencyRoute}
+                    </code>
                   </a>
-                ) : (
-                  <Callout tone="info">
-                    This capability surfaces inside the operator console; there
-                    is no public replica route for it yet.
-                  </Callout>
-                )}
+                ) : null}
               </div>
             </Block>
           </StaggerItem>
-
-          {/* Public data band. */}
-          {capability.consoleAppearance.transparencyRoute ? (
-            <StaggerItem>
-              <Block
-                id="public-data"
-                title="Public data"
-                subtitle="The matching public transparency projection — aggregate-only, illustrative sample data, no tenant detail."
-              >
-                <a
-                  href={capability.consoleAppearance.transparencyRoute}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-edge bg-surface p-6 transition-colors hover:border-ink/30"
-                >
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm font-medium text-ink">
-                      Public transparency view
-                    </span>
-                    <code className="text-xs text-muted">
-                      {capability.consoleAppearance.transparencyRoute}
-                    </code>
-                  </div>
-                  <ArrowUpRight
-                    size={18}
-                    className="shrink-0 text-faint"
-                    aria-hidden="true"
-                  />
-                </a>
-              </Block>
-            </StaggerItem>
-          ) : null}
         </Stagger>
       </Section>
     </main>
@@ -257,7 +263,7 @@ function ProvenanceCard({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="group flex flex-col gap-2 rounded-xl border border-edge bg-surface p-5 transition-colors hover:border-ink/30"
+      className="focus-ring group flex flex-col gap-2 rounded-xl bg-canvas p-5 shadow-xs transition-shadow hover:shadow-sm"
     >
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs uppercase tracking-section text-muted">
@@ -266,7 +272,7 @@ function ProvenanceCard({
         </span>
         <ArrowUpRight
           size={14}
-          className="text-faint transition-colors group-hover:text-ink"
+          className="text-faint transition-colors group-hover:text-brand-ink"
           aria-hidden="true"
         />
       </div>

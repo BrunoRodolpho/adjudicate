@@ -8,6 +8,8 @@ import { DecisionChip } from "@/components/ui/DecisionChip";
 import { Reveal } from "@/components/home/Reveal";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { HoverLift } from "@/components/motion/HoverLift";
+import { DecisionFan } from "@/components/DecisionFan";
+import { BrandGlow } from "@/components/ui/BrandGlow";
 import { RECIPES, type Recipe } from "@/content/recipes";
 
 const TITLE = "Guardrail Recipes · adjudicate";
@@ -89,14 +91,32 @@ export default function RecipesPage() {
         <Reveal>
           <DepthHeader
             eyebrow="Recipes"
-            title="Guardrail Recipes — solution-focused patterns"
+            title={
+              <>
+                Guardrail{" "}
+                <span className="bg-gradient-primary bg-clip-text text-transparent">
+                  recipes
+                </span>{" "}
+                — solution-focused patterns
+              </>
+            }
             subtitle="Each recipe answers a single how-do-I question: the problem, the guard or pack that solves it, a real code snippet, and the outcome the kernel actually reaches — run server-side through the real kernel where the pack is installed, or clearly labelled illustrative where it isn't."
             backHref="/"
             backLabel="Back to home"
           />
         </Reveal>
 
-        <Stagger className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="relative mt-10 overflow-hidden rounded-2xl border border-edge bg-surface px-6 py-10">
+          <BrandGlow />
+          <div className="relative z-10 mx-auto max-w-3xl">
+            <p className="mb-5 text-center text-eyebrow uppercase text-muted">
+              Every recipe resolves to one of six signed decisions
+            </p>
+            <DecisionFan className="h-auto w-full" />
+          </div>
+        </div>
+
+        <Stagger className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {RECIPES.map((recipe) => (
             <RecipeCard key={recipe.slug} recipe={recipe} />
           ))}

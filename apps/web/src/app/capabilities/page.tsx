@@ -8,6 +8,8 @@ import { DecisionChip } from "@/components/ui/DecisionChip";
 import { Reveal } from "@/components/home/Reveal";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 import { HoverLift } from "@/components/motion/HoverLift";
+import { FamilyMap } from "@/components/FamilyMap";
+import { BrandGlow } from "@/components/ui/BrandGlow";
 import {
   CAPABILITIES,
   type CapabilityContent,
@@ -134,16 +136,21 @@ export default function CapabilitiesPage() {
           />
         </Reveal>
 
-        <div className="mt-12 flex flex-col gap-16">
+        <div className="relative mt-10 overflow-hidden rounded-2xl border border-edge bg-surface px-6 py-10">
+          <BrandGlow />
+          <div className="relative z-10 mx-auto max-w-3xl">
+            <FamilyMap className="h-auto w-full" />
+          </div>
+        </div>
+
+        <div className="mt-16 flex flex-col gap-16">
           {FAMILIES.map((family) => {
             const caps = CAPABILITIES.filter((c) => c.family === family.id);
             return (
               <div key={family.id}>
-                <div className="border-b border-edge pb-4">
-                  <h2 className="text-xl font-semibold tracking-tight text-ink">
-                    {family.label}
-                  </h2>
-                  <p className="mt-1 text-sm text-muted">{family.blurb}</p>
+                <div>
+                  <h2 className="text-h3 text-ink">{family.label}</h2>
+                  <p className="mt-1 text-body-sm text-muted">{family.blurb}</p>
                 </div>
                 <Stagger className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {caps.map((cap) => (

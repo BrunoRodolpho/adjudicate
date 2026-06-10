@@ -28,6 +28,8 @@ export interface BarRow {
   readonly display: string;
   /** When true, render the small-cohort-floor screen-reader note. */
   readonly censored: boolean;
+  /** Optional Tailwind bg-* class for the bar fill (semantic colour). */
+  readonly tone?: string;
 }
 
 /**
@@ -74,6 +76,7 @@ export function AnimatedBarRows({
               widthPct={row.widthPct}
               display={row.display}
               censored={row.censored}
+              tone={row.tone}
               floor={floor}
               animate={false}
             />
@@ -101,6 +104,7 @@ export function AnimatedBarRows({
             widthPct={row.widthPct}
             display={row.display}
             censored={row.censored}
+            tone={row.tone}
             floor={floor}
             animate
           />
@@ -114,15 +118,18 @@ function BarCell({
   widthPct,
   display,
   censored,
+  tone,
   floor,
   animate,
 }: {
   readonly widthPct: number;
   readonly display: string;
   readonly censored: boolean;
+  readonly tone?: string;
   readonly floor: number;
   readonly animate: boolean;
 }) {
+  const fill = tone ?? "bg-ink/70";
   return (
     <td className="px-4 py-3">
       <div className="flex items-center gap-3">
@@ -133,7 +140,8 @@ function BarCell({
           {animate ? (
             <motion.div
               className={cn(
-                "h-full rounded-sm bg-ink/70 transition-[filter] duration-200",
+                "h-full rounded-sm transition-[filter] duration-200",
+                fill,
                 "group-hover:brightness-125",
               )}
               initial={{ width: 0 }}
@@ -143,7 +151,7 @@ function BarCell({
             />
           ) : (
             <div
-              className="h-full rounded-sm bg-ink/70"
+              className={cn("h-full rounded-sm", fill)}
               style={{ width: `${widthPct}%` }}
             />
           )}

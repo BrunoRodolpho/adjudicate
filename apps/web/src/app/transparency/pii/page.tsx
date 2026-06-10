@@ -28,6 +28,9 @@ export default function PiiTransparencyPage() {
     widthPct: maxValue > 0 ? Math.max(2, Math.round((bucket.value / maxValue) * 100)) : 0,
     display: bucket.display,
     censored: bucket.censored,
+    // On-brand semantic colour: a blocked field maps to REFUSE, a redacted one
+    // to REWRITE — the same decision vocabulary the rest of the site uses.
+    tone: bucket.disposition === "blocked" ? "bg-refuse/70" : "bg-rewrite/70",
     leading: (
       <>
         <th scope="row" className="px-4 py-3 font-medium text-ink">

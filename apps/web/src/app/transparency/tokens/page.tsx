@@ -41,7 +41,7 @@ export default function TokenGovernanceTransparencyPage() {
           unit="%"
           tone={band.tone}
           status={b.bandLabel}
-          detail={`≈ ${b.consumedDisplay} of ≈ ${b.budgetDisplay} tokens used this period.`}
+          detail={`${b.consumedDisplay} of ${b.budgetDisplay} tokens used this period.`}
         >
           <div data-testid="token-budget-bar">
             <div className="flex items-center justify-between text-eyebrow uppercase text-muted">

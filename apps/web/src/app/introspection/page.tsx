@@ -28,7 +28,7 @@ export default function IntrospectionPage() {
     <main>
       <DepthHeader
         eyebrow="Depth · introspection"
-        title="Your policy is no longer a black box."
+        title="Inspect every rule that governs an AI action."
         subtitle="GuardMetadata is a layer of structured labels on every policy rule — so auditors, analyzers, and the operator console can read what governs your AI actions programmatically, not by guessing from a name. The primer below explains the five description kinds; the graph renders one descriptor per shipped Pack."
       />
       <GuardMetadataPrimer />

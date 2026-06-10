@@ -32,7 +32,12 @@ export function AuditTableReplica({
 }: AuditTableReplicaProps) {
   return (
     <div className="relative">
-      <div className="overflow-auto rounded-md border border-console-edge bg-console-panel/40 [&_tr>:first-child]:sticky [&_tr>:first-child]:left-0 [&_tr>:first-child]:bg-console-panel [&_thead_tr>:first-child]:z-10">
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label="Audit records"
+        className="overflow-auto rounded-md border border-console-edge bg-console-panel/40 focus-ring-console [&_tr>:first-child]:sticky [&_tr>:first-child]:left-0 [&_tr>:first-child]:bg-console-panel [&_thead_tr>:first-child]:z-10"
+      >
         <table className="w-full border-collapse text-[11px]">
         <thead className="sticky top-0 bg-console-panel">
           <tr className="border-b border-console-edge">

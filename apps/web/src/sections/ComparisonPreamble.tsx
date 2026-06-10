@@ -115,16 +115,16 @@ export function ComparisonPreamble() {
           </p>
           <div className="mt-5 flex flex-col gap-3">
             <div className="flex items-center gap-2 rounded-lg border border-execute/40 bg-execute/10 px-3 py-2.5">
-              <Check size={15} className="shrink-0 text-execute" aria-hidden="true" />
+              <Check size={15} className="shrink-0 text-execute-strong" aria-hidden="true" />
               <p className="text-sm text-muted">
-                <span className="font-semibold text-execute">allow</span> — run
+                <span className="font-semibold text-execute-strong">allow</span> — run
                 the action exactly as proposed (the full $10k).
               </p>
             </div>
             <div className="flex items-center gap-2 rounded-lg border border-refuse/40 bg-refuse/10 px-3 py-2.5">
-              <Ban size={15} className="shrink-0 text-refuse" aria-hidden="true" />
+              <Ban size={15} className="shrink-0 text-refuse-strong" aria-hidden="true" />
               <p className="text-sm text-muted">
-                <span className="font-semibold text-refuse">deny</span> — block
+                <span className="font-semibold text-refuse-strong">deny</span> — block
                 the action; the agent gets nothing back to act on.
               </p>
             </div>
@@ -148,13 +148,13 @@ export function ComparisonPreamble() {
             <OutcomeLeaf
               label={DECISIONS.EXECUTE.kind}
               dot="bg-execute"
-              accent="text-execute"
+              accent="text-execute-strong"
               meaning="run it as proposed (transfer is within cap)."
             />
             <OutcomeLeaf
               label={DECISIONS.REFUSE.kind}
               dot="bg-refuse"
-              accent="text-refuse"
+              accent="text-refuse-strong"
               meaning="reject it with a structured reason the agent can read."
             />
             <OutcomeLeaf
@@ -166,19 +166,19 @@ export function ComparisonPreamble() {
             <OutcomeLeaf
               label={DECISIONS.DEFER.kind}
               dot="bg-defer"
-              accent="text-defer"
+              accent="text-defer-strong"
               meaning="park it until a settlement webhook or queue signal arrives."
             />
             <OutcomeLeaf
               label={DECISIONS.ESCALATE.kind}
               dot="bg-escalate"
-              accent="text-escalate"
+              accent="text-escalate-strong"
               meaning="route it to a human approver before anything runs."
             />
             <OutcomeLeaf
               label={DECISIONS.REQUEST_CONFIRMATION.kind}
               dot="bg-confirm"
-              accent="text-confirm"
+              accent="text-confirm-strong"
               meaning="ask the caller to re-confirm before proceeding."
             />
           </Stagger>

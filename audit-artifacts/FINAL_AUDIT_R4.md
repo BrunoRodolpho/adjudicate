@@ -157,3 +157,16 @@ the optical/spec/cleanup tail (WS-K/V/C/I/L) is genuinely lower-ROI now.
 | `/console` | **70** | 72 | 67 | 73 | 71 | 69 | 74 | A genuinely strong route — the live console mockup is a real signature moment — but the lo |
 | `/contribute` | **71** | 71 | 74 | 72 | 68 | 73 | 74 | A genuinely well-built contributor docs page — disciplined typography, semantic badges, an |
 | `/architecture/data-flow` | **74** | 76 | 75 | 74 | 72 | 73 | 76 | A genuinely well-designed data-flow story — semantic color-coded outcome pills, labeled co |
+
+## Contrast debt (WS-V, tracked)
+
+`web-audit-checks.mjs` now runs axe-core (WCAG 2 A/AA incl. `color-contrast`) on
+19 representative routes and hard-fails on **critical** a11y; 0 critical. The
+remaining **serious** tail (~215 nodes) is almost entirely *borderline*
+color-contrast — `text-muted` (#71717A, 4.6:1 on pure white) dropping to
+4.37–4.48:1 on the warm decision/callout **tints**, and a few decision DEFAULT
+hues still used as text on light tints (the systemic `-strong` switch is done in
+ComparisonPreamble; the rest — HowItWorks/Problem/WedgeTable light surfaces — is
+the tracked follow-up). Non-blocking: within rounding of AA and not flagged as a
+score blocker by the design re-score. Console DEFAULT-hue-on-dark usages read
+correctly (vivid on zinc-950) and are not failures.

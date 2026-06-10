@@ -61,8 +61,11 @@ export function DataTable({
   return (
     <div className="relative">
       <div
+        tabIndex={0}
+        role="region"
+        aria-label={caption}
         className={cn(
-          "overflow-auto rounded-sm border border-console-edge bg-console-panel/40",
+          "overflow-auto rounded-sm border border-console-edge bg-console-panel/40 focus-ring-console",
           // Sticky first column keeps the row label pinned while the rest of a
           // wide row scrolls horizontally on narrow screens (WS-G affordance).
           "[&_tr>:first-child]:sticky [&_tr>:first-child]:left-0 [&_tr>:first-child]:bg-console-panel [&_thead_tr>:first-child]:z-10",

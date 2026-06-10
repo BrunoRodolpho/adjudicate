@@ -188,7 +188,7 @@ function shortAxis(iso: string): string {
 /** Compact legend showing each Decision kind with its stack color. */
 export function OutcomeChartLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-section text-console-faint">
+    <div className="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-section text-console-muted">
       {DECISION_KIND_ORDER.map((kind) => {
         const t = decisionTheme[kind];
         return (

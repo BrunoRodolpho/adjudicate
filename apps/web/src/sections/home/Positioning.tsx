@@ -105,7 +105,7 @@ function PositioningCard({
             <span className="text-[11px] uppercase tracking-section text-muted">
               vs {contrast.others}
             </span>
-            <span className="font-mono text-xs text-faint">
+            <span className="font-mono text-xs text-muted">
               {contrast.examples}
             </span>
           </div>

@@ -37,25 +37,25 @@ export function AuditTableReplica({
           <tr className="border-b border-console-edge">
             <th
               scope="col"
-              className="px-2.5 py-2 text-left text-[10px] uppercase tracking-section text-console-faint"
+              className="px-2.5 py-2 text-left text-[10px] uppercase tracking-section text-console-muted"
             >
               Decision
             </th>
             <th
               scope="col"
-              className="px-2.5 py-2 text-left text-[10px] uppercase tracking-section text-console-faint"
+              className="px-2.5 py-2 text-left text-[10px] uppercase tracking-section text-console-muted"
             >
               Intent
             </th>
             <th
               scope="col"
-              className="px-2.5 py-2 text-left text-[10px] uppercase tracking-section text-console-faint"
+              className="px-2.5 py-2 text-left text-[10px] uppercase tracking-section text-console-muted"
             >
               Hash
             </th>
             <th
               scope="col"
-              className="px-2.5 py-2 text-right text-[10px] uppercase tracking-section text-console-faint"
+              className="px-2.5 py-2 text-right text-[10px] uppercase tracking-section text-console-muted"
             >
               Time
             </th>
@@ -65,7 +65,7 @@ export function AuditTableReplica({
           {records.length === 0 ? (
             <tr>
               <td colSpan={4} className="px-3 py-10 text-center">
-                <p className="text-[11px] italic text-console-faint">
+                <p className="text-[11px] italic text-console-muted">
                   No records yet — start the simulation to tail arrivals.
                 </p>
               </td>
@@ -95,7 +95,7 @@ export function AuditTableReplica({
                     </Link>
                   </td>
                   <td className="px-2.5 py-2 align-top">
-                    <code className="text-[10px] text-console-faint">
+                    <code className="text-[10px] text-console-muted">
                       {truncateHash(record.intentHash)}
                     </code>
                   </td>

@@ -67,7 +67,7 @@ export function DataTable({
     >
       <table className="w-full border-collapse text-[11px]">
         {captionVisible ? (
-          <caption className="px-3 py-1.5 text-left text-[10px] uppercase tracking-section text-console-faint">
+          <caption className="px-3 py-1.5 text-left text-[10px] uppercase tracking-section text-console-muted">
             {caption}
           </caption>
         ) : (
@@ -80,7 +80,7 @@ export function DataTable({
                 key={col.key}
                 scope="col"
                 className={cn(
-                  "px-3 py-1.5 text-[10px] font-normal uppercase tracking-section text-console-faint",
+                  "px-3 py-1.5 text-[10px] font-normal uppercase tracking-section text-console-muted",
                   col.align === "right" ? "text-right" : "text-left",
                 )}
               >
@@ -94,7 +94,7 @@ export function DataTable({
             <tr>
               <td
                 colSpan={columns.length}
-                className="px-3 py-8 text-center text-[11px] italic text-console-faint"
+                className="px-3 py-8 text-center text-[11px] italic text-console-muted"
               >
                 {emptyMessage}
               </td>

@@ -88,7 +88,7 @@ export function HumanApprovalResume() {
         guess. The full guard and a live run are in the{" "}
         <Link
           href="/recipes/pause-for-human"
-          className="font-medium text-indigo-600 hover:text-indigo-700"
+          className="font-medium text-brand-ink hover:text-brand-ink"
         >
           pause for human approval recipe
         </Link>
@@ -130,7 +130,7 @@ export function HumanApprovalResume() {
         approval surface — see the{" "}
         <Link
           href="/capabilities/smart-approval-engine"
-          className="font-medium text-indigo-600 hover:text-indigo-700"
+          className="font-medium text-brand-ink hover:text-brand-ink"
         >
           smart approval engine capability
         </Link>

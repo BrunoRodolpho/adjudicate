@@ -50,7 +50,7 @@ export function SandboxPackPicker({
 
       {/* ── Step 1 · Pack ─────────────────────────────────────────────── */}
       <fieldset className="flex flex-col gap-2">
-        <legend className="font-mono text-[10px] uppercase tracking-section text-faint">
+        <legend className="font-mono text-[10px] uppercase tracking-section text-muted">
           1 · Pick a pack
         </legend>
         <div
@@ -86,7 +86,7 @@ export function SandboxPackPicker({
       <div className="flex flex-col gap-2">
         <label
           htmlFor="sandbox-intent"
-          className="font-mono text-[10px] uppercase tracking-section text-faint"
+          className="font-mono text-[10px] uppercase tracking-section text-muted"
         >
           2 · Pick an intent
         </label>

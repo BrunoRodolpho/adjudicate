@@ -50,13 +50,13 @@ export function AuditExplorerReplica() {
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="text-[10px] uppercase tracking-wider text-console-faint tabular-nums">
+            <span className="text-[10px] uppercase tracking-wider text-console-muted tabular-nums">
               {tail.revealed} / {tail.total} record
               {tail.total === 1 ? "" : "s"}
             </span>
             {tail.reducedMotion ? (
               <span
-                className="text-[10px] uppercase tracking-wider text-console-faint"
+                className="text-[10px] uppercase tracking-wider text-console-muted"
                 title="Reduced-motion is on: the full sample set is shown at once, with no timed arrivals."
               >
                 static (reduced motion)
@@ -86,7 +86,7 @@ export function AuditExplorerReplica() {
         </header>
 
         {tail.reducedMotion ? (
-          <p className="text-[11px] text-console-faint">
+          <p className="text-[11px] text-console-muted">
             Reduced-motion is enabled — the full sample feed is shown at once,
             with no timed arrivals.
           </p>

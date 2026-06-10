@@ -156,7 +156,7 @@ export function MagicMomentSplit({
               auditHash{" "}
               <span className="font-semibold text-ink">{auditHashShort}</span>
             </span>
-            <span className="text-faint">· signed · append-only</span>
+            <span className="text-muted">· signed · append-only</span>
           </div>
         </StaggerItem>
       </Stagger>
@@ -207,7 +207,7 @@ function Row({
         )}
       >
         {struck ? (
-          <span className="mr-1.5 text-faint line-through">{struck}</span>
+          <span className="mr-1.5 text-muted line-through">{struck}</span>
         ) : null}
         {value}
       </dd>

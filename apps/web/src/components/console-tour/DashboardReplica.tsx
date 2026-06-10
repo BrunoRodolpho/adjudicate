@@ -39,7 +39,7 @@ export function DashboardReplica({ className }: { readonly className?: string })
         {/* Stacked outcome distribution. */}
         <section className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[10px] uppercase tracking-section text-console-faint">
+            <span className="text-[10px] uppercase tracking-section text-console-muted">
               Decisions over 24h · 2h buckets
             </span>
             <OutcomeChartLegend />
@@ -62,7 +62,7 @@ export function DashboardReplica({ className }: { readonly className?: string })
                   t.bg,
                 )}
               >
-                <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-section text-console-faint">
+                <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-section text-console-muted">
                   <span
                     aria-hidden="true"
                     className={cn("h-1.5 w-1.5 rounded-full", t.dot)}
@@ -93,10 +93,10 @@ export function DashboardReplica({ className }: { readonly className?: string })
 
           <div className="rounded-sm border border-console-edge bg-console-panel/40 lg:col-span-2">
             <header className="flex flex-col gap-0.5 border-b border-console-edge px-3 py-1.5">
-              <span className="text-[10px] uppercase tracking-section text-console-faint">
+              <span className="text-[10px] uppercase tracking-section text-console-muted">
                 Top refusals
               </span>
-              <span className="text-[10px] leading-relaxed text-console-faint">
+              <span className="text-[10px] leading-relaxed text-console-muted">
                 The rejection codes the kernel cited most when it blocked an
                 action — the recurring reasons worth reviewing first.
               </span>
@@ -114,7 +114,7 @@ export function DashboardReplica({ className }: { readonly className?: string })
                     >
                       {r.code}
                     </code>
-                    <span className="truncate text-[10px] text-console-faint">
+                    <span className="truncate text-[10px] text-console-muted">
                       {r.label}
                     </span>
                   </span>

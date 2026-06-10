@@ -4,6 +4,7 @@ import { Providers } from "./providers";
 import { AnnouncementBanner } from "@/components/ui/AnnouncementBanner";
 import { NavBar } from "@/components/ui/NavBar";
 import { SiteFooter } from "@/components/ui/SiteFooter";
+import { SkipLink } from "@/components/console-kit/a11y/SkipLink";
 import { SITE } from "@/content/site";
 import { GITHUB_REPO } from "@/content/github";
 import "./globals.css";
@@ -124,9 +125,17 @@ export default function RootLayout({
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }}
         />
+        <SkipLink />
         <AnnouncementBanner />
         <NavBar />
-        <Providers>{children}</Providers>
+        <Providers>
+          {/* Skip-link target. A focusable wrapper (not <main>) — every page
+              already renders its own <main> landmark, so this avoids nesting
+              main-in-main while giving the skip link a stable anchor. */}
+          <div id="main-content" tabIndex={-1} className="outline-none">
+            {children}
+          </div>
+        </Providers>
         <SiteFooter />
         {plausibleDomain ? (
           <Script

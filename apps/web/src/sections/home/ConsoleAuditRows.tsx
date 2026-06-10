@@ -112,7 +112,7 @@ export function ConsoleAuditRows({
             row.highlight ? "bg-rewrite/[0.07]" : "hover:bg-zinc-800/40",
           )}
           variants={{
-            hidden: { opacity: 0, x: -20 },
+            hidden: { x: -20 },
             visible: row.highlight
               ? {
                   opacity: 1,

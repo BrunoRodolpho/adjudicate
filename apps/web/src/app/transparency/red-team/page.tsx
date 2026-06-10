@@ -128,7 +128,7 @@ export default function RedTeamTransparencyPage() {
             </p>
           </Reveal>
 
-          <p className="mt-4 text-xs text-faint">
+          <p className="mt-4 text-xs text-muted">
             As of <time dateTime={AS_OF}>{AS_OF.slice(0, 10)}</time> ·{" "}
             {allClean
               ? "all shipped packs defend the full suite"

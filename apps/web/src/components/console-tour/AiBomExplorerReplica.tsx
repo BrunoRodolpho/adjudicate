@@ -85,13 +85,13 @@ export function AiBomExplorerReplica({
           <h2 className="text-[10px] uppercase tracking-section text-console-muted">
             AI-BOM Explorer · AI Bill-of-Materials
           </h2>
-          <span className="text-[10px] text-console-faint">ADR-130</span>
+          <span className="text-[10px] text-console-muted">ADR-130</span>
         </header>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
           {/* Left rail — pack list. */}
           <section className="flex flex-col gap-2">
-            <header className="text-[10px] uppercase tracking-section text-console-faint">
+            <header className="text-[10px] uppercase tracking-section text-console-muted">
               Packs
             </header>
             <ul
@@ -153,7 +153,7 @@ function PackRailItem({
           <span className="truncate font-medium text-console-ink">
             {bom.packId}
           </span>
-          <span className="shrink-0 text-[10px] tabular-nums text-console-faint">
+          <span className="shrink-0 text-[10px] tabular-nums text-console-muted">
             @{bom.packVersion}
           </span>
         </span>
@@ -165,19 +165,19 @@ function PackRailItem({
               bom.conformance.passed ? "bg-emerald-400" : "bg-red-400",
             )}
           />
-          <span className="uppercase tracking-section text-console-faint">
+          <span className="uppercase tracking-section text-console-muted">
             {bom.healthTier}
           </span>
           <span
             className={cn(
               "ml-auto uppercase tracking-section",
-              signed ? "text-emerald-300" : "text-console-faint",
+              signed ? "text-emerald-300" : "text-console-muted",
             )}
           >
             {signed ? "signed" : "unsigned"}
           </span>
         </span>
-        <code className="truncate font-mono text-[10px] text-console-faint">
+        <code className="truncate font-mono text-[10px] text-console-muted">
           {truncateHash(bom.bomDigest)}
         </code>
       </button>
@@ -194,7 +194,7 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
       <span className="tabular-nums text-console-muted">{t.version ?? "—"}</span>
     ),
     schemaDigest: (
-      <code className="font-mono text-console-faint">
+      <code className="font-mono text-console-muted">
         {t.schemaDigest ? truncateHash(t.schemaDigest) : "—"}
       </code>
     ),
@@ -216,7 +216,7 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
     _key: `${p.id}:${i}`,
     id: <span className="text-console-ink">{p.id}</span>,
     sha256: (
-      <code className="font-mono text-console-faint">{truncateHash(p.sha256)}</code>
+      <code className="font-mono text-console-muted">{truncateHash(p.sha256)}</code>
     ),
   }));
 
@@ -241,13 +241,13 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
             data-testid="aibom-detail-heading"
           >
             {bom.packId}
-            <span className="ml-1 text-console-faint">@{bom.packVersion}</span>
+            <span className="ml-1 text-console-muted">@{bom.packVersion}</span>
           </h3>
           {/* The live console exports the BOM via a client-side Blob download.
               This static replica has no live BOM, so the affordance is an inert
               note rather than a no-op control. */}
           <span
-            className="rounded-sm border border-console-edge px-2 py-1 text-[10px] uppercase tracking-section text-console-faint"
+            className="rounded-sm border border-console-edge px-2 py-1 text-[10px] uppercase tracking-section text-console-muted"
             title="The live console exports the BOM as JSON. This replica is a static display, so export is illustrative only."
           >
             Download JSON · illustrative
@@ -279,7 +279,7 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
             {bom.model.modelVersion ? ` @${bom.model.modelVersion}` : ""}
           </p>
         ) : (
-          <p className="text-[11px] italic text-console-faint">Not declared.</p>
+          <p className="text-[11px] italic text-console-muted">Not declared.</p>
         )}
         </DetailSection>
       </RevealStackItem>
@@ -334,7 +334,7 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
             getRowKey={(row, i) => String(row._key ?? i)}
           />
         ) : (
-          <p className="text-[11px] italic text-console-faint">None declared.</p>
+          <p className="text-[11px] italic text-console-muted">None declared.</p>
         )}
         </DetailSection>
       </RevealStackItem>
@@ -353,7 +353,7 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
             getRowKey={(row, i) => String(row._key ?? i)}
           />
         ) : (
-          <p className="text-[11px] italic text-console-faint">None declared.</p>
+          <p className="text-[11px] italic text-console-muted">None declared.</p>
         )}
         </DetailSection>
       </RevealStackItem>
@@ -372,7 +372,7 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
             getRowKey={(row, i) => String(row._key ?? i)}
           />
         ) : (
-          <p className="text-[11px] italic text-console-faint">
+          <p className="text-[11px] italic text-console-muted">
             No declared prompt templates.
           </p>
         )}
@@ -389,7 +389,7 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
           <div className="flex flex-col gap-2">
             {guardrailsByCategory.map(([category, codes]) => (
               <div key={category} className="flex flex-col gap-1">
-                <span className="text-[10px] uppercase tracking-section text-console-faint">
+                <span className="text-[10px] uppercase tracking-section text-console-muted">
                   {category}
                 </span>
                 <ChipList label={category} items={codes} hideLabel />
@@ -397,7 +397,7 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
             ))}
           </div>
         ) : (
-          <p className="text-[11px] italic text-console-faint">None declared.</p>
+          <p className="text-[11px] italic text-console-muted">None declared.</p>
         )}
         </DetailSection>
       </RevealStackItem>
@@ -418,11 +418,11 @@ function DetailSection({
   return (
     <section className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
       <header className="mb-2 flex flex-col gap-0.5">
-        <span className="text-[10px] uppercase tracking-section text-console-faint">
+        <span className="text-[10px] uppercase tracking-section text-console-muted">
           {title}
         </span>
         {description ? (
-          <span className="text-[10px] leading-relaxed text-console-faint">
+          <span className="text-[10px] leading-relaxed text-console-muted">
             {description}
           </span>
         ) : null}
@@ -443,7 +443,7 @@ function Field({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-2 border-b border-console-edge/50 py-0.5">
-      <dt className="text-console-faint">{label}</dt>
+      <dt className="text-console-muted">{label}</dt>
       <dd className={cn("text-right", emphasize ? "text-red-300" : "text-console-ink")}>
         {value}
       </dd>
@@ -454,7 +454,7 @@ function Field({
 function FieldCode({ label, value }: { readonly label: string; readonly value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-2 border-b border-console-edge/50 py-0.5">
-      <dt className="text-console-faint">{label}</dt>
+      <dt className="text-console-muted">{label}</dt>
       <dd className="text-right">
         <code className="break-all font-mono text-console-ink" title={value}>
           {value}
@@ -476,7 +476,7 @@ function ChipList({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {!hideLabel ? (
-        <span className="mr-1 text-[10px] uppercase tracking-section text-console-faint">
+        <span className="mr-1 text-[10px] uppercase tracking-section text-console-muted">
           {label}
         </span>
       ) : null}
@@ -490,7 +490,7 @@ function ChipList({
           </code>
         ))
       ) : (
-        <span className="text-[11px] italic text-console-faint">None</span>
+        <span className="text-[11px] italic text-console-muted">None</span>
       )}
     </div>
   );

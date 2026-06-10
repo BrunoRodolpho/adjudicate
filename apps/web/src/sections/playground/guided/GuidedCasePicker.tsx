@@ -113,7 +113,7 @@ function GuidedCaseCard({
       <p className="flex-1 text-[13px] leading-snug text-muted">{summary}</p>
 
       <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-medium uppercase tracking-section text-faint">
+        <span className="text-[10px] font-medium uppercase tracking-section text-muted">
           Outcomes you&apos;ll see
         </span>
         <div className="flex flex-wrap items-center gap-1.5">

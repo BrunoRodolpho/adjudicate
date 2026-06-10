@@ -65,7 +65,7 @@ export function RecipesTeaser() {
                 <p className="text-sm leading-relaxed text-muted">
                   {recipe.problem}
                 </p>
-                <span className="mt-auto inline-flex items-center gap-1 pt-2 text-[13px] font-medium text-faint transition-colors group-hover:text-ink">
+                <span className="mt-auto inline-flex items-center gap-1 pt-2 text-[13px] font-medium text-muted transition-colors group-hover:text-ink">
                   Read the recipe
                   <ArrowUpRight size={14} aria-hidden="true" />
                 </span>

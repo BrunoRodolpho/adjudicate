@@ -55,7 +55,7 @@ const STATUS_STYLE: Record<ApprovalStatus, string> = {
   pending: "text-amber-300",
   approved: "text-emerald-300",
   declined: "text-red-300",
-  expired: "text-console-faint",
+  expired: "text-console-muted",
 };
 
 /** Closed set of approval-center tabs, in display order. */
@@ -129,7 +129,7 @@ export function ApprovalCenterReplica({
           <h2 className="text-[10px] uppercase tracking-section text-console-muted">
             Approvals · Human Review
           </h2>
-          <span className="text-[10px] text-console-faint">
+          <span className="text-[10px] text-console-muted">
             ADR-122 · ADR-136
           </span>
         </header>
@@ -182,7 +182,7 @@ export function ApprovalCenterReplica({
                   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400/60",
                   selected
                     ? "border-emerald-400/70 text-console-ink"
-                    : "border-transparent text-console-faint hover:text-console-muted",
+                    : "border-transparent text-console-muted hover:text-console-muted",
                 )}
               >
                 <span>{t.label}</span>
@@ -191,7 +191,7 @@ export function ApprovalCenterReplica({
                     "rounded-sm px-1 py-0.5 text-[9px] tabular-nums",
                     selected
                       ? "bg-emerald-500/10 text-emerald-300"
-                      : "bg-console-edge/50 text-console-faint",
+                      : "bg-console-edge/50 text-console-muted",
                   )}
                 >
                   {t.count}
@@ -211,21 +211,21 @@ export function ApprovalCenterReplica({
         >
           <header className="flex flex-col gap-1">
             <div className="flex items-baseline justify-between">
-              <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+              <h3 className="text-[10px] uppercase tracking-section text-console-muted">
                 Pending queue
               </h3>
-              <span className="text-[10px] tabular-nums text-console-faint">
+              <span className="text-[10px] tabular-nums text-console-muted">
                 {APPROVAL_REPLICA_PENDING.length} awaiting review
               </span>
             </div>
-            <p className="text-[10px] leading-relaxed text-console-faint">
+            <p className="text-[10px] leading-relaxed text-console-muted">
               Each item is a REQUEST_CONFIRMATION — the AI system paused and asked
               a human to confirm before it executes a risky action.
             </p>
           </header>
           <div className="overflow-hidden rounded-sm border border-console-edge bg-console-panel/40">
             {APPROVAL_REPLICA_PENDING.length === 0 ? (
-              <p className="px-3 py-8 text-center text-[11px] italic text-console-faint">
+              <p className="px-3 py-8 text-center text-[11px] italic text-console-muted">
                 No approval requests.
               </p>
             ) : (
@@ -246,7 +246,7 @@ export function ApprovalCenterReplica({
                     >
                       {a.prompt}
                     </p>
-                    <div className="flex flex-wrap items-center gap-x-3 text-[10px] text-console-faint">
+                    <div className="flex flex-wrap items-center gap-x-3 text-[10px] text-console-muted">
                       <span className="font-mono">{a.sessionId}</span>
                       <time title={a.requestedAt} className="tabular-nums">
                         {formatClock(a.requestedAt)}
@@ -267,16 +267,16 @@ export function ApprovalCenterReplica({
           hidden={tab !== "resolved"}
           className="flex flex-col gap-2"
         >
-          <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+          <h3 className="text-[10px] uppercase tracking-section text-console-muted">
             Decision history
           </h3>
           <div className="overflow-auto rounded-sm border border-console-edge bg-console-panel/40">
             <table className="w-full border-collapse text-left text-[11px]">
-              <caption className="px-3 py-1.5 text-left text-[10px] uppercase tracking-section text-console-faint">
+              <caption className="px-3 py-1.5 text-left text-[10px] uppercase tracking-section text-console-muted">
                 Resolved approvals — read-only
               </caption>
               <thead>
-                <tr className="border-b border-console-edge text-console-faint">
+                <tr className="border-b border-console-edge text-console-muted">
                   <th scope="col" className="px-3 py-1 font-normal">
                     Intent
                   </th>
@@ -310,7 +310,7 @@ export function ApprovalCenterReplica({
                         {e.status}
                       </span>
                     </td>
-                    <td className="px-3 py-1 tabular-nums text-console-faint">
+                    <td className="px-3 py-1 tabular-nums text-console-muted">
                       <time title={e.resolvedAt}>
                         {formatClock(e.resolvedAt)}
                       </time>
@@ -339,9 +339,9 @@ export function ApprovalCenterReplica({
           hidden={tab !== "audit"}
           className="flex flex-col gap-2"
         >
-          <h3 className="flex items-baseline justify-between text-[10px] uppercase tracking-section text-console-faint">
+          <h3 className="flex items-baseline justify-between text-[10px] uppercase tracking-section text-console-muted">
             <span>Audit chain</span>
-            <span className="font-mono normal-case tracking-normal text-console-faint">
+            <span className="font-mono normal-case tracking-normal text-console-muted">
               {APPROVAL_REPLICA_CHAIN_INTENT_KIND}
             </span>
           </h3>
@@ -381,7 +381,7 @@ export function ApprovalCenterReplica({
                       ) : null}
                     </span>
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-console-faint">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-console-muted">
                     <time title={step.at} className="tabular-nums">
                       {formatClock(step.at)}
                     </time>

@@ -76,20 +76,20 @@ function DepthCard({
     <StaggerItem className="h-full">
       <Link
         href={href}
-        className="group flex h-full flex-col gap-3 rounded-xl border border-edge bg-surface p-6 shadow-sm transition-all hover:border-indigo-300 hover:shadow-lg motion-safe:hover:-translate-y-0.5"
+        className="group flex h-full flex-col gap-3 rounded-xl border border-edge bg-surface p-6 shadow-sm transition-all hover:border-brand/40 hover:shadow-lg motion-safe:hover:-translate-y-0.5"
       >
         <div className="flex items-center justify-between">
           <Icon
             size={20}
-            className="text-muted transition duration-200 group-hover:text-indigo-600 motion-safe:group-hover:scale-110"
+            className="text-muted transition duration-200 group-hover:text-brand-ink motion-safe:group-hover:scale-110"
           />
-          <span className="text-[10px] uppercase tracking-section text-faint">
+          <span className="text-[10px] uppercase tracking-section text-muted">
             {audience}
           </span>
         </div>
         <h3 className="text-lg font-semibold text-ink">{title}</h3>
         <p className="text-sm leading-relaxed text-muted">{description}</p>
-        <span className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-indigo-600 transition-all group-hover:gap-2">
+        <span className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-brand-ink transition-all group-hover:gap-2">
           Open <ArrowRight size={12} />
         </span>
       </Link>

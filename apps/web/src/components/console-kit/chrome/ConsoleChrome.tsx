@@ -50,7 +50,7 @@ export function ConsoleChrome({ caption, children, className }: ConsoleChromePro
         <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-amber-500/70" />
         <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-emerald-500/70" />
         {caption ? (
-          <span className="ml-3 truncate text-[10px] uppercase tracking-section text-console-faint">
+          <span className="ml-3 truncate text-[10px] uppercase tracking-section text-console-muted">
             {caption}
           </span>
         ) : null}

@@ -131,7 +131,7 @@ export function StackedAreaChart({
       aria-label={title}
       className={cn("flex flex-col gap-1", className)}
     >
-      <figcaption className="text-[10px] uppercase tracking-section text-console-faint">
+      <figcaption className="text-[10px] uppercase tracking-section text-console-muted">
         {title}
       </figcaption>
 
@@ -169,7 +169,7 @@ export function StackedAreaChart({
         {layers.map((l) => (
           <li
             key={l.key}
-            className="flex items-center gap-1 text-[10px] uppercase tracking-section text-console-faint"
+            className="flex items-center gap-1 text-[10px] uppercase tracking-section text-console-muted"
           >
             <span
               aria-hidden="true"

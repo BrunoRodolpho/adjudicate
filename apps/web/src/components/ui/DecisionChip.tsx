@@ -24,16 +24,19 @@ const ICONS: Record<DecisionContent["icon"], LucideIcon> = {
   HelpCircle,
 };
 
-type ChipSize = "sm" | "md";
+type ChipSize = "sm" | "md" | "lg";
 
 const SIZE_STYLES: Record<ChipSize, { wrapper: string; icon: number }> = {
   sm: { wrapper: "gap-1.5 px-2.5 py-1 text-[11px]", icon: 12 },
   md: { wrapper: "gap-2 px-3 py-1.5 text-xs", icon: 14 },
+  lg: { wrapper: "gap-2.5 px-4 py-2 text-[13px]", icon: 16 },
 };
 
 /**
  * The single canonical six-outcome chip: decision-coloured pill with the
- * outcome icon + uppercase label. Server component.
+ * outcome icon + uppercase label. The one and only way an outcome is shown as
+ * a chip (the old animated motion/DecisionBadge was folded in here). Renderable
+ * in both server and client trees.
  */
 export function DecisionChip({
   kind,

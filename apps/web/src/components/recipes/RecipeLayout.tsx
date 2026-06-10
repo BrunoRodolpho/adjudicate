@@ -39,12 +39,12 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
       <DepthHeader
         eyebrow="Guardrail recipe"
         title={recipe.title}
-        subtitle={recipe.problem}
+        subtitle={recipe.seoDescription}
         backHref="/recipes"
         backLabel="Back to recipes"
       />
 
-      <Section className="pt-10">
+      <Section className="pt-8 md:pt-12">
         <div className="flex flex-col gap-16">
           {/* Badges. */}
           <div className="flex flex-wrap items-center gap-2">
@@ -138,12 +138,10 @@ function Block({
 }) {
   return (
     <section id={id} className="flex flex-col gap-5">
-      <div className="border-b border-edge pb-3">
-        <h2 className="text-xl font-semibold tracking-tight text-ink">
-          {title}
-        </h2>
+      <div>
+        <h2 className="text-h3 text-ink">{title}</h2>
         {subtitle ? (
-          <p className="mt-1 max-w-3xl text-sm text-muted">{subtitle}</p>
+          <p className="mt-1 max-w-measure text-body-sm text-muted">{subtitle}</p>
         ) : null}
       </div>
       {children}

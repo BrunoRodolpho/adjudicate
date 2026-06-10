@@ -61,7 +61,14 @@ export function CodeBlock({
           className="absolute right-2 top-2 z-10 bg-zinc-900/80 backdrop-blur"
         />
       ) : null}
-      <pre className="overflow-x-auto px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-100">
+      <pre
+        className={cn(
+          "overflow-x-auto px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-100",
+          // reserve room so a single-line command never runs under the
+          // floating copy button (fixes the truncated install-chip).
+          showFloatingCopy && "pr-12",
+        )}
+      >
         {!showChrome && language ? (
           <div
             className={cn(

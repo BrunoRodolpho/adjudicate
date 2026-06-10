@@ -114,7 +114,7 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
           testId="red-team-passfail"
         >
           <div className="flex flex-col gap-1">
-            <p className="text-[10px] leading-relaxed text-console-faint">
+            <p className="text-[10px] leading-relaxed text-console-muted">
               Defended = the adversarial probe was blocked by a guard. Escaped =
               the probe bypassed the guards (a policy regression). Any non-zero
               escape reads red.
@@ -131,7 +131,7 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
               {selectedSummary.errors} errors
             </p>
             {selected ? (
-              <p className="text-[10px] text-console-faint">
+              <p className="text-[10px] text-console-muted">
                 Selected run · {selected.at.slice(0, 10)} · {selected.packId}
               </p>
             ) : null}
@@ -217,7 +217,7 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
                 row carries aria-current; selecting it re-projects panels A/B/C
                 over the SAME committed fixture (no fetch). */}
             <div className="overflow-hidden rounded-sm border border-console-edge bg-console-panel/40">
-              <div className="border-b border-console-edge px-3 py-1.5 text-[10px] uppercase tracking-section text-console-faint">
+              <div className="border-b border-console-edge px-3 py-1.5 text-[10px] uppercase tracking-section text-console-muted">
                 Recorded red-team runs, newest first
               </div>
               <ul
@@ -265,13 +265,13 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
                         >
                           {r.at.slice(0, 10)}
                         </span>
-                        <span className="hidden min-w-0 flex-1 truncate text-console-faint sm:inline">
+                        <span className="hidden min-w-0 flex-1 truncate text-console-muted sm:inline">
                           {r.packId}
                         </span>
                         <span className="ml-auto flex shrink-0 items-center gap-x-3 tabular-nums">
                           <span className="text-emerald-300">
                             {r.summary.defended}
-                            <span className="ml-1 text-[9px] uppercase tracking-section text-console-faint">
+                            <span className="ml-1 text-[9px] uppercase tracking-section text-console-muted">
                               def
                             </span>
                           </span>
@@ -283,7 +283,7 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
                             )}
                           >
                             {r.summary.escaped}
-                            <span className="ml-1 text-[9px] uppercase tracking-section text-console-faint">
+                            <span className="ml-1 text-[9px] uppercase tracking-section text-console-muted">
                               esc
                             </span>
                           </span>
@@ -295,7 +295,7 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
                             )}
                           >
                             {r.summary.errors}
-                            <span className="ml-1 text-[9px] uppercase tracking-section text-console-faint">
+                            <span className="ml-1 text-[9px] uppercase tracking-section text-console-muted">
                               err
                             </span>
                           </span>
@@ -304,7 +304,7 @@ export function RedTeamReplica({ className }: { readonly className?: string }) {
                               "hidden font-mono text-[10px] md:inline",
                               runRegressed
                                 ? "text-red-300"
-                                : "text-console-faint",
+                                : "text-console-muted",
                             )}
                           >
                             {r.digest.slice(0, 10)}
@@ -346,11 +346,11 @@ function Panel({
       data-testid={testId}
     >
       <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-console-edge px-3 py-1.5">
-        <span className="text-[10px] uppercase tracking-section text-console-faint">
+        <span className="text-[10px] uppercase tracking-section text-console-muted">
           {title}
         </span>
         {subtitle ? (
-          <span className="text-[10px] text-console-faint">{subtitle}</span>
+          <span className="text-[10px] text-console-muted">{subtitle}</span>
         ) : null}
       </header>
       <div className="p-3">{children}</div>

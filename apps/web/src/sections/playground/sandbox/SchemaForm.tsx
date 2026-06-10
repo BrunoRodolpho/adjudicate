@@ -90,7 +90,7 @@ function FieldGroup({
   return (
     <fieldset className="flex flex-col gap-4 rounded-xl border border-edge bg-canvas/40 p-4">
       <legend className="flex items-baseline gap-2 px-1">
-        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
           {title}
         </span>
       </legend>
@@ -144,7 +144,7 @@ function FieldControl({
           ) : null}
         </label>
         {field.type === "money-centavos" ? (
-          <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
             centavos
           </span>
         ) : null}

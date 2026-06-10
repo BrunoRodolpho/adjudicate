@@ -74,7 +74,7 @@ export function GuidedCaseRunner({
 
       {/* The story spine */}
       <div className="rounded-xl border border-edge bg-canvas/60 px-4 py-3">
-        <p className="mb-2 text-[10px] font-medium uppercase tracking-section text-faint">
+        <p className="mb-2 text-[10px] font-medium uppercase tracking-section text-muted">
           What happens on every run
         </p>
         <StepStrip active={stripPhase} pulse={running} />

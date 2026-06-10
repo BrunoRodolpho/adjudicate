@@ -77,6 +77,26 @@ export const PRIMARY_NAV: ReadonlyArray<NavEntry> = [
       },
     ],
   },
+  {
+    label: "Community",
+    items: [
+      {
+        label: "Blog",
+        href: "/blog",
+        description: "Tutorials and notes from the team.",
+      },
+      {
+        label: "Roadmap",
+        href: "/roadmap",
+        description: "Shipped, frozen, and what's next.",
+      },
+      {
+        label: "Contribute",
+        href: "/contribute",
+        description: "Architecture, good first issues, and how to help.",
+      },
+    ],
+  },
   { label: "Docs", href: GITHUB_DOCS, external: true },
 ];
 

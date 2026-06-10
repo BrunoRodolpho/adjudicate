@@ -126,7 +126,7 @@ export function DriftReplica({ className }: { readonly className?: string }) {
             aria-label={`Severity ${theme.label}, magnitude ${a.magnitude.toFixed(2)} vs threshold ${a.threshold.toFixed(2)}`}
           >
             {theme.label}
-            <span className="tabular-nums text-console-faint">
+            <span className="tabular-nums text-console-muted">
               {a.magnitude.toFixed(2)}
             </span>
           </span>
@@ -166,7 +166,7 @@ export function DriftReplica({ className }: { readonly className?: string }) {
           subtitle={`${totalObserved.toLocaleString()} observed · baseline ${baselineWindow} / recent ${recentWindow} · threshold ${alertThreshold}`}
           testId="drift-dimensions"
         >
-          <p className="mb-2 text-[10px] leading-relaxed text-console-faint">
+          <p className="mb-2 text-[10px] leading-relaxed text-console-muted">
             TVD (total variation distance) measures how far each dimension&apos;s
             recent decision mix has moved from its baseline: 0 means no change, a
             higher value means behaviour has shifted. Anything at or above the
@@ -199,7 +199,7 @@ export function DriftReplica({ className }: { readonly className?: string }) {
                   <span
                     className={cn(
                       "tabular-nums",
-                      elevated ? "text-amber-300" : "text-console-faint",
+                      elevated ? "text-amber-300" : "text-console-muted",
                     )}
                   >
                     TVD {d.tvd.toFixed(2)}
@@ -207,7 +207,7 @@ export function DriftReplica({ className }: { readonly className?: string }) {
                   <span
                     className={cn(
                       "tabular-nums",
-                      d.alertCount > 0 ? "text-red-300" : "text-console-faint",
+                      d.alertCount > 0 ? "text-red-300" : "text-console-muted",
                     )}
                     aria-label={`${d.alertCount} active ${d.alertCount === 1 ? "alert" : "alerts"}`}
                   >
@@ -274,11 +274,11 @@ function Panel({
       data-testid={testId}
     >
       <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-console-edge px-3 py-1.5">
-        <span className="text-[10px] uppercase tracking-section text-console-faint">
+        <span className="text-[10px] uppercase tracking-section text-console-muted">
           {title}
         </span>
         {subtitle ? (
-          <span className="text-[10px] text-console-faint">{subtitle}</span>
+          <span className="text-[10px] text-console-muted">{subtitle}</span>
         ) : null}
       </header>
       <div className="p-3">{children}</div>

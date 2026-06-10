@@ -59,7 +59,7 @@ export default function BlogIndexPage() {
                 href={`/blog/${p.slug}`}
                 className="group block rounded-xl border border-edge bg-surface p-5 transition-all hover:border-ink/40 hover:shadow-sm"
               >
-                <span className="text-xs uppercase tracking-section text-faint">
+                <span className="text-xs uppercase tracking-section text-muted">
                   {p.date} · {p.author}
                 </span>
                 <h2 className="mt-1 text-xl font-semibold text-ink">
@@ -68,7 +68,7 @@ export default function BlogIndexPage() {
                 <p className="mt-2 text-sm leading-relaxed text-muted">
                   {p.summary}
                 </p>
-                <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 group-hover:text-indigo-700">
+                <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-brand-ink group-hover:text-brand-ink">
                   Read post
                   <ArrowRight
                     size={14}

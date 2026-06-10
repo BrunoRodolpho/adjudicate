@@ -64,7 +64,7 @@ export function WhoItsFor() {
                   {audience.prop}
                 </p>
                 <p className="mt-auto border-t border-edge pt-3 text-[13px] leading-relaxed text-muted transition-colors group-hover:text-ink">
-                  <span className="font-medium text-faint transition-colors group-hover:text-ink/80">
+                  <span className="font-medium text-muted transition-colors group-hover:text-ink/80">
                     Example ·{" "}
                   </span>
                   {audience.example}

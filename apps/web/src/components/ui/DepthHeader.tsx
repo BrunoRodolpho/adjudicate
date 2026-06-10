@@ -32,15 +32,13 @@ export function DepthHeader({
           <ArrowLeft size={12} aria-hidden="true" /> {backLabel}
         </Link>
         {eyebrow ? (
-          <p className="mt-6 text-xs uppercase tracking-section text-muted">
-            {eyebrow}
-          </p>
+          <p className="mt-6 text-eyebrow uppercase text-muted">{eyebrow}</p>
         ) : null}
-        <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight text-ink md:text-4xl">
-          {title}
-        </h1>
+        {/* Page H1 sits a full tier above section H2 (36/48 vs 30/36) so the
+            hierarchy never collapses mid-scroll. */}
+        <h1 className="mt-2 text-h1 text-ink md:text-h1-lg">{title}</h1>
         {subtitle ? (
-          <p className="mt-3 max-w-2xl text-base text-muted">{subtitle}</p>
+          <p className="mt-3 max-w-measure text-lead text-muted">{subtitle}</p>
         ) : null}
       </div>
     </header>

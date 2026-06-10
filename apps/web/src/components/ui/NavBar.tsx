@@ -8,6 +8,7 @@ import { ChevronDown, Github, Menu, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { EASE_OUT } from "@/lib/motion";
 import { Button } from "@/components/ui/Button";
+import { Dialog } from "@/components/ui/Dialog";
 import { SITE } from "@/content/site";
 import {
   PRIMARY_NAV,
@@ -41,7 +42,6 @@ export function NavBar() {
   const pathname = usePathname() ?? "/";
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
-  const reduce = useReducedMotion();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 4);
@@ -54,16 +54,6 @@ export function NavBar() {
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
-
-  // Lock body scroll while the sheet is open.
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
 
   return (
     <header
@@ -113,7 +103,7 @@ export function NavBar() {
           onClick={() => setOpen(true)}
           aria-label="Open menu"
           aria-expanded={open}
-          className="inline-flex items-center justify-center rounded-full p-2 text-ink transition-colors hover:bg-edge lg:hidden"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-2 text-ink transition-colors hover:bg-edge focus-ring lg:hidden"
         >
           <Menu size={20} aria-hidden="true" />
         </button>
@@ -123,7 +113,6 @@ export function NavBar() {
         open={open}
         onClose={() => setOpen(false)}
         pathname={pathname}
-        reduce={reduce ?? false}
       />
     </header>
   );
@@ -142,7 +131,7 @@ function DesktopEntry({
   }
   const active = !entry.external && isActive(pathname, entry.href);
   const className = cn(
-    "rounded-full px-3 py-2 text-sm transition-colors",
+    "rounded-full px-3 py-2 text-sm transition-colors focus-ring",
     active ? "text-ink" : "text-muted hover:text-ink",
   );
   if (entry.external) {
@@ -216,7 +205,7 @@ function DesktopDropdown({
         aria-haspopup="true"
         aria-expanded={open}
         className={cn(
-          "inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm transition-colors",
+          "inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm transition-colors focus-ring",
           active ? "text-ink" : "text-muted hover:text-ink",
         )}
       >
@@ -262,7 +251,7 @@ function DropdownItem({
 }) {
   const active = !item.external && isActive(pathname, item.href);
   const className = cn(
-    "block rounded-lg px-3 py-2 transition-colors",
+    "block rounded-lg px-3 py-2 transition-colors focus-ring",
     active ? "bg-edge" : "hover:bg-edge",
   );
   const body = (
@@ -295,34 +284,30 @@ function DropdownItem({
   );
 }
 
-/** Full-screen mobile navigation sheet. */
+/** Full-screen mobile navigation sheet — an accessible Dialog (focus trap,
+ *  Escape, focus restore, scroll lock). */
 function MobileSheet({
   open,
   onClose,
   pathname,
-  reduce,
 }: {
   readonly open: boolean;
   readonly onClose: () => void;
   readonly pathname: string;
-  readonly reduce: boolean;
 }) {
   return (
-    <AnimatePresence>
-      {open ? (
-        <motion.div
-          className="fixed inset-0 z-50 bg-canvas lg:hidden"
-          initial={reduce ? { opacity: 1 } : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={reduce ? { opacity: 1 } : { opacity: 0 }}
-          transition={{ duration: 0.18 }}
-        >
-          <div className="flex h-16 items-center justify-between px-6">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      label="Site navigation"
+      className="bg-canvas lg:hidden"
+    >
+      <div className="flex h-16 items-center justify-between px-6">
             <span className="flex items-baseline gap-1.5">
               <span className="font-mono text-sm font-medium text-ink">
                 adjudicate
               </span>
-              <span className="font-mono text-[11px] text-faint">
+              <span className="font-mono text-[11px] text-muted">
                 {SITE.versionLabel}
               </span>
             </span>
@@ -330,7 +315,7 @@ function MobileSheet({
               type="button"
               onClick={onClose}
               aria-label="Close menu"
-              className="inline-flex items-center justify-center rounded-full p-2 text-ink transition-colors hover:bg-edge"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-2 text-ink transition-colors hover:bg-edge focus-ring"
             >
               <X size={20} aria-hidden="true" />
             </button>
@@ -359,9 +344,7 @@ function MobileSheet({
               </Button>
             </div>
           </nav>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
+    </Dialog>
   );
 }
 
@@ -399,7 +382,7 @@ function MobileLink({
 }) {
   const active = !link.external && isActive(pathname, link.href);
   const className = cn(
-    "block rounded-lg px-1 py-2 transition-colors",
+    "block rounded-lg px-1 py-2 transition-colors focus-ring",
     large ? "text-lg font-medium" : "text-base",
     active ? "text-ink" : "text-muted",
   );

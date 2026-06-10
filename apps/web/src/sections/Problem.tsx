@@ -54,7 +54,7 @@ export function Problem() {
 
           <Panel
             title="With adjudicate"
-            tint="indigo"
+            tint="brand"
             statusIcon={
               <span className="rounded-full bg-execute/15 px-2 py-0.5 text-[10px] uppercase tracking-section text-execute">
                 Kernel
@@ -78,7 +78,7 @@ export function Problem() {
                     tabIndex={0}
                     title={`${p.id} — ${p.gates}`}
                     aria-label={`${p.id} phase: ${p.gates}`}
-                    className="flex-1 cursor-help rounded-sm border border-edge bg-canvas px-1.5 py-1 text-center text-[10px] uppercase tracking-section text-muted transition-colors hover:border-indigo-300 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                    className="flex-1 cursor-help rounded-sm border border-edge bg-canvas px-1.5 py-1 text-center text-[10px] uppercase tracking-section text-muted transition-colors hover:border-brand/40 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   >
                     {p.id}
                   </motion.div>
@@ -107,11 +107,11 @@ function Panel({
 }: {
   title: string;
   children: React.ReactNode;
-  tint: "indigo" | "rose";
+  tint: "brand" | "rose";
   statusIcon: React.ReactNode;
 }) {
-  const tintBorder = tint === "indigo" ? "border-indigo-200" : "border-rose-200";
-  const tintBg = tint === "indigo" ? "bg-indigo-50" : "bg-rose-50";
+  const tintBorder = tint === "brand" ? "border-brand/30" : "border-rose-200";
+  const tintBg = tint === "brand" ? "bg-brand/5" : "bg-rose-50";
   return (
     <div className={`rounded-2xl border ${tintBorder} ${tintBg} p-6 shadow-sm`}>
       <div className="mb-5 flex items-center justify-between">

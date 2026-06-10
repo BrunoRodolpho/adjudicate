@@ -51,7 +51,7 @@ export function StepActs() {
         <div className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1.5 text-xs text-muted shadow-sm">
           <Bot size={14} className="text-ink" aria-hidden="true" />
           <span className="font-medium text-ink">AI agent</span>
-          <span className="text-faint">proposes</span>
+          <span className="text-muted">proposes</span>
         </div>
 
         {/* IntentEnvelope card — dashed rewrite-orange border, font-mono. */}

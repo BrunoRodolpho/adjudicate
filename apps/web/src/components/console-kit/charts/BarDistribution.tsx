@@ -67,7 +67,7 @@ export function BarDistribution({
       aria-label={title}
       className={cn("flex flex-col gap-1", className)}
     >
-      <figcaption className="text-[10px] uppercase tracking-section text-console-faint">
+      <figcaption className="text-[10px] uppercase tracking-section text-console-muted">
         {title}
       </figcaption>
 
@@ -211,10 +211,10 @@ export function EmptyFigure({
       aria-label={title}
       className={cn("flex flex-col gap-1", className)}
     >
-      <figcaption className="text-[10px] uppercase tracking-section text-console-faint">
+      <figcaption className="text-[10px] uppercase tracking-section text-console-muted">
         {title}
       </figcaption>
-      <div className="rounded-sm border border-console-edge bg-console-panel/40 px-3 py-6 text-center text-[11px] italic text-console-faint">
+      <div className="rounded-sm border border-console-edge bg-console-panel/40 px-3 py-6 text-center text-[11px] italic text-console-muted">
         {message}
       </div>
     </figure>

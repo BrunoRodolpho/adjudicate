@@ -6,12 +6,13 @@ import { revealVariants, REVEAL_VIEWPORT, EASE_OUT } from "@/lib/motion";
 import { cn } from "@/lib/cn";
 
 /**
- * Opacity-only entrance for table rows. Transforms on `<tr>` are unreliable
- * across browsers (the box can't always be transformed), so rows fade only —
- * which still reads as a cascade and never reflows the table.
+ * Table rows render visible by default (no opacity gate) so the table is never
+ * blank in SSR / no-JS / crawlers (WS-A). Transforms on `<tr>` are unreliable,
+ * so there is no row-level entrance — the rows simply exist; the surrounding
+ * ChartReveal container still provides the section-level reveal.
  */
 const ROW_FADE: Variants = {
-  hidden: { opacity: 0 },
+  hidden: {},
   visible: { opacity: 1, transition: { duration: 0.4, ease: EASE_OUT } },
 };
 

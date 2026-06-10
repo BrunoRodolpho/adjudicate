@@ -20,7 +20,7 @@ export function Card({
 }) {
   const classes = cn(
     "block rounded-xl border border-edge bg-surface p-5 transition hover:shadow-md",
-    href && "hover:border-ink/30",
+    href && "hover:border-ink/30 focus-ring",
     className,
   );
 

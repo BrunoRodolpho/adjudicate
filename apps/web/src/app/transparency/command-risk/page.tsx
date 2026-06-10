@@ -146,7 +146,7 @@ export default function CommandRiskTransparencyPage() {
               </table>
             </div>
 
-            <p className="mt-4 text-xs text-faint">
+            <p className="mt-4 text-xs text-muted">
               Bars are scaled to the largest visible cohort and are for relative
               comparison only; censored cohorts (&ldquo;&lt;
               {PUBLIC_COHORT_FLOOR}&rdquo;) are floored so they never reveal an

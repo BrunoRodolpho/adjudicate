@@ -86,7 +86,7 @@ function PipelineNode({
       <p className="mt-2 text-xs leading-relaxed text-muted">{detail}</p>
       {children}
       {source ? (
-        <code className="mt-auto block pt-3 text-[10.5px] leading-snug text-faint">
+        <code className="mt-auto block pt-3 text-[10.5px] leading-snug text-muted">
           {source}
         </code>
       ) : null}

@@ -221,7 +221,7 @@ export function CommandRiskReplica({
           <h2 className="text-[10px] uppercase tracking-section text-console-muted">
             Command Risk · Shell-command dispositions
           </h2>
-          <span className="text-[10px] text-console-faint">
+          <span className="text-[10px] text-console-muted">
             ADR-134 · ADR-123
           </span>
         </header>
@@ -235,7 +235,7 @@ export function CommandRiskReplica({
           data-testid="command-risk-filter"
           className="flex flex-wrap items-center gap-1.5"
         >
-          <span className="mr-1 text-[10px] uppercase tracking-section text-console-faint">
+          <span className="mr-1 text-[10px] uppercase tracking-section text-console-muted">
             Category
           </span>
           {CATEGORY_FILTERS.map((opt) => {
@@ -304,7 +304,7 @@ export function CommandRiskReplica({
           </section>
 
           <section className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
-            <header className="mb-2 text-[10px] uppercase tracking-section text-console-faint">
+            <header className="mb-2 text-[10px] uppercase tracking-section text-console-muted">
               Disposition totals
             </header>
             <dl
@@ -346,10 +346,10 @@ export function CommandRiskReplica({
         {/* Blocked-commands list — refuse-disposition drill-down. NO command. */}
         <section className="flex flex-col gap-2">
           <header className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+            <h3 className="text-[10px] uppercase tracking-section text-console-muted">
               Blocked commands
               <span
-                className="ml-2 tabular-nums text-console-faint"
+                className="ml-2 tabular-nums text-console-muted"
                 data-testid="blocked-count"
                 aria-live="polite"
               >
@@ -358,7 +358,7 @@ export function CommandRiskReplica({
                   : `${visibleRecords.length} in ${filter}`}
               </span>
             </h3>
-            <span className="text-[10px] italic text-console-faint">
+            <span className="text-[10px] italic text-console-muted">
               Command text is never shown — redacted by construction.
             </span>
           </header>
@@ -403,7 +403,7 @@ function SummaryStat({
       className="flex flex-col gap-0.5 rounded-sm border border-console-edge bg-console-canvas/40 px-3 py-2"
       title={hint}
     >
-      <dt className="text-[10px] uppercase tracking-section text-console-faint">
+      <dt className="text-[10px] uppercase tracking-section text-console-muted">
         {label}
       </dt>
       <dd

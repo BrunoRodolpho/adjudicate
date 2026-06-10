@@ -97,7 +97,7 @@ export function StopAgentDrainingProd() {
         Full worked code and a live run are in the{" "}
         <Link
           href="/recipes/gate-prod-deploys"
-          className="font-medium text-indigo-600 hover:text-indigo-700"
+          className="font-medium text-brand-ink hover:text-brand-ink"
         >
           gate production deploys recipe
         </Link>
@@ -122,7 +122,7 @@ export function StopAgentDrainingProd() {
         run are in the{" "}
         <Link
           href="/recipes/cap-token-spend"
-          className="font-medium text-indigo-600 hover:text-indigo-700"
+          className="font-medium text-brand-ink hover:text-brand-ink"
         >
           cap token spend recipe
         </Link>
@@ -143,7 +143,7 @@ export function StopAgentDrainingProd() {
         command string is never echoed into the audit surface. See the{" "}
         <Link
           href="/capabilities/command-risk-guard"
-          className="font-medium text-indigo-600 hover:text-indigo-700"
+          className="font-medium text-brand-ink hover:text-brand-ink"
         >
           command-risk guard capability
         </Link>{" "}

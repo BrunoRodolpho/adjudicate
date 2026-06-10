@@ -33,7 +33,7 @@ export function FinalCTA() {
             href={GITHUB_REPO}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-medium text-indigo-700 shadow-md transition-all hover:shadow-lg motion-safe:hover:scale-[1.02]"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-medium text-brand-ink shadow-md transition-all hover:shadow-lg motion-safe:hover:scale-[1.02]"
           >
             <Github size={16} /> Star on GitHub
           </a>

@@ -234,7 +234,7 @@ export function SandboxMode({ className }: { readonly className?: string }) {
               "inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium tracking-tight transition-shadow",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30",
               runDisabled
-                ? "cursor-not-allowed bg-edge text-faint"
+                ? "cursor-not-allowed bg-edge text-muted"
                 : "bg-gradient-primary text-white shadow-lg hover:shadow-xl",
             )}
           >

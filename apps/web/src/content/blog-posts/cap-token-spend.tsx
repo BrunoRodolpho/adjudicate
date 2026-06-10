@@ -71,7 +71,7 @@ export function CapTokenSpend() {
         <code>6000</code> tokens are in the{" "}
         <Link
           href="/recipes/cap-token-spend"
-          className="font-medium text-indigo-600 hover:text-indigo-700"
+          className="font-medium text-brand-ink hover:text-brand-ink"
         >
           cap token spend recipe
         </Link>
@@ -115,7 +115,7 @@ export function CapTokenSpend() {
         counter is folded back into state — see the{" "}
         <Link
           href="/capabilities/token-budget-guard"
-          className="font-medium text-indigo-600 hover:text-indigo-700"
+          className="font-medium text-brand-ink hover:text-brand-ink"
         >
           token-budget guard capability
         </Link>

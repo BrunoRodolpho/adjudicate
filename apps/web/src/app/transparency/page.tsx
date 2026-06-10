@@ -123,7 +123,7 @@ export default function TransparencyPage() {
             </div>
           ))}
 
-          <p className="mt-8 text-xs text-faint">
+          <p className="mt-8 text-xs text-muted">
             Operator-only surfaces — the Approval Center and the live audit tail —
             are never published here; they require authenticated console access.
           </p>

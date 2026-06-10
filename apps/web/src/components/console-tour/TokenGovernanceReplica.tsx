@@ -84,7 +84,7 @@ export function TokenGovernanceReplica({
           <h2 className="text-[10px] uppercase tracking-section text-console-muted">
             Token Governance · tenant &amp; session burn-down
           </h2>
-          <span className="text-[10px] text-console-faint">
+          <span className="text-[10px] text-console-muted">
             ADR-135 · ADR-120
           </span>
         </header>
@@ -123,10 +123,10 @@ export function TokenGovernanceReplica({
         {showTenants ? (
           <section className="flex flex-col gap-2" data-testid="token-tenants">
             <header className="flex items-baseline justify-between">
-              <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+              <h3 className="text-[10px] uppercase tracking-section text-console-muted">
                 Tenant budgets
               </h3>
-              <span className="text-[10px] tabular-nums text-console-faint">
+              <span className="text-[10px] tabular-nums text-console-muted">
                 total {TOKEN_REPLICA_TOTAL_CONSUMED.toLocaleString()}
               </span>
             </header>
@@ -137,7 +137,7 @@ export function TokenGovernanceReplica({
                   / over budget.
                 </caption>
                 <thead>
-                  <tr className="border-b border-console-edge text-left text-console-faint">
+                  <tr className="border-b border-console-edge text-left text-console-muted">
                     <Th>Tenant</Th>
                     <Th align="right">Consumed</Th>
                     <Th align="right">Budget</Th>
@@ -203,7 +203,7 @@ export function TokenGovernanceReplica({
         {/* Sub-view B — Session budgets. */}
         {showSessions ? (
           <section className="flex flex-col gap-2" data-testid="token-sessions">
-            <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+            <h3 className="text-[10px] uppercase tracking-section text-console-muted">
               Session budgets
             </h3>
             <div className="overflow-auto rounded-sm border border-console-edge bg-console-panel/40">
@@ -213,7 +213,7 @@ export function TokenGovernanceReplica({
                   within / near / over budget.
                 </caption>
                 <thead>
-                  <tr className="border-b border-console-edge text-left text-console-faint">
+                  <tr className="border-b border-console-edge text-left text-console-muted">
                     <Th>Session</Th>
                     <Th>Tenant</Th>
                     <Th align="right">Consumed</Th>
@@ -247,7 +247,7 @@ export function TokenGovernanceReplica({
                               {s.tenantId}
                             </span>
                           ) : (
-                            <span className="text-console-faint">—</span>
+                            <span className="text-console-muted">—</span>
                           )}
                         </td>
                         <td className="px-3 py-1.5 text-right tabular-nums text-console-ink">
@@ -276,18 +276,18 @@ export function TokenGovernanceReplica({
         {/* Sub-view C — Budget-exhaustion timeline, scoped to the filter. */}
         <section className="flex flex-col gap-2" data-testid="token-exhaustion">
           <header className="flex items-baseline justify-between">
-            <h3 className="text-[10px] uppercase tracking-section text-console-faint">
+            <h3 className="text-[10px] uppercase tracking-section text-console-muted">
               Budget-exhaustion timeline
             </h3>
             {scope !== "all" ? (
-              <span className="text-[10px] uppercase tracking-section text-console-faint">
+              <span className="text-[10px] uppercase tracking-section text-console-muted">
                 {scope}-scope crossings
               </span>
             ) : null}
           </header>
           <div className="overflow-hidden rounded-sm border border-console-edge bg-console-panel/40">
             {exhaustionEvents.length === 0 ? (
-              <p className="px-3 py-8 text-center text-[11px] italic text-console-faint">
+              <p className="px-3 py-8 text-center text-[11px] italic text-console-muted">
                 {scope === "all"
                   ? "No budget exhaustions recorded — usage is within configured caps."
                   : `No ${scope}-scope budget exhaustions recorded in this window.`}
@@ -341,7 +341,7 @@ function Th({
     <th
       scope="col"
       className={cn(
-        "px-3 py-1.5 text-[10px] font-normal uppercase tracking-section text-console-faint",
+        "px-3 py-1.5 text-[10px] font-normal uppercase tracking-section text-console-muted",
         align === "right" ? "text-right" : "text-left",
       )}
     >

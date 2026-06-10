@@ -141,7 +141,7 @@ export function GuidedStep({
       <div className="flex items-start gap-3">
         <StepBadge n={stepNumber} done={result !== null} />
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-medium uppercase tracking-section text-faint">
+          <p className="text-[10px] font-medium uppercase tracking-section text-muted">
             The AI proposes
           </p>
           <p className="mt-1 text-[15px] font-medium leading-snug text-ink">
@@ -175,7 +175,7 @@ export function GuidedStep({
               : "Run this step"}
         </button>
         {result ? (
-          <span className="text-[12px] text-faint">
+          <span className="text-[12px] text-muted">
             Ran against the real kernel.
           </span>
         ) : null}

@@ -121,7 +121,7 @@ export default function ConfigIntegrityTransparencyPage() {
                       className={
                         isCurrent
                           ? `rounded-sm border px-1.5 py-0.5 ${STABILITY_TONE[cls]}`
-                          : "rounded-sm border border-edge px-1.5 py-0.5 text-faint"
+                          : "rounded-sm border border-edge px-1.5 py-0.5 text-muted"
                       }
                     >
                       {STABILITY_LABEL[cls]}
@@ -201,7 +201,7 @@ export default function ConfigIntegrityTransparencyPage() {
               </span>
             </div>
 
-            <p className="mt-4 text-xs text-faint">
+            <p className="mt-4 text-xs text-muted">
               As of{" "}
               <time dateTime={badge.asOf}>{badge.asOf.slice(0, 10)}</time> ·
               aggregates only · illustrative sample data.

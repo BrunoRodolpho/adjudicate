@@ -138,14 +138,14 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
       <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-sm">
         <header className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
           <DecisionChip kind={decision.kind} size="md" />
-          <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
             command-risk · summary
           </span>
         </header>
 
         <div className="flex flex-col gap-4 px-4 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
               risk category:
             </span>
             <span className="rounded-md border border-escalate/30 bg-escalate/10 px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-section text-escalate">
@@ -154,7 +154,7 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
               basis · {codes.length}
             </span>
             <ul className="flex flex-wrap gap-1.5">
@@ -249,7 +249,7 @@ function RedTeamChart({ transparencyHref }: { readonly transparencyHref: string 
     <div className="flex flex-col gap-3">
       <ConsoleChrome caption="red-team · defenses (sample)">
         <div className="flex flex-col gap-3">
-          <p className="text-[10px] uppercase tracking-section text-console-faint">
+          <p className="text-[10px] uppercase tracking-section text-console-muted">
             Adversarial scenarios defended · per shipped pack · illustrative
             sample data
           </p>
@@ -305,7 +305,7 @@ function DriftChart({ transparencyHref }: { readonly transparencyHref: string })
     <div className="flex flex-col gap-3">
       <ConsoleChrome caption="drift · distance trend (sample)">
         <div className="flex flex-col gap-3">
-          <p className="text-[10px] uppercase tracking-section text-console-faint">
+          <p className="text-[10px] uppercase tracking-section text-console-muted">
             Decision-distribution drift over time · illustrative sample data
           </p>
           <TimelineChart
@@ -314,7 +314,7 @@ function DriftChart({ transparencyHref }: { readonly transparencyHref: string })
             band={band}
             yFormat={(n) => n.toFixed(2)}
           />
-          <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-section text-console-faint">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-section text-console-muted">
             <span>Severity</span>
             <span className="rounded-sm border border-console-edge px-2 py-0.5 text-console-ink">
               {status.severity}
@@ -412,7 +412,7 @@ function HallucinationBadge({ record }: { readonly record: AuditRecord }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
-      <span className="text-[10px] uppercase tracking-section text-faint">
+      <span className="text-[10px] uppercase tracking-section text-muted">
         Hallucination · ADR-124
       </span>
       <span
@@ -472,7 +472,7 @@ function ReplicaExample({
     <div className="flex flex-col gap-3">
       <ConsoleChrome caption={blurb.caption}>
         <div className="flex flex-col gap-4">
-          <p className="text-[10px] uppercase tracking-section text-console-faint">
+          <p className="text-[10px] uppercase tracking-section text-console-muted">
             See it live in the operator console
           </p>
           <p className="text-sm leading-relaxed text-console-ink">
@@ -485,7 +485,7 @@ function ReplicaExample({
             Open the console replica
             <ArrowUpRight size={14} aria-hidden="true" />
           </a>
-          <p className="font-mono text-[10px] text-console-faint">
+          <p className="font-mono text-[10px] text-console-muted">
             {spec.replicaRoute}
           </p>
         </div>
@@ -515,7 +515,7 @@ function PackExample({
       <IllustrativeLabel>Reference pack</IllustrativeLabel>
 
       <div className="flex flex-col gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
           Governed intents · {spec.intents.length}
         </span>
         <ul className="flex flex-wrap gap-1.5">
@@ -530,7 +530,7 @@ function PackExample({
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
           Outcomes its policies produce
         </span>
         <div className="flex flex-wrap gap-1.5">
@@ -585,7 +585,7 @@ function IllustrationExample({
       </p>
       {spec.outcomes && spec.outcomes.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
             Outcomes
           </span>
           <div className="flex flex-wrap gap-1.5">
@@ -639,7 +639,7 @@ function PolicyCoherenceDiagram() {
               <span className="text-xs font-semibold leading-tight text-ink">
                 {step.label}
               </span>
-              <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+              <span className="font-mono text-[10px] uppercase tracking-section text-muted">
                 {step.sub}
               </span>
             </div>
@@ -687,7 +687,7 @@ function AgentMemoryDiagram() {
     <div className="flex flex-col gap-3 rounded-xl border border-edge bg-canvas p-4">
       {/* Decision lane — drives the kernel. */}
       <div className="flex flex-col gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
           Decision lane · drives the kernel
         </span>
         <div className="flex flex-wrap items-center gap-2">
@@ -710,14 +710,14 @@ function AgentMemoryDiagram() {
 
       {/* Memory lane — prompt-only, never an argument to the decision. */}
       <div className="flex flex-col gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
           Memory lane · prompt only
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <LaneBox label="Memory M" tone="defer" />
           <ArrowRight size={16} className="text-faint" aria-hidden="true" />
           <LaneBox label="Prompt / planner context" tone="muted" />
-          <span className="rounded-md border border-edge bg-surface px-2 py-1 text-[10px] uppercase tracking-section text-faint">
+          <span className="rounded-md border border-edge bg-surface px-2 py-1 text-[10px] uppercase tracking-section text-muted">
             not envelope · not state · not a guard
           </span>
         </div>

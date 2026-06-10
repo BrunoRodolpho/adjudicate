@@ -270,7 +270,7 @@ export default function DeployPage() {
               <p className="mt-2 text-sm leading-relaxed text-muted">
                 {example.description}
               </p>
-              <p className="mt-4 font-mono text-[11px] uppercase tracking-section text-faint">
+              <p className="mt-4 font-mono text-[11px] uppercase tracking-section text-muted">
                 {example.path}
               </p>
             </Card>

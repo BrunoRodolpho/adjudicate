@@ -76,14 +76,14 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
       <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-sm">
         <header className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
           <DecisionChip kind={decision.kind} size="md" />
-          <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
             command-risk · summary
           </span>
         </header>
 
         <div className="flex flex-col gap-4 px-4 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
               risk category:
             </span>
             <span className="rounded-md border border-escalate/30 bg-escalate/10 px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-section text-escalate">
@@ -92,7 +92,7 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
               basis · {codes.length}
             </span>
             <ul className="flex flex-wrap gap-1.5">
@@ -151,7 +151,7 @@ function IllustrativeOutcome({ recipe }: { readonly recipe: Recipe }) {
       <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-sm">
         <header className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
           <DecisionChip kind={recipe.outcome} size="md" />
-          <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
             described outcome
           </span>
         </header>

@@ -272,7 +272,7 @@ function BentoTile({ tile }: { readonly tile: OutcomeTile }) {
             </p>
 
             <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+              <span className="font-mono text-[10px] uppercase tracking-section text-muted">
                 {tile.fromPack}
               </span>
               <span className="text-xs font-medium text-muted transition-colors group-hover:text-ink group-open:text-ink">

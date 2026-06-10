@@ -49,7 +49,7 @@ export function Hero() {
           <span className="inline-flex w-fit items-center gap-2 rounded-full border border-edge bg-surface/80 px-3 py-1 text-[11px] uppercase tracking-section text-muted backdrop-blur-sm">
             Open-source · AI-agent guardrails · v1
           </span>
-          <h1 className="text-4xl font-bold leading-[1.05] tracking-tight text-ink md:text-6xl">
+          <h1 className="text-4xl font-bold leading-[1.05] tracking-tight text-ink md:text-7xl">
             Guardrails for AI agents that go{" "}
             <span className="bg-gradient-primary bg-clip-text text-transparent drop-shadow-sm">
               beyond block-or-allow
@@ -59,8 +59,8 @@ export function Hero() {
           <p className="max-w-2xl text-base leading-relaxed text-muted md:text-lg">
             Your agent proposes an action.{" "}
             <span className="font-medium text-ink">adjudicate decides</span> —
-            execute, rewrite, defer, escalate, or refuse — before anything
-            touches production.{" "}
+            execute, rewrite, defer, escalate, refuse, or request confirmation —
+            before anything touches production.{" "}
             <span className="font-medium text-ink">
               Every decision, a signed receipt.
             </span>
@@ -75,7 +75,7 @@ export function Hero() {
           <div className="flex w-full flex-col items-center gap-3">
             <div className="flex flex-wrap justify-center gap-3">
               <Button href="/playground" variant="primary">
-                Try the 5-min demo <ArrowRight size={16} />
+                Try the live playground <ArrowRight size={16} />
               </Button>
               <Button href="/how-it-works" variant="ghost">
                 How it works
@@ -84,7 +84,7 @@ export function Hero() {
             <CodeBlock
               code="pnpm add @adjudicate/core"
               copyable
-              className="w-full max-w-xs"
+              className="w-full max-w-sm"
             />
           </div>
         </header>

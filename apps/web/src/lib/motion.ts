@@ -18,11 +18,18 @@ export const EASE_SOFT = [0.16, 1, 0.3, 1] as const;
 export const REVEAL_VIEWPORT = { once: true, margin: "-50px" } as const;
 
 /**
- * Fade + small rise. Designed for `whileInView` with
+ * Gentle upward rise. Designed for `whileInView` with
  * `viewport={REVEAL_VIEWPORT}` — see usage in section wrappers.
+ *
+ * Progressive-enhancement contract (WS-A): the hidden state is TRANSFORM-ONLY
+ * (no opacity). framer-motion bakes `initial="hidden"` into the server HTML, so
+ * keeping opacity at 1 means content is fully visible without JS, before scroll,
+ * for crawlers, print, and screenshots — the entrance is a layered enhancement
+ * (a 12px rise), never a gate on whether content exists. Reduced-motion paths
+ * short-circuit to plain elements (already handled in each wrapper).
  */
 export const revealVariants: Variants = {
-  hidden: { opacity: 0, y: 12 },
+  hidden: { y: 12 },
   visible: {
     opacity: 1,
     y: 0,
@@ -107,7 +114,10 @@ export function makeStaggerContainer(
  * container's variants) and set `viewport={REVEAL_VIEWPORT}`.
  */
 export const drawVariants: Variants = {
-  hidden: { pathLength: 0, opacity: 0 },
+  // Transform/draw-only hidden state (no opacity) so the SVG element is present
+  // and the stroke geometry exists in SSR; only `pathLength` (the draw-on) is
+  // animated when JS runs. Decorative strokes, never load-bearing content.
+  hidden: { pathLength: 0 },
   visible: {
     pathLength: 1,
     opacity: 1,

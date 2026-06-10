@@ -61,7 +61,7 @@ export function CapabilityPageLayout({
         backLabel="Back to capabilities"
       />
 
-      <Section className="pt-10">
+      <Section className="pt-8 md:pt-12">
         {/*
           The body blocks cascade in as the reader scrolls: the outer Stagger
           drives each StaggerItem-wrapped block through revealVariants (fade +
@@ -228,12 +228,10 @@ function Block({
 }) {
   return (
     <section id={id} className="flex flex-col gap-5">
-      <div className="border-b border-edge pb-3">
-        <h2 className="text-xl font-semibold tracking-tight text-ink">
-          {title}
-        </h2>
+      <div>
+        <h2 className="text-h3 text-ink">{title}</h2>
         {subtitle ? (
-          <p className="mt-1 max-w-3xl text-sm text-muted">{subtitle}</p>
+          <p className="mt-1 max-w-measure text-body-sm text-muted">{subtitle}</p>
         ) : null}
       </div>
       {children}
@@ -273,7 +271,7 @@ function ProvenanceCard({
         />
       </div>
       <code className="text-base font-semibold text-ink">{primary}</code>
-      <code className="break-all text-[11px] text-faint">{secondary}</code>
+      <code className="break-all text-[11px] text-muted">{secondary}</code>
     </a>
   );
 }

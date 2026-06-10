@@ -22,18 +22,18 @@ export function PrimitivesDiagram() {
               href={`${REPO_BASE}${p.sourcePath}`}
               target="_blank"
               rel="noreferrer"
-              initial={{ opacity: 0, y: 12 }}
+              initial={{ y: 12 }}
               whileInView={{ opacity: 1, y: 0 }}
               whileHover={{ scale: 1.02 }}
               viewport={{ once: true, margin: "-50px" }}
               transition={{ duration: 0.4, delay: idx * 0.04 }}
-              className="group flex flex-col gap-2 rounded-xl border border-edge bg-canvas p-5 transition-colors hover:border-indigo-300 hover:bg-indigo-50/50"
+              className="group flex flex-col gap-2 rounded-xl border border-edge bg-canvas p-5 transition-colors hover:border-brand/40 hover:bg-brand/5"
             >
               <div className="flex items-center justify-between">
                 <code className="text-base font-semibold text-ink">{p.name}</code>
                 <ExternalLink
                   size={14}
-                  className="text-faint group-hover:text-indigo-600"
+                  className="text-faint group-hover:text-brand-ink"
                 />
               </div>
               <span className="text-xs uppercase tracking-section text-muted">
@@ -42,7 +42,7 @@ export function PrimitivesDiagram() {
               <p className="mt-1 text-sm leading-relaxed text-muted">
                 {p.description}
               </p>
-              <code className="mt-2 text-[11px] text-faint">{p.sourcePath}</code>
+              <code className="mt-2 text-[11px] text-muted">{p.sourcePath}</code>
             </motion.a>
           ))}
         </div>

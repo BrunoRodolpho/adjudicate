@@ -63,7 +63,7 @@ export function AnnouncementBanner() {
           target="_blank"
           rel="noreferrer"
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 font-medium text-ink",
+            "inline-flex shrink-0 items-center gap-1 rounded-sm font-medium text-ink focus-ring",
             "underline-offset-4 hover:underline",
           )}
         >
@@ -74,7 +74,7 @@ export function AnnouncementBanner() {
           type="button"
           onClick={handleDismiss}
           aria-label="Dismiss announcement"
-          className="ml-auto inline-flex shrink-0 items-center justify-center rounded-full p-1 text-muted transition-colors hover:bg-edge hover:text-ink"
+          className="ml-auto inline-flex shrink-0 items-center justify-center rounded-full p-1 text-muted transition-colors hover:bg-edge hover:text-ink focus-ring"
         >
           <X size={14} aria-hidden="true" />
         </button>

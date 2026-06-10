@@ -131,7 +131,7 @@ export function ConfigIntegrityReplica({
           <h2 className="text-[10px] uppercase tracking-section text-console-muted">
             Configuration Integrity · seals · violations · kill-switch stability
           </h2>
-          <span className="text-[10px] text-console-faint">ADR-131</span>
+          <span className="text-[10px] text-console-muted">ADR-131</span>
         </header>
 
         <ActiveSealsPanel
@@ -163,7 +163,7 @@ function Panel({
       className="rounded-sm border border-console-edge bg-console-panel/40"
       data-testid={testId}
     >
-      <header className="border-b border-console-edge px-3 py-1.5 text-[10px] uppercase tracking-section text-console-faint">
+      <header className="border-b border-console-edge px-3 py-1.5 text-[10px] uppercase tracking-section text-console-muted">
         {title}
       </header>
       <div className="p-3">{children}</div>
@@ -243,7 +243,7 @@ function ActiveSealsPanel({
                       />
                       <span className="font-medium text-console-ink">
                         {e.packId}
-                        <span className="text-console-faint">
+                        <span className="text-console-muted">
                           @{e.packVersion}
                         </span>
                       </span>
@@ -274,7 +274,7 @@ function ActiveSealsPanel({
                   </td>
                   <td className="px-3 py-1.5 align-top">
                     <code
-                      className="font-mono text-console-faint"
+                      className="font-mono text-console-muted"
                       title={e.computedDigest}
                     >
                       {truncateHash(e.computedDigest)}
@@ -307,7 +307,7 @@ function SelectedSealPanel({
   if (!seal) {
     return (
       <Panel title="Selected seal" testId="integrity-detail">
-        <p className="text-[11px] italic text-console-faint">
+        <p className="text-[11px] italic text-console-muted">
           No seal selected.
         </p>
       </Panel>
@@ -335,7 +335,7 @@ function SelectedSealPanel({
             className="rounded-sm border border-console-edge bg-console-canvas px-2.5 py-2 text-[11px]"
             data-testid="integrity-violations-list"
           >
-            <span className="text-[10px] uppercase tracking-section text-console-faint">
+            <span className="text-[10px] uppercase tracking-section text-console-muted">
               Violations
             </span>
             <ul className="mt-1.5 flex flex-col gap-1.5">
@@ -422,13 +422,13 @@ function KillSwitchTimelinePanel({
             />
           </ChartReveal>
         ) : (
-          <p className="text-[11px] italic text-console-faint">
+          <p className="text-[11px] italic text-console-muted">
             Kill switch never engaged — no activations recorded.
           </p>
         )}
       </div>
 
-      <p className="mt-3 border-t border-console-edge pt-3 text-[10px] text-console-faint">
+      <p className="mt-3 border-t border-console-edge pt-3 text-[10px] text-console-muted">
         Engage / restore the kill switch from the operator console's{" "}
         <Link href="/console" className="text-sky-300 hover:text-sky-200">
           Control
@@ -444,7 +444,7 @@ function Th({ children }: { readonly children: ReactNode }) {
   return (
     <th
       scope="col"
-      className="px-3 py-1.5 text-left text-[10px] font-normal uppercase tracking-section text-console-faint"
+      className="px-3 py-1.5 text-left text-[10px] font-normal uppercase tracking-section text-console-muted"
     >
       {children}
     </th>
@@ -464,7 +464,7 @@ function Stat({
 }) {
   return (
     <div className="flex flex-col gap-0.5 rounded-sm border border-console-edge/50 px-2 py-1">
-      <dt className="text-[10px] uppercase tracking-section text-console-faint">
+      <dt className="text-[10px] uppercase tracking-section text-console-muted">
         {label}
       </dt>
       <dd

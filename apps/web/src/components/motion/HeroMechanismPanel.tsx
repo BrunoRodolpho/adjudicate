@@ -145,7 +145,7 @@ function Card({ state }: { state: CardState }) {
           "font-mono text-[9px] uppercase tracking-section",
           isActive && state.tint === "rewrite"
             ? "text-rewrite-strong"
-            : "text-faint",
+            : "text-muted",
         )}
       >
         {state.label}
@@ -158,7 +158,7 @@ function Card({ state }: { state: CardState }) {
               <span
                 className={cn(
                   "font-semibold",
-                  isActive ? "text-rewrite-strong" : "text-faint",
+                  isActive ? "text-rewrite-strong" : "text-muted",
                 )}
               >
                 {seg.highlight}

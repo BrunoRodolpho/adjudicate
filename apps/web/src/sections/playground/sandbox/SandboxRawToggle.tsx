@@ -56,7 +56,7 @@ export function SandboxRawToggle({
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-[13px] font-medium text-muted transition hover:text-ink">
         <Code2 size={15} aria-hidden="true" className="text-faint" />
         Advanced: edit raw JSON
-        <span className="ml-auto font-mono text-[10px] uppercase tracking-section text-faint">
+        <span className="ml-auto font-mono text-[10px] uppercase tracking-section text-muted">
           {open ? "hide" : "expert"}
         </span>
       </summary>
@@ -110,7 +110,7 @@ function RawBox({
     <div className="flex flex-col gap-1.5">
       <label
         htmlFor={id}
-        className="font-mono text-[10px] uppercase tracking-section text-faint"
+        className="font-mono text-[10px] uppercase tracking-section text-muted"
       >
         {label}
       </label>

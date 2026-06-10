@@ -4,7 +4,7 @@
 export const STATS = {
   packages: 25,
   adrs: 36,
-  tests: 225,
+  tests: 228,
   capabilities: 14,
   outcomes: 6,
 } as const;

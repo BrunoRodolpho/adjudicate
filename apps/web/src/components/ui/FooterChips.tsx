@@ -5,9 +5,10 @@ import { DecisionChip } from "@/components/ui/DecisionChip";
 import { DECISIONS_ORDER } from "@/content/decisions";
 import { EASE_OUT, makeStaggerContainer, REVEAL_VIEWPORT } from "@/lib/motion";
 
-/** Fade + gentle scale-up for each chip, driven by the parent stagger. */
+/** Gentle scale-up for each chip, driven by the parent stagger. Transform-only
+ *  hidden state (no opacity) so chips are visible in SSR / no-JS (WS-A). */
 const chipVariants: Variants = {
-  hidden: { opacity: 0, scale: 0.95 },
+  hidden: { scale: 0.95 },
   visible: {
     opacity: 1,
     scale: 1,

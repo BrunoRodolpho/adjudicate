@@ -36,7 +36,7 @@ export function SiteFooter() {
         <div className="mt-12 flex flex-col gap-5 border-t border-edge pt-6 md:flex-row md:items-center md:justify-between">
           <p className="text-xs text-muted">
             <span className="font-mono text-ink">{SITE.name}</span>
-            <span className="text-faint">
+            <span className="text-muted">
               {` · ${SITE.versionLabel} · ${SITE.status}`}
             </span>
           </p>
@@ -48,7 +48,8 @@ export function SiteFooter() {
 }
 
 function FooterLink({ link }: { readonly link: NavLink }) {
-  const className = "text-sm text-muted transition-colors hover:text-ink";
+  const className =
+    "rounded-sm text-sm text-muted transition-colors hover:text-ink focus-ring";
   if (link.external) {
     return (
       <a

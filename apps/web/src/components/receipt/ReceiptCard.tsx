@@ -193,7 +193,7 @@ export function ReceiptCard(props: ReceiptCardProps) {
               </span>
             ) : null}
           </div>
-          <div className="flex items-center gap-3 text-[10px] text-faint">
+          <div className="flex items-center gap-3 text-[10px] text-muted">
             <span className="font-mono uppercase tracking-section">
               {compactTime || "—"}
             </span>
@@ -244,7 +244,7 @@ function SectionHeader({
           "font-mono uppercase tracking-section",
           emphasis
             ? cn("text-[11px] font-semibold", outcomeText ?? "text-ink")
-            : "text-[10px] text-faint",
+            : "text-[10px] text-muted",
         )}
       >
         {label}
@@ -276,7 +276,7 @@ function InputSection({
         <SectionHeader
           label="INPUT · envelope"
           outcome={envelope.taint}
-          outcomeText="text-faint"
+          outcomeText="text-muted"
         />
       </summary>
       <div className="flex flex-col gap-2 px-4 py-3">
@@ -393,7 +393,7 @@ function TraceRow({
                 "border",
                 OUTCOME_TEXT_CLASS[kind],
               )
-            : "text-faint",
+            : "text-muted",
         )}
       >
         {entry.outcome}
@@ -476,7 +476,7 @@ function DecisionBody({
           </blockquote>
           {decision.refusal.detail ? (
             <details className="text-[11px] text-muted">
-              <summary className="cursor-pointer font-mono uppercase tracking-section text-faint">
+              <summary className="cursor-pointer font-mono uppercase tracking-section text-muted">
                 operator detail
               </summary>
               <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-muted">
@@ -504,7 +504,7 @@ function DecisionBody({
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <div className="rounded-md border border-edge bg-canvas/60 px-3 py-2">
-              <p className="mb-1 font-mono text-[9px] uppercase tracking-section text-faint">
+              <p className="mb-1 font-mono text-[9px] uppercase tracking-section text-muted">
                 PROPOSED · payload
               </p>
               <JsonSegmentView
@@ -526,7 +526,7 @@ function DecisionBody({
             reason: &ldquo;{decision.reason}&rdquo;
           </p>
           <div className="flex flex-col gap-1">
-            <p className="font-mono text-[9px] uppercase tracking-section text-faint">
+            <p className="font-mono text-[9px] uppercase tracking-section text-muted">
               INTENT HASH CHANGED
             </p>
             <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
@@ -551,7 +551,7 @@ function DecisionBody({
           </p>
           <p className="font-mono text-[11px] text-ink/80">
             timeoutMs: {decision.timeoutMs}{" "}
-            <span className="text-faint">
+            <span className="text-muted">
               ({humaniseTimeoutMs(decision.timeoutMs)})
             </span>
           </p>
@@ -567,7 +567,7 @@ function DecisionBody({
       return (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
               routed to:
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-escalate/30 bg-escalate/10 px-3 py-1 text-[12px] font-medium text-escalate">
@@ -650,13 +650,13 @@ function BasisRow({
         <code
           className={cn(
             "rounded-md border border-edge bg-canvas px-2 py-0.5 font-mono text-[11px]",
-            universal ? "text-faint" : OUTCOME_TEXT_CLASS[kind],
+            universal ? "text-muted" : OUTCOME_TEXT_CLASS[kind],
           )}
         >
           {key}
         </code>
         {detail ? (
-          <code className="font-mono text-[10px] text-faint">
+          <code className="font-mono text-[10px] text-muted">
             {JSON.stringify(detail)}
           </code>
         ) : null}
@@ -664,7 +664,7 @@ function BasisRow({
       {plain ? (
         <p className="text-[12px] leading-snug text-muted">{plain}</p>
       ) : (
-        <p className="text-[11px] italic leading-snug text-faint">
+        <p className="text-[11px] italic leading-snug text-muted">
           No canonical explanation for this code.
         </p>
       )}
@@ -774,7 +774,7 @@ function CryptoSection({
             key={row.label}
             className="flex flex-col gap-0.5 border-b border-edge/60 pb-1.5 last:border-0 last:pb-0 md:flex-row md:items-baseline md:gap-3"
           >
-            <span className="min-w-[140px] flex-none font-mono text-[10px] uppercase tracking-section text-faint">
+            <span className="min-w-[140px] flex-none font-mono text-[10px] uppercase tracking-section text-muted">
               {row.label}
             </span>
             <span className="min-w-0 break-all font-mono text-[11px] text-ink/85">
@@ -784,7 +784,7 @@ function CryptoSection({
         ))}
         {metadataEntries.length > 0 ? (
           <div className="mt-1 flex flex-col gap-1">
-            <span className="font-mono text-[9px] uppercase tracking-section text-faint">
+            <span className="font-mono text-[9px] uppercase tracking-section text-muted">
               metadata · v5
             </span>
             {metadataEntries.map(([k, v]) => (
@@ -792,7 +792,7 @@ function CryptoSection({
                 key={k}
                 className="flex flex-col gap-0.5 md:flex-row md:items-baseline md:gap-3"
               >
-                <span className="min-w-[140px] flex-none font-mono text-[10px] text-faint">
+                <span className="min-w-[140px] flex-none font-mono text-[10px] text-muted">
                   {k}
                 </span>
                 <span className="min-w-0 break-all font-mono text-[11px] text-ink/85">

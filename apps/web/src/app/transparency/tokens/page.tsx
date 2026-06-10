@@ -105,7 +105,7 @@ export default function TokenGovernanceTransparencyPage() {
               how much of that budget is gone — so &ldquo;how much is left&rdquo;
               is a single glance, not a spreadsheet.
             </p>
-            <p className="mt-2 text-xs text-faint">
+            <p className="mt-2 text-xs text-muted">
               For rough orientation only (illustrative, not a target): a typical
               SaaS deployment sits around 50–70% by mid-period; a conservative
               enterprise nearer 30–40%.
@@ -143,7 +143,7 @@ export default function TokenGovernanceTransparencyPage() {
             </p>
           </Reveal>
 
-          <p className="mt-4 max-w-2xl text-xs text-faint">
+          <p className="mt-4 max-w-2xl text-xs text-muted">
             Figures are coarsely rounded approximations for a single illustrative
             tenant — they never map to a real customer&apos;s usage, and the band
             (not a precise count) is the only live signal exposed. Enforcement of

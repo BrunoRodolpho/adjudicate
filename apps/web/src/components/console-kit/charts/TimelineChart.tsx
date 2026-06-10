@@ -94,7 +94,7 @@ export function TimelineChart({
       aria-label={title}
       className={cn("flex flex-col gap-1", className)}
     >
-      <figcaption className="text-[10px] uppercase tracking-section text-console-faint">
+      <figcaption className="text-[10px] uppercase tracking-section text-console-muted">
         {title}
       </figcaption>
 

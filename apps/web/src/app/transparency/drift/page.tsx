@@ -174,7 +174,7 @@ export default function DriftTransparencyPage() {
               ) : null}
             </div>
 
-            <p className="mt-4 text-xs text-faint">
+            <p className="mt-4 text-xs text-muted">
               As of{" "}
               <time dateTime={status.asOf}>{status.asOf.slice(0, 10)}</time> ·
               aggregates only · illustrative sample data.

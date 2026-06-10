@@ -95,7 +95,7 @@ export default function AiBomTransparencyPage() {
           </h2>
 
           {boms.length === 0 ? (
-            <p className="mt-4 text-sm italic text-faint">
+            <p className="mt-4 text-sm italic text-muted">
               No published manifests yet.
             </p>
           ) : (
@@ -156,7 +156,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
             className={
               bom.signed
                 ? "rounded-sm border border-edge px-2 py-0.5 text-[10px] uppercase tracking-section text-ink"
-                : "rounded-sm border border-edge px-2 py-0.5 text-[10px] uppercase tracking-section text-faint"
+                : "rounded-sm border border-edge px-2 py-0.5 text-[10px] uppercase tracking-section text-muted"
             }
           >
             {bom.signed ? "signed" : "unsigned"}
@@ -179,7 +179,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
                   {bom.model.modelVersion ? ` @${bom.model.modelVersion}` : ""}
                 </p>
               ) : (
-                <p className="text-sm italic text-faint">Not declared.</p>
+                <p className="text-sm italic text-muted">Not declared.</p>
               )}
             </Field>
             <Field label="Conformance & health">
@@ -253,7 +253,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm italic text-faint">None declared.</p>
+                <p className="text-sm italic text-muted">None declared.</p>
               )}
             </Field>
             <Field label="Vector stores (RAG)">
@@ -269,7 +269,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm italic text-faint">None declared.</p>
+                <p className="text-sm italic text-muted">None declared.</p>
               )}
             </Field>
           </div>
@@ -298,7 +298,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm italic text-faint">
+                <p className="text-sm italic text-muted">
                   No declared prompt templates.
                 </p>
               )}
@@ -319,7 +319,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
         </RevealSection>
       </div>
 
-      <footer className="border-t border-edge px-5 py-3 text-xs text-faint">
+      <footer className="border-t border-edge px-5 py-3 text-xs text-muted">
         Generated at {bom.generatedAt} (illustrative). The BOM digest is
         recomputable from this manifest, so anyone can verify it hasn&apos;t been
         tampered with.
@@ -362,7 +362,7 @@ function Field({
 
 function ChipList({ items }: { items: readonly string[] }) {
   if (items.length === 0) {
-    return <p className="text-sm italic text-faint">None.</p>;
+    return <p className="text-sm italic text-muted">None.</p>;
   }
   return (
     <div className="flex flex-wrap gap-1.5">

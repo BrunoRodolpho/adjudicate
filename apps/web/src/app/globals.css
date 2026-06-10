@@ -9,6 +9,13 @@
   body {
     @apply bg-canvas text-ink font-sans antialiased;
     text-rendering: optimizeLegibility;
+    /* Inter optical refinements — single-story 'a' + tighter punctuation. */
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Headlines never widow/orphan — balance the last lines. */
+  h1, h2, h3 {
+    text-wrap: balance;
   }
 
   ::selection {
@@ -28,5 +35,21 @@
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+  }
+}
+
+@layer components {
+  /* Shared keyboard-focus ring — applied to every interactive primitive
+     (Button, Card, NavBar, links, CodeBlock, banner) in WS-B. Visible only
+     for keyboard focus, never on mouse/touch. */
+  .focus-ring {
+    @apply outline-none;
+  }
+  .focus-ring:focus-visible {
+    @apply outline-none ring-2 ring-brand ring-offset-2 ring-offset-canvas;
+  }
+  /* Dark-surface variant for console/code surfaces. */
+  .focus-ring-console:focus-visible {
+    @apply outline-none ring-2 ring-console-ink ring-offset-2 ring-offset-console-canvas;
   }
 }

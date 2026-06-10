@@ -65,7 +65,7 @@ export function HowItWorks() {
           with the real Packs.
         </p>
         <a
-          href="#playground"
+          href="/playground"
           className="mt-6 inline-flex items-center gap-2 rounded-full bg-gradient-primary px-7 py-3 text-base font-medium text-white shadow-lg transition-shadow hover:shadow-xl"
         >
           Try it in the playground →
@@ -129,7 +129,7 @@ function FrameShell({
   return (
     <div className="mx-auto grid max-w-6xl items-center gap-8 border-t border-edge/60 px-6 py-12 first:border-t-0 md:grid-cols-2 md:gap-12 md:py-16">
       <div className="flex flex-col gap-3">
-        <span className="text-xs uppercase tracking-section text-faint">
+        <span className="text-xs uppercase tracking-section text-muted">
           Frame {num} of 6
         </span>
         <h3 className="text-2xl font-semibold leading-tight tracking-tight text-ink md:text-3xl">
@@ -231,7 +231,7 @@ function Frame3() {
           <Arrow size="sm" />
           <ProductionCluster size="sm" />
         </div>
-        <p className="mt-2 text-center text-xs uppercase tracking-section text-faint">
+        <p className="mt-2 text-center text-xs uppercase tracking-section text-muted">
           Same scenario · routed through the kernel
         </p>
       </div>
@@ -314,8 +314,8 @@ function Frame4() {
       caption={
         <>
           Allow/deny isn&apos;t enough for autonomous systems. The control
-          layer can <span className="font-semibold text-ink">execute, modify, refuse, wait, escalate, or ask</span>. The
-          modification — REWRITE — is what makes this not a permission
+          layer can <span className="font-semibold text-ink">execute, rewrite, refuse, defer, escalate, or request confirmation</span>. The
+          rewrite is what makes this not a permission
           engine. Watch what it does to that 100% production deploy.
         </>
       }
@@ -410,7 +410,7 @@ function Frame5() {
           ))}
         </div>
         <div className="flex flex-col items-center gap-1">
-          <span className="text-xs text-faint">↓ snap into ↓</span>
+          <span className="text-xs text-muted">↓ snap into ↓</span>
         </div>
         <KernelBlock size="lg" />
       </div>
@@ -434,7 +434,7 @@ function Frame6() {
       }
     >
       <div className="w-full max-w-md rounded-xl border border-edge bg-surface p-5 shadow-sm">
-        <p className="text-xs uppercase tracking-section text-faint">
+        <p className="text-xs uppercase tracking-section text-muted">
           AuditRecord (real fields, real values)
         </p>
         <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-md bg-canvas p-3 font-mono text-[11px] leading-relaxed text-ink">{`{
@@ -520,7 +520,7 @@ function ProductionCluster({ size = "md" }: { size?: "sm" | "md" }) {
   const padding = size === "sm" ? "px-2 py-1.5 text-[10px]" : "px-3 py-2 text-[11px]";
   return (
     <div className={`flex flex-col items-center gap-1 rounded-md border border-edge bg-surface ${padding}`}>
-      <span className="font-mono text-faint">production systems</span>
+      <span className="font-mono text-muted">production systems</span>
       <div className="flex gap-1.5 text-base">
         <span title="database">🗄️</span>
         <span title="cloud">☁️</span>

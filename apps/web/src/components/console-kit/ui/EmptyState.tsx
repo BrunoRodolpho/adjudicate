@@ -31,8 +31,8 @@ export function EmptyState({ title, hint, icon, className }: EmptyStateProps) {
           {icon}
         </span>
       ) : null}
-      <p className="text-[11px] italic text-console-faint">{title}</p>
-      {hint ? <p className="text-[10px] text-console-faint/80">{hint}</p> : null}
+      <p className="text-[11px] italic text-console-muted">{title}</p>
+      {hint ? <p className="text-[10px] text-console-muted/80">{hint}</p> : null}
     </div>
   );
 }

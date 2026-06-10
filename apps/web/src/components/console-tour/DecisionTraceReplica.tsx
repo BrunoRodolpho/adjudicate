@@ -92,7 +92,7 @@ function HallucinationBadge({ record }: { readonly record: AuditRecord }) {
       )}, bucket ${bucket} — ${meaning}. A score closer to 1.0 indicates a higher risk of hallucination.`}
       title={`Groundedness signal (ADR-124). ${bucket}: ${meaning}. Closer to 1.0 = higher hallucination risk.`}
     >
-      <span className="text-[10px] uppercase tracking-section text-console-faint">
+      <span className="text-[10px] uppercase tracking-section text-console-muted">
         Hallucination · ADR-124
       </span>
       <span

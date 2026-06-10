@@ -30,6 +30,10 @@ import {
 } from "../schemas/guard-stats.js";
 import { PolicyBundleDescriptorSchema } from "../schemas/policy-descriptor.js";
 import {
+  PolicyManifestSchema,
+  type PolicyManifestParsed,
+} from "../schemas/policy-manifest.js";
+import {
   DecisionAccuracyQuerySchema,
   DecisionAccuracyResultSchema,
   RetrospectiveOutcomeSchema,
@@ -178,6 +182,15 @@ export interface AdminContext {
    * `governance.describePolicy` then throws PRECONDITION_FAILED.
    */
   readonly policyDescriptor?: PolicyBundleDescriptor;
+  /**
+   * Optional full policy manifest for one or more adopters — the rule-
+   * provenance tree's data source (a superset of `policyDescriptor`). The
+   * route handler loads it from the artifact an adopter generates via
+   * `describeInstalledPacks(...)` (e.g. `ibx policy export`). Omitted when no
+   * manifest is wired — `governance.policyManifest` then throws
+   * PRECONDITION_FAILED so the surface is feature-detectable at runtime.
+   */
+  readonly policyManifest?: PolicyManifestParsed;
   /**
    * Optional retrospective-outcome sink. When supplied, the
    * `governance.recordOutcome` mutation forwards to it. The
@@ -761,6 +774,27 @@ const governanceRouter = t.router({
       return ctx.policyDescriptor as unknown as z.infer<
         typeof PolicyBundleDescriptorSchema
       >;
+    }),
+
+  /**
+   * Full policy manifest (per-adopter packs → intents → guards, taint floors,
+   * outcomes, basis codes, source provenance) — the rule-provenance tree's
+   * data source. A superset of `describePolicy`. Loaded from the adopter's
+   * generated artifact (e.g. `ibx policy export`) and threaded through context
+   * so the procedure stays a pure read. Throws PRECONDITION_FAILED when no
+   * manifest is wired.
+   */
+  policyManifest: t.procedure
+    .output(PolicyManifestSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.policyManifest) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Policy manifest not configured. Wire a PolicyManifest into the route handler context (typically the artifact from describeInstalledPacks / `ibx policy export`).",
+        });
+      }
+      return ctx.policyManifest;
     }),
 
   /**

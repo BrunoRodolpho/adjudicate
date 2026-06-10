@@ -262,6 +262,20 @@ export {
 } from "./schemas/policy-descriptor.js";
 
 export {
+  SourceLocationSchema,
+  GuardManifestNodeSchema,
+  DecisionEvidenceSchema,
+  DecisionOutcomeSummarySchema,
+  IntentManifestNodeSchema,
+  PackManifestNodeSchema,
+  PolicyManifestSchema,
+  type PolicyManifestParsed,
+  type PackManifestNodeParsed,
+  type IntentManifestNodeParsed,
+  type GuardManifestNodeParsed,
+} from "./schemas/policy-manifest.js";
+
+export {
   DecisionAccuracyQuerySchema,
   DecisionAccuracyResultSchema,
   ObservedOutcomeSchema,

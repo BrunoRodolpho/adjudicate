@@ -27,7 +27,9 @@ import {
   verifyConfigSeal,
   type SealablePackInput,
 } from "@adjudicate/conformance";
-import { analyzePolicy } from "@adjudicate/analyze";
+import { analyzePolicy, describeInstalledPacks } from "@adjudicate/analyze";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { DEPLOYMENT_POLICY_COHERENCE_PROBES } from "@/lib/policy-coherence-probes";
 import {
   generateAiBom,
@@ -71,12 +73,18 @@ import {
 } from "@adjudicate/drift";
 import { DRIFT_CONFIG } from "@/lib/drift-config";
 import { deploymentsApprovalPack } from "@adjudicate/pack-deployments-approval";
+import { paymentsPixPack } from "@adjudicate/pack-payments-pix";
+import { IdentityKycPack } from "@adjudicate/pack-identity-kyc";
 import {
   analyzeKillSwitchTimeline,
   createRedisEmergencyStateStore,
   type KillSwitchEvent,
 } from "@adjudicate/audit";
 import type { GovernanceEvent } from "@adjudicate/admin-sdk";
+import {
+  PolicyManifestSchema,
+  type PolicyManifestParsed,
+} from "@adjudicate/admin-sdk";
 import {
   createPostgresAuditStore,
   createPostgresGovernanceLog,
@@ -205,6 +213,39 @@ const policyDescriptor: PolicyBundleDescriptor | undefined = firstPack
       firstPack.policy as PolicyBundle<string, unknown, unknown>,
     )
   : undefined;
+
+// Policy manifest for the rule-provenance tree (/policy-tree). Prefer a
+// committed adopter manifest (e.g. `policy-manifests/ibatexas.json`, produced
+// by `ibx policy export` in the ibatexas repo); otherwise compute one live
+// from adjudicate's own shipped Packs so the tree always has real data to
+// render. The live builder output matches the wire schema by construction.
+function loadPolicyManifest(): PolicyManifestParsed | undefined {
+  try {
+    const dir = join(process.cwd(), "policy-manifests");
+    if (existsSync(dir)) {
+      const files = readdirSync(dir)
+        .filter((f) => f.endsWith(".json"))
+        .sort();
+      const first = files[0];
+      if (first !== undefined) {
+        const parsed = PolicyManifestSchema.safeParse(
+          JSON.parse(readFileSync(join(dir, first), "utf8")),
+        );
+        if (parsed.success) return parsed.data;
+      }
+    }
+  } catch {
+    // fall through to the live manifest
+  }
+  const live = describeInstalledPacks(
+    [paymentsPixPack, IdentityKycPack, deploymentsApprovalPack] as unknown as Parameters<
+      typeof describeInstalledPacks
+    >[0],
+    { adopter: "adjudicate (shipped packs)" },
+  );
+  return live as unknown as PolicyManifestParsed;
+}
+const policyManifest = loadPolicyManifest();
 
 // Pre-compute the adversarial red-team report once at startup (ADR-118). The
 // kernel run is pure + deterministic; the report feeds the console's Red-Team
@@ -838,5 +879,6 @@ export const { GET, POST } = toNextRouteHandler({
     approvalPort,
     memoryLookup,
     ...(policyDescriptor ? { policyDescriptor } : {}),
+    ...(policyManifest ? { policyManifest } : {}),
   }),
 });

@@ -27,7 +27,7 @@ export function PrimitivesDiagram() {
               whileHover={{ scale: 1.02 }}
               viewport={{ once: true, margin: "-50px" }}
               transition={{ duration: 0.4, delay: idx * 0.04 }}
-              className="group flex flex-col gap-2 rounded-xl border border-edge bg-canvas p-5 transition-colors hover:border-brand/40 hover:bg-brand/5"
+              className="group flex min-w-0 flex-col gap-2 rounded-xl bg-canvas p-5 shadow-xs transition-all hover:-translate-y-0.5 hover:bg-brand/5 hover:shadow-sm"
             >
               <div className="flex items-center justify-between">
                 <code className="text-base font-semibold text-ink">{p.name}</code>
@@ -42,7 +42,9 @@ export function PrimitivesDiagram() {
               <p className="mt-1 text-sm leading-relaxed text-muted">
                 {p.description}
               </p>
-              <code className="mt-2 text-[11px] text-muted">{p.sourcePath}</code>
+              <code className="mt-2 break-all text-[11px] text-muted">
+                {p.sourcePath}
+              </code>
             </motion.a>
           ))}
         </div>

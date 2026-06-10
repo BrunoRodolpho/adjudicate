@@ -54,20 +54,37 @@ export default function ArchitecturePage() {
       <PrimitivesDiagram />
 
       <Section tone="canvas" className="py-20">
-        <h2 className="text-xs uppercase tracking-section text-muted">
-          Go deeper
-        </h2>
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <Card href="/architecture/data-flow" className="group">
-            <h3 className="flex items-center gap-1.5 text-base font-semibold text-ink">
+        <div className="max-w-measure">
+          <p className="text-eyebrow uppercase tracking-section text-brand-ink">
+            Go deeper
+          </p>
+          <h2 className="mt-2 text-h2 text-ink">Two paths from here</h2>
+          <p className="mt-2 text-body text-muted">
+            You&apos;ve seen the mechanism and its primitives. Follow one
+            decision end-to-end, or wire the kernel into a real deployment.
+          </p>
+        </div>
+        <div className="mt-8 grid gap-5 md:grid-cols-2">
+          <Card
+            href="/architecture/data-flow"
+            className="group relative flex flex-col gap-3 overflow-hidden"
+          >
+            <span
+              className="absolute inset-x-0 top-0 h-0.5 bg-gradient-primary opacity-0 transition-opacity group-hover:opacity-100"
+              aria-hidden="true"
+            />
+            <p className="text-eyebrow uppercase tracking-section text-muted">
+              Trace one decision
+            </p>
+            <h3 className="flex items-center justify-between gap-2 text-h4 text-ink">
               How a decision becomes a durable receipt
               <ArrowRight
-                size={16}
-                className="text-faint transition-colors group-hover:text-ink"
+                size={18}
+                className="shrink-0 text-faint transition-all group-hover:translate-x-0.5 group-hover:text-brand-ink"
                 aria-hidden="true"
               />
             </h3>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
+            <p className="text-sm leading-relaxed text-muted">
               Trace one decision from the AI agent&apos;s intent through the
               in-process kernel into a tamper-evident AuditRecord — mirrored to
               a partitioned Postgres table and pushed live to the operator
@@ -75,16 +92,26 @@ export default function ArchitecturePage() {
               by construction.
             </p>
           </Card>
-          <Card href="/deploy" className="group">
-            <h3 className="flex items-center gap-1.5 text-base font-semibold text-ink">
+          <Card
+            href="/deploy"
+            className="group relative flex flex-col gap-3 overflow-hidden"
+          >
+            <span
+              className="absolute inset-x-0 top-0 h-0.5 bg-gradient-primary opacity-0 transition-opacity group-hover:opacity-100"
+              aria-hidden="true"
+            />
+            <p className="text-eyebrow uppercase tracking-section text-muted">
+              Ship it
+            </p>
+            <h3 className="flex items-center justify-between gap-2 text-h4 text-ink">
               How to deploy adjudicate
               <ArrowRight
-                size={16}
-                className="text-faint transition-colors group-hover:text-ink"
+                size={18}
+                className="shrink-0 text-faint transition-all group-hover:translate-x-0.5 group-hover:text-brand-ink"
                 aria-hidden="true"
               />
             </h3>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
+            <p className="text-sm leading-relaxed text-muted">
               The library / in-process deployment model and the self-hosted,
               open-source operator console — how the pieces wire together in a
               real deployment.

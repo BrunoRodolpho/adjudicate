@@ -18,7 +18,7 @@ const PHASES = [
 
 export function Problem() {
   return (
-    <section className="bg-surface py-20">
+    <section className="bg-canvas py-20">
       <div className="mx-auto max-w-6xl px-6">
         <SectionHeading
           eyebrow="The problem"

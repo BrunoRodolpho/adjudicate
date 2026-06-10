@@ -31,8 +31,9 @@ export function AuditTableReplica({
   highlightHashes,
 }: AuditTableReplicaProps) {
   return (
-    <div className="overflow-auto rounded-md border border-console-edge bg-console-panel/40">
-      <table className="w-full border-collapse text-[11px]">
+    <div className="relative">
+      <div className="overflow-auto rounded-md border border-console-edge bg-console-panel/40 [&_tr>:first-child]:sticky [&_tr>:first-child]:left-0 [&_tr>:first-child]:bg-console-panel [&_thead_tr>:first-child]:z-10">
+        <table className="w-full border-collapse text-[11px]">
         <thead className="sticky top-0 bg-console-panel">
           <tr className="border-b border-console-edge">
             <th
@@ -113,6 +114,12 @@ export function AuditTableReplica({
           )}
         </tbody>
       </table>
+      </div>
+      {/* Right edge-fade — hints the table scrolls horizontally on mobile. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 right-0 w-10 rounded-r-md bg-gradient-to-l from-console-panel to-transparent sm:hidden"
+      />
     </div>
   );
 }

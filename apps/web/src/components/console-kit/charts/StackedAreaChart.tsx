@@ -131,8 +131,11 @@ export function StackedAreaChart({
       aria-label={title}
       className={cn("flex flex-col gap-1", className)}
     >
-      <figcaption className="text-[10px] uppercase tracking-section text-console-muted">
-        {title}
+      <figcaption className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-section text-console-muted">
+        <span>{title}</span>
+        <span className="shrink-0 normal-case tabular-nums text-console-faint">
+          peak {yFormat(scaleMax)}
+        </span>
       </figcaption>
 
       <svg
@@ -143,13 +146,28 @@ export function StackedAreaChart({
         className="w-full"
         style={{ height: VIEW_H }}
       >
+        {/* horizontal gridlines (¼ ½ ¾) — give the plot structure */}
+        {[0.25, 0.5, 0.75].map((f) => (
+          <line
+            key={f}
+            x1={PAD}
+            x2={VIEW_W - PAD}
+            y1={PAD + innerH * f}
+            y2={PAD + innerH * f}
+            stroke="rgb(39 39 42)"
+            strokeWidth={0.5}
+            strokeDasharray="2 3"
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
         <line
           x1={PAD}
           x2={VIEW_W - PAD}
           y1={baseline}
           y2={baseline}
-          stroke="rgb(39 39 42)"
+          stroke="rgb(63 63 70)"
           strokeWidth={0.5}
+          vectorEffect="non-scaling-stroke"
         />
         {layers.map((l) => (
           <path

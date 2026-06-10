@@ -59,13 +59,17 @@ export function DataTable({
   emptyMessage = "No records.",
 }: DataTableProps) {
   return (
-    <div
-      className={cn(
-        "overflow-auto rounded-sm border border-console-edge bg-console-panel/40",
-        className,
-      )}
-    >
-      <table className="w-full border-collapse text-[11px]">
+    <div className="relative">
+      <div
+        className={cn(
+          "overflow-auto rounded-sm border border-console-edge bg-console-panel/40",
+          // Sticky first column keeps the row label pinned while the rest of a
+          // wide row scrolls horizontally on narrow screens (WS-G affordance).
+          "[&_tr>:first-child]:sticky [&_tr>:first-child]:left-0 [&_tr>:first-child]:bg-console-panel [&_thead_tr>:first-child]:z-10",
+          className,
+        )}
+      >
+        <table className="w-full border-collapse text-[11px]">
         {captionVisible ? (
           <caption className="px-3 py-1.5 text-left text-[10px] uppercase tracking-section text-console-muted">
             {caption}
@@ -140,6 +144,12 @@ export function DataTable({
           )}
         </tbody>
       </table>
+      </div>
+      {/* Right edge-fade — hints the table scrolls horizontally on mobile. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 right-0 w-10 rounded-r-sm bg-gradient-to-l from-console-panel to-transparent sm:hidden"
+      />
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { CodeBlock } from "@/components/ui/CodeBlock";
+import { Code } from "@/components/blog/Code";
+import { Prose } from "@/components/blog/Prose";
+import { Lead } from "@/components/blog/PullQuote";
 
 const RAMP_CLAMP = `import {
   basis,
@@ -53,12 +55,12 @@ const tokenBudgetGuard = createTokenBudgetGuard<string, unknown, unknown>({
 
 export function StopAgentDrainingProd() {
   return (
-    <article className="prose-body flex flex-col gap-5">
-      <p className="text-lg italic text-ink">
+    <Prose>
+      <Lead>
         An AI agent with deploy access, a shell, and a model loop can do real
         damage to production before anyone reads the logs. Here is how to put a
         deterministic kernel between the model and the blast radius.
-      </p>
+      </Lead>
       <p>
         The failure mode is familiar. An agent is wired to your CI, your
         terminal, and your billing-backed model API. It is confident,
@@ -79,59 +81,42 @@ export function StopAgentDrainingProd() {
         <code>REFUSE</code> (stop it cold).
       </p>
 
-      <h2 className="mt-4 text-xl font-semibold text-ink">
-        1. Clamp the deploy ramp
-      </h2>
+      <h2>1. Clamp the deploy ramp</h2>
       <p>
         A production rollout at 100% ramp is the single fastest way to turn a
         bad build into an outage. You do not want to refuse every deploy — you
         want over-sized ramps reduced to a safe ceiling automatically, with a
         receipt. The deployments-approval pack ships exactly this guard:
       </p>
-      <CodeBlock code={RAMP_CLAMP} language="ts" copyable />
+      <Code code={RAMP_CLAMP} lang="ts" copyable />
       <p>
         A request for <code>production</code> at <code>100%</code> comes back as
         a <code>REWRITE</code> down to <code>25%</code> — a kernel-owned
         modification, not the model proposing a different action. The same pack
         also <code>ESCALATE</code>s an un-approved production release to a human.
         Full worked code and a live run are in the{" "}
-        <Link
-          href="/recipes/gate-prod-deploys"
-          className="font-medium text-brand-ink hover:text-brand-ink"
-        >
-          gate production deploys recipe
-        </Link>
+        <Link href="/recipes/gate-prod-deploys">gate production deploys recipe</Link>
         .
       </p>
 
-      <h2 className="mt-4 text-xl font-semibold text-ink">
-        2. Cap the token spend
-      </h2>
+      <h2>2. Cap the token spend</h2>
       <p>
         The second drain is financial. An agent stuck in a loop will keep
         hitting the model until the bill — or a rate limit — stops it. A
         per-session token budget held in audited state turns that into a hard,
         deterministic ceiling:
       </p>
-      <CodeBlock code={TOKEN_BUDGET} language="ts" copyable />
+      <Code code={TOKEN_BUDGET} lang="ts" copyable />
       <p>
         Once <code>tokensConsumed</code> crosses <code>5000</code>, the next{" "}
         <code>agent.step</code> is <code>REFUSE</code>d. (Swap{" "}
         <code>action: &quot;DEFER&quot;</code> to park the session on a
         budget-reset signal instead of killing it.) The full guard and a live
         run are in the{" "}
-        <Link
-          href="/recipes/cap-token-spend"
-          className="font-medium text-brand-ink hover:text-brand-ink"
-        >
-          cap token spend recipe
-        </Link>
-        .
+        <Link href="/recipes/cap-token-spend">cap token spend recipe</Link>.
       </p>
 
-      <h2 className="mt-4 text-xl font-semibold text-ink">
-        3. Score the command risk
-      </h2>
+      <h2>3. Score the command risk</h2>
       <p>
         The third drain is the shell. A terminal agent will, sooner or later,
         propose <code>curl … | sh</code> or a destructive flag. The
@@ -141,18 +126,13 @@ export function StopAgentDrainingProd() {
         flags <code>REWRITE</code>, and irrecoverable ones <code>REFUSE</code>.
         Crucially, the decision is reported by category and basis only; the raw
         command string is never echoed into the audit surface. See the{" "}
-        <Link
-          href="/capabilities/command-risk-guard"
-          className="font-medium text-brand-ink hover:text-brand-ink"
-        >
+        <Link href="/capabilities/command-risk-guard">
           command-risk guard capability
         </Link>{" "}
         for the full classification model.
       </p>
 
-      <h2 className="mt-4 text-xl font-semibold text-ink">
-        Why a kernel and not a try/catch
-      </h2>
+      <h2>Why a kernel and not a try/catch</h2>
       <p>
         Each of these is a small, named guard. Composed in a{" "}
         <code>PolicyBundle</code>, they run in order and short-circuit on the
@@ -172,6 +152,6 @@ export function StopAgentDrainingProd() {
         turn a model tool-call into an intent the kernel can adjudicate — so the
         same ceilings apply no matter which model is driving.
       </p>
-    </article>
+    </Prose>
   );
 }

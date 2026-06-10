@@ -57,6 +57,7 @@ const config: Config = {
         body: ["1rem", { lineHeight: "1.65" }], // 16
         "body-sm": ["0.875rem", { lineHeight: "1.6" }], // 14
         caption: ["0.8125rem", { lineHeight: "1.5" }], // 13
+        meta: ["0.75rem", { lineHeight: "1.5", letterSpacing: "0.01em" }], // 12 — footnotes, table meta, timestamps
         eyebrow: ["0.75rem", { lineHeight: "1.4", letterSpacing: "0.14em", fontWeight: "500" }], // 12
         "mono-code": ["0.8125rem", { lineHeight: "1.6" }], // 13
         "mono-stat": ["1.875rem", { lineHeight: "1.1", letterSpacing: "-0.01em", fontWeight: "600" }], // 30

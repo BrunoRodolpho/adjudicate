@@ -60,18 +60,12 @@ export default async function BlogPostPage({ params }: PageProps) {
           <span className="text-xs uppercase tracking-section text-muted">
             {post.date} · {post.author}
           </span>
-          <h1 className="text-4xl font-semibold leading-tight tracking-tight text-ink md:text-5xl">
-            {post.title}
-          </h1>
+          <h1 className="text-h1 text-ink md:text-h1-lg">{post.title}</h1>
           {/* Front-matter intro: a one-line standfirst so a reader knows the
               shape of the post before diving into the technical body. */}
-          <p className="mt-1 text-lg leading-relaxed text-muted">
-            {post.summary}
-          </p>
+          <p className="mt-1 text-lead text-muted">{post.summary}</p>
         </header>
-        <div className="text-base leading-relaxed text-ink">
-          <Body />
-        </div>
+        <Body />
 
         {/* Footer CTA — forward-looking next steps + related posts. */}
         <footer className="mt-16 border-t border-edge pt-8">

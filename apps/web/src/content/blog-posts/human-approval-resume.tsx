@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { CodeBlock } from "@/components/ui/CodeBlock";
+import { Code } from "@/components/blog/Code";
+import { Prose } from "@/components/blog/Prose";
+import { Lead } from "@/components/blog/PullQuote";
 
 const DEFER_GUARD = `import { createStateDeferGuard } from "@adjudicate/primitives";
 import { basis } from "@adjudicate/core";
@@ -46,13 +48,13 @@ async function onDocumentsUploaded(sessionId: string) {
 
 export function HumanApprovalResume() {
   return (
-    <article className="prose-body flex flex-col gap-5">
-      <p className="text-lg italic text-ink">
+    <Prose>
+      <Lead>
         Some agent actions cannot proceed until a human responds — an upload, an
         approval, a vendor callback. The wrong answer is to refuse them. The
         right one is to <em>park</em> the intent and resume the very same step
         when the signal arrives.
-      </p>
+      </Lead>
       <p>
         Most guardrail systems can only say yes or no. That forces an awkward
         choice for anything human-in-the-loop: either block the action (and lose
@@ -73,37 +75,28 @@ export function HumanApprovalResume() {
         answer is &quot;wait.&quot;
       </p>
 
-      <h2 className="mt-4 text-xl font-semibold text-ink">
-        The DEFER guard
-      </h2>
+      <h2>The DEFER guard</h2>
       <p>
         Here is the guard the Identity / KYC pack ships. A <code>kyc.start</code>{" "}
         intent always defers on the documents-uploaded signal — the canonical
         &quot;we need a human to do something first&quot; gate:
       </p>
-      <CodeBlock code={DEFER_GUARD} language="ts" copyable />
+      <Code code={DEFER_GUARD} lang="ts" copyable />
       <p>
         The same shape applies to PIX flows where a transfer waits on a payment
         webhook, or any approval gate where the agent should hold rather than
         guess. The full guard and a live run are in the{" "}
-        <Link
-          href="/recipes/pause-for-human"
-          className="font-medium text-brand-ink hover:text-brand-ink"
-        >
-          pause for human approval recipe
-        </Link>
+        <Link href="/recipes/pause-for-human">pause for human approval recipe</Link>
         .
       </p>
 
-      <h2 className="mt-4 text-xl font-semibold text-ink">
-        Park and resume — safely
-      </h2>
+      <h2>Park and resume — safely</h2>
       <p>
         The runtime side is small. Persist the deferred envelope verbatim, wait
         for the signal, then feed the <em>exact same envelope</em> back through
         the kernel:
       </p>
-      <CodeBlock code={RESUME} language="ts" copyable />
+      <Code code={RESUME} lang="ts" copyable />
       <p>
         Two properties make this safe rather than a footgun. First, you resume
         the stored envelope, not a fresh model output — so a flaky model on
@@ -114,9 +107,7 @@ export function HumanApprovalResume() {
         one tamper-evident story, not two disconnected log lines.
       </p>
 
-      <h2 className="mt-4 text-xl font-semibold text-ink">
-        Timeouts and dead-ends
-      </h2>
+      <h2>Timeouts and dead-ends</h2>
       <p>
         A parked intent is not parked forever. The <code>timeoutMs</code> on the
         decision is the deadline; if the signal never arrives, the runtime ages
@@ -128,10 +119,7 @@ export function HumanApprovalResume() {
       <p>
         For the human-facing side of this — queues, reviewer assignment, and the
         approval surface — see the{" "}
-        <Link
-          href="/capabilities/smart-approval-engine"
-          className="font-medium text-brand-ink hover:text-brand-ink"
-        >
+        <Link href="/capabilities/smart-approval-engine">
           smart approval engine capability
         </Link>
         .
@@ -142,6 +130,6 @@ export function HumanApprovalResume() {
         <code>signal</code>, <code>timeoutMs</code>, replayable resume — is
         stable to build a runtime against.
       </p>
-    </article>
+    </Prose>
   );
 }

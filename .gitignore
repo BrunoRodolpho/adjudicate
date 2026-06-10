@@ -68,3 +68,4 @@ infra/terraform/environments/dev/tfplan
 audit-artifacts/screenshots/
 audit-artifacts/recrawl-after/
 audit-artifacts/recrawl-final/
+audit-artifacts/recrawl-r4/

@@ -4,6 +4,7 @@ import { DepthHeader } from "@/components/ui/DepthHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Callout } from "@/components/ui/Callout";
 import { CodeBlock } from "@/components/ui/CodeBlock";
+import { Code } from "@/components/blog/Code";
 import { DecisionChip } from "@/components/ui/DecisionChip";
 import { Reveal } from "@/components/home/Reveal";
 import { Stagger, StaggerItem } from "@/components/motion/Stagger";
@@ -12,23 +13,21 @@ import type { Recipe } from "@/content/recipes";
 import { WorkedOutcome } from "@/components/recipes/WorkedOutcome";
 
 /**
- * RecipeLayout — the Guardrail-Recipe page body. SERVER component, mirroring
- * CapabilityPageLayout's structure top to bottom:
+ * RecipeLayout — the Guardrail-Recipe page body. SERVER component, sharing the
+ * capability deep-dive's tonal-band composition so a long recipe gains pacing
+ * instead of reading as one flat code-heavy scroll (the R4 re-score's note on
+ * the recipe cluster):
  *
- *   1. DepthHeader (back to /recipes) — the solution-phrased title + the
- *      problem as subtitle, plus the guard/pack + outcome + live/illustrative
- *      badges.
- *   2. "The problem" — the problem prose, restated as the lede.
- *   3. "The guard" — the npm package + a copyable CodeBlock of the REAL guard
- *      factory / pack snippet.
- *   4. "The outcome" — the live kernel run (or described illustrative outcome)
- *      via <WorkedOutcome>.
- *   5. "Try it" — a CTA into /playground.
- *   6. "Related" — a row linking the related capability / console / transparency
- *      routes.
+ *   1. DepthHeader (canvas) — solution-phrased title + SEO standfirst + back.
+ *   2. INTRO band (surface) — guard/pack + outcome badges, and "the problem"
+ *      as a measured editorial lead.
+ *   3. GUARD + OUTCOME band (canvas) — the install + real guard snippet and the
+ *      live/illustrative kernel outcome: the technical payoff, on its own band.
+ *   4. TRY IT + RELATED band (surface) — a filled "run it yourself" CTA card
+ *      (previously a thin lone button) and the related-routes grid.
  *
- * Reveal wraps each block so it settles in on scroll; Stagger drives the
- * Related grid. Both are reduced-motion-safe.
+ * Cards sit a tone above their band (bg-canvas on surface, bg-surface on canvas)
+ * and lift on shadow, not a hairline border.
  */
 export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
   const isLive = recipe.live !== null;
@@ -44,9 +43,9 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
         backLabel="Back to recipes"
       />
 
-      <Section className="pt-8 md:pt-12">
-        <div className="flex flex-col gap-16">
-          {/* Badges. */}
+      {/* ── Intro band ─────────────────────────────────────────────────── */}
+      <Section tone="surface" className="pt-8 md:pt-12">
+        <div className="flex flex-col gap-8">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="neutral">{recipe.guardOrPack.npmPackage}</Badge>
             <Badge tone={isLive ? "shipped" : "roadmap"}>
@@ -54,17 +53,22 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
             </Badge>
             <DecisionChip kind={recipe.outcome} size="sm" />
           </div>
-
-          {/* The problem. */}
           <Reveal>
-            <Block id="problem" title="The problem">
-              <p className="max-w-3xl text-base leading-relaxed text-muted">
+            <section id="problem">
+              <h2 className="text-eyebrow uppercase tracking-section text-brand-ink">
+                The problem
+              </h2>
+              <p className="mt-3 max-w-measure text-lead leading-relaxed text-muted-strong">
                 {recipe.problem}
               </p>
-            </Block>
+            </section>
           </Reveal>
+        </div>
+      </Section>
 
-          {/* The guard. */}
+      {/* ── Guard + outcome band (technical payoff) ────────────────────── */}
+      <Section tone="canvas">
+        <div className="flex flex-col gap-16">
           <Reveal>
             <Block
               id="the-guard"
@@ -73,16 +77,16 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
             >
               <div className="flex flex-col gap-4">
                 <InstallCard npmPackage={recipe.guardOrPack.npmPackage} />
-                <CodeBlock
+                <Code
                   code={recipe.codeSnippet}
-                  language="typescript"
+                  lang="ts"
                   copyable
+                  className="my-0"
                 />
               </div>
             </Block>
           </Reveal>
 
-          {/* The outcome. */}
           <Reveal>
             <Block
               id="the-outcome"
@@ -96,26 +100,32 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
               <WorkedOutcome recipe={recipe} />
             </Block>
           </Reveal>
+        </div>
+      </Section>
 
-          {/* Try it. */}
+      {/* ── Try it + related band ──────────────────────────────────────── */}
+      <Section tone="surface">
+        <div className="flex flex-col gap-16">
           <Reveal>
-            <Block
-              id="try-it"
-              title="Try it"
-              subtitle="Run this guard against your own payload in the interactive playground."
-            >
-              <a
-                href={playgroundHref}
-                className="inline-flex w-fit items-center gap-2 rounded-lg border border-edge bg-surface px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:border-ink/30"
-              >
-                <FlaskConical size={15} aria-hidden="true" />
-                Try it in the playground
-                <ArrowUpRight size={14} aria-hidden="true" />
-              </a>
+            <Block id="try-it" title="Try it">
+              <div className="flex flex-col gap-4 rounded-xl bg-canvas p-6 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+                <p className="max-w-measure text-sm leading-relaxed text-muted">
+                  Run this guard against your own payload in the interactive
+                  playground — watch the kernel reach this outcome live, with a
+                  signed receipt.
+                </p>
+                <a
+                  href={playgroundHref}
+                  className="focus-ring inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-surface px-4 py-2.5 text-sm font-medium text-ink shadow-xs transition-shadow hover:shadow-sm"
+                >
+                  <FlaskConical size={15} aria-hidden="true" />
+                  Try it in the playground
+                  <ArrowUpRight size={14} aria-hidden="true" />
+                </a>
+              </div>
             </Block>
           </Reveal>
 
-          {/* Related. */}
           <RelatedRow recipe={recipe} />
         </div>
       </Section>
@@ -151,7 +161,7 @@ function Block({
 
 function InstallCard({ npmPackage }: { readonly npmPackage: string }) {
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-edge bg-surface p-4">
+    <div className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-xs">
       <span className="flex items-center gap-1.5 text-xs uppercase tracking-section text-muted">
         <Package size={13} aria-hidden="true" />
         Install
@@ -229,7 +239,7 @@ function RelatedRow({ recipe }: { readonly recipe: Recipe }) {
             <StaggerItem key={`${link.eyebrow}-${link.href}`}>
               <a
                 href={link.href}
-                className="group flex h-full flex-col gap-2 rounded-xl border border-edge bg-surface p-5 transition-colors hover:border-ink/30"
+                className="focus-ring group flex h-full flex-col gap-2 rounded-xl bg-canvas p-5 shadow-xs transition-shadow hover:shadow-sm"
               >
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-xs uppercase tracking-section text-muted">
@@ -238,7 +248,7 @@ function RelatedRow({ recipe }: { readonly recipe: Recipe }) {
                   </span>
                   <ArrowUpRight
                     size={14}
-                    className="text-faint transition-colors group-hover:text-ink"
+                    className="text-faint transition-colors group-hover:text-brand-ink"
                     aria-hidden="true"
                   />
                 </div>

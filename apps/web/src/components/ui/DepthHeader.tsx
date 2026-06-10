@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BrandGlow } from "@/components/ui/BrandGlow";
@@ -17,7 +18,7 @@ export function DepthHeader({
   className,
 }: {
   readonly eyebrow?: string;
-  readonly title: string;
+  readonly title: ReactNode;
   readonly subtitle?: string;
   readonly backHref?: string;
   readonly backLabel?: string;

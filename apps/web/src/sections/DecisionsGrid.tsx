@@ -24,7 +24,7 @@ const ICONS: Record<DecisionContent["icon"], LucideIcon> = {
 
 export function DecisionsGrid() {
   return (
-    <section className="bg-canvas py-20">
+    <section className="bg-surface py-20">
       <div className="mx-auto max-w-6xl px-6">
         <SectionHeading
           eyebrow="Six outcomes, not two"

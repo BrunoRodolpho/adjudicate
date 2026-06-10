@@ -3,6 +3,8 @@ import { DecisionsGrid } from "@/sections/DecisionsGrid";
 import { WedgeTable } from "@/sections/WedgeTable";
 import { ComparisonPreamble } from "@/sections/ComparisonPreamble";
 import { DepthHeader } from "@/components/ui/DepthHeader";
+import { DecisionFan } from "@/components/DecisionFan";
+import { BrandGlow } from "@/components/ui/BrandGlow";
 
 export const metadata: Metadata = {
   title: "Comparisons · adjudicate",
@@ -27,9 +29,22 @@ export default function ComparisonsPage() {
     <main>
       <DepthHeader
         eyebrow="Depth · comparisons"
-        title="Why allow/deny isn't enough."
+        title={
+          <>
+            Why allow/deny{" "}
+            <span className="bg-gradient-primary bg-clip-text text-transparent">
+              isn&apos;t enough.
+            </span>
+          </>
+        }
         subtitle="Permission engines like OPA and Cedar return yes/no on a single proposed action. Adjudicate returns six structured decisions — including the four that AI-mediated systems actually need."
       />
+      <section className="relative overflow-hidden border-b border-edge bg-surface py-12">
+        <BrandGlow />
+        <div className="relative z-10 mx-auto max-w-3xl px-6">
+          <DecisionFan className="h-auto w-full" />
+        </div>
+      </section>
       <ComparisonPreamble />
       <DecisionsGrid />
       <WedgeTable />

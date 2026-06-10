@@ -50,6 +50,7 @@ export default function HowItWorksPage() {
         <figure className="mt-10 overflow-hidden rounded-2xl border border-edge bg-surface shadow-lg">
           <video
             src="/receipt-materialize.mp4"
+            poster="/receipt-materialize-poster.jpg"
             autoPlay
             muted
             loop

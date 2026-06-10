@@ -1,5 +1,5 @@
 import type { DecisionKind } from "@adjudicate/core";
-import { DECISIONS, DECISIONS_ORDER } from "@/content/decisions";
+import { DECISIONS_ORDER } from "@/content/decisions";
 
 /**
  * DecisionFan — a hand-coded SVG centerpiece: one proposed intent fans through
@@ -169,15 +169,7 @@ export function DecisionFan({ className }: { readonly className?: string }) {
               >
                 allow / deny
               </text>
-            ) : (
-              <text
-                x={OUT_X + 16}
-                y={y + 19}
-                className="fill-muted text-[10px]"
-              >
-                {DECISIONS[kind].headline}
-              </text>
-            )}
+            ) : null}
           </g>
         );
       })}

@@ -67,7 +67,7 @@ export function WedgeTable() {
                   <td className="px-5 py-4 align-top text-ink">
                     {row.capability}
                     {row.snippet ? (
-                      <div className="mt-2 max-w-md">
+                      <div className="mt-2 max-w-xl">
                         <CodeBlock code={row.snippet} />
                       </div>
                     ) : null}

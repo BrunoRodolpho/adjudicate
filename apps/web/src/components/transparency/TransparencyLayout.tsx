@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import { TRANSPARENCY_SIGNALS } from "@/content/transparency";
+import { BrandGlow } from "@/components/ui/BrandGlow";
 
 /**
  * Shared chrome for every /transparency sub-view, so the cluster reads as one
@@ -58,9 +59,10 @@ export function TransparencyLayout({
       {/* Hero metric band — tonal surface, the page's focal point. */}
       <section
         aria-label="Current signal"
-        className="border-y border-edge bg-surface py-12"
+        className="relative overflow-hidden border-y border-edge bg-surface py-14"
       >
-        <div className="mx-auto max-w-6xl px-6">{hero}</div>
+        <BrandGlow />
+        <div className="relative z-10 mx-auto max-w-6xl px-6">{hero}</div>
       </section>
 
       {/* What this shows / does not show — de-containerized disclosure. */}

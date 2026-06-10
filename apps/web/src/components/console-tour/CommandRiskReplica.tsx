@@ -400,7 +400,7 @@ function SummaryStat({
 }) {
   return (
     <div
-      className="flex flex-col gap-0.5 rounded-sm border border-console-edge bg-console-canvas/40 px-3 py-2"
+      className="flex flex-col gap-0.5 rounded-sm bg-console-canvas/40 px-3 py-2"
       title={hint}
     >
       <dt className="text-[10px] uppercase tracking-section text-console-muted">

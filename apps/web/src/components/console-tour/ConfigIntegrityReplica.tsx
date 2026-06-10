@@ -332,7 +332,7 @@ function SelectedSealPanel({
 
         {violation && violation.violations.length > 0 ? (
           <div
-            className="rounded-sm border border-console-edge bg-console-canvas px-2.5 py-2 text-[11px]"
+            className="rounded-sm bg-console-canvas/60 px-2.5 py-2 text-[11px]"
             data-testid="integrity-violations-list"
           >
             <span className="text-[10px] uppercase tracking-section text-console-muted">
@@ -463,7 +463,7 @@ function Stat({
   readonly mono?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-0.5 rounded-sm border border-console-edge/50 px-2 py-1">
+    <div className="flex flex-col gap-0.5 py-0.5">
       <dt className="text-[10px] uppercase tracking-section text-console-muted">
         {label}
       </dt>

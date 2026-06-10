@@ -79,7 +79,7 @@ export function DashboardReplica({ className }: { readonly className?: string })
 
         {/* Window total + compact top-refusals rollup. */}
         <section className="grid gap-2 lg:grid-cols-3">
-          <div className="flex flex-col gap-1 rounded-sm border border-console-edge bg-console-panel/40 px-3 py-3">
+          <div className="flex flex-col gap-1 rounded-sm bg-console-panel/40 px-3 py-3">
             <span className="font-mono text-3xl font-semibold tracking-tight tabular-nums text-console-ink">
               {CONSOLE_REPLICA_DECISION_TOTAL.toLocaleString()}
             </span>

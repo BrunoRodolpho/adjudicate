@@ -345,7 +345,7 @@ export function ApprovalCenterReplica({
               {APPROVAL_REPLICA_CHAIN_INTENT_KIND}
             </span>
           </h3>
-          <div className="rounded-sm border border-console-edge bg-console-panel/40 px-3 py-2">
+          <div className="rounded-sm bg-console-panel/40 px-3 py-2">
             <RevealRows
               as="ol"
               className="flex flex-col gap-1.5"

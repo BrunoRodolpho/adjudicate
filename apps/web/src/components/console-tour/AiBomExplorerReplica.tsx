@@ -234,7 +234,7 @@ function BomDetail({ bom }: { readonly bom: AiBomTransparencySample }) {
   return (
     <RevealStack className="flex flex-col gap-4" data-testid="aibom-detail">
       {/* Header. */}
-      <RevealStackItem className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
+      <RevealStackItem className="rounded-sm bg-console-panel/40 p-3">
         <div className="flex items-baseline justify-between gap-2">
           <h3
             className="text-sm font-medium text-console-ink"
@@ -416,7 +416,7 @@ function DetailSection({
   readonly children: ReactNode;
 }) {
   return (
-    <section className="rounded-sm border border-console-edge bg-console-panel/40 p-3">
+    <section className="rounded-sm bg-console-panel/40 p-3">
       <header className="mb-2 flex flex-col gap-0.5">
         <span className="text-[10px] uppercase tracking-section text-console-muted">
           {title}

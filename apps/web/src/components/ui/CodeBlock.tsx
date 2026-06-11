@@ -19,6 +19,7 @@ export function CodeBlock({
   language,
   filename,
   copyable = false,
+  wrap = false,
   className,
 }: {
   code: string;
@@ -30,6 +31,8 @@ export function CodeBlock({
    * is set (the chrome bar already carries a copy button).
    */
   copyable?: boolean;
+  /** Wrap long lines instead of horizontal-scrolling (for tight table cells). */
+  wrap?: boolean;
   className?: string;
 }) {
   const showChrome = Boolean(filename);
@@ -65,7 +68,8 @@ export function CodeBlock({
       ) : null}
       <pre
         className={cn(
-          "overflow-x-auto px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-100",
+          "px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-100",
+          wrap ? "whitespace-pre-wrap break-words" : "overflow-x-auto",
           // reserve room so a single-line command never runs under the
           // floating copy button (fixes the truncated install-chip).
           showFloatingCopy && "pr-12",

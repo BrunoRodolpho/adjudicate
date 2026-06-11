@@ -32,7 +32,7 @@ export function Button({
   className,
 }: ButtonProps) {
   const classes = cn(
-    "inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium tracking-tight transition-all duration-150 focus-ring motion-safe:active:scale-[0.98]",
+    "inline-flex items-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 text-sm font-medium tracking-tight transition-all duration-150 focus-ring motion-safe:active:scale-[0.98]",
     STYLES[variant],
     className,
   );

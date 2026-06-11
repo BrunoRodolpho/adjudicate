@@ -131,7 +131,7 @@ function DesktopEntry({
   }
   const active = !entry.external && isActive(pathname, entry.href);
   const className = cn(
-    "rounded-full px-3 py-2 text-sm transition-colors focus-ring",
+    "whitespace-nowrap rounded-full px-3 py-2 text-sm transition-colors focus-ring",
     active ? "text-ink" : "text-muted hover:text-ink",
   );
   if (entry.external) {
@@ -205,7 +205,7 @@ function DesktopDropdown({
         aria-haspopup="true"
         aria-expanded={open}
         className={cn(
-          "inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm transition-colors focus-ring",
+          "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-2 text-sm transition-colors focus-ring",
           active ? "text-ink" : "text-muted hover:text-ink",
         )}
       >

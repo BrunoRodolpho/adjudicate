@@ -68,7 +68,7 @@ export function WedgeTable() {
                     {row.capability}
                     {row.snippet ? (
                       <div className="mt-2 max-w-xl">
-                        <CodeBlock code={row.snippet} />
+                        <CodeBlock code={row.snippet} wrap />
                       </div>
                     ) : null}
                   </td>

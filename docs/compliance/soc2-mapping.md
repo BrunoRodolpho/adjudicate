@@ -1,6 +1,7 @@
 # SOC2 Control Mapping — `@adjudicate/*` framework
 
-**Status:** Design baseline for v0.5+ enterprise adoption.
+**Status:** Control mapping for the post-v1 framework (`@adjudicate/core`
+1.3.0, `@adjudicate/conformance` 1.1.0).
 **Audience:** Adopters preparing for a SOC2 Type II examination, GRC
 teams evaluating the framework for procurement, third-party assessors
 producing a control-narrative section.
@@ -144,7 +145,7 @@ reviewers reject undocumented load-bearing changes. (2) **Property
 tests** — `packages/core/tests/kernel/invariants/` encodes 9 invariant
 categories (determinism, idempotency, taint floor, etc.) as
 `fast-check` properties; changes violating an invariant fail CI. (3)
-**Conformance suite** — ADR-110 ships `@adjudicate/conformance` v0.4
+**Conformance suite** — ADR-110 ships `@adjudicate/conformance`
 with `runConformance(pack)` producing a deterministic
 `ConformanceReport`; CI runs it on every PR. Together these structure
 "authorized, tested, approved, documented" into the contribution
@@ -156,8 +157,9 @@ publicly traceable).
 
 **Adjudicate feature:** Postgres partitioning + retention policy.
 
-`@adjudicate/audit-postgres` partitions `governance_events` by date
-(documented in `docs/ops/`). Adopters configure retention per
+`@adjudicate/audit-postgres` partitions `governance_events` by month
+(the `partition_month` routing key, documented in `docs/ops/`).
+Adopters configure retention per
 regulatory requirement (e.g., 7 years for financial under SOX,
 indefinite for HIPAA). Partitioning keeps query plans bounded as the
 table grows. The framework's contribution is a schema designed for
@@ -201,7 +203,7 @@ UNTRUSTED`) is a per-intent confidentiality+integrity classifier.
 flows into the audit record so post-hoc analysis can identify which
 decisions touched UNTRUSTED input. Future field-level `TaintedValue<T>`
 (roadmap, `docs/concepts.md §9`) would propagate taint through guard
-computations; the v0.4 surface is envelope-level only.
+computations; the current surface is envelope-level only.
 
 ### C1.2 — Confidentiality: data handling
 
@@ -346,7 +348,7 @@ human" workarounds.
 | SI-4 | System monitoring | MetricsSink + ADR-112 OTLP |
 | SI-7 | Information integrity | auditHash (ADR-111) |
 | SC-8 | Transmission confidentiality | TLS 1.3 recommended |
-| SC-12 | Key management | KMS-backed AuditSigner (v0.5 roadmap) |
+| SC-12 | Key management | AuditRecord `signature` seam (adopter-supplied KMS/HSM signer) |
 | SC-13 | Cryptographic protection | sha256 in intentHash + auditHash |
 
 ---
@@ -357,17 +359,17 @@ human" workarounds.
 |---|---|---|
 | Audit emission (one per call) | Mature | ADR-101; invariant-tested. |
 | Audit fail-closed | Mature | ADR-102; default since T3. |
-| Tamper detection (hash) | Mature | ADR-111; v0.4 shipped. |
-| Non-repudiation (signature) | Roadmap | ADR-111 seam; v0.5 KMS. |
-| Per-tenant isolation | Mature | ADR-103; v0.2 shipped. |
+| Tamper detection (hash) | Mature | ADR-111 `auditHash`; verified via `verifyAuditRecord`. |
+| Non-repudiation (signature) | Partial | AuditRecord v4 `signature` field + hash-excludes-signature seam shipped; concrete KMS/HSM signer is adopter-supplied. |
+| Per-tenant isolation | Mature | ADR-103. |
 | Closed basis vocabulary | Mature | Property-tested via AC-004. |
-| Static analysis (Tier 1) | Mature | ADR-109; CI-integratable SARIF. |
-| Static analysis (Tier 2 symbolic) | Roadmap | AJD-2xx; v0.4+. |
-| Static analysis (Tier 3 fuzz) | Roadmap | AJD-3xx; v0.5+. |
+| Static analysis (Tier 1, metadata) | Mature | ADR-109; CI-integratable SARIF. |
+| Static analysis (Tier 2, AST) | Mature | `DEFAULT_TIER2_ANALYZERS` (AJD-201 RewriteScopeAstAnalyzer). |
+| Static analysis (Tier 3, coherence) | Mature | `DEFAULT_TIER3_ANALYZERS` (AJD-301 PolicyCoherenceAnalyzer, ADR-125) — planner/Pack coherence, not fuzz. |
 | Pack versioning in audit | Mature | ADR-111 `policyVersion`. |
 | Distributed kill switch | Partial | ADR-103 single-process; cross-process polling documented but not framework-supplied. |
-| OTLP integration | Mature | ADR-112 v0.4. |
-| Codemod-supported deprecations | Mature | ADR-112 `@adjudicate/migrate` v0.4. |
+| OTLP integration | Mature | ADR-112. |
+| Codemod-supported deprecations | Mature | ADR-112 `@adjudicate/migrate`. |
 
 ---
 
@@ -403,7 +405,8 @@ SOC2 examinations. Selection and engagement is adopter procurement.
 
 **Specifically NOT provided by the framework.** Identity / SSO
 (adopter's IdP), encryption at rest (database / storage layer), key
-management (until v0.5's `AuditSigner`), physical security (host
+management (the AuditRecord `signature` seam is shipped, but the
+concrete KMS/HSM signer is adopter-supplied), physical security (host
 provider's SOC2-certified data centers), DDoS protection (CDN / WAF),
 secret management (adopter's secrets manager).
 
@@ -421,7 +424,7 @@ framework features and *types* of evidence:
 | CC6.6 transmission | TLS config | Adopter's reverse proxy + service mesh |
 | CC7.1 change detection | Metrics dashboards | OTLP exporter output |
 | CC7.2 monitoring | Alert rules | Adopter's alerting platform |
-| CC7.3 incident response | Replay reports | `runReplay(records, registry)` from incident windows |
+| CC7.3 incident response | Replay reports | `runReplay(options: ReplayOptions)` over incident-window records |
 | CC8.1 change management | ADR set + PR history | Framework repo + adopter PRs |
 | A1.2 backup | Postgres backup logs | Adopter's RDS / operator logs |
 | A1.3 recovery | Replay drill outputs | Archived per drill |
@@ -440,7 +443,8 @@ point* for their own control matrix — framework features map to
 controls, but the adopter's deployment-specific narrative (their auth
 boundary, their TLS termination, their KMS) completes the picture.
 
-Reviewed: 2026-05-18 (M4 — initial publication).
+Reviewed: 2026-06-10 (reconciled against post-v1 code: `@adjudicate/core`
+1.3.0, `@adjudicate/conformance` 1.1.0).
 Next review: at every ADR landing under enterprise-hardening
 milestones, or per scheduled annual review prior to the adopter audit
 window opening.

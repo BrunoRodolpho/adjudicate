@@ -216,9 +216,10 @@ live in `@adjudicate/core`.
   `PersistentSpillStorage` backend; records survive process
   restart; recovery drains FIFO.
 - **T7 — Postgres row UPDATE rewriting basis.** *Mitigation:*
-  ADR-111's `auditHash` + `verifyAuditRecord` detects on read; the
-  Postgres migration adds an index on `audit_hash`; a daily
-  verification job can scan for mismatches.
+  ADR-111's `auditHash` + `verifyAuditRecord` detects on read;
+  migration 008 adds `idx_intent_audit_audit_hash` on
+  `intent_audit (audit_hash)`; a daily verification job can scan for
+  mismatches.
 
 **Repudiation**
 
@@ -230,13 +231,16 @@ live in `@adjudicate/core`.
 
 **Information disclosure**
 
-- **I4 — Audit records expose PII to ops staff.** *Mitigation:*
-  framework recommends row-level access control (e.g., a
-  `governance_events_redacted` view masking payload fields).
-  Partial adopter responsibility — framework provides ADR-111's
-  `policyVersion` column (migration 008); there is no `actor.tenant`
-  column — tenant scoping of audit rows is fully delegated to the
-  host's ACL (e.g., a `governance_events_redacted` view). Adopter
+- **I4 — Audit records expose PII to ops staff.** The PII/payload
+  surface (`envelope_jsonb`, `decision_jsonb`, `principal`, `taint`)
+  lives in the `intent_audit` table (migration 001), *not* in
+  `governance_events` (which holds only operator state-change events).
+  *Mitigation:* framework recommends row-level access control (e.g.,
+  an `intent_audit_redacted` view masking the payload columns).
+  Partial adopter responsibility — the framework provides ADR-111's
+  `policy_version` column on `intent_audit` (migration 008) as a join
+  key; there is no tenant column on the row — tenant scoping of audit
+  rows is fully delegated to the host's ACL / redacted view. Adopter
   responsibility.
 - **I5 — Sink-failure events leak payload context.** *Mitigation:*
   `recordSinkFailure` carries `errorClass` and sink identity, not
@@ -256,29 +260,38 @@ live in `@adjudicate/core`.
 
 - **E4 — Audit credentials reused for non-audit access.**
   *Mitigation:* framework-recommended deployment uses a
-  minimal-privilege role (`INSERT` + `SELECT` on
-  `governance_events*` only). README documents the role DDL.
-  Adopter-configurable.
+  minimal-privilege role with `INSERT` + `SELECT` only on the
+  audit-durability surface — the `intent_audit*` partitions
+  (migration 001) plus `governance_events` (migration 004). The DDL
+  is adopter-supplied (the package ships migrations, not role grants);
+  no `UPDATE` / `DELETE` keeps the tamper-evidence floor intact.
 
 ---
 
 ## 5. `@adjudicate/anthropic` — LLM adapter
 
+The anthropic adapter is a thin provider binding: the security-bearing
+machinery (the `CapabilityPlanner` in `@adjudicate/core/llm`, the agent
+loop + nonce in `@adjudicate/adapter-core`) lives in shared packages it
+composes (ADR-113). The threats below apply to any provider adapter
+built on that core.
+
 **Spoofing**
 
 - **S5 — LLM tool-call forgery.** LLM emits an intent for a kind
-  the user lacks. *Mitigation:* `CapabilityPlanner` filters
-  visible tools by actor capability; unauthorized kinds are
-  never surfaced to the LLM. Hallucinated kinds refuse with
-  `unknown_intent_kind`.
+  the user lacks. *Mitigation:* the `CapabilityPlanner`
+  (`@adjudicate/core/llm`) filters visible tools by actor capability;
+  unauthorized kinds are never surfaced to the LLM. Hallucinated kinds
+  refuse with `unknown_intent_kind`.
 
 **Tampering**
 
 - **T8 — Prompt-injection rewrites the envelope.** Prose
   instructing the LLM to set `taint: "TRUSTED"`. *Mitigation:* the
-  adapter sets taint, not the LLM. ADR-104 requires `nonce`; the
-  adapter generates it via `crypto.randomUUID()`. LLM cannot
-  control envelope identity.
+  adapter pipeline sets taint, not the LLM. ADR-104 requires `nonce`;
+  the agent loop generates it via `crypto.randomUUID()` (in
+  `@adjudicate/adapter-core`, which the anthropic adapter composes —
+  ADR-113). LLM cannot control envelope identity.
 
 **Repudiation**
 
@@ -449,9 +462,9 @@ ecosystem-side mitigations.
 - `taint` defaulted to TRUSTED — adapter sets it, kernel trusts it.
 - `multiSinkLossy` wired explicitly — adopter opts into fail-open.
 - `onOverflow` handler that silently drops — adopter writes it.
-- Postgres role with `UPDATE` / `DELETE` on `governance_events` —
-  recommended role is `INSERT` + `SELECT` only; adopter may grant
-  more.
+- Postgres role with `UPDATE` / `DELETE` on `intent_audit` (or
+  `governance_events`) — recommended role is `INSERT` + `SELECT`
+  only; adopter may grant more.
 
 ### 9.2 Host compromise
 

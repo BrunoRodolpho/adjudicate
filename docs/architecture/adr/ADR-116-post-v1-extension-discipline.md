@@ -61,22 +61,31 @@ load-bearing across the ecosystem. Widening them is a MAJOR
 coordinated with multi-runtime co-release per
 `SEMVER_GOVERNANCE.md`. There is no per-package shortcut.
 
-This rule binds especially:
-- `Decision.kind` (six values, no metadata bag);
-- `Taint` (three lattice points);
-- `RefusalKind` (six categories);
-- `BasisCategory` (eleven categories);
-- `ReplayMismatchKind` (three axes);
-- `IntegrityFailure.kind` (three failure modes);
-- `IntentActor.principal` (three principals).
+This rule binds especially (counts are code-true as of this ADR;
+`@adjudicate/core` and `@adjudicate/audit` are the source of truth):
+- `Decision.kind` (six values, no metadata bag) — `core/decision.ts`;
+- `Taint` (three lattice points) — `core/taint.ts`;
+- `RefusalKind` (four categories: SECURITY, BUSINESS_RULE, AUTH, STATE)
+  — `core/refusal.ts`;
+- `BasisCategory` (eleven categories) — `core/basis-codes.ts`;
+- `ReplayMismatchKind` (three axes) — `core/replay-classify.ts`;
+- `IntegrityFailure.kind` (two failure modes: AUDIT_HASH_TAMPERED,
+  INTENT_HASH_MISMATCH) — `audit/replay-integrity.ts`;
+- `IntentActor.principal` (three principals: llm, user, system) —
+  `core/envelope.ts`.
 
 ### 3. Wire formats are append-only
 
-`IntentEnvelope v2` and `AuditRecord v4` carry the wire-format
-contract. Field additions are MINOR only when the new field is
-optional, all existing readers ignore it without errors, and the
-canonical-JSON hash recipe is unchanged. Anything else is MAJOR with
-a new version published alongside golden vectors and a replay shim.
+`IntentEnvelope` and `AuditRecord` carry the wire-format contract. The
+cut versions in the freeze matrix were `IntentEnvelope v2` and
+`AuditRecord v4`; `AuditRecord` has since advanced to its current head
+`v5` (`AUDIT_RECORD_VERSION = 5`, `AuditRecordVersion = 1|2|3|4|5` in
+`core/audit.ts`) — proof that this rule works, not an exception to it:
+each AuditRecord version since v1 added only optional fields under the
+same append-only discipline. Field additions are MINOR only when the
+new field is optional, all existing readers ignore it without errors,
+and the canonical-JSON hash recipe is unchanged. Anything else is MAJOR
+with a new version published alongside golden vectors and a replay shim.
 
 ### 4. ADR gate on architectural change
 

@@ -37,12 +37,13 @@ signals to check, in order.
 **Question:** Is the kill switch engaged?
 
 **Where to check:** Operator console → "Governance" tab; or
-programmatically against `EmergencyStateStore.read()`.
+programmatically via `EmergencyStateStore.getState()` (the interface
+exposes `getState()` / `update()` / `history()`).
 
 **Interpretation:**
-- `normal` → kernel evaluates intents.
-- `active` → kernel returns `kernel.kill_switch_engaged` SECURITY REFUSE
-  for every intent. No state mutates.
+- `NORMAL` → kernel evaluates intents.
+- killed → kernel returns a SECURITY REFUSE with refusal code
+  `kill_switch_active` for every intent. No state mutates.
 
 **What to do now:** If unexpected, identify who/what tripped it. Use
 `analyzeKillSwitchTimeline()` over the recent event window to spot
@@ -70,10 +71,13 @@ silently.
 
 **Question:** Is the execution ledger storing intent hashes?
 
-**Where to check:** `Ledger.checkAndRecord` outcome distribution.
+**Where to check:** The ledger `check` metric outcome distribution.
+The hot path calls `Ledger.checkLedger(intentHash)` then
+`Ledger.recordExecution(entry)`; the check op emits outcome `miss`
+(no prior record) or `hit` (already recorded).
 
 **Interpretation:**
-- `fresh` outcomes dominate → expected.
+- `miss` outcomes dominate → expected.
 - `hit` outcomes growing → either legitimate retries (e.g., webhook
   retransmits) or a bug in the adopter's request pipeline.
 - Ledger errors → Redis health or schema-version mismatch.
@@ -108,11 +112,16 @@ treat any drift as a release-blocker until classified.
 `MetricsSink.recordResourceLimit` doesn't cover this — read directly
 from the integrity check.
 
-**Interpretation:**
+**Interpretation:** `verifyAuditRecord` returns one of these reasons,
+surfaced as `IntegrityFailure.kind` in the report:
 - Zero failures → audit storage is intact.
-- `audit_hash_missing` → pre-v4 records, expected for legacy data.
-- `audit_hash_mismatch` → tampered record. SECURITY INCIDENT.
-- `envelope_hash_mismatch` → envelope tampered post-write. SECURITY
+- `missing_hash` → pre-v4 records (counted separately as
+  `preV4Records`), expected for legacy data.
+- `tampered` (kind `AUDIT_HASH_TAMPERED`) → the v4 `auditHash` over the
+  whole record does not re-derive. SECURITY INCIDENT.
+- `envelope_intent_mismatch` (kind `INTENT_HASH_MISMATCH`) → the stored
+  `envelope.intentHash` does not re-derive from envelope content; the
+  record was built with a forged or drifted envelope hash. SECURITY
   INCIDENT.
 
 **What to do now:** Any hash mismatch is a P0 incident. Page security
@@ -152,18 +161,20 @@ Map your operations into this vocabulary so runbooks stay shared.
 
 Likely causes, in order of probability:
 
-1. **Kill switch engaged.** Check §2.1. If `active`, identify why.
+1. **Kill switch engaged.** Check §2.1. If killed, identify why.
 2. **A taint policy mis-classified an intent kind as system-only.**
-   Check the audit row's `decision_basis` for `taint:level_insufficient`.
-3. **A guard panics on every call.** Check for `kernel.GUARD_PANIC`
-   basis on recent records.
+   Check the audit row's `decision_basis` for a `taint` basis with code
+   `level_insufficient`.
+3. **A guard panics on every call.** Check recent records for a `kernel`
+   basis with code `guard_panic`.
 4. **A new Pack version flipped its `policy.default` to `REFUSE`
    without intending to.** Compare current Pack hash to the prior
    release.
 
-**What to do now:** Run `explainRecord(latestRecord, registry)` on a
-recent REFUSE. The supersession narration + basis list points at the
-root cause in one shot.
+**What to do now:** Run
+`explainRecord(latestRecord, DEFAULT_EXPLANATION_REGISTRY)` on a recent
+REFUSE. The supersession narration + basis list points at the root
+cause in one shot.
 
 ### 4.2 "Pack v1.2 silently changed behaviour"
 
@@ -265,7 +276,7 @@ The kernel guarantees:
 3. **Replay is byte-identical** for the same `(envelope, state,
    policy)` triple.
 4. **Throwing guards never propagate.** They become SECURITY REFUSE
-   with `kernel.GUARD_PANIC`.
+   with a `kernel` basis whose code is `guard_panic`.
 5. **`intentHash` excludes `createdAt`** so retries with re-built
    timestamps still dedup correctly.
 6. **AuditRecord is additive** across minor versions; readers branch
@@ -320,7 +331,7 @@ will blow up cardinality. Use it for trace correlation only.
 
 ### 9.3 Recommended alerts
 
-- **P0**: any `audit_hash_mismatch` or `envelope_hash_mismatch` event.
+- **P0**: any integrity failure (`tampered` / `envelope_intent_mismatch`).
 - **P0**: replay-drift `regressing` over 3 consecutive samples.
 - **P1**: kill-switch storm class (`stormDensityThreshold` exceeded).
 - **P1**: durable sink consecutiveFailures > 3.
@@ -352,8 +363,11 @@ reading guard breaks that.
 
 ### 10.4 Mutating the Pack object after `installPack`
 
-Don't. `installPack` freezes the Pack. Attempts to mutate throw at
-runtime. Pack updates ship as new Pack objects, not in-place mutation.
+Don't. `installPack` validates the Pack via `assertPackConformance` and
+returns `{ pack, installedDefaults }` — it does not deep-freeze the
+object, so mutation will not throw but produces undefined behaviour
+against a Pack the kernel already validated. Pack updates ship as new
+Pack objects, not in-place mutation.
 
 ### 10.5 Reaching into adapter-core's internal modules
 

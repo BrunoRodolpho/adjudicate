@@ -17,43 +17,56 @@ The analysis surface decomposes into three tiers:
 
 - **Tier 1 (metadata-driven)** — reads `GuardMetadata` and Pack-level
   declarations. Pure function over the Pack object. No source-file AST
-  walks. Cheap to run; high precision. **This ADR ships Tier 1.**
+  walks. Cheap to run; high precision. Always runs.
 
-- **Tier 2 (symbolic)** — walks the guard source via the TypeScript
-  Compiler API; verifies declared metadata matches the guard's actual
-  behavior (e.g., REWRITE returns a payload mutating only the declared
-  fields). Deferred to v0.4+.
+- **Tier 2 (symbolic)** — walks the guard source via `ts-morph`;
+  verifies declared metadata matches the guard's actual behavior (e.g.,
+  REWRITE returns a payload mutating only the declared fields). Runs
+  only when `analyzePolicy({ sourceFiles })` is supplied.
 
-- **Tier 3 (fuzz)** — generates envelopes from the Pack's state schema
-  and runs them through `adjudicate()`, reporting per-Decision coverage
-  and uncovered branches. Deferred to v0.5+.
+- **Tier 3 (coherence)** — runs planner-probe fixtures (state/context
+  pairs) through the Pack to report structural-coherence diagnostics.
+  Runs only when `analyzePolicy({ plannerProbes })` is supplied.
 
 ## Decision
 
-Ship `@adjudicate/analyze` v0.2 with Tier 1 only:
+Ship `@adjudicate/analyze` with the Tier 1 pipeline as the always-on
+default; Tier 2 and Tier 3 are wired into the same pipeline and activate
+when their inputs are present:
 
-1. **Pipeline architecture.** `analyzePolicy({ pack, analyzers?, options? })`
+1. **Pipeline architecture.** `analyzePolicy({ pack, analyzers?, ... })`
    runs an ordered sequence of analyzers (default: `DEFAULT_ANALYZERS`).
-   Each analyzer is a pure function (`Pack → ReadonlyArray<Diagnostic>`).
-   Severity overrides + strict mode are presentation-time concerns
-   applied after all analyzers run.
+   Each Tier 1 analyzer is a pure function (`Pack → ReadonlyArray<Diagnostic>`).
+   Tier 2 (`tier2Analyzers`, gated on `sourceFiles`) and Tier 3
+   (`tier3Analyzers`, gated on `plannerProbes`) append to the same
+   diagnostic list. Severity overrides + strict mode are
+   presentation-time concerns applied after every analyzer runs.
 
-2. **Closed diagnostic catalog.** AJD-101 through AJD-106 are reserved
-   for Tier 1; AJD-201+ for Tier 2; AJD-301+ for Tier 3. Codes are
-   STABLE once shipped (the closed-vocabulary discipline from ADR-105
-   applies): new diagnostics get new codes; old codes never change
-   meaning.
+2. **Closed diagnostic catalog.** AJD-101..AJD-106 are reserved for
+   Tier 1; AJD-201+ for Tier 2; AJD-301+ for Tier 3. Codes are STABLE
+   once shipped (the closed-vocabulary discipline from ADR-105 applies):
+   new diagnostics get new codes; old codes never change meaning. The
+   declared codes live in `DiagnosticCode` (`types.ts`), which ends in
+   `| string` so tooling tolerates unknown/experimental codes.
 
-3. **Six initial analyzers**:
+3. **Tier 1 analyzers** (`DEFAULT_ANALYZERS`, always run):
 
    | Code | Analyzer | Default severity | Detects |
    |---|---|---|---|
    | AJD-101 | `MissingMetadataAnalyzer` | warning | Guards without name + description |
    | AJD-102 | `SignalConsistencyAnalyzer` | error | DEFER signals not in `Pack.signals` (and vice versa) |
    | AJD-103 | `BasisCodeConsistencyAnalyzer` | warning | Empty `Pack.basisCodes` |
-   | AJD-104 | `RewriteScopeAnalyzer` | error | REWRITE metadata with empty `mutatesPayloadFields` |
+   | AJD-104 | `RewriteScopeAnalyzer` | error | REWRITE metadata with empty `mutatesPayloadFields`; per ADR-117, also `data_classification` action=`REWRITE` guards with empty `scannedFields` |
    | AJD-105 | `TaintPolicyAnalyzer` | error | `taint.minimumFor(kind)` throws or returns non-Taint value |
    | AJD-106 | `DefaultPolarityAnalyzer` | warning | `policy.default === "EXECUTE"` (fail-open) |
+
+   **Tier 2/3 analyzers** (run only when their inputs are supplied):
+
+   | Code | Analyzer | Tier | Status |
+   |---|---|---|---|
+   | AJD-201 | `RewriteScopeAstAnalyzer` | 2 | shipped (`DEFAULT_TIER2_ANALYZERS`); verifies REWRITE mutations vs declared fields via `ts-morph` |
+   | AJD-202 | `BasisCodeAstAnalyzer` | 2 | code reserved/declared in `types.ts`; no analyzer yet |
+   | AJD-301 | `PolicyCoherenceAnalyzer` | 3 | shipped (`DEFAULT_TIER3_ANALYZERS`); structural-coherence checks over planner probes |
 
 4. **Three output formats**:
    - `text` — developer-friendly, line-per-diagnostic.
@@ -62,14 +75,16 @@ Ship `@adjudicate/analyze` v0.2 with Tier 1 only:
 
 5. **CLI integration.** `adjudicate analyze --pack <module> [--format text|json|sarif] [--strict]`.
    Strict mode promotes all warnings to errors and exits non-zero on any
-   error.
+   error. The CLI runs Tier 1 only (it does not supply `sourceFiles` or
+   `plannerProbes`); Tier 2/3 are reachable via the library
+   `analyzePolicy()` API.
 
 ## Closed-vocabulary discipline (mirrors ADR-105)
 
 1. The built-in diagnostic-code set is closed for interoperability
    guarantees; tooling MUST tolerate unknown codes for forward
-   compatibility with experimental Tier 2/3 analyzers and private
-   ecosystem analyzers.
+   compatibility with experimental and private ecosystem analyzers
+   (the `| string` tail of `DiagnosticCode` is the seam).
 2. New codes are additive within a tier (Tier 1 expands to AJD-107..AJD-110, etc.).
 3. Existing codes are immutable once released — message wording is
    tolerated to change, but the code's meaning is frozen.
@@ -95,10 +110,11 @@ Ship `@adjudicate/analyze` v0.2 with Tier 1 only:
 
 - Diagnostic codes are now public surface (24-month compat guarantee
   post-v1.0). The codes chosen here are committed.
-- Tier 1 cannot reach into guard bodies — diagnostics from analyzers
-  that need source-walking (Tier 2) are not available yet, so some
-  Pack-author mistakes (REWRITE actually mutating an undeclared field
-  despite metadata) still slip through. Tier 2 lands v0.4+.
+- Tier 1 cannot reach into guard bodies — source-walking diagnostics
+  (Tier 2, AJD-201) require the caller to supply `sourceFiles`, which
+  the CLI does not yet do. Via the CLI alone, some Pack-author mistakes
+  (REWRITE actually mutating an undeclared field despite metadata) still
+  slip through.
 
 ### Neutral
 
@@ -122,7 +138,7 @@ string-pattern matches against generated YAML.
 
 ### Integrate with ESLint
 
-Considered. Rejected for v0.2 because ESLint's rule shape is awkward
+Considered. Rejected because ESLint's rule shape is awkward
 for "analyze a Pack object" — ESLint is source-file-keyed; the
 analyzer is Pack-keyed. A future `@adjudicate/eslint-plugin-pack`
 package may wrap the analyzer for in-IDE diagnostics.
@@ -147,17 +163,30 @@ the Security tab.
 
 ## Migration path
 
-- v0.3 ships Tier 1 + CLI `analyze` command.
-- v0.4 ships Tier 2 (symbolic execution via TypeScript Compiler API).
-- v0.5 ships Tier 3 (fuzz). At this point `pack lint --strict` includes
-  `analyze --strict` as a required gate.
-- v1.0 freezes the AJD code catalog. Future tiers (Tier 4+) extend
-  additively per closed-vocabulary discipline.
+As of `@adjudicate/analyze` / `@adjudicate/cli` 0.3.0:
+
+- Tier 1 + the CLI `analyze` command ship.
+- Tier 2 (`RewriteScopeAstAnalyzer`, AJD-201, via `ts-morph`) and Tier 3
+  (`PolicyCoherenceAnalyzer`, AJD-301) ship in the library and run when
+  `sourceFiles` / `plannerProbes` are supplied to `analyzePolicy()`.
+- Remaining: wiring Tier 2/3 into the CLI, the reserved AJD-202
+  `BasisCodeAstAnalyzer`, and including `analyze --strict` as a required
+  gate in `pack lint --strict`.
+- v1.0 freezes the AJD code catalog. Future codes extend additively per
+  closed-vocabulary discipline.
 
 ## References
 
-- Implementation: `packages/analyze/src/`.
-- CLI: `packages/cli/src/commands/analyze.ts`.
-- Tests: `packages/analyze/tests/analyze.test.ts` (14 tests).
+- Implementation: `packages/analyze/src/` (Tier 1 `analyzers.ts`,
+  Tier 2 `tier2.ts`, Tier 3 `tier3.ts`, codes in `types.ts`).
+- CLI: `packages/cli/src/commands/analyze.ts`, registered in
+  `packages/cli/src/bin.ts`.
+- Tests: `packages/analyze/tests/analyze.test.ts` (16 tests), plus
+  `tier2.test.ts`, `tier3.test.ts`, `manifest.test.ts`.
 - ADR-105 governance model (this ADR mirrors it for diagnostics).
+- ADR-117 (`data_classification` REWRITE scope, enforced by AJD-104).
 - SARIF 2.1.0 spec: https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
+
+> **Note:** `render.ts` hardcodes the SARIF driver `version` as
+> `"0.2.0"` while the package is at `0.3.0`. The driver version should
+> track the package version.

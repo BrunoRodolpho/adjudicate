@@ -88,11 +88,21 @@ The reference Node consumer is
 
 For each vector with `category: "audit-record-subset"`:
 
-- The `input` is already the canonical subset (record minus
-  `{auditHash, signature}`) — same shape `buildAuditRecord` would
-  produce minus those two fields;
+- The `input` is the canonical auditHash pre-image — the record minus
+  the fields excluded from the hash. On the v5 line that is
+  `{auditHash, signature, metadata}` (the v5 `metadata` field, which
+  carries post-hoc/async governance data such as `hallucination_score`,
+  is stripped so attaching it after emission never invalidates
+  tamper-evidence; see `packages/core/src/audit.ts`);
 - compute `sha256Canonical(input)` and assert it equals
   `expectedHash`.
+
+> The shipped `audit-record-subset` vectors in
+> `canonical-hash-vectors.json` carry no `metadata`, so their pre-image
+> is `record \ {auditHash, signature}`. A runtime that writes `metadata`
+> MUST exclude it too; pre-v5 verifiers cannot read a v5 record that
+> carries `metadata` (they would re-derive a different hash and falsely
+> report `tampered`).
 
 This is the same digest `verifyAuditRecord` re-derives at the Node
 reference; a runtime that produces the same digest for the same input
@@ -110,10 +120,12 @@ invalidate every implementation).
 ## 4. Closed enum parity
 
 Multi-runtime implementations MUST encode the following enums exactly
-as named (case-sensitive). The Node reference is the source of truth;
-the closed-enum list lives in `packages/core/src/decision.ts`,
+as named (case-sensitive). The Node reference is the source of truth.
+The core enums live in `packages/core/src/decision.ts`,
 `packages/core/src/refusal.ts`, `packages/core/src/taint.ts`, and
-`packages/core/src/basis-codes.ts`.
+`packages/core/src/basis-codes.ts`. `ReplayMismatchKind` lives in
+`packages/core/src/replay-classify.ts`, and `IntegrityFailure.kind`
+lives in `packages/audit/src/replay-integrity.ts` (not core).
 
 ### 4.1 `DecisionKind`
 
@@ -147,11 +159,14 @@ Lowercase. Mirrors the wire convention.
 ### 4.4 `RefusalKind`
 
 ```
-AUTH | RATE_LIMIT | BUSINESS_RULE | SCHEMA | SECURITY | INTERNAL
+SECURITY | BUSINESS_RULE | AUTH | STATE
 ```
 
-Six categories. The kernel-internal `INTERNAL` is reserved for fail-
-closed guard panics; do not emit it from a Pack.
+Four categories (`packages/core/src/refusal.ts`). There is no
+kernel-internal kind: a guard that throws is converted to a `SECURITY`
+REFUSE carrying the `kernel.GUARD_PANIC` basis code (see the
+guard-panic path in `packages/core/src/kernel/adjudicate.ts`), not a
+distinct RefusalKind.
 
 ### 4.5 `BasisCategory`
 
@@ -171,21 +186,23 @@ MAJOR.
 ### 4.7 `IntegrityFailure.kind`
 
 ```
-audit_hash_missing | audit_hash_mismatch | envelope_hash_mismatch
+AUDIT_HASH_TAMPERED | INTENT_HASH_MISMATCH
 ```
 
-Closed; additions are MINOR.
+Defined in `packages/audit/src/replay-integrity.ts` (the
+`replayWithIntegrity` report axis), not in core. Closed; additions are
+MINOR.
 
 ### 4.8 `AuditRecord.version`
 
 ```
-1 | 2 | 3 | 4
+1 | 2 | 3 | 4 | 5
 ```
 
 Multi-runtime implementations MUST tolerate every version when reading.
-When writing, the reference writes the highest-supported version on a
-given branch (`v4` on the v1.0 branch). Narrowing the accepted set on
-read is MAJOR.
+When writing, the reference writes the highest-supported version
+(`AUDIT_RECORD_VERSION = 5`, `packages/core/src/audit.ts`). Narrowing
+the accepted set on read is MAJOR.
 
 ---
 
@@ -302,8 +319,9 @@ A runtime that ticks every box is replay-equivalent and may declare
 
 ## 10. Versioning
 
-This spec is anchored to `IntentEnvelope v2` + `AuditRecord v4`. Future
-wire versions publish a separate spec
-(`MULTIRUNTIME_CONFORMANCE-v2.md` etc.) and bump the relevant
-constants. The current spec stays authoritative for the v1 line as
-long as v2 envelopes and v4 records remain readable.
+This spec is anchored to `IntentEnvelope v2` + `AuditRecord v5`, with
+the canonical-hash vectors at `algorithmVersion v2`. Future wire
+versions publish a separate spec (`MULTIRUNTIME_CONFORMANCE-v2.md` etc.)
+and bump the relevant constants. The current spec stays authoritative
+for the v1 line as long as v2 envelopes and v5-and-earlier records
+remain readable.

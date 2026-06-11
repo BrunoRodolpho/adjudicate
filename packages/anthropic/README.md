@@ -2,16 +2,22 @@
 
 > Reference Anthropic Messages-API integration for [adjudicate](../../README.md).
 
-The agent owns the Anthropic message loop and bridges `tool_use` blocks
-to typed `IntentEnvelope`s. The kernel still adjudicates every proposed
-mutation — the adapter sits *before* `adjudicate()` from
-`@adjudicate/core/kernel`, never bypassing or short-circuiting it.
+A thin SDK shim that wires the Anthropic Messages API into the
+provider-neutral agent loop in
+[`@adjudicate/adapter-core`](../adapter-core/). This package builds a
+`ProviderBridge<MessageParam[]>` against `@anthropic-ai/sdk` and forwards
+it to `createAdjudicatedAgent` from adapter-core; everything load-bearing —
+the tool-use loop, defer/confirm orchestration, REWRITE handling, audit +
+ledger wiring, and confirmation-blob hash verification — lives in
+adapter-core. The kernel still adjudicates every proposed mutation: the
+loop sits *before* `adjudicate()` from `@adjudicate/core/kernel`, never
+bypassing or short-circuiting it.
 
 ## Status
 
-`v0.1.0-experimental`. Code complete; npm publish pending `@adjudicate`
-org claim. Surface area may shift before `v1.0.0` — see [L2 rework
-callouts](#l2-rework-callouts).
+Published, `0.3.0`. See [CHANGELOG.md](./CHANGELOG.md). The public API is
+preserved across provider adapters by re-exports from adapter-core, so
+adopter imports stay stable.
 
 ## Install
 
@@ -19,8 +25,10 @@ callouts](#l2-rework-callouts).
 pnpm add @adjudicate/anthropic @adjudicate/core @adjudicate/runtime @anthropic-ai/sdk
 ```
 
-The Anthropic SDK is a `peerDependency` so adopters control the SDK
-version and auth.
+`@adjudicate/adapter-core` and `@adjudicate/audit` come in transitively as
+dependencies of this package; import the ledger and persistence shims from
+`@adjudicate/anthropic` (they are re-exported). The Anthropic SDK is a
+`peerDependency` so adopters control the SDK version and auth.
 
 ## 30-second example
 
@@ -32,6 +40,7 @@ import {
   createAnthropicPromptRenderer,
   createInMemoryDeferStore,
   createInMemoryConfirmationStore,
+  createMemoryLedger,
 } from "@adjudicate/anthropic";
 import { paymentsPixPack } from "@adjudicate/pack-payments-pix";
 
@@ -48,6 +57,7 @@ const agent = createAdjudicatedAgent({
   }),
   deferStore: createInMemoryDeferStore(),
   confirmationStore: createInMemoryConfirmationStore(),
+  ledger: createMemoryLedger(), // REQUIRED — replay suppression
   executor: myAdopterExecutor,
 });
 
@@ -65,6 +75,12 @@ const result = await agent.send({
 //   { kind: "max_iterations_exceeded", lastDecision }
 ```
 
+`createMemoryLedger()` (re-exported from `@adjudicate/audit`) gives replay
+suppression within a single process lifetime only. Production wires
+`createRedisLedger` (or any backing store with SET-NX, EX, INCR, DECR) from
+`@adjudicate/audit`. Without a persistent ledger, two duplicate webhook
+deliveries arriving at different processes would both EXECUTE.
+
 A runnable end-to-end demo lives in
 [`examples/quickstart-anthropic`](../../examples/quickstart-anthropic/)
 — it exercises every kernel Decision against the PIX pack with real
@@ -72,10 +88,15 @@ Anthropic API calls.
 
 ## How decisions translate
 
+The loop materializes each `tool_result` as a provider-neutral
+`ToolResultBlock` (`{ toolUseId, content, isError? }`); the bridge re-encodes
+it into Anthropic's `ToolResultBlockParam` only when building the next API
+call.
+
 | Decision | tool_result content | next loop action |
 |---|---|---|
-| `EXECUTE` | adopter executor result, JSON-serialized, `is_error: false` | continue |
-| `REFUSE` | `refusal.userFacing` text, `is_error: true` | continue (LLM may rephrase) |
+| `EXECUTE` | adopter executor result, JSON-serialized, `isError: false` | continue |
+| `REFUSE` | `refusal.userFacing` text, `isError: true` | continue (LLM may rephrase) |
 | `REWRITE` | executor runs **rewritten** envelope; result + note "kernel rewrote your proposal — \<reason\>" | continue |
 | `REQUEST_CONFIRMATION` | tool_result with prompt; turn terminates with `outcome: awaiting_confirmation` | pause |
 | `ESCALATE` | tool_result + turn terminates with `outcome: escalated` | terminate |
@@ -98,17 +119,58 @@ interface AdjudicatedAgent {
 }
 ```
 
-Lower-level primitives are re-exported as escape hatches for adopters
-who need a custom loop (streaming UI, partial-output gating, custom
-retry):
+### Options (`AdjudicatedAgentOptions`)
+
+Required: `pack`, `anthropicClient`, `model`, `maxTokens`, `renderer`,
+`deferStore`, `confirmationStore`, `ledger`, `executor`. The rest are
+optional seams:
+
+- `auditSink` — emits one record per Decision through `adjudicateAndAudit`;
+  defaults to `noopAuditSink()`.
+- `verifyParkedHash: "strict" | "warn" | "off"` — hash-verification policy
+  for parked envelope blobs at resume. The adapter parks full envelope
+  fields (version/nonce/taint/actorPrincipal) at DEFER time so resume can
+  re-derive the `intentHash` and detect tampering. `"strict"` fails closed
+  on mismatch *or* missing verification fields; `"warn"` (default) fails
+  closed on mismatch but allows legacy blobs without verification fields;
+  `"off"` skips verification (not recommended for production). Flip to
+  `"strict"` pre-v1.0.
+- Provider-neutral agent-loop seams, declared here and forwarded so they
+  are reachable through the Anthropic bridge: `onTokenUsage` (per-turn
+  token-usage telemetry, ADR-120), `memoryStore` + `enrichContext` +
+  `deriveMemoryWriteback` (cross-session memory, ADR-126), `configSeal`
+  (config-integrity gate, ADR-121), and `traceSink`.
+- `runtimeContext`, `maxIterations`, `rk`, `deriveNonce`, `log`.
+
+### Escape hatches
+
+Lower-level primitives are re-exported for adopters who need a custom loop
+(streaming UI, partial-output gating, custom retry). Local to this package:
+
+```ts
+export {
+  createAnthropicBridge,            // ProviderBridge<MessageParam[]>
+  createAnthropicPromptRenderer,
+  DEFAULT_ADJUDICATED_SYSTEM_PROMPT,
+} from "@adjudicate/anthropic";
+```
+
+Re-exported from `@adjudicate/adapter-core` (import-path stability):
 
 ```ts
 export {
   classifyIncomingToolUse,
   buildEnvelopeFromToolUse,
+  intentKindToApiName,
   translateDecision,
-  createAnthropicPromptRenderer,
-  DEFAULT_ADJUDICATED_SYSTEM_PROMPT,
+  createMemoryLedger,
+  createInMemoryDeferStore,
+  createInMemoryConfirmationStore,
+  AdapterError,
+  AdapterErrorCode,
+  // deprecated aliases (removed in v2.0), prefer AdapterError*:
+  AnthropicAdapterError,
+  AnthropicAdapterErrorCode,
 } from "@adjudicate/anthropic";
 ```
 
@@ -120,7 +182,7 @@ applied at Pack construction). The adapter does **not** double-wrap.
 `installPack` from `@adjudicate/core` is the canonical wrapper; pass
 its output directly.
 
-The adapter never:
+The loop never:
 - bypasses `adjudicate()` from `@adjudicate/core/kernel`
 - raises taint upward (LLM-derived envelopes are always `UNTRUSTED`)
 - alters the kernel's fixed guard ordering (state → taint → auth → business — ADR-104)
@@ -130,37 +192,33 @@ These are load-bearing soundness invariants — see
 
 ## Persistence
 
-Two stores travel with each agent:
+Three stores travel with each agent. All three interfaces, and their
+in-memory implementations, are defined in `@adjudicate/adapter-core`; this
+package only binds the history type to Anthropic-native `MessageParam[]`.
 
-- **`deferStore`** — implements `DeferRedis & ParkRedis` from `@adjudicate/runtime`.
+- **`deferStore`** — implements `DeferRedis & ParkRedis`.
   `createInMemoryDeferStore()` is provided for tests and the quickstart.
   Production wires real Redis (or any KV with NX, EX, INCR, DECR).
 
-- **`confirmationStore`** — implements `ConfirmationStore` (defined in
-  this package). Pending REQUEST_CONFIRMATION turns are persisted
-  under a single-use token; `take(token)` is get-and-delete.
-  `createInMemoryConfirmationStore()` is provided.
+- **`confirmationStore`** — implements `ConfirmationStore`. Pending
+  REQUEST_CONFIRMATION turns are persisted under a single-use token;
+  `take(token)` is get-and-delete. `createInMemoryConfirmationStore()` is
+  provided.
 
-## L2 rework callouts
+- **`ledger`** — the Execution Ledger for replay suppression.
+  `createMemoryLedger()` is provided; see the example note above.
 
-> **Read this if you're building on this adapter at v0.1.x.**
->
-> The repo has an explicit roadmap in [`docs/concepts.md §9`](../../docs/concepts.md#9-architectural-direction-intended-evolution): a layer of *risk primitives* (`clampAmount`, `escalateAboveThreshold`, …) extracts after Pack #2 and Pack #3 land. When that lands, several surfaces in *this* adapter will shift. They are deliberately structured with mitigation seams so the rewrite is contained.
+## Renderer note
 
-| Surface today | Likely shift post-L2 | Mitigation seam |
-|---|---|---|
-| `createAnthropicPromptRenderer({ toolSchemas })` accepts hand-supplied schemas | The renderer derives schemas from `pack.intentSchemas` | `toolSchemas` becomes an override; existing call sites unchanged |
-| `AdjudicatedAgentOptions.deriveNonce` is adopter-defined | A `Pack.nonceStrategy` may surface | `deriveNonce` documented as overriding the Pack default |
-| `ConfirmationStore` is local to this package | A `confirmAboveThreshold` primitive may move the resume contract into `@adjudicate/runtime` | Interface stays; implementation swaps |
-| `AgentEvent.kind === "intent_proposed"` fires before adjudication | A new `intent_normalized` event may slot between proposed and decision | Current ordering documented; no rename |
-| Tool name = intent kind for proposable intents | If kinds without dots are introduced, a sentinel prefix may be needed | Not yet implemented; default empty when added |
-| Hard-coded English system-prompt copy | i18n + per-Pack overrides + supervisor modifiers | `basePrompt` already exposed; `DEFAULT_ADJUDICATED_SYSTEM_PROMPT` exported for append-not-replace |
-
-This adapter ships **knowingly ahead of L2**. Adopters benefit from a
-runnable Anthropic integration today; the cost is migrating across the
-seams above when L2 lands. The 5 stable interfaces (`IntentEnvelope`,
-`Decision`, `PolicyBundle`, `CapabilityPlanner`, `AuditSink`) do **not**
-change.
+`createAnthropicPromptRenderer({ toolSchemas })` accepts hand-supplied tool
+schemas (renderer-anthropic.ts). The renderer filters them to the planner's
+advertised tools (`Plan.visibleReadTools` ∪ `Plan.allowedIntents`) and
+translates dotted intent-kind names (`pix.charge.create`) into the
+Anthropic-API tool-name form (`pix_charge_create`); `classifyIncomingToolUse`
+reverses the translation when the model echoes the name back. Deriving
+schemas from `pack.intentSchemas` (so `toolSchemas` becomes an override) is
+still pending. `DEFAULT_ADJUDICATED_SYSTEM_PROMPT` is exported so adopters
+can append rather than replace when supplying a custom `basePrompt`.
 
 ## License
 

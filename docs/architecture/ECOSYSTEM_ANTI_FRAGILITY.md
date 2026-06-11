@@ -62,7 +62,8 @@ external dependency. The survivability mechanism is:
 - **Tier 2 (1-PR migration)**: switch to a different sync, pure-JS
   SHA-256 library (e.g., `js-sha256` or a hand-rolled implementation
   vetted against the golden vectors). One-file change to
-  `packages/core/src/hash.ts`.
+  `packages/canonical/src/index.ts` (the shared canonical-JSON + SHA-256
+  encoder; `core/src/hash.ts` is only a re-export of `@adjudicate/canonical`).
 - **Tier 3 (Node-only adopters)**: switch to
   `node:crypto.createHash("sha256")`. Loses browser/edge support; gains
   std-lib stability. Documented in the freeze matrix as the recovery
@@ -109,7 +110,7 @@ Redis-as-default deployment topology use Tier 2 from day one.
 ## 4. Durable audit sink — Postgres
 
 **Role.** Reference durable sink for `AuditSink.emit`. The
-audit-postgres package ships migrations 001-008 and a Postgres-specific
+audit-postgres package ships migrations 001-010 and a Postgres-specific
 sink implementation.
 
 **Failure modes.**
@@ -124,8 +125,9 @@ sink implementation.
 
 **Anti-fragility plan.**
 
-- **Tier 1**: `AuditSink` is an interface. NATS, S3, SQS, and
-  in-memory sinks ship as reference implementations.
+- **Tier 1**: `AuditSink` is an interface. NATS, console, and
+  in-memory (`bufferedSink`) sinks ship as reference implementations;
+  S3/SQS/SQLite are adopter-suppliable via `PersistentSpillStorage`.
 - **Tier 2 (adopter swap)**: any append-only durable store with
   partitioning semantics suffices.
 - **Tier 3 (no durable sink)**: the kernel continues to operate.

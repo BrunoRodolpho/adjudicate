@@ -4,7 +4,7 @@
 > Substitute your domain's intent kinds and deployment CLI. The 4-stage
 > shadow → enforce pattern applies to any adjudicate adopter.
 
-> **TL;DR** — committing the order: address, fulfillment method, payment instrument, slot reservation. Last reversible step before money moves. 7-day window; on-call watches in real-time during Stage 3 hours per `docs/ops/analytics-dashboards.md` Stage 3 chart.
+> **TL;DR** — committing the order: address, fulfillment method, payment instrument, slot reservation. Last reversible step before money moves. 7-day window; on-call watches divergence telemetry in real-time during Stage 3 business hours.
 
 ## Scope
 
@@ -47,13 +47,18 @@ If `IBX_KERNEL_SHADOW=*` is in effect, skip the env edit.
 
 ## Observation window — 7 days
 
-Watch in PostHog (Stage 3 hourly chart, on-call in real-time during business hours):
+Watch divergence telemetry (on-call in real-time during business hours). The
+event names below (`audit_kernel_shadow_diverged_*`) are the adopter's
+analytics-sink wiring, not framework symbols — the framework only emits the
+`DivergenceClass` (`BASIS_ONLY` / `DECISION_KIND` / `PAYLOAD_REWRITE`) through
+`MetricsSink.recordShadowDivergence` (`packages/core/src/kernel/metrics.ts`,
+classified in `kernel/shadow.ts`). Substitute your own event names.
 
-| Event | Expected | Action threshold |
+| Event (adopter) → class | Expected | Action threshold |
 |---|---|---|
-| `audit_kernel_shadow_diverged_basis` | Moderate (zone/slot vocab) | Investigate if rate >10%/intent |
-| `audit_kernel_shadow_diverged_kind` | **Zero**, except documented PIX-pending exception below | Any unexplained occurrence pages |
-| `audit_kernel_shadow_diverged_rewrite` | **Zero** | Any occurrence pages — Stage 3 has no expected REWRITE patterns |
+| `audit_kernel_shadow_diverged_basis` → `BASIS_ONLY` | Moderate (zone/slot vocab) | Investigate if rate >10%/intent |
+| `audit_kernel_shadow_diverged_kind` → `DECISION_KIND` | **Zero**, except documented PIX-pending exception below | Any unexplained occurrence pages |
+| `audit_kernel_shadow_diverged_rewrite` → `PAYLOAD_REWRITE` | **Zero** | Any occurrence pages — Stage 3 has no expected REWRITE patterns |
 
 ### Expected divergence patterns for this stage
 

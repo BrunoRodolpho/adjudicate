@@ -61,11 +61,15 @@ failure* is a non-incident that adopters are expected to plan around.
 ### 2.3 `globalThis.crypto` availability
 
 - **Required.**
-- `randomUUID()` is consumed in `adapter-core/src/loop.ts` (ulid
-  generation for trace/run ids), `audit/src/redis-emergency-store.ts`
-  (governance event ids), and `admin-sdk/src/store/emergency-store.ts`.
-- A non-cryptographic fallback (`Math.random()`) exists in the adapter
-  loop *for browser bundles only* and is non-load-bearing. Server
+- `crypto.randomUUID()` is consumed for confirmation-token generation
+  in `adapter-core/src/loop.ts` (the single-use credential authorizing
+  `REQUEST_CONFIRMATION → EXECUTE` substitution), and for governance
+  event ids in `audit/src/redis-emergency-store.ts` and
+  `admin-sdk/src/store/emergency-store.ts`.
+- There is **no `Math.random()` fallback, by design.** The token
+  generator throws hard if `crypto.randomUUID` is unavailable rather
+  than degrade — V8's `Math.random()` (xorshift-128+) is reversible and
+  must never mint a confirmation token (SecurityReviewer-003). Server
   deployments must keep `globalThis.crypto` available.
 
 ### 2.4 RFC 8785 / JCS canonicalisation behaviour
@@ -112,11 +116,12 @@ failure* is a non-incident that adopters are expected to plan around.
   (a degraded mode that does not satisfy ADR-114's sub-100ms
   propagation property).
 
-### 3.4 A `KillSwitchTransport` exists (pub/sub)
+### 3.4 A pub/sub transport exists (kill-switch propagation)
 
 - **Expected.**
-- v2 kill switch uses Redis pub/sub for the sub-100ms propagation
-  guarantee; polling fallback at `pollMs` is the degraded mode.
+- The distributed kill switch uses Redis pub/sub (`RedisPubSubClient`,
+  wired via `kill-switch-pubsub.ts`) for sub-100ms propagation; polling
+  fallback at `pollMs` is the degraded mode.
 - An adopter without pub/sub falls back to polling; convergence is
   bounded by `pollMs * 2` (default 2 s with `pollMs = 1000`).
 
@@ -155,9 +160,14 @@ failure* is a non-incident that adopters are expected to plan around.
 ### 4.3 Partition routing is `"YYYY-MM"`
 
 - **Required for audit-postgres.**
-- `partition_month` is computed in the sink layer and used by the
-  partition pruner. Format is `getUTCFullYear() + "-" + (getUTCMonth() +
-  1).toString().padStart(2, "0")`.
+- `partition_month` is computed by `partitionMonthOf` in the sink layer
+  (`audit-postgres/src/postgres-sink.ts`) and used by the partition
+  pruner. It **string-slices the `YYYY-MM` prefix off the ISO-8601
+  `recordedAt`** via `/^(\d{4})-(\d{2})/` and deliberately avoids `Date`
+  construction so the result is identical across timezones. Malformed or
+  out-of-range input throws rather than falling back to wall-clock —
+  deterministic failure beats silently routing a row to the wrong
+  partition.
 - A future maintainer "modernising" to ISO-8601 weeks or quarters
   breaks every previously-written row's queryability.
 
@@ -233,10 +243,12 @@ failure* is a non-incident that adopters are expected to plan around.
 ### 7.3 Restart-durable park/resume
 
 - **Required if `DEFER` is used.**
-- `parkDeferredIntent` requires a `ParkStore` that survives restarts
-  for paused intents to resume. Reference: `ParkStoreRedis`.
-- `REQUEST_CONFIRMATION` similarly requires `ConfirmationStore`;
-  reference: `createRedisConfirmationStore` (v0.7).
+- `parkDeferredIntent` (`@adjudicate/runtime`) requires a `DeferStore`
+  that survives restarts for paused intents to resume. The in-memory
+  reference is `createInMemoryDeferStore`; production wires a
+  Redis-backed client through the loop's `deferStore` option.
+- `REQUEST_CONFIRMATION` similarly requires a confirmation store;
+  reference: `createRedisConfirmationStore`.
 
 ---
 

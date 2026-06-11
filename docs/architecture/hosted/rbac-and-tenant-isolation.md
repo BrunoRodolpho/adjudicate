@@ -1,8 +1,18 @@
 # Hosted — RBAC and Tenant Isolation
 
-> **M4 architecture document.** Locks the access-control surface for
-> `adjudicate.cloud`. This is the contract every hosted-offering
-> component will be tested against — not an aspiration, a baseline.
+> **M4 architecture document (DESIGN, not built).** Locks the
+> access-control surface the eventual `adjudicate.cloud` offering will be
+> built against. No control-plane, RBAC, JWT, Kafka-ACL, or
+> tenant-provisioning code exists in this repo yet — this is the contract
+> that downstream M-milestones implement, not a description of current
+> behavior.
+>
+> **What exists in code today** (`@adjudicate/core` v1.3.0): the
+> per-process and per-tenant **kill switch** via `RuntimeContext`
+> (ADR-103) and kernel **audit emission** (ADR-101). Everything below
+> about roles, isolation tiers, Kafka topics, Redis prefixing, and the
+> JWT shape is a planned surface. Where a section overlaps with shipped
+> kernel behavior, the actual code contract is called out inline.
 
 ---
 
@@ -219,7 +229,7 @@ tenant**. The hosted offering's responsibility, on top of ADR-103, is
 the **fanout pipeline** that propagates a tenant kill switch to every
 executor (in-VPC or hosted) that runs that tenant's traffic.
 
-The fanout (from the control-data-plane doc §2.5):
+The fanout (planned hosted layer, from the control-data-plane doc §2.5):
 
 ```
    Console / API → control-plane.tenant_registry.kill_switch = true
@@ -232,22 +242,33 @@ The fanout (from the control-data-plane doc §2.5):
                        ▼ polled by executors (TTL: 5s prod / 60s Free)
                    RuntimeContext(tenant_id).killSwitch.isKilled() == true
                        │
-                       ▼ adjudicateAndAudit short-circuits
-                   Decision = REFUSE, basis.code = "killed_by_operator"
-                   basis.detail = { tenant_id, flipped_by, flipped_at }
+                       ▼ adjudicateAndAudit short-circuits → Decision = REFUSE
 ```
 
-ADR-103's `killSwitchEnvVar` option carries over: hosted deployments
-that want to honour a per-region environment override (incident-
-response toolkit) set `killSwitchEnvVar = "KILL_SWITCH_TENANT_${id}"`
-on the `RuntimeContext` they hand to the executor. The "manual takes
-precedence over env" rule from ADR-103 applies: a control-plane flip
-beats any env-only state.
+**The kernel's actual refusal contract** (what the hosted layer builds
+on, do not invent fields): when a tenant `RuntimeContext` is killed,
+`adjudicateAndAudit` short-circuits and emits
 
-The audit record for the resulting refusals (per ADR-101) carries the
-tenant ID in `basis.detail.tenant`, so an after-incident reviewer can
-trivially count "how many records were refused due to the kill switch
-during the X minutes it was active."
+- refusal message code `"kill_switch_active"` (category `SECURITY`),
+- `basis("kill", BASIS_CODES.kill.ACTIVE, { reason, toggledAt, tenant })`
+  — the tenant id appears under `basis.detail.tenant`; `reason` and
+  `toggledAt` come from the kill-switch state.
+
+(See `packages/core/src/kernel/adjudicate-and-audit.ts:283-300`; the
+process-wide switch in `adjudicate.ts:194-211` emits the same code with
+`{ reason, toggledAt }` and no tenant.) Any hosted enrichment such as
+`flipped_by` / `flipped_at` is an **additional control-plane audit row**
+(see §7), not a change to this kernel basis.
+
+ADR-103's `killSwitchEnvVar` option carries over: the per-region
+environment override defaults to `IBX_KILL_SWITCH`
+(`CreateRuntimeContextOptions.killSwitchEnvVar`,
+`runtime-context.ts:382/398`). Tenant contexts opt in to a per-tenant
+env var by the convention `IBX_KILL_SWITCH_TENANT_FOO`
+(`runtime-context.ts:35`); set `killSwitchEnvVar` to that name on the
+`RuntimeContext` handed to the executor. The "manual takes precedence
+over env" rule from ADR-103 applies: a control-plane flip beats any
+env-only state.
 
 ---
 
@@ -328,10 +349,13 @@ roles, and all signing formats:
   provisioning time.
 - **Every privileged action (kill switch, DLQ drain, key mint, role
   change) generates its own AuditRecord** — emitted from the control
-  plane itself, into the tenant's audit log, with `envelope.kind =
-  hosted.privilege.${action}` and `basis.detail` carrying the
-  principal who took the action. The hosted offering is itself
-  audited by the same kernel it sells.
+  plane itself, into the tenant's audit log, with `basis.detail`
+  carrying the principal who took the action. The hosted offering is
+  itself audited by the same kernel it sells. *(Planned hosted-layer
+  convention: these control-plane rows would use an envelope kind such
+  as `hosted.privilege.${action}`. No such kind exists in the kernel
+  today — `grep hosted.privilege` returns zero hits — so treat the exact
+  kind as unbuilt until the control plane lands.)*
 
 That last property is the one that closes the loop: an Operator who
 flips a kill switch generates an audit record visible to that

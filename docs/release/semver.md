@@ -8,14 +8,27 @@
 ## Scope
 
 This document covers every package published under the `@adjudicate/*` scope:
-`@adjudicate/core`, `@adjudicate/audit`, `@adjudicate/audit-postgres`,
-`@adjudicate/runtime`, `@adjudicate/primitives`, `@adjudicate/cli`,
-`@adjudicate/analyze`, `@adjudicate/eslint-config`, the integration adapter
-(`@adjudicate/anthropic`), the domain Packs (`pack-*`),
-`@adjudicate/observability`, and `@adjudicate/migrate`.
 
-Internal helper packages and apps (`apps/*`, `examples/*`, `bench`) are NOT
-covered — they're consumed only via the repo and need no semver promise.
+- **Kernel & audit**: `@adjudicate/core`, `@adjudicate/audit`,
+  `@adjudicate/audit-postgres`, `@adjudicate/canonical`,
+  `@adjudicate/primitives`, `@adjudicate/runtime`.
+- **Adapters**: `@adjudicate/adapter-core`, `@adjudicate/anthropic`,
+  `@adjudicate/openai`.
+- **Tooling & operations**: `@adjudicate/cli`, `@adjudicate/analyze`,
+  `@adjudicate/admin-sdk`, `@adjudicate/migrate`,
+  `@adjudicate/observability`, `@adjudicate/conformance`,
+  `@adjudicate/approval-engine`, `@adjudicate/drift`,
+  `@adjudicate/red-team`, `@adjudicate/locales-pt-br`.
+- **Domain Packs** (`@adjudicate/pack-*`): `pack-access-governance`,
+  `pack-deployments-approval`, `pack-identity-kyc`,
+  `pack-incident-response`, `pack-payments-pix`.
+
+`@adjudicate/eslint-config` is `private` (not published); its versioned
+rules are still governed by the ESLint-config rule in
+[What does NOT count as breaking](#what-does-not-count-as-breaking).
+
+Apps and fixtures (`apps/*`, `examples/*`, `bench`) are NOT covered —
+they're consumed only via the repo and need no semver promise.
 
 ---
 
@@ -80,42 +93,43 @@ A bump from `X.Y.Z → X.Y.(Z+1)`. Reserved for:
 
 ---
 
-## The pre-`v1.0` window
+## Compatibility window (post-`v1.0`)
 
-We are currently in the `v0.x` line. Per semver, `v0.x` releases may
-include breaking changes in minor bumps. We hold ourselves to a stricter
-standard than the spec mandates:
+The kernel has shipped its first MAJOR: `@adjudicate/core` is `1.x` and
+`@adjudicate/audit` is `2.x`. The post-`v1.0` compatibility window is in
+force.
 
-- **`v0.x` minor bumps may break public types.** We will document every
-  break in CHANGELOG.md with a migration path (codemod, if applicable).
-- **`v0.x` patch bumps never break public types.** This is the same rule
-  as post-v1 — we don't reach for the patch lane to ship breaks.
-- **The five headline interfaces are stable across `v0.x` minors**
-  (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`,
-  `AuditSink`). Other surfaces may evolve.
-
-The Pack ecosystem assumes the headline five are immovable; if they
-move, every Pack rebuilds.
-
----
-
-## Post-`v1.0` compatibility window
-
-Once `v1.0.0` ships:
-
-- The **24-month deprecation horizon** begins. Any public API that exists
-  in `v1.0.0` and is not subsequently marked `@deprecated` is guaranteed
-  to keep working through at least `v3.0.0` (assuming MAJOR-per-year
-  cadence) or for 24 months, whichever is longer.
+- The **24-month deprecation horizon** applies. Any public API that
+  exists at its package's first stable MAJOR and is not subsequently
+  marked `@deprecated` is guaranteed to keep working through at least two
+  more MAJORs or 24 months, whichever is longer. Per-surface horizons are
+  set by the stability tiers in
+  [`docs/release/deprecations.md`](./deprecations.md) (Headline ≥ 36
+  months; Pack-author 24 months; Operator 12 months).
 - Deprecated APIs remain in the published code for **at least** two
-  consecutive MAJORs after the deprecation lands. Removal is scheduled
-  in `docs/release/deprecations.md`.
+  consecutive MAJORs after the deprecation lands. Each one carries a
+  `@deprecated` JSDoc tag, a removal target, and (when mechanical) a
+  codemod in `@adjudicate/migrate`. The live calendar is in
+  [`docs/release/deprecations.md`](./deprecations.md).
 - The audit record schema may evolve through additive minors; the loader
   in `@adjudicate/audit` reads every shipped schema version.
+
+The **five headline interfaces** — `IntentEnvelope`, `Decision`,
+`PolicyBundle`, `CapabilityPlanner`, `AuditSink` — are the most stable
+surface in the scope. Deprecating any of them requires an ADR (see the
+Headline tier in `deprecations.md`). The Pack ecosystem assumes these
+five are immovable; if they move, every Pack rebuilds.
 
 This is stronger than most JS-ecosystem projects offer. The reason: the
 asset adopters build on adjudicate is the policy bundle, and policy
 bundles are designed to live for years. We make the substrate match.
+
+> **Per-package versions differ.** Not every package is post-`v1`.
+> Adapters, packs, and some tooling are still `0.x`; for those, a minor
+> bump may break public types (documented in CHANGELOG with a migration
+> path). The post-`v1.0` window above applies once a given package cuts
+> its first stable MAJOR — `@adjudicate/core` and `@adjudicate/audit`
+> already have.
 
 ---
 
@@ -142,16 +156,30 @@ The single rule that constrains every change above:
 
 > **A bundle that produced a particular Decision at version `vX.Y.Z` must,
 > when replayed against the same envelope + state in any later version
-> `vX.Y′.Z′`, produce a Decision that classifies as `IDENTICAL` or
-> `BASIS_ONLY` per `@adjudicate/core`'s `replay-classify`.**
+> `vX.Y′.Z′`, classify as `IDENTICAL` or (within the documented tolerance)
+> `BASIS_ONLY` per the replay longevity model.**
 
-`BASIS_ONLY` covers additive basis codes (we added a new code but the
-Decision kind + structural meaning is the same). `IDENTICAL` covers every
-other case. Any drift beyond these two classes is a MAJOR.
+The `IDENTICAL` / `BASIS_ONLY` vocabulary is defined in
+[`docs/specs/REPLAY_LONGEVITY_MODEL.md`](../specs/REPLAY_LONGEVITY_MODEL.md):
+`IDENTICAL` means same Decision kind, basis flat-set, and supersession;
+`BASIS_ONLY` means the kind is identical but the basis set was re-ordered
+or refined. Any `DECISION_KIND` drift on a `v1.x` replay is a MAJOR.
+
+The mechanical classifier behind this is `@adjudicate/core`'s
+`classify()` in `packages/core/src/replay-classify.ts`. It returns `null`
+when two Decisions match, otherwise a `ReplayMismatch` whose `kind` is the
+first axis of divergence: `DECISION_KIND` > `BASIS_DRIFT` >
+`REFUSAL_CODE_DRIFT`. A `null` result is the `IDENTICAL` case; a
+`BASIS_DRIFT`-only mismatch (with a non-empty `basisDelta`) is the
+`BASIS_ONLY` case the longevity model tolerates; any other `kind` is
+breaking. (The kernel's shadow-mode `DivergenceClass` in
+`packages/core/src/kernel/shadow.ts` — `NONE` / `BASIS_ONLY` /
+`DECISION_KIND` / `PAYLOAD_REWRITE` — is a separate, live-traffic
+classifier; don't conflate it with the replay-harness shape above.)
 
 This is the rule everything else folds into. When we draft a change, the
 question we ask first is "does the replay harness still classify this as
-IDENTICAL or BASIS_ONLY for every existing audit row?" — if no, the
+`IDENTICAL` or `BASIS_ONLY` for every existing audit row?" — if no, the
 change is breaking, regardless of how the diff looks.
 
 ---
@@ -161,10 +189,10 @@ change is breaking, regardless of how the diff looks.
 - **Patch releases**: on demand, typically within a week of a regression
   being filed.
 - **Minor releases**: roughly monthly, paced by milestone planning.
-- **Major releases**: yearly at most, post-`v1.0`. Pre-`v1.0` is
-  milestone-driven without a fixed cadence.
+- **Major releases**: yearly at most for a stabilized package. Packages
+  still on `0.x` are milestone-driven without a fixed cadence.
 
-Pre-release tags (`v0.5.0-rc.0`, etc.) are used for adopter dogfooding
-when a minor introduces significant new surface area. The headline rule
-applies: even `-rc` tags don't break the replay invariant for already-
-stored audit rows.
+Pre-release tags (`-rc.0`, etc.) are used for adopter dogfooding when a
+minor introduces significant new surface area. The headline rule applies:
+even `-rc` tags don't break the replay invariant for already-stored audit
+rows.

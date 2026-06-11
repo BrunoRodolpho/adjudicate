@@ -2,21 +2,32 @@
 
 `DecisionBasis` is vocabulary-controlled by construction. Every basis emitted at
 runtime must carry a `category` from the closed `BasisCategory` union and a
-`code` drawn from the per-category `BASIS_CODES` constant. This prevents
-semantic drift (`"scope_ok"` vs `"scope_sufficient"` vs `"scope-valid"`) across
-audit records.
+`code` drawn from the per-category `BASIS_CODES` constant
+(`src/basis-codes.ts`). This prevents semantic drift (`"scope_ok"` vs
+`"scope_sufficient"` vs `"scope-valid"`) across audit records.
 
-## Built-in categories
+## Categories
 
-| category | purpose |
-|---|---|
-| `state` | State-machine transition legality |
-| `auth` | Caller identity and scope |
-| `taint` | Provenance trust check |
-| `ledger` | Replay and resource-version checks |
-| `schema` | Envelope version and payload shape |
-| `business` | Domain rule (satisfied / violated / capped) |
-| `validation` | Pre-commit content checks (forbidden phrases, normalization) |
+`BasisCategory` is a closed union of 11 categories. The first seven are emitted
+by policy evaluation; the last four are emitted by the kernel and the
+`adjudicate*` entry points outside the policy bundle.
+
+| category | emitted by | purpose |
+|---|---|---|
+| `state` | policy | State-machine transition legality |
+| `auth` | policy | Caller identity and scope |
+| `taint` | policy | Provenance trust check |
+| `ledger` | policy | Replay and resource-version checks |
+| `schema` | policy | Envelope version and payload shape |
+| `business` | policy | Domain rule (satisfied / violated / capped) |
+| `validation` | policy | Pre-commit content checks (forbidden phrases, normalization, PII per ADR-117, command-risk per ADR-123) |
+| `kill` | kernel | Kill-switch active, or config-seal mismatch (ADR-121) — blocks every intent regardless of policy |
+| `deadline` | `adjudicateWithDeadline` | Wall-clock budget exceeded before adjudication completed |
+| `confirmation` | `adjudicateAndAudit` | Confirmation receipt substituted for a `REQUEST_CONFIRMATION` (preserves "asked → confirmed → allowed" in one record) |
+| `kernel` | kernel | `guard_panic` (T-002: a guard threw and was converted to a SECURITY REFUSE) or kernel intent dispatch |
+
+The authoritative code list per category is the `BASIS_CODES` const itself —
+read it directly rather than duplicating it here.
 
 ## Using `basis()`
 
@@ -33,45 +44,29 @@ const b = basis("auth", BASIS_CODES.auth.SCOPE_SUFFICIENT);
 const bad = basis("auth", BASIS_CODES.state.TRANSITION_VALID);
 ```
 
-## Extending the vocabulary — module augmentation
+## Extending the vocabulary
 
-Adopters with domain-specific decision bases extend the types via TypeScript
-module augmentation, not free-form strings. Create a `basis-codes-ext.ts` in
-your adopter package:
+The vocabulary is single-sourced in core. To add a code or category, edit the
+`BASIS_CODES` const (and, for a new category, the `BasisCategory` union) in
+`src/basis-codes.ts`. There is no adopter-side extension path:
 
-```ts
-// In @my-domain/intent-codes
-import "@adjudicate/core";
+- `BasisCodesMap` is a **type alias** (`type BasisCodesMap = typeof
+  BASIS_CODES`), not an interface, so it cannot be augmented via `declare
+  module`.
+- Vocabulary purity is a **runtime** invariant. `isKnownBasisCode` and the
+  "basis vocabulary purity" property test (`tests/kernel/invariants/`,
+  mirrored in `@adjudicate/conformance`) validate `basis.code` against the
+  runtime `BASIS_CODES` object. A type-only declaration registers nothing at
+  runtime and would fail the invariant.
 
-declare module "@adjudicate/core" {
-  interface BasisCodesMap {
-    business: BasisCodesMap["business"] & {
-      INVENTORY_RESERVED: "inventory_reserved";
-      LOYALTY_APPLIED:    "loyalty_applied";
-    };
-  }
-}
-```
-
-Then, at a single site in the adopter, freeze the codes:
-
-```ts
-export const BUSINESS_CODES_EXT = {
-  INVENTORY_RESERVED: "inventory_reserved",
-  LOYALTY_APPLIED:    "loyalty_applied",
-} as const;
-```
-
-This keeps the runtime source-of-truth for vocabulary single-sourced per
-category even after augmentation.
+Domain-specific bases therefore live under the existing `business` /
+`validation` categories using codes added to the const, not under adopter-local
+strings or types.
 
 ## What NOT to do
 
 - **Do not** emit `basis.code` as a dynamically-constructed string. The
-  "basis vocabulary purity" invariant test fails loudly if a runtime code does
+  "basis vocabulary purity" invariant fails loudly if a runtime code does
   not belong to `BASIS_CODES[category]`.
-- **Do not** add a new `category` via augmentation. The `BasisCategory` union
-  is closed in `@adjudicate/core`; extending it would break exhaustive matching
-  in the kernel and in audit sinks.
 - **Do not** place business codes under `validation` or vice versa. Category
   meaning is part of the audit contract.

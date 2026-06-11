@@ -51,6 +51,10 @@ type GuardDescription =
   | { kind: "state_defer"; signal: string; timeoutMs: number }
   | { kind: "system_taint"; systemOnlyKinds: ReadonlyArray<string> }
   | { kind: "rewrite"; mutatesPayloadFields: ReadonlyArray<string> }
+  // data_classification added post-v0.1 per ADR-117 — the first additive
+  // extension under rule 2. The discriminated union is the source of truth:
+  // see packages/core/src/kernel/policy.ts.
+  | { kind: "data_classification"; sensitivityLevel: "low" | "medium" | "high" | "critical"; action: "REWRITE" | "REFUSE"; scannedFields: ReadonlyArray<string> }
   | { kind: "opaque"; note?: string };
 
 function withMetadata<G>(guard: G, meta: GuardMetadata): G;
@@ -98,8 +102,8 @@ guard in the ecosystem to opt in.
    exists as an operator/debugger breadcrumb; no semantic meaning is
    conveyed.
 9. **Metadata is attached to concrete executable guards, not synthesized
-   across composition boundaries.** v0.1: combinators (`and`, `or`,
-   `not` from `combinators.ts`) remain structurally opaque unless
+   across composition boundaries.** Combinators (`allOf`, `firstMatch`,
+   `constant` from `combinators.ts`) remain structurally opaque unless
    explicitly annotated via `withMetadata`. Trace representation
    surfaces leaf-guard metadata, not synthesized composite metadata.
    Future composition-aware metadata propagation is deferred — the
@@ -151,9 +155,10 @@ guard in the ecosystem to opt in.
 
 ### Neutral
 
-- v0.1 ships only five variants. Future variants (rate-limit, quorum,
-  self-actor) extend the union additively per rule 2. Each new variant
-  costs one PR + one ADR amendment.
+- v0.1 shipped five variants; `data_classification` was added post-v0.1
+  per ADR-117, the first additive extension under rule 2 (six today).
+  Future variants (rate-limit, quorum, self-actor) extend the union the
+  same way. Each new variant costs one PR + one ADR amendment.
 
 ## Alternatives considered
 

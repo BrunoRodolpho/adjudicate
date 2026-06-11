@@ -185,8 +185,9 @@ maintainer hard-codes a Redis-specific call inside the kernel.**
 - **Bus factor**: encoded.
 - **Decay rate**: slow.
 - **Blast radius**: package (`@adjudicate/audit-postgres`).
-- **Mitigation**: the `AuditSink` interface + the 8-step
-  forward-only migration discipline in `audit-postgres/migrations/`.
+- **Mitigation**: the `AuditSink` interface + the forward-only,
+  additive migration discipline in `audit-postgres/migrations/`
+  (numbered `001-create-intent-audit.sql` … upward).
 
 Same shape as 3.2: the Postgres sink is a *reference* sink. The
 load-bearing rule is that *every* `AuditSink` honours the additive
@@ -200,12 +201,16 @@ a non-additive ORM model breaks the v1/v2/v3/v4 coexistence contract.
 - **Blast radius**: local (adapter loop, emergency store).
 - **Mitigation**:
   [`packages/adapter-core/src/loop.ts`](../../packages/adapter-core/src/loop.ts)
-  has a `Math.random()`-based fallback **for browser**, but the
-  fallback is non-cryptographic. **Production paths must keep
-  `globalThis.crypto` available.** Node ≥ 20 guarantees this.
+  `generateToken` **refuses** to fall back to `Math.random()` (V8
+  xorshift-128+ is reversible) and **throws** if
+  `globalThis.crypto.randomUUID` is unavailable. **Production paths must
+  keep `globalThis.crypto` available.** Node ≥ 20 guarantees this.
 
-If Node deprecates `globalThis.crypto`, migrate to `node:crypto.webcrypto`
-shim — single-file change. **Do not relax the fallback in the loop.**
+The confirmation token is a single-use credential authorizing the
+`REQUEST_CONFIRMATION → EXECUTE` substitution; a non-CSPRNG source would
+make it guessable. If Node ever deprecates `globalThis.crypto`, migrate
+to a `node:crypto.webcrypto` shim — single-file change. **Do not relax
+the throw into a `Math.random()` fallback.**
 
 ### 3.5 RFC 8785 / JCS canonicalisation primitives
 
@@ -247,8 +252,11 @@ be reconstituted in another CI provider — the build itself is portable
 - **Bus factor**: encoded.
 - **Decay rate**: medium.
 - **Blast radius**: release pipeline.
-- **Mitigation**: the gate set is six checks; each maps to a
-  documented invariant.
+- **Mitigation**: the gate set is the chain of named checks in
+  `scripts/rc-checks.ts` (lint/typecheck, test suite, version
+  consistency, freeze-matrix consistency, kernel dep allowlist,
+  cross-runtime hash-vectors spec presence, scale-harness smoke); each
+  maps to a documented invariant.
 
 A maintainer "simplifying" the gate set without an ADR weakens the
 release discipline. **Removing a gate requires an ADR; adding one

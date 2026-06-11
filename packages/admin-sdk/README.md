@@ -1,8 +1,6 @@
 # @adjudicate/admin-sdk
 
-> **Status: `0.1.0-experimental`** — read-only audit query surface only.
-> Mutating procedures (replay, kill-switch, tenant enforcement) arrive in
-> Phase 2 as additive procedures under new namespaces.
+> **Status: `2.1.0`** — stable wire contract. Read and mutating procedures both ship.
 
 The **Admin Query Interface (AQI)** for the adjudicate framework. This
 package owns the **wire contract** between an adopter's deployed audit
@@ -16,7 +14,7 @@ The framework ships:
 - A **tRPC router** for TypeScript-end-to-end consumers
 - A **Next.js Route Handler adapter** (the canonical case; other frameworks are 5-line ports)
 
-The framework does **not** ship: auth (adopter wraps), persistence (adopter implements `AuditStore`), or hosted infra (the SDK runs in the adopter's process).
+The framework does **not** ship: auth (adopter wraps), persistence (adopter implements `AuditStore` and the optional read/mutation ports), or hosted infra (the SDK runs in the adopter's process).
 
 ---
 
@@ -28,9 +26,46 @@ The framework does **not** ship: auth (adopter wraps), persistence (adopter impl
 @adjudicate/admin-sdk/adapters/next — toNextRouteHandler
 ```
 
+`adminRouter` exposes seven namespaces (see `src/trpc/index.ts`):
+
+| Namespace | What it covers |
+|-----------|----------------|
+| `audit` | `query` / `byHash` — read kernel-emitted decision audits (actor-gated). |
+| `emergency` | `state` / `history` (read) + `update` (mutation) — operator kill switch. |
+| `replay` | `run` (mutation) — re-adjudicate a historical record against current policy. |
+| `governance` | distributions, drift, red-team, token-budget, config-seal, policy descriptor/manifest reads + `recordOutcome` (mutation). |
+| `approval` | `list` / `history` / `chain` (read) + `resolve` (mutation) — confirmation engine. |
+| `pack` | `aiBom` / `aiBomList` / `aiBomById` — AI Bill-of-Materials reads. |
+| `memory` | `bySession` — cross-session memory snapshot read. |
+
+Optional surfaces (governance/approval/pack/memory beyond the base reads)
+are **feature-detected at runtime**: each procedure throws
+`PRECONDITION_FAILED` when its backing port is not wired into `AdminContext`,
+so the procedure shape stays static across adopters.
+
+## Authentication & actors
+
+Every record-level read and every mutation requires an authenticated actor,
+resolved by the adopter's `createContext` via `extractActor(req)` from the
+`x-adjudicate-actor-id` header (plus optional `-name` / `-tenant`):
+
+- `audit.query` / `audit.byHash` and the record-level governance drill-downs
+  (`piiEvents`, `commandRiskEvents`) throw `UNAUTHORIZED` with no actor — audit
+  reads are **not** open.
+- Mutations (`emergency.update`, `replay.run`, `governance.recordOutcome`,
+  `approval.resolve`) throw `UNAUTHORIZED` with no actor.
+- Aggregate-only stats (`outcomeDistribution`, `piiClassificationStats`,
+  `commandRisk`) leak no per-record data and do not require an actor.
+
+`extractActor` does **not** authenticate — it trusts the headers. The
+`toNextRouteHandler` adapter takes a `requireAuth` gate (REQUIRED in
+production; the handler throws at construction without it) that runs before
+every request. Wrap your IdP session check there (see the `next.ts` JSDoc for
+Clerk / OIDC recipes).
+
 ## Implementing `AuditStore`
 
-The adopter contract is two methods. Postgres / Memory / Kafka-archive / S3-cold all satisfy the same shape.
+The adopter read contract is two methods. Postgres / Memory / Kafka-archive / S3-cold all satisfy the same shape.
 
 ```ts
 import type { AuditStore } from "@adjudicate/admin-sdk";
@@ -63,6 +98,7 @@ export const myPostgresStore: AuditStore = {
 - Honor `query.limit` exactly. The schema caps it at 500.
 - Apply all provided filter fields with AND semantics.
 - Surface persistence failures by throwing — the SDK converts to a tRPC `INTERNAL_SERVER_ERROR` with safe message.
+- For multi-tenant stores, honor the optional `getByIntentHash` `tenantScope` and never return a record outside it.
 
 **Implementations MUST NOT**:
 - Mutate records.
@@ -71,12 +107,17 @@ export const myPostgresStore: AuditStore = {
 
 ## Mounting the tRPC router (Next.js)
 
+`AdminContext` requires `store`, `emergencyStore`, and `actor` (the optional
+ports — `replayer`, `approvalPort`, `outcomeSink`, `aiBom`, etc. — are wired in
+only for the surfaces you expose):
+
 ```ts
 // app/api/admin/[trpc]/route.ts
 import {
   adminRouter,
   toNextRouteHandler,
   createInMemoryAuditStore,
+  extractActor,
 } from "@adjudicate/admin-sdk";
 
 const store = createInMemoryAuditStore({ records: myRecords });
@@ -84,7 +125,12 @@ const store = createInMemoryAuditStore({ records: myRecords });
 export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin",
-  createContext: () => ({ store }),
+  requireAuth: withClerkAuth, // REQUIRED in production
+  createContext: (req) => ({
+    store,
+    emergencyStore: myEmergencyStore,
+    actor: extractActor(req),
+  }),
 });
 ```
 
@@ -94,16 +140,21 @@ For Express/Fastify/Hono, import `createAuditQueryHandler` directly and wire it 
 
 `@adjudicate/core` defines the canonical TypeScript types. `@adjudicate/admin-sdk` ships matching Zod schemas. Drift is caught by **three independent gates**:
 
-1. **Build-time TS assignability** — each schema file declares `_coreToSchema` and `_schemaToCore` const functions whose bodies fail to compile if the schema and core type disagree.
+1. **Build-time TS assignability** — the schemas that mirror a core type carry
+   `_coreToSchema` / `_schemaToCore` const guards whose bodies fail to compile
+   if the schema and core type disagree (e.g. `src/schemas/envelope.ts`, which
+   mirrors `core/src/envelope.ts` + `taint.ts`). Most schemas in
+   `src/schemas/` are AQI-only (governance, approval, pack, token-budget, …)
+   with no core counterpart to guard.
 2. **Runtime fixture roundtrip** — `tests/schemas-roundtrip.test.ts` parses one fixture per Decision kind through the schemas. Drift fails by name.
 3. **CI gate** — root `pnpm -r test` runs both above as part of normal verification. A kernel change that breaks the SDK fails the workspace build.
 
-If you edit a type in `packages/core/src/{decision,envelope,audit,refusal,basis-codes,taint}.ts`, update the matching schema in `packages/admin-sdk/src/schemas/`. CI will tell you if you forgot.
+If you edit a core type that a schema mirrors (`packages/core/src/{decision,envelope,audit,refusal,basis-codes,taint}.ts`), update the matching file in `packages/admin-sdk/src/schemas/`. CI will tell you if you forgot.
 
 ## What's not in this package
 
-- **Mutating procedures** (replay, kill-switch, tenant enforcement) — Phase 2.
-- **Auth** — adopter-supplied. Wrap the route handler with your auth middleware.
+- **Auth** — adopter-supplied. Pass `requireAuth` to the route handler / wrap with your auth middleware.
+- **Persistence & ports** — adopter implements `AuditStore` and any optional read/mutation ports (`replayer`, `approvalPort`, `outcomeSink`, AI-BOM, drift, token-budget, …).
 - **Postgres reference store** — separate package `@adjudicate/audit-postgres-store` (future).
 - **Express/Fastify/Hono adapters** — community PRs welcome. The handler is framework-agnostic by design.
 - **OpenAPI export** — possible from Zod via `zod-to-openapi` if a non-TS consumer ever appears.

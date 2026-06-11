@@ -9,7 +9,7 @@ CI-gate DEFER, and release gates (Item 14).
 | Gate | Outcome | Trigger |
 |---|---|---|
 | Regression score | ESCALATE → human | `aiEvalScore` below `REGRESSION_ESCALATE_THRESHOLD` (80) |
-| Carbon budget | REWRITE | `region` not the greenest in `REGION_CARBON_RANK` → clamped to `GREENEST_REGION` (taint preserved) |
+| Carbon budget | REWRITE | `region` not the greenest *in its own data-residency zone* → clamped via `greenestRegionInZone` (taint preserved, zone never crossed) |
 | Model/prompt change | REQUEST_CONFIRMATION | bundled `modelId`/`promptVersion` differs from the last approved release |
 
 Guard precedence (first non-null wins): a failed eval ESCALATEs before any

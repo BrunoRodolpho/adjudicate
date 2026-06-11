@@ -17,7 +17,8 @@
 ## 1. What you are inheriting
 
 A frozen, deterministic decision kernel that has been in production
-for years. Its public contracts will not change. Its purpose is:
+for years (`@adjudicate/core` is at 1.3.0). Its public contracts will
+not change. Its purpose is:
 
 - to remain replayable, audit-verifiable, and provider-neutral;
 - to evolve only along the additive paths documented in
@@ -25,9 +26,14 @@ for years. Its public contracts will not change. Its purpose is:
 - to absorb the next decade of ecosystem and runtime change without
   losing the v1 invariants.
 
+"v1 invariants" throughout this guide names a governance posture — the
+constitutional surface frozen since the 1.0.0 cutover (§6) — not a
+pre-release state. The package is well past v1; the freeze is what is
+being held, not awaited.
+
 Your role is *not* to add features. Your role is to:
 
-1. **Keep the test surface green** (1120+ tests; see §5).
+1. **Keep the test surface green** (see §5).
 2. **Approve only additive evolution** (§3).
 3. **Triage operational incidents** ([`OPERATOR_GUIDE.md`](./OPERATOR_GUIDE.md)).
 4. **Cut releases on demand** (§4).
@@ -48,15 +54,18 @@ minutes of receiving credentials. The order:
    - [`docs/release/EXTENSION_POLICY.md`](../release/EXTENSION_POLICY.md)
    - [`docs/release/SEMVER_GOVERNANCE.md`](../release/SEMVER_GOVERNANCE.md)
 3. Run the full test suite locally: `pnpm install --frozen-lockfile &&
-   pnpm build && pnpm test`. **Result must be ≥1120 passing.** Any
-   deviation is a regression to investigate before doing anything else.
+   pnpm build && pnpm test`. **Record the passing count; from then on
+   it only moves up.** Any drop is a regression to investigate before
+   doing anything else.
    The `pnpm build` step is required because per-package `tsc --noEmit`
    (run by `pnpm lint`) consumes the `dist/` `.d.ts` files of upstream
    workspace packages — skipping it produces stale-artifact `TS2322`
    errors that masquerade as real regressions. CI runs the steps in
    this exact order; mirror it locally.
-4. Run a dry-run release: `pnpm tsx scripts/rc-checks.ts`. The six
-   release gates must pass.
+4. Run a dry-run release: `pnpm rc:check`. The seven RC gates must
+   pass (lint/typecheck, test suite, version consistency, freeze-matrix
+   consistency, kernel dep allowlist, cross-runtime hash-vector spec
+   presence, scale-harness smoke). See `scripts/rc-checks.ts`.
 5. Read [`WHY_THE_INVARIANTS_EXIST.md`](../architecture/WHY_THE_INVARIANTS_EXIST.md)
    end-to-end. This is the rationale you will repeatedly cite when
    declining proposals.
@@ -84,9 +93,8 @@ When a contributor opens a PR or an issue, apply this in order:
 3. Does it introduce a clock, RNG, or I/O inside `adjudicate()`?
    → Reject. Determinism is the v1 promise.
 
-4. Does it add `metadata: Record<string, unknown>` to Decision or
-   AuditRecord?
-   → Reject. Closed algebra; ADR-104 is the rationale.
+4. Does it add `metadata: Record<string, unknown>` to Decision?
+   → Reject. Closed algebra; ADR-116 + ADR-105 are the rationale.
 
 5. Does it add an optional field to AuditRecord?
    → MINOR if additive; bump AUDIT_RECORD_VERSION; ship migration.
@@ -95,8 +103,8 @@ When a contributor opens a PR or an issue, apply this in order:
    → MINOR. Allocate the code via docs/architecture/adr/ADR-109.
 
 7. Does it add a new conformance check (AC-NNN)?
-   → MINOR. Reserve the AC code; update MULTIRUNTIME_CONFORMANCE.md
-   if cross-runtime.
+   → MINOR. Reserve the AC code; update
+   `docs/specs/MULTIRUNTIME_CONFORMANCE.md` if cross-runtime.
 
 8. Does it change a CI workflow or release gate?
    → ADR required. Cite which invariant the change preserves.
@@ -138,22 +146,26 @@ A MAJOR is a multi-week event. See
 the full discipline. The headlines:
 
 - Stage an `-rc` branch and pre-publish each package.
-- Run the `release-candidate.yml` workflow; it gates on the six RC
-  checks plus cross-runtime hash vectors and replay-integrity
-  invariants.
+- Run the `release-candidate.yml` workflow; it gates on the seven RC
+  checks (§2 step 4) plus cross-runtime hash vectors and
+  replay-integrity invariants.
 - Coordinate with any third-party runtimes (Rust, Go, Python) to
   release the same wire-format version.
-- Publish the `_LONG_TERM_STEWARDSHIP_REPORT.md` update with the
-  release.
+- Publish the
+  [`LONG_TERM_STEWARDSHIP_REPORT.md`](../architecture/LONG_TERM_STEWARDSHIP_REPORT.md)
+  update with the release.
 
 ---
 
 ## 5. The test surface
 
-The test posture is **1121 passing, 1 skipped (audit-postgres
-live-DB), 0 failing**. The 1 skipped test is gated on a live Postgres
-instance; the maintainer should confirm it passes locally with
-`POSTGRES_URL=…` before any change to `audit-postgres`.
+The posture is **all passing, 1 skipped (audit-postgres live-DB),
+0 failing**. The single skip is gated on a live Postgres instance;
+confirm it passes locally with `POSTGRES_URL=…` before any change to
+`audit-postgres`. For the current headline count consult the latest
+audit/stewardship report under `docs/architecture/` and
+`docs/release/` — the count only grows (additive coverage), so a
+green run below the last reported figure is itself a regression.
 
 ### 5.1 Where to look first when a test fails
 
@@ -212,12 +224,16 @@ These were considered and rejected. Future maintainers will be
 proposed them again; the rejection rationale is:
 
 - **Decision.metadata bag** — converts a closed enum into an open one;
-  destroys analyzer guarantees. ADR-104.
+  destroys analyzer guarantees. ADR-116 (post-v1 extension discipline)
+  + ADR-105 (closed guard-metadata vocabulary). (AuditRecord gained an
+  optional, auditHash-excluded `metadata` field in v5 per ADR-124 —
+  that is governance/observability metadata on an immutable value, not
+  an open slot on the Decision algebra.)
 - **Decision.confidence field** — implies probabilistic semantics the
   kernel does not have; couples policy authors to a numeric scale.
 - **Plan.forbiddenConcepts** — typed slot that promised security
-  enforcement the kernel never delivered. Removed in v0.5; do not
-  reintroduce.
+  enforcement the kernel never delivered. Removed in core 1.0.0
+  (see `packages/core/CHANGELOG.md`); do not reintroduce.
 - **YAML/JSON Pack DSL** — Packs are TypeScript; metadata is the
   declarative layer. A DSL adds parser surface without expressive gain.
 - **Framework-issued signing CA for Packs** — centralises trust;
@@ -226,7 +242,9 @@ proposed them again; the rejection rationale is:
   in the trust path.
 - **Runtime plugin containers** — invites dynamic mutation; breaks
   determinism.
-- **Hosted-by-framework registry** — see ECOSYSTEM_HEALTH_MODEL.md §2.
+- **Hosted-by-framework registry** — see
+  [`ECOSYSTEM_HEALTH_MODEL.md`](../pack-ecosystem/ECOSYSTEM_HEALTH_MODEL.md)
+  §2 ("Why no marketplace").
 
 When declining one of these, cite the relevant ADR or section. Do not
 re-litigate.

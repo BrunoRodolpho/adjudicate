@@ -28,11 +28,14 @@ The framework rejects ad-hoc extension. Three permanent rules:
 
 - **Closed enums stay closed.** Six `Decision.kind` values; eleven
   `BasisCategory` values; three `Taint` values; the closed sets in
-  §4 of `MULTIRUNTIME_CONFORMANCE.md`. Widening them is a coordinated
-  MAJOR with multi-runtime co-release.
-- **Wire formats stay frozen.** `IntentEnvelope v2`, `AuditRecord v4`,
+  §4 of [`docs/specs/MULTIRUNTIME_CONFORMANCE.md`](../specs/MULTIRUNTIME_CONFORMANCE.md).
+  Widening them is a coordinated MAJOR with multi-runtime co-release.
+- **Wire formats stay frozen.** `IntentEnvelope v2`, `AuditRecord v5`,
   canonical-JSON hash recipe. Any change is a new version published
-  alongside golden vectors.
+  alongside golden vectors. (`AuditRecord` is at `AUDIT_RECORD_VERSION
+  = 5`; the v5 `metadata` field is governance/observability data
+  EXCLUDED from the `auditHash` pre-image, so it does not perturb
+  tamper-evidence.)
 - **Public functions widen additively or not at all.** New optional
   fields and new optional parameters are MINOR; required additions are
   MAJOR.
@@ -75,7 +78,8 @@ The following can be extended additively in a MINOR release:
 - **New `KillSwitchEventSource` values, new `ReplayFailureClass`
   values, new `OperationalIncidentClass` values** — these are closed
   but additive enums.
-- **New Tier 1 / Tier 2 analyzers** (`AJD-1NN`, `AJD-2NN`).
+- **New Tier 1 / Tier 2 / Tier 3 analyzers** (`AJD-1NN`, `AJD-2NN`,
+  `AJD-3NN`).
 - **New conformance checks** (`AC-NNN`).
 - **New CLI subcommands and CLI options.**
 - **New codemods** in `@adjudicate/migrate`.
@@ -145,7 +149,7 @@ An ADR is required when **any of these triggers** applies:
 6. A new policy that constrains adopters (e.g., a new conformance
    check that fails previously-passing Packs).
 
-ADRs are numbered consecutively (`ADR-101` through `ADR-115` are
+ADRs are numbered consecutively (`ADR-101` through `ADR-136` are
 shipped). New ADRs append; deletions are MAJOR.
 
 ### 3.1 ADR template
@@ -193,8 +197,9 @@ ADR explicitly justifies a higher tier. Experimental means:
 
 - Removal or rename is MINOR through the v1 line.
 - Marked `@experimental` in JSDoc.
-- Documented in `docs/release/api-surface.md` under the
-  `experimental:` heading.
+- Listed in [`docs/release/api-surface.md`](./api-surface.md) under its
+  owning package's `## @adjudicate/<pkg>` section, with experimental
+  status noted inline on the entry.
 - The freeze matrix carries a `Tol.` column value of `by-evidence` or
   `scheduled`.
 
@@ -274,8 +279,8 @@ update the freeze matrix §19 row; add an attribute-level test.
 ### 7.4 "Generalise the kill-switch to a feature-flag framework"
 
 Decline. Out of scope per `PROJECT_STATUS_AND_NEXT_STEPS.md` and §10
-of `ECOSYSTEM_HEALTH_MODEL.md`. The kill switch is a fail-closed lever,
-not a routing layer.
+of [`docs/pack-ecosystem/ECOSYSTEM_HEALTH_MODEL.md`](../pack-ecosystem/ECOSYSTEM_HEALTH_MODEL.md).
+The kill switch is a fail-closed lever, not a routing layer.
 
 ### 7.5 "Add a YAML Pack DSL"
 

@@ -8,6 +8,10 @@ The split between "public" and "internal" is the load-bearing line for
 release engineering — when we cut a release, this document is the
 checklist that decides whether the diff is patch, minor, or major.
 
+Package versions are not pinned in this doc (they drift per-package; see
+each `package.json`). This file tracks *which symbols* are public, not
+their version numbers.
+
 ---
 
 ## How to read this document
@@ -27,15 +31,29 @@ The convention across the repo: only identifiers re-exported from a
 package's `src/index.ts` (and from each declared subpath barrel) are
 public. Everything else is internal.
 
+This document lists the *headline* symbols per package, not every
+identifier. The authoritative inventory is each package's barrel
+(`src/index.ts` and declared subpath barrels); the audit checks below
+keep this prose in sync with those barrels.
+
 ---
 
 ## `@adjudicate/core`
 
 **Subpaths:**
 
-- `.` (root) — the headline types + helpers
-- `./kernel` — `adjudicate()`, `PolicyBundle`, guard helpers
-- `./llm` — `CapabilityPlanner`, `ToolClassification`, `PromptRenderer`
+- `.` (root) — the headline types + helpers.
+- `./kernel` — `adjudicate()`, `PolicyBundle`, guard/combinator/metrics
+  helpers.
+- `./llm` — `CapabilityPlanner`, `ToolClassification`, `PromptRenderer`.
+
+> **Note on the root barrel.** `core/src/index.ts` does
+> `export * from "./kernel/index.js"` and `export * from "./llm/index.js"`,
+> so *every* kernel and llm symbol is ALSO importable from the root
+> entrypoint. The root / `./kernel` / `./llm` split below is an
+> organizational convention for finer-grained, tree-shakeable imports —
+> it is **not** enforced by the build. Treat a symbol as public if it
+> appears in any of these three barrels.
 
 **Public surface (root):**
 
@@ -45,34 +63,72 @@ public. Everything else is internal.
   `Supersession`, `SupersessionReason`, `AuditPlanSnapshot`.
 - Constants: `BASIS_CODES`, `KERNEL_REFUSAL_CODES`, `AUDIT_RECORD_VERSION`.
 - Helpers: `buildEnvelope`, `buildAuditRecord`, `replayEnvelopeFromAudit`,
-  `sha256Canonical`, `refuse`, `decisionExecute`, `decisionRefuse`,
-  `decisionEscalate`, `decisionRequestConfirmation`, `decisionRewrite`,
-  `decisionDefer`, `noopAuditSink`, `installPack`,
-  `assertPackConformance`, `withBasisAudit`, `classify` (replay), explain
+  `canonicalJson`, `sha256Canonical` (both re-exported from
+  `@adjudicate/canonical` — see that section), `refuse`,
+  `decisionExecute`, `decisionRefuse`, `decisionEscalate`,
+  `decisionRequestConfirmation`, `decisionRewrite`, `decisionDefer`,
+  `noopAuditSink`, `installPack`, `assertPackConformance`,
+  `withBasisAudit`, `classify` (replay), `localizeDecision` + the explain
   helpers.
 
 **Public surface (`./kernel`):**
 
-- `adjudicate`, `adjudicateAndAudit`, `adjudicateWithTrace`,
-  `adjudicateAndLearn`.
-- `PolicyBundle`, `Guard`, `TaintPolicy`, `GuardMetadata`, `nameGuard`,
-  `withMetadata`, `readGuardMetadata`.
-- `MetricsSink`, `LearningSink`, `setMetricsSink`, `setLearningSink`,
-  `recordOutcome`, `createConsoleMetricsSink`, `createConsoleLearningSink`.
-- `RuntimeContext`, `KernelIdentity`.
+- Entry points: `adjudicate`, `adjudicateAndAudit`, `adjudicateWithTrace`,
+  `adjudicateWithDeadline`, `adjudicateAndLearn`.
+- Policy + guards: `PolicyBundle`, `Guard`, `GuardMetadata`,
+  `GuardDescription`, `nameGuard`, `withMetadata`, `readGuardMetadata`.
+- Combinators: `allOf`, `constant`, `firstMatch`.
+- Description / stats: `describePolicyBundle`, `GuardFireStats`.
+- Metrics: `MetricsSink`, `setMetricsSink`, `createConsoleMetricsSink`,
+  plus the `record*` helpers (`recordLedgerOp`, `recordDecision`,
+  `recordRefusal`, `recordSinkFailure`, `recordResourceLimit`) — all in
+  `kernel/metrics.ts`.
+- Learning: `LearningSink`, `setLearningSink`, `recordOutcome`,
+  `createConsoleLearningSink`, `adjudicateAndLearn`.
+- Outcomes: `recordRetrospectiveOutcome`, `setOutcomeSink`,
+  `InMemoryOutcomeSink`, `OutcomeSink`, `RetrospectiveOutcome`.
+- Rate limit: `createRateLimitGuard`, `checkRateLimit`,
+  `createInMemoryRateLimitStore`, `RateLimitStore`, `RateLimitResult`.
+- Runtime context: `createRuntimeContext`, `getDefaultRuntimeContext`,
+  `RuntimeContext`.
+- Identity: `createKernelIdentity`, `KernelIdentity`.
+- Shadow-mode rollout (`shadow.js`) and enforce-config (`enforce-config.js`)
+  are re-exported wholesale via the barrel (`export *`).
 
 **Public surface (`./llm`):**
 
-- `CapabilityPlanner`, `Plan`, `ToolClassification`, `READ_ONLY_TOOLS`,
-  `MUTATING_TOOLS`, `PromptRenderer`.
+- Planner: `staticPlanner`, `CapabilityPlanner`, `Plan`.
+- Renderer: `PromptRenderer`, `RenderedPrompt`, `SupervisorModifiers`,
+  `ToolSchema`.
+- Tool classification: `filterReadOnly`, `isMutating`, `isReadOnly`,
+  `ToolClassification`.
+- Plan conformance: `assertPlanReadOnly`, `assertPlanSubsetOfPack`,
+  `PlanConformanceError`, `safePlan`.
 
 **Internal (do not depend on):**
 
-- Anything under `src/kernel/runtime-context.ts` not re-exported via the
-  kernel barrel.
-- The `replay-classify` internals beyond the `classify` entry point.
-- The `pack-conformance` internals beyond `assertPackConformance` and
+- Anything under `src/kernel/` and `src/llm/` not re-exported via the
+  respective barrel.
+- `replay-classify` internals beyond the `classify` entry point.
+- `pack-conformance` internals beyond `assertPackConformance` and
   `PackConformanceError`.
+
+---
+
+## `@adjudicate/canonical`
+
+The single source of truth for content-addressed hashing — canonical-JSON
+(RFC 8785 / JCS) serialization + sha256 — shared by `@adjudicate/core` and
+runtime adopters so no one forks a copy that can silently drift.
+
+**Public surface:**
+
+- `canonicalJson`, `sha256Canonical`.
+
+`@adjudicate/core` re-exports both from its root barrel
+(`packages/core/src/hash.ts`), so core's historical import path is
+unchanged; the bytes are identical. Golden vectors live in this package
+and are pinned by core's test suite.
 
 ---
 
@@ -143,12 +199,56 @@ guards; they don't inspect their internals.
 
 **Public surface:**
 
-- `runAnalyze`, `AnalysisReport`, `AnalysisFinding`, `Severity`.
-- Renderer entry points (`renderText`, `renderJson`, `renderSarif`).
-- Tier 1 analyzer registry (read-only; adopters cannot register their
-  own analyzers in v0.x).
+- `analyzePolicy` (the entry point), `AnalyzePolicyArgs`,
+  `AnalysisReport`, `Analyzer`, `AnalyzeOptions`, `Diagnostic`,
+  `DiagnosticCode`, `DiagnosticSeverity`, `SourceLocation`,
+  `Tier2Analyzer`.
+- Renderer entry points: `renderText`, `renderJson`, `renderSarif`.
+- Manifest tooling: `describePack`, `describeInstalledPacks`,
+  `computeManifestDigest`, `diffPolicyManifests` and their types.
+- Analyzer registries (read-only — adopters cannot register their own):
+  - `DEFAULT_ANALYZERS` (Tier 1, policy-shape checks).
+  - `DEFAULT_TIER2_ANALYZERS` (AST-based; pair with `loadSourceFiles`).
+  - `DEFAULT_TIER3_ANALYZERS` (`policyCoherenceAnalyzer` + a
+    `PlannerProbe`-driven analyzer).
 
-**Internal:** analyzer implementations, AST shapes for the Pack registry.
+**Internal:** analyzer implementations, AST shapes for the Pack registry,
+and `internal/walk.ts` beyond its exported `NameSource` / `Phase` types.
+
+---
+
+## `@adjudicate/conformance`
+
+Public Pack conformance harness — runs the kernel's invariant suite
+(taint protection, replay safety, intent-hash determinism,
+basis-vocabulary purity, guard ordering, default polarity) against any
+`PackV0`.
+
+**Public surface:** the harness entry points exported from the package
+root. Run it against a Pack in CI to assert kernel-level invariants hold.
+
+---
+
+## `@adjudicate/red-team`
+
+Deterministic adversarial scenario generation (prompt-injection,
+taint-escalation, tool-scope-violation) that asserts a Pack's
+kernel-level defenses hold.
+
+**Public surface:** the scenario generators and assertion harness exported
+from the package root. Scenarios are deterministic so failures are
+reproducible.
+
+---
+
+## `@adjudicate/drift`
+
+Opt-in behavioral / statistical drift detection over the AuditEventBus —
+running decision-distribution comparison with bounded cardinality. Never
+touches the decision path.
+
+**Public surface:** the detector + event-bus subscriber exported from the
+package root.
 
 ---
 
@@ -156,9 +256,10 @@ guards; they don't inspect their internals.
 
 **Public surface:**
 
-- The `adjudicate` CLI binary and its commands: `pack init`, `pack lint`,
-  `doctor`, `simulate`, `analyze`.
-- CLI exit codes (documented in the CLI README).
+- The `adjudicate` CLI binary (`bin: adjudicate`). The commands and their
+  exit codes are the contract; they are documented in the CLI README
+  (`pack`, `analyze`, `doctor`, `simulate`, `replay`, `export`,
+  `red-team`, and more).
 
 **Internal:** every source module. The CLI is the contract; importing
 from `@adjudicate/cli` programmatically is not supported.
@@ -177,19 +278,94 @@ from `@adjudicate/cli` programmatically is not supported.
 
 ---
 
-## `@adjudicate/anthropic` (integration adapter)
+## LLM adapters
+
+The provider-neutral orchestration loop, decision translator, persistence
+shims, and error taxonomy live in **`@adjudicate/adapter-core`**. Each
+provider adapter implements a `ProviderBridge<H>` against its SDK and
+re-exports a thin `createAdjudicatedAgent` that wires it into that loop.
+Provider adapters MUST NOT bypass the loop — the kernel-side audit +
+ledger guarantees only hold when every adjudication flows through it.
+
+### `@adjudicate/adapter-core`
 
 **Public surface:**
 
-- The adapter that exposes adjudicate's intent-and-decision flow through
-  Anthropic's tool-use protocol. Specific exports are listed in the
-  package README.
-- "L2 rework callouts" are documented in the package README and are
-  flagged as places the API may shift when L2 stabilizes.
+- `createAdjudicatedAgent` and the agent option / event / outcome types.
+- Bridge contract: `ProviderBridge`, `ProviderRequest`, `ToolUseRequest`,
+  `buildEnvelopeFromToolUse`, `classifyIncomingToolUse`,
+  `intentKindToApiName`.
+- Decision translation: `translateDecision`, `makeOutOfPlanToolResult`,
+  `DecisionTranslation`, `LoopAction`.
+- Persistence shims: in-memory + Redis confirmation / defer / memory /
+  token-usage stores.
+- Tracing: `noopTraceSink`, `createInMemoryTraceSink`, `TraceSink`.
+- Errors: `AdapterError`, `AdapterErrorCode`.
+- `createMemoryLedger` re-exported from `@adjudicate/audit` for
+  zero-import-friction in tests / quickstarts (NOT for production).
+
+### `@adjudicate/anthropic`
+
+Reference Anthropic Messages API integration.
+
+**Public surface:** `createAdjudicatedAgent`, `createAnthropicBridge`,
+`createAnthropicPromptRenderer`, `DEFAULT_ADJUDICATED_SYSTEM_PROMPT`, and
+the agent types — plus adapter-core re-exports to keep adopter import
+paths stable.
+
+**Deprecated:** `AnthropicAdapterError` / `AnthropicAdapterErrorCode`
+(use `AdapterError` / `AdapterErrorCode` from adapter-core; removed in
+v2.0).
+
+### `@adjudicate/openai`
+
+Reference OpenAI Chat Completions integration — peer to `anthropic`.
+
+**Public surface:** `createAdjudicatedAgent`, `createOpenAIBridge`,
+`createOpenAIPromptRenderer`, `DEFAULT_OPENAI_ADJUDICATED_SYSTEM_PROMPT`,
+the OpenAI-shaped client/message types, and the agent types — plus
+adapter-core re-exports.
+
+---
+
+## `@adjudicate/approval-engine`
+
+Reference human-approval orchestration for `REQUEST_CONFIRMATION` flows —
+pluggable channels (webhook, Slack, Teams, email) plus a replay-safe
+resume via adapter-core's `confirm()`.
+
+**Public surface:** the engine factory, channel interface, and resume
+helpers exported from the package root.
+
+---
+
+## `@adjudicate/admin-sdk`
+
+Admin Query Interface (AQI) — Zod-validated, read-only audit query
+handlers + a tRPC router. Adopter-deployed; framework-shipped contract.
+
+**Subpaths:** `.` (query handlers + types), `./trpc` (router),
+`./adapters/next` (Next.js adapter).
+
+**Public surface:** the query handlers, their Zod schemas, the tRPC
+router, and the Next.js adapter exported from the respective subpaths.
+
+---
+
+## `@adjudicate/locales-pt-BR`
+
+Brazilian Portuguese (pt-BR) refusal messages for `@adjudicate/core`'s
+`localizeDecision()` helper.
+
+**Public surface:** the pt-BR message map exported from the package root.
 
 ---
 
 ## `@adjudicate/pack-*` (domain Packs)
+
+Shipped Packs: `pack-payments-pix`, `pack-identity-kyc`,
+`pack-incident-response`, `pack-access-governance`,
+`pack-deployments-approval`.
 
 **Public surface (per Pack):**
 
@@ -200,13 +376,13 @@ from `@adjudicate/cli` programmatically is not supported.
 **Internal:** guard implementations, intent kind type unions when not
 re-exported.
 
-Packs follow the same semver rules as the framework. Adopters who depend
-on `@adjudicate/pack-payments-pix@0.4.x` can update to `0.4.y` without
-code changes; `0.5.0` may break.
+Packs follow the same semver rules as the framework. Adopters who pin a
+Pack at `0.x.y` can update within `0.x` without code changes; the next
+minor may break.
 
 ---
 
-## `@adjudicate/observability` (new in v0.4)
+## `@adjudicate/observability`
 
 **Public surface:**
 
@@ -225,7 +401,7 @@ their own exporter; the package exposes only the shape it expects.
 
 ---
 
-## `@adjudicate/migrate` (new in v0.4)
+## `@adjudicate/migrate`
 
 **Public surface:**
 
@@ -249,10 +425,9 @@ Two checks keep this document honest:
    `dist/index.d.ts` must appear in this document.
 
 2. **Type-level regression test in `@adjudicate/core/tests/api-surface.test.ts`**
-   (added alongside this document) snapshots the headline declarations.
-   The snapshot is intentionally noisy on breaks — a refactor that
-   churns the snapshot is a signal to update the surface inventory
-   here too.
+   snapshots the headline declarations. The snapshot is intentionally
+   noisy on breaks — a refactor that churns the snapshot is a signal to
+   update the surface inventory here too.
 
 If you ship a change and either check would flip without an
 accompanying update to this file, the release is blocked until the

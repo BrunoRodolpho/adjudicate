@@ -1,13 +1,5 @@
 # @adjudicate/audit-postgres
 
-## 3.0.0
-
-### Patch Changes
-
-- Updated dependencies [b94372b]
-  - @adjudicate/admin-sdk@2.2.0
-  - @adjudicate/audit@3.0.0
-
 ## 2.0.1
 
 ### Patch Changes

@@ -170,3 +170,113 @@ ComparisonPreamble; the rest — HowItWorks/Problem/WedgeTable light surfaces �
 the tracked follow-up). Non-blocking: within rounding of AA and not flagged as a
 score blocker by the design re-score. Console DEFAULT-hue-on-dark usages read
 correctly (vivid on zinc-950) and are not failures.
+
+---
+
+# Final re-score (post-implementation) — 2026-06-10
+
+After the full R4 implementation (12 commits: blog editorial, capability +
+recipe + console templates, craft-bug fixes, WS-C/D/I/K/L/V, transparency
+colour), all 58 routes were re-crawled (`recrawl-final/`) and re-scored by 58
+fresh design-director agents on the same calibrated rubric.
+
+## Trajectory
+
+| Pass | Mean | Median | Range | ≥80 | <60 |
+|---|---|---|---|---|---|
+| Original audit | 34.7 | — | ceiling 52 | 0 | many |
+| Stale FINAL_AUDIT | 59.6 | 62 | ceiling 72 | 0 | several |
+| R4 baseline (this doc) | 64.4 | 64 | 58–74 | 0 | 3 |
+| **Final (post-impl)** | **68.0** | **68** | **63–73** | **0** | **0** |
+
+## What moved
+
+- **Mean 64.4 → 68.0** (+3.6); original-to-final **34.7 → 68.0** (+33.3).
+- **Distribution healthier, not just higher:** the 60–64 band collapsed
+  **33 → 5**, sub-60 routes **3 → 0** (floor raised 58 → 63), and the 70–79
+  band **tripled 5 → 14**. Every route is now competent-to-strong; nothing reads
+  as broken or weak.
+- **Every axis up; craft (the weakest, the main target) rose most after mobile:**
+  composition 64.9→68.5 · typography 68.0→69.9 · color 65.0→67.9 · spacing
+  64.0→67.3 · **craft 62.4→66.9 (+4.5)** · **mobile 66.7→71.4 (+4.7)**.
+- Cluster lifts: the 14 capability pages and 8 recipes moved from ~63 into the
+  66–71 band; how-it-works 58 → 71 (receipt poster + framing); the console
+  cluster's audit-explorer/integrity/tokens now 71–72; comparisons 63 → 71.
+
+## The honest gap: still 0 routes ≥ 80
+
+The systematic work raised the whole site into the **strong-professional band
+(63–73)** and eliminated every weak route — but **nothing crossed into the
+80–100 "showcase" band.** The re-score verdicts are strikingly consistent about
+why: *"strong and professional, held back from showcase by no singular arresting
+moment / utilitarian craft finish / dense documentation-style bodies."*
+
+Crossing 80 is a **different kind of work** from what this round did: not more
+templates or tonal bands, but **bespoke art-direction** — one genuinely arresting
+signature centerpiece per hero, a micro-interaction/optical-finish layer
+(hairlines, depth, motion affordance), and trimming dense doc-style card copy
+into true marketing prose. That is the recommended next round; the foundation it
+would build on is now uniformly solid.
+
+## Final per-route scores (sorted descending)
+
+| Route | Overall | Comp | Type | Color | Space | Craft | Mob |
+|---|---|---|---|---|---|---|---|
+| `/` | **73** | 74 | 73 | 75 | 73 | 71 | 76 |
+| `/console/ai-bom` | **72** | 73 | 74 | 70 | 71 | 76 | 70 |
+| `/console/integrity` | **72** | 71 | 75 | 78 | 70 | 74 | 76 |
+| `/blog/stop-agent-draining-prod` | **72** | 70 | 76 | 68 | 74 | 73 | 76 |
+| `/how-it-works` | **71** | 71 | 75 | 73 | 70 | 68 | 74 |
+| `/capabilities` | **71** | 73 | 70 | 74 | 72 | 70 | 74 |
+| `/comparisons` | **71** | 72 | 70 | 78 | 71 | 68 | 76 |
+| `/console/tokens` | **71** | 73 | 74 | 68 | 72 | 70 | 65 |
+| `/capabilities/token-budget-guard` | **71** | 70 | 73 | 72 | 69 | 71 | 76 |
+| `/recipes/block-dangerous-comman…` | **71** | 72 | 74 | 70 | 71 | 69 | 73 |
+| `/recipes/redact-pii` | **71** | 72 | 71 | 69 | 70 | 72 | 73 |
+| `/console/decision/6b865891a8dee…` | **70** | 68 | 74 | 75 | 67 | 72 | 76 |
+| `/transparency/integrity` | **70** | 71 | 74 | 73 | 70 | 66 | 73 |
+| `/blog/cap-token-spend` | **70** | 71 | 73 | 70 | 71 | 68 | 74 |
+| `/deploy` | **69** | 68 | 72 | 64 | 67 | 68 | 74 |
+| `/architecture` | **69** | 71 | 69 | 72 | 67 | 68 | 73 |
+| `/roadmap` | **69** | 70 | 75 | 66 | 68 | 67 | 71 |
+| `/contribute` | **69** | 71 | 75 | 72 | 68 | 69 | 60 |
+| `/recipes` | **69** | 72 | 68 | 67 | 68 | 70 | 71 |
+| `/console/dashboard` | **69** | 68 | 70 | 74 | 66 | 69 | 75 |
+| `/recipes/over-refund-clamp` | **69** | 71 | 70 | 68 | 69 | 68 | 72 |
+| `/recipes/gate-prod-deploys` | **69** | 71 | 70 | 68 | 70 | 67 | 72 |
+| `/recipes/cap-blast-radius` | **69** | 70 | 72 | 68 | 69 | 67 | 71 |
+| `/architecture/data-flow` | **68** | 70 | 68 | 65 | 69 | 64 | 73 |
+| `/blog` | **68** | 69 | 72 | 67 | 68 | 66 | 72 |
+| `/console/drift` | **68** | 67 | 73 | 74 | 64 | 65 | 64 |
+| `/console/red-team` | **68** | 69 | 72 | 63 | 66 | 67 | 74 |
+| `/console/command-risk` | **68** | 66 | 71 | 72 | 67 | 68 | 71 |
+| `/capabilities/pii-guard` | **68** | 71 | 68 | 67 | 69 | 67 | 72 |
+| `/capabilities/release-gating` | **68** | 68 | 69 | 66 | 67 | 70 | 73 |
+| `/capabilities/command-risk-guard` | **68** | 68 | 73 | 63 | 64 | 70 | 71 |
+| `/capabilities/red-team` | **68** | 67 | 69 | 70 | 67 | 69 | 71 |
+| `/capabilities/hallucination-sco…` | **68** | 70 | 68 | 67 | 68 | 69 | 72 |
+| `/recipes/cap-token-spend` | **68** | 70 | 71 | 67 | 68 | 66 | 70 |
+| `/recipes/pause-for-human` | **68** | 66 | 70 | 69 | 66 | 70 | 74 |
+| `/recipes/least-privilege-access` | **68** | 67 | 74 | 64 | 65 | 67 | 72 |
+| `/transparency` | **67** | 68 | 70 | 64 | 67 | 63 | 71 |
+| `/console/audit-explorer` | **67** | 66 | 71 | 64 | 64 | 65 | 70 |
+| `/capabilities/behavioral-drift` | **67** | 68 | 66 | 70 | 66 | 68 | 70 |
+| `/transparency/drift` | **67** | 68 | 70 | 64 | 67 | 65 | 69 |
+| `/transparency/command-risk` | **67** | 68 | 69 | 64 | 66 | 64 | 71 |
+| `/transparency/tokens` | **67** | 68 | 70 | 65 | 66 | 64 | 70 |
+| `/console` | **66** | 67 | 68 | 62 | 67 | 64 | 68 |
+| `/introspection` | **66** | 65 | 68 | 67 | 66 | 62 | 73 |
+| `/console/approvals` | **66** | 66 | 65 | 70 | 63 | 65 | 72 |
+| `/capabilities/ai-bom` | **66** | 67 | 68 | 64 | 66 | 63 | 70 |
+| `/capabilities/config-integrity-…` | **66** | 65 | 66 | 64 | 67 | 64 | 72 |
+| `/capabilities/policy-coherence-…` | **66** | 67 | 66 | 63 | 68 | 64 | 74 |
+| `/capabilities/incident-response…` | **66** | 67 | 65 | 68 | 64 | 65 | 71 |
+| `/capabilities/access-governance…` | **66** | 67 | 65 | 66 | 64 | 64 | 70 |
+| `/transparency/red-team` | **66** | 67 | 66 | 68 | 66 | 62 | 72 |
+| `/blog/launching-adjudicate` | **66** | 62 | 70 | 67 | 68 | 64 | 74 |
+| `/blog/human-approval-resume` | **66** | 66 | 68 | 70 | 65 | 64 | 70 |
+| `/transparency/pii` | **64** | 64 | 67 | 66 | 63 | 62 | 64 |
+| `/playground` | **63** | 60 | 68 | 66 | 64 | 62 | 67 |
+| `/capabilities/smart-approval-en…` | **63** | 64 | 60 | 62 | 58 | 61 | 72 |
+| `/capabilities/agent-memory-store` | **63** | 64 | 62 | 60 | 66 | 64 | 63 |
+| `/transparency/ai-bom` | **63** | 66 | 64 | 60 | 61 | 60 | 70 |

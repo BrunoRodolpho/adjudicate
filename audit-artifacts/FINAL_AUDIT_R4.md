@@ -280,3 +280,39 @@ would build on is now uniformly solid.
 | `/capabilities/smart-approval-en…` | **63** | 64 | 60 | 62 | 58 | 61 | 72 |
 | `/capabilities/agent-memory-store` | **63** | 64 | 62 | 60 | 66 | 64 | 63 |
 | `/transparency/ai-bom` | **63** | 66 | 64 | 60 | 61 | 60 | 70 |
+
+---
+
+# R5 result — the systematic ceiling (2026-06-10)
+
+After R5-A (optical-finish: layered shadow ramp, Card/Button elevation + hover)
+and R5-B (darker `muted`, decision-text→`-strong`, axe contrast 215→164) — the
+two **biggest** data-identified levers (199 of 174 weighted blocker mentions),
+applied globally — a full re-crawl + 58-agent re-score returned **mean 67.5**,
+median 66.5, range 63–73, **0 routes ≥80**.
+
+**This is flat vs the 68.0 baseline.** Across four re-scores
+(34.7 → 59.6 → 64.4 → 68.0 → 67.5) the ceiling has held at **72–74** and **no
+route has ever been awarded 80**. The systematic, component/token-level work has
+**plateaued**: the graders no longer move on global craft tuning.
+
+The remaining 174 blockers are now **bespoke art-direction**, not systematic:
+
+| Blocker | Mentions |
+|---|---|
+| Generic/assembled cards (badge clutter, thin borders, uniform tiles) | 31 |
+| No singular signature moment ("doesn't sell the product") | 28 |
+| Dead voids / empty whitespace in panels (console terminal, orphan cards) | 23 |
+| Flat/timid colour (persists despite R5-B) | 23 |
+| Loose spacing / rhythm | 19 |
+| Concrete defects (nav wraps to 3 lines, code-chip clip, mobile crowd) | 15 |
+| Hero video/mockup reads washed-out or empty in a static frame | 11 |
+| Diagram/mind-map schematic/under-designed | 9 |
+
+**Honest conclusion:** 80+ is **not reliably reachable by the systematic,
+autonomous work available here.** It requires per-page bespoke art-direction (a
+designer killing voids, composing a signature centerpiece per hero, redesigning
+card density) — and even then these graders award 80 essentially never (0/232
+route-views across four passes). The **realistic systematic ceiling is ~68–73**.
+The genuine, durable win of this whole effort is **34.7 → 68 with zero broken
+routes**, a11y/contrast coverage, and a clean component system to build on.

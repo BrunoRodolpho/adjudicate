@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/web",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "description": "Marketing homepage + interactive playground for the adjudicate framework.",

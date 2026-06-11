@@ -1,5 +1,18 @@
 # @adjudicate/console
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [b94372b]
+  - @adjudicate/analyze@0.4.0
+  - @adjudicate/admin-sdk@2.2.0
+  - @adjudicate/audit@3.0.0
+  - @adjudicate/audit-postgres@3.0.0
+  - @adjudicate/pack-identity-kyc@0.2.1
+  - @adjudicate/adapter-core@0.3.1
+  - @adjudicate/approval-engine@0.2.1
+
 ## 0.1.2
 
 ### Patch Changes

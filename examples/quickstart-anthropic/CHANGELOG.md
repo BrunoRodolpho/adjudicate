@@ -1,5 +1,11 @@
 # @example/quickstart-anthropic
 
+## 0.1.3
+
+### Patch Changes
+
+- @adjudicate/anthropic@0.3.1
+
 ## 0.1.2
 
 ### Patch Changes

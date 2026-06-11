@@ -1,5 +1,11 @@
 # @adjudicate/approval-engine
 
+## 0.2.1
+
+### Patch Changes
+
+- @adjudicate/adapter-core@0.3.1
+
 ## 0.2.0
 
 ### Minor Changes

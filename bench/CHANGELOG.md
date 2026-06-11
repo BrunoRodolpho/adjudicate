@@ -1,5 +1,11 @@
 # @adjudicate/bench
 
+## 0.0.4
+
+### Patch Changes
+
+- @adjudicate/audit@3.0.0
+
 ## 0.0.3
 
 ### Patch Changes

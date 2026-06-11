@@ -1,5 +1,14 @@
 # @adjudicate/web
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [b94372b]
+  - @adjudicate/admin-sdk@2.2.0
+  - @adjudicate/audit@3.0.0
+  - @adjudicate/pack-identity-kyc@0.2.1
+
 ## 0.1.2
 
 ### Patch Changes

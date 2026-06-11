@@ -31,7 +31,7 @@ export function Problem() {
           <Panel
             title="Without adjudicate"
             tint="rose"
-            statusIcon={<AlertTriangle size={18} className="text-refuse" />}
+            statusIcon={<AlertTriangle size={18} className="text-refuse-strong" />}
           >
             <div className="flex items-center justify-between gap-3 text-sm">
               <Pill label="LLM" />
@@ -39,7 +39,7 @@ export function Problem() {
                 aria-hidden
                 animate={{ x: [0, 8, 0] }}
                 transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-                className="text-refuse"
+                className="text-refuse-strong"
               >
                 <ArrowRight size={20} />
               </motion.div>
@@ -56,7 +56,7 @@ export function Problem() {
             title="With adjudicate"
             tint="brand"
             statusIcon={
-              <span className="rounded-full bg-execute/15 px-2 py-0.5 text-[10px] uppercase tracking-section text-execute">
+              <span className="rounded-full bg-execute/15 px-2 py-0.5 text-[10px] uppercase tracking-section text-execute-strong">
                 Kernel
               </span>
             }
@@ -134,7 +134,7 @@ function Pill({
 }) {
   const cls =
     tone === "danger"
-      ? "border-refuse/40 bg-refuse/10 text-refuse"
+      ? "border-refuse/40 bg-refuse/10 text-refuse-strong"
       : "border-edge bg-surface text-ink";
   return (
     <span

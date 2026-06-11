@@ -19,8 +19,11 @@ export function Card({
   readonly external?: boolean;
 }) {
   const classes = cn(
-    "block rounded-xl border border-edge bg-surface p-5 transition hover:shadow-md",
-    href && "hover:border-ink/30 focus-ring",
+    // Hairline ring + soft elevation at rest; interactive cards lift + bloom on
+    // hover and settle on press (reduced-motion-safe).
+    "block rounded-xl bg-surface p-5 shadow-sm ring-1 ring-edge/70",
+    href &&
+      "transition-all duration-150 hover:shadow-md hover:ring-edge-strong motion-safe:hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm focus-ring",
     className,
   );
 

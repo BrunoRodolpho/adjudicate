@@ -91,10 +91,13 @@ const config: Config = {
       // ── Soft, warm-tinted (zinc, not pure-black) elevation ramp. A card rests
       //    on shadow-xs (no border) and lifts to shadow-sm on hover.
       boxShadow: {
-        xs: "0 1px 2px rgb(24 24 27 / 0.04)",
-        sm: "0 2px 8px rgb(24 24 27 / 0.06)",
-        md: "0 8px 24px rgb(24 24 27 / 0.08)",
-        lg: "0 16px 48px rgb(24 24 27 / 0.12)",
+        // Layered (tight contact + soft ambient), warm-zinc-tinted elevation, so
+        // surfaces read as physically lifted rather than drawn — the
+        // optical-finish layer (R5-A). Each step composes two shadows.
+        xs: "0 1px 1px rgb(24 24 27 / 0.04), 0 1px 2px rgb(24 24 27 / 0.05)",
+        sm: "0 1px 2px rgb(24 24 27 / 0.05), 0 4px 10px rgb(24 24 27 / 0.06)",
+        md: "0 2px 4px rgb(24 24 27 / 0.05), 0 12px 28px rgb(24 24 27 / 0.10)",
+        lg: "0 8px 16px rgb(24 24 27 / 0.06), 0 24px 56px rgb(24 24 27 / 0.14)",
         focus: "0 0 0 3px rgb(99 102 241 / 0.35)",
       },
 
@@ -106,7 +109,7 @@ const config: Config = {
         edge: "#E4E4E7", // zinc-200 — hairline borders only
         "edge-strong": "#D4D4D8", // zinc-300 — hover borders / dividers that must read
         faint: "#A1A1AA", // zinc-400 — DECORATIVE/disabled only, never text (2.3:1)
-        muted: "#71717A", // zinc-500 — secondary text (4.6:1 AA)
+        muted: "#636370", // zinc-550 — secondary text (5.6:1 on white; clears AA on warm tints)
         "muted-strong": "#52525B", // zinc-600 — emphasized secondary text (7.4:1 AAA)
         "ink-soft": "#3F3F46", // zinc-700 — sub-headings (9.7:1)
         ink: "#18181B", // zinc-900 — primary text (16.1:1 AAA)

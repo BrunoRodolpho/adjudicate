@@ -9,7 +9,7 @@ import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 function Mark({ value }: { value: "yes" | "no" | "partial" | "seam" }) {
   if (value === "yes")
     return (
-      <span className="inline-flex items-center gap-1 text-execute">
+      <span className="inline-flex items-center gap-1 text-execute-strong">
         <Check size={14} /> yes
       </span>
     );
@@ -21,12 +21,12 @@ function Mark({ value }: { value: "yes" | "no" | "partial" | "seam" }) {
     );
   if (value === "partial")
     return (
-      <span className="inline-flex items-center gap-1 text-defer">
+      <span className="inline-flex items-center gap-1 text-defer-strong">
         <Minus size={14} /> partial
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 text-confirm">
+    <span className="inline-flex items-center gap-1 text-confirm-strong">
       <Minus size={14} /> seam
     </span>
   );

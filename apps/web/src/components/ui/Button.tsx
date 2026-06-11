@@ -17,9 +17,10 @@ const STYLES: Record<NonNullable<ButtonProps["variant"]>, string> = {
   // Single solid brand accent (the 3-stop gradient is retired from buttons and
   // survives only as a rare hero flourish) — blueprint §4.4.
   primary:
-    "bg-brand text-white shadow-xs transition-all hover:bg-brand-ink hover:shadow-sm",
-  ghost: "bg-transparent text-ink hover:bg-edge",
-  outline: "border border-edge bg-surface text-ink hover:border-ink/40",
+    "bg-brand text-white shadow-sm hover:bg-brand-ink hover:shadow-md motion-safe:hover:-translate-y-0.5",
+  ghost: "bg-transparent text-ink hover:bg-edge/60",
+  outline:
+    "bg-surface text-ink shadow-xs ring-1 ring-edge hover:shadow-sm hover:ring-edge-strong",
 };
 
 export function Button({
@@ -31,7 +32,7 @@ export function Button({
   className,
 }: ButtonProps) {
   const classes = cn(
-    "inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium tracking-tight focus-ring",
+    "inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium tracking-tight transition-all duration-150 focus-ring motion-safe:active:scale-[0.98]",
     STYLES[variant],
     className,
   );

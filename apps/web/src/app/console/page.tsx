@@ -151,6 +151,7 @@ export default function ConsolePage() {
         <figure className="mt-10 overflow-hidden rounded-2xl border border-console-edge bg-console-panel shadow-lg">
           <video
             src="/console-tail.mp4"
+            poster="/console-tail-poster.jpg"
             autoPlay
             muted
             loop

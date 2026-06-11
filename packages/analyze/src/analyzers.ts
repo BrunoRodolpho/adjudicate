@@ -13,36 +13,7 @@
 import type { PackV0 } from "@adjudicate/core";
 import { readGuardMetadata } from "@adjudicate/core/kernel";
 import type { Analyzer, Diagnostic } from "./types.js";
-
-type Phase = "state" | "auth" | "business";
-
-function eachGuard<K extends string, P, S, C>(
-  pack: PackV0<K, P, S, C>,
-  fn: (guard: (...args: never[]) => unknown, phase: Phase, index: number) => void,
-): void {
-  const policy = pack.policy as {
-    stateGuards: ReadonlyArray<(...args: never[]) => unknown>;
-    authGuards: ReadonlyArray<(...args: never[]) => unknown>;
-    business: ReadonlyArray<(...args: never[]) => unknown>;
-  };
-  policy.stateGuards.forEach((g, i) => fn(g, "state", i));
-  policy.authGuards.forEach((g, i) => fn(g, "auth", i));
-  policy.business.forEach((g, i) => fn(g, "business", i));
-}
-
-function guardLabel(
-  guard: (...args: never[]) => unknown,
-  phase: Phase,
-  index: number,
-): string {
-  const meta = readGuardMetadata(guard);
-  const metaName = meta?.name;
-  const fnName =
-    typeof (guard as { name?: unknown }).name === "string"
-      ? ((guard as { name: string }).name as string)
-      : "";
-  return metaName ?? (fnName.length > 0 ? fnName : `${phase}[${index}]`);
-}
+import { eachGuard, guardLabel } from "./internal/walk.js";
 
 // ─── AJD-101: MissingMetadataAnalyzer ──────────────────────────────────────
 

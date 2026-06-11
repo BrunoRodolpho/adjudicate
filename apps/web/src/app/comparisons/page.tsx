@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { DecisionsGrid } from "@/sections/DecisionsGrid";
 import { WedgeTable } from "@/sections/WedgeTable";
-import { Footer } from "@/sections/FinalCTA";
+import { ComparisonPreamble } from "@/sections/ComparisonPreamble";
+import { DepthHeader } from "@/components/ui/DepthHeader";
+import { DecisionFan } from "@/components/DecisionFan";
+import { BrandGlow } from "@/components/ui/BrandGlow";
 
 export const metadata: Metadata = {
   title: "Comparisons · adjudicate",
@@ -28,42 +29,25 @@ export default function ComparisonsPage() {
     <main>
       <DepthHeader
         eyebrow="Depth · comparisons"
-        title="Why allow/deny isn't enough."
+        title={
+          <>
+            Why allow/deny{" "}
+            <span className="bg-gradient-primary bg-clip-text text-transparent">
+              isn&apos;t enough.
+            </span>
+          </>
+        }
         subtitle="Permission engines like OPA and Cedar return yes/no on a single proposed action. Adjudicate returns six structured decisions — including the four that AI-mediated systems actually need."
       />
+      <section className="relative overflow-hidden border-b border-edge bg-surface py-12">
+        <BrandGlow />
+        <div className="relative z-10 mx-auto max-w-5xl overflow-x-auto px-6">
+          <DecisionFan className="h-auto w-full min-w-[600px]" />
+        </div>
+      </section>
+      <ComparisonPreamble />
       <DecisionsGrid />
       <WedgeTable />
-      <Footer />
     </main>
-  );
-}
-
-function DepthHeader({
-  eyebrow,
-  title,
-  subtitle,
-}: {
-  eyebrow: string;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <header className="bg-canvas pb-6 pt-10">
-      <div className="mx-auto max-w-6xl px-6">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-xs uppercase tracking-section text-muted hover:text-ink"
-        >
-          <ArrowLeft size={12} /> Back to homepage
-        </Link>
-        <p className="mt-6 text-xs uppercase tracking-section text-muted">
-          {eyebrow}
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight text-ink md:text-4xl">
-          {title}
-        </h1>
-        <p className="mt-3 max-w-2xl text-base text-muted">{subtitle}</p>
-      </div>
-    </header>
   );
 }

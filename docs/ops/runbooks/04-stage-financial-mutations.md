@@ -11,7 +11,7 @@
 | Intent kind | Tool name | Notes |
 |---|---|---|
 | `order.confirm` | (kernel-issued via `order.tool.propose`) | Binds payment status; kernel returns DEFER for pending PIX |
-| `order.cancel` | `cancel_order` | Triggers downstream refund logic in `apps/api/src/payments/` |
+| `order.cancel` | `cancel_order` | Triggers downstream refund logic in `apps/api/src/payments/` (illustrative — adopter-side path, not an adjudicate symbol) |
 | `order.amend` | `amend_order` | Modifies financial commitment (line items, total) |
 | `payment.regenerate_pix` | `regenerate_pix` | Issues new PIX QR; voids old |
 | `payment.set_pix_details` | `set_pix_details` | Binds PIX payload to order |
@@ -129,7 +129,7 @@ ibx svc restart api
 **7d watchlist:**
 - Refund-completion latency unchanged
 - Webhook-driven resumes account for the right share of order completions (e.g., if PIX is 60% of payments, ~60% of orders should have a resume audit record)
-- File post-rollout summary at `docs/ops/runbooks/post-rollout-summary.md`; declare v2.0 GA.
+- File post-rollout summary at `docs/ops/runbooks/post-rollout-summary.md` (a new file you create — see "Post-stage report" below); declare v2.0 GA.
 
 ## Rollback
 
@@ -162,7 +162,7 @@ ibx svc restart api
 
 ## Post-stage report
 
-This is the **post-rollout summary** — file at `docs/ops/runbooks/post-rollout-summary.md`:
+This is the **post-rollout summary** — create a new file at `docs/ops/runbooks/post-rollout-summary.md`:
 
 - Total `DECISION_KIND` / `PAYLOAD_REWRITE` events across all stages cumulative
 - Total ledger `duplicate` events (correlate to webhook-retry rate; expected non-zero)
@@ -172,4 +172,4 @@ This is the **post-rollout summary** — file at `docs/ops/runbooks/post-rollout
 - Outstanding follow-ups for v3.0: any kernel behaviors that should be templates-aware
 - Sign-offs: owner, on-call lead, intent-kernel maintainer, payments lead, compliance
 
-After this report is filed, declare v2.0 GA. Update `docs/PROJECT_STATE.md` and `docs/architecture/decisions.md` ADR #9 with the GA date.
+After this report is filed, declare v2.0 GA. Record the GA date in `PROJECT_STATUS_AND_NEXT_STEPS.md` (repo root) and in the "Cross-cutting decisions" section of `docs/architecture/decisions.md`.

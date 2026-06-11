@@ -9,7 +9,7 @@ export interface DecisionContent {
   readonly kind: DecisionKind;
   readonly headline: string;
   readonly oneLiner: string;
-  readonly accent: string; // text-* class
+  readonly accent: string; // text-*-strong class (AA-safe on white)
   readonly bg: string; // bg-* class
   readonly border: string; // border-* class
   readonly icon: "CircleCheck" | "ShieldX" | "RotateCcw" | "Clock" | "UserCheck" | "HelpCircle";
@@ -34,7 +34,7 @@ export const DECISIONS: Record<DecisionKind, DecisionContent> = {
     kind: "EXECUTE",
     headline: "Execute",
     oneLiner: "The intent runs against the side-effect.",
-    accent: "text-execute",
+    accent: "text-execute-strong",
     bg: "bg-execute/10",
     border: "border-execute/40",
     icon: "CircleCheck",
@@ -47,7 +47,7 @@ export const DECISIONS: Record<DecisionKind, DecisionContent> = {
     kind: "REFUSE",
     headline: "Refuse",
     oneLiner: "The intent is rejected with a structured refusal.",
-    accent: "text-refuse",
+    accent: "text-refuse-strong",
     bg: "bg-refuse/10",
     border: "border-refuse/40",
     icon: "ShieldX",
@@ -60,7 +60,7 @@ export const DECISIONS: Record<DecisionKind, DecisionContent> = {
     kind: "REWRITE",
     headline: "Rewrite",
     oneLiner: "The kernel returns a sanitised replacement intent.",
-    accent: "text-rewrite",
+    accent: "text-rewrite-strong",
     bg: "bg-rewrite/10",
     border: "border-rewrite/40",
     icon: "RotateCcw",
@@ -73,7 +73,7 @@ export const DECISIONS: Record<DecisionKind, DecisionContent> = {
     kind: "DEFER",
     headline: "Defer",
     oneLiner: "The kernel parks the intent until an external signal arrives.",
-    accent: "text-defer",
+    accent: "text-defer-strong",
     bg: "bg-defer/10",
     border: "border-defer/40",
     icon: "Clock",
@@ -86,7 +86,7 @@ export const DECISIONS: Record<DecisionKind, DecisionContent> = {
     kind: "ESCALATE",
     headline: "Escalate",
     oneLiner: "The intent is routed to a human approver.",
-    accent: "text-escalate",
+    accent: "text-escalate-strong",
     bg: "bg-escalate/10",
     border: "border-escalate/40",
     icon: "UserCheck",
@@ -99,7 +99,7 @@ export const DECISIONS: Record<DecisionKind, DecisionContent> = {
     kind: "REQUEST_CONFIRMATION",
     headline: "Request confirmation",
     oneLiner: "The kernel asks for an affirmative re-confirmation before proceeding.",
-    accent: "text-confirm",
+    accent: "text-confirm-strong",
     bg: "bg-confirm/10",
     border: "border-confirm/40",
     icon: "HelpCircle",

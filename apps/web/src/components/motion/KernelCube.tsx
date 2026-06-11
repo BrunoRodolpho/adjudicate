@@ -3,7 +3,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { DECISIONS_ORDER } from "@/content/decisions";
-import { DecisionBadge } from "./DecisionBadge";
+import { DecisionChip } from "@/components/ui/DecisionChip";
 
 /**
  * Hero centrepiece — a stylised kernel cube emits one of six Decision
@@ -70,7 +70,9 @@ export function KernelCube() {
 
       {/* emitted decision */}
       <div className="mt-6 flex h-12 items-center justify-center">
-        <AnimatePresence mode="wait">
+        {/* initial={false} → the first badge renders visible in SSR / no-JS
+            (only subsequent cycles animate). */}
+        <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={currentKind}
             initial={reduce ? false : { opacity: 0, y: -8 }}
@@ -78,7 +80,7 @@ export function KernelCube() {
             exit={reduce ? undefined : { opacity: 0, y: 8 }}
             transition={{ duration: 0.35, ease: "easeOut" }}
           >
-            <DecisionBadge kind={currentKind} size="lg" animate={false} />
+            <DecisionChip kind={currentKind} size="lg" />
           </motion.div>
         </AnimatePresence>
       </div>

@@ -16,22 +16,28 @@ TypeScript monorepo, pnpm workspaces, Node ≥ 20, Vitest, ESLint 9, strict TS.
 ```
 packages/
   core/                    @adjudicate/core — kernel + types. /kernel + /llm subpath exports.
+  canonical/               @adjudicate/canonical — RFC 8785 JCS + sha256. Single hashing source for core + runtime adopters.
   primitives/              @adjudicate/primitives — L2 guard factories.
   runtime/                 @adjudicate/runtime — park/resume for DEFER.
   audit/                   @adjudicate/audit — Ledger + AuditSink + replay harness.
   audit-postgres/          @adjudicate/audit-postgres — reference Postgres sink.
   admin-sdk/               @adjudicate/admin-sdk — Zod-validated read AQI + tRPC router.
   observability/           @adjudicate/observability — OTLP MetricsSink / LearningSink / SEMCONV.
-  conformance/             @adjudicate/conformance — runConformance(pack) AC-001..AC-006 + manifest validation.
+  drift/                   @adjudicate/drift — opt-in decision-distribution drift detection over the AuditEventBus. Never on the decision path.
+  conformance/             @adjudicate/conformance — runConformance(pack) AC-001..AC-006 + manifest validation + pack-trust primitives.
   analyze/                 @adjudicate/analyze — Tier 1 + Tier 2 AST analyzers AJD-101..AJD-201, SARIF.
+  red-team/                @adjudicate/red-team — deterministic adversarial scenario generation (prompt-injection, taint-escalation, tool-scope-violation).
   migrate/                 @adjudicate/migrate — ts-morph codemod runner.
   adapter-core/            @adjudicate/adapter-core — provider-neutral loop, bridge, decision translator, persistence.
+  approval-engine/         @adjudicate/approval-engine — reference human-approval orchestration for REQUEST_CONFIRMATION (pluggable channels + replay-safe resume).
   anthropic/               @adjudicate/anthropic — thin Anthropic SDK shim over adapter-core.
   openai/                  @adjudicate/openai — thin OpenAI SDK shim over adapter-core.
-  cli/                     @adjudicate/cli — `adjudicate` CLI (12 commands).
+  cli/                     @adjudicate/cli — `adjudicate` CLI.
   pack-payments-pix/       Lighthouse Pack (Brazil PIX). Exercises every outcome.
   pack-identity-kyc/       Async-multistage + AML escalation + taint defense.
   pack-deployments-approval/  Deploy gates: ESCALATE on prod-no-approval, REQUEST_CONFIRMATION on rollback.
+  pack-access-governance/  Access request → review → grant/revoke lifecycle (experimental). All six outcomes.
+  pack-incident-response/  Incident remediation with blast-radius clamps (experimental). All six outcomes.
   locales-pt-BR/           Brazilian Portuguese refusal-message map.
   eslint-config/           Shared ESLint rules (internal).
 
@@ -46,16 +52,18 @@ examples/
 
 bench/                     Vitest microbenchmarks (kernel.bench.ts, audit.bench.ts).
 docs/
-  architecture/            ADRs (ADR-101..ADR-116), 8-layer defense, hosted topology.
+  architecture/            ADRs, 8-layer defense, hosted topology, stewardship set.
   concepts.md              Mental model. Start here.
   guides/                  Testing your policy. (Scenario fixtures + simulate.)
-  release/                 Semver, API surface, deprecations.
-  perf/                    v0.2 microbench baselines (>200× SLO headroom).
+  execution/               Build/execution planning notes.
+  roadmap/                 Forward-looking roadmap notes.
+  release/                 Semver, API surface, deprecations, v1 RC artifacts.
+  perf/                    Microbench + scale baselines (>200× SLO headroom).
   ops/runbooks/            4-stage shadow → enforce rollout playbook (IbateXas example; generalize for your domain).
-  security/                Threat model + review checklist.
+  security/                Threat model + review checklist + V1 security audit.
   compliance/              SOC 2 mapping + shared responsibility matrix.
   pack-ecosystem/          Registry foundations + signing design (design only, not built).
-  specs/                   IntentEnvelope v2 JSON Schema + canonical-JSON hash spec (RFC 8785 JCS).
+  specs/                   IntentEnvelope v2 JSON Schema + canonical-JSON hash spec (RFC 8785 JCS) + golden vectors.
 PROJECT_STATUS_AND_NEXT_STEPS.md  Authoritative remaining-work snapshot.
 ```
 
@@ -88,11 +96,11 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 
 ## Key concepts
 
-- **IntentEnvelope v2.** Wire-format frozen. JSON Schema at `docs/specs/intent-envelope-v2.schema.json`. `intentHash` = RFC 8785 JCS over `{version, kind, payload, nonce, actor, taint}` — `createdAt` is **excluded** from the hash; `nonce` is the load-bearing idempotency key.
+- **IntentEnvelope v2.** Wire-format frozen. JSON Schema at `docs/specs/intent-envelope-v2.schema.json`. `intentHash` = RFC 8785 JCS over `{version, kind, payload, nonce, actor, taint}` — `createdAt` is **excluded** from the hash; `nonce` is the load-bearing idempotency key. The JCS+sha256 encoder lives in `@adjudicate/canonical` (`canonicalJson` / `sha256Canonical`); core re-exports it via `hash.ts` so the kernel and runtime adopters share ONE encoder that cannot silently drift.
 - **Taint lattice.** `SYSTEM > TRUSTED > UNTRUSTED` (closed enum `Taint = "SYSTEM" | "TRUSTED" | "UNTRUSTED"`; ranks 3 > 2 > 1). The taint policy declares which intent kinds are *system-only* (e.g., webhook callbacks). LLM-proposed envelopes are always `UNTRUSTED`.
 - **Pack (`PackV0`).** A self-contained domain bundle: `id`, `version`, `contract: "v0"`, `intents`, `policy: PolicyBundle`, `planner: CapabilityPlanner`, `basisCodes`, optional `signals` (DEFER resume triggers), optional `handlers` (post-EXECUTE side-effects).
 - **GuardMetadata.** Guards attach metadata via `withMetadata(guard, { name, scenario, description })`. The analyzer (`@adjudicate/analyze`) and visualizer consume `readGuardMetadata(guard)`. Hand-written guards may leave `{ kind: "opaque" }`.
-- **`AuditRecord` v4.** Additive over v3: `policyVersion`, `kernelVersion`, `auditHash`, `signature` seam. `verifyAuditRecord` re-derives the hash; pre-v4 records return `{ verified: null, reason: "missing_hash" }`.
+- **`AuditRecord` v5** (`AUDIT_RECORD_VERSION = 5`, `packages/core/src/audit.ts`). Additive history: v4 added `policyVersion`, `kernelVersion`, `auditHash`, `signature` seam; v5 adds an optional `metadata` field (governance/observability, e.g. `hallucination_score`) that is **excluded from the `auditHash` pre-image** — scoring is post-hoc/async, so attaching metadata after emission must not invalidate tamper-evidence. `verifyAuditRecord` strips `auditHash` + `signature` + `metadata` before re-deriving; pre-hash records return `{ verified: null, reason: "missing_hash" }`. A v5 record carrying metadata must be verified by core ≥ v5 (a pre-v5 verifier would not strip it and would falsely report `tampered`).
 - **Supersession (v3+).** REQUEST_CONFIRMATION → resolve, DEFER → resume, REWRITE → execute, replay all carry `supersedes: { predecessorIntentHash, predecessorAt, reason, token? }`. Lives only on `AuditRecord`, never on `Decision` (that would break short-circuit invariants).
 - **`adjudicate()` is synchronous and pure.** No `Date.now()`, no `Math.random()`, no I/O. Wallclock and ledger come from `deps` in `adjudicateAndAudit`. Tests pin determinism on this.
 
@@ -105,13 +113,13 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 5. **Determinism.** Kernel takes no clock or RNG. Adopters provide clocks via `deps`; tests assert byte-identical replay.
 6. **Fail-closed.** A throwing guard becomes `SECURITY` REFUSE with `kernel.GUARD_PANIC` basis. Never propagates. (ADR-106.)
 7. **Replay-safe wire format.** `IntentEnvelope v2` and `canonical-json-hash.md` are normative specs. Any envelope-shape change ships **with** schema + golden vectors, or external runtimes lose round-trip.
-8. **`AuditRecord` schema is additive across minor versions.** v1/v2/v3/v4 readable side-by-side. Bump version + add optional fields only.
+8. **`AuditRecord` schema is additive across minor versions.** v1–v5 readable side-by-side. Bump version + add optional fields only. (Caveat: a v5 record's `metadata` is excluded from `auditHash`, so verification requires core ≥ v5 — see Key concepts.)
 
 ## Entry points
 
 - **Kernel call sites:** `packages/core/src/kernel/adjudicate.ts` (pure) and `packages/core/src/kernel/adjudicate-and-audit.ts` (wraps with ledger + sinks).
 - **Pack registration:** `installPack(pack)` in `packages/core/src/install.ts` — validates contract, extracts signal map, freezes policy.
-- **CLI:** `pnpm adjudicate <command>` → `packages/cli/src/bin.ts`. Commands: `pack init`, `pack lint`, `pack verify`, `analyze`, `simulate`, `repl`, `replay`, `export`, `visualize`, `doctor`, `dev`, `reap`, `scenarios generate`.
+- **CLI:** `pnpm adjudicate <command>` → `packages/cli/src/bin.ts`. Top-level commands: `analyze`, `dev`, `doctor`, `export`, `pack` (subcommands `init` / `lint` / `bom` / `verify`), `reap`, `repl`, `replay`, `red-team`, `scenarios generate`, `simulate`, `visualize`. (`pack bom` emits an AI-BOM per ADR-127; `red-team` asserts a Pack's kernel-level defenses hold against generated adversarial scenarios.)
 - **Admin tRPC:** `apps/console/src/app/api/admin/trpc/[trpc]/route.ts` proxies to `@adjudicate/admin-sdk`. Audit query, kill switch, replay verification.
 - **Playground HTTP:** `apps/web/src/app/api/playground/{adjudicate,policy,outcome-distribution}/route.ts`.
 - **Adapter loop:** `createAdjudicatedAgent` in `packages/adapter-core/src/loop.ts`. Provider-neutral tool-use loop + DEFER/CONFIRMATION stores. Anthropic and OpenAI adapters are thin SDK shims that supply a `ProviderBridge<H>`.
@@ -177,6 +185,12 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 - **v0.7 — Cross-runtime golden vectors.** `docs/specs/canonical-hash-vectors.json` is the language-neutral consumer of the canonical-JSON SHA-256 spec. Non-Node runtimes load it and self-verify.
 - **v0.7 — Adapter loop `TraceSink`.** Low-cardinality lifecycle events (`iteration_start | decision_emitted | paused | completed | max_iterations_exceeded`). Opt-in via `traceSink:` on `createAdjudicatedAgent`. Defaults to no-op.
 - **v0.7 — Extended SEMCONV.** 8 new `adjudicate.*` attributes for adapter/provider/pause/kill-switch lifecycle. All additive, all low-cardinality, all closed enums.
+- **post-v1 — `AuditRecord` v5 (`AUDIT_RECORD_VERSION = 5`, ADR-124).** Optional `metadata` field for post-hoc governance/observability (e.g. `hallucination_score`), **excluded** from the `auditHash` pre-image so attaching it after emission keeps tamper-evidence intact. Verification requires core ≥ v5.
+- **post-v1 — `@adjudicate/canonical` extracted.** RFC 8785 JCS + sha256 lifted out of core's `hash.ts` into a standalone package so the kernel and runtime adopters share one encoder. Core re-exports `canonicalJson` / `sha256Canonical`; bytes are identical and pinned by golden vectors on both sides.
+- **post-v1 — `@adjudicate/red-team`.** Deterministic adversarial scenario generation (prompt-injection, taint-escalation, tool-scope-violation, ADR-133) that asserts a Pack's kernel-level defenses hold. CLI: `adjudicate red-team --pack <module>`. No wall-clock / no RNG.
+- **post-v1 — `@adjudicate/drift`.** Opt-in decision-distribution drift detection over the AuditEventBus (ADR-132), bounded cardinality, never on the decision path.
+- **post-v1 — `@adjudicate/approval-engine`.** Reference human-approval orchestration for REQUEST_CONFIRMATION — pluggable channels (webhook / Slack / Teams / email) + replay-safe resume via adapter-core `confirm()`.
+- **post-v1 — `adjudicate pack bom` + experimental Packs.** AI-BOM emission per ADR-127; `pack-access-governance` and `pack-incident-response` (both `0.1.0-experimental`) exercise all six outcomes for access-request and incident-remediation lifecycles.
 
 ## Where to look for outstanding work
 

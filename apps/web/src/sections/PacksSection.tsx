@@ -18,7 +18,7 @@ export function PacksSection() {
               key={p.id}
               className={`flex flex-col gap-3 rounded-xl border p-5 transition-all duration-200 ${
                 p.status === "shipped"
-                  ? "border-edge bg-surface shadow-sm hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg"
+                  ? "border-edge bg-surface shadow-sm hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-lg"
                   : "border-dashed border-edge bg-canvas opacity-70"
               }`}
             >
@@ -51,12 +51,12 @@ export function PacksSection() {
                       </code>
                     ))}
                   </div>
-                  <div className="mt-2 text-[11px] text-faint">
+                  <div className="mt-2 text-[11px] text-muted">
                     Covers {p.outcomesCovered.length}/6 outcomes
                   </div>
                 </>
               ) : (
-                <p className="text-[11px] italic text-faint">
+                <p className="text-[11px] italic text-muted">
                   Domain template — in design.
                 </p>
               )}

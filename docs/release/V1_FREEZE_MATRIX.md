@@ -1,19 +1,20 @@
 # V1 Freeze Matrix
 
-> Authoritative contract map for v1.0 release-candidate certification.
-> Generated 2026-05-20 against `claude/unruffled-bassi-305034` at HEAD
-> commit `bddf704` (v0.7 — operational hardening + ecosystem trust).
-> Companion to [`api-surface.md`](./api-surface.md) and
-> [`semver.md`](./semver.md); supersedes them where they disagree.
+> Authoritative contract map for the v1 line. Re-cut against
+> `feat/policy-tree` at HEAD `34d2af8`. Companion to
+> [`api-surface.md`](./api-surface.md) and [`semver.md`](./semver.md);
+> supersedes them where they disagree.
 
-This document is the freeze-boundary audit for v1.0. Every exported
-identifier, every wire-format shape, every semantic-convention key,
-every CLI command, and every Pack manifest field has been classified
-into one of seven stability tiers. After v1.0 ships, this matrix is the
-single source of truth that the release-engineering pipeline (API
-surface diff, prepublish invariant check, generated freeze report)
-consults to decide whether a diff is patch, minor, major — or
-blocked.
+`@adjudicate/core` shipped v1 and is now at `1.3.0`; the wire-bearing
+surface below is frozen. This document is the freeze-boundary audit.
+Every exported identifier, every wire-format shape, every
+semantic-convention key, every CLI command, and every Pack manifest
+field is classified into one of seven stability tiers. The matrix is
+the single source of truth the release-engineering pipeline (API
+surface diff, prepublish invariant check, `scripts/check-freeze-matrix.ts`)
+consults to decide whether a diff is patch, minor, major — or blocked.
+Every export in a package's `src/index.ts` MUST appear here, or
+`check-freeze-matrix --strict` fails the RC pipeline.
 
 ---
 
@@ -70,8 +71,8 @@ For each public surface we record:
 | `Supersession` / `SupersessionReason` | F | core | basis-only | additive | medium | closed | scheduled | v3+ field; readers must branch on `record.version`. |
 | `AuditRecord` | F | core | none | additive | high | additive | none | Schema is additive across minor versions per ADR-111; readers loop on `version`. |
 | `AuditPlanSnapshot` | F | core | none | additive | medium | additive | none | v2+ optional; `planFingerprint` SHA-256 is RFC 8785 JCS. |
-| `AuditRecordVersion` (union `1 | 2 | 3 | 4`) | F | core | none | additive | medium | additive | scheduled | Widening to `5` is MINOR; narrowing is MAJOR. |
-| `AUDIT_RECORD_VERSION` | F | core | none | additive | medium | additive | scheduled | Mirrors the type-level constant. |
+| `AuditRecordVersion` (union `1 | 2 | 3 | 4 | 5`) | F | core | none | additive | medium | additive | scheduled | Widening (next is `6`) is MINOR; narrowing is MAJOR. |
+| `AUDIT_RECORD_VERSION` (`5`) | F | core | none | additive | medium | additive | scheduled | Mirrors the type-level constant; `buildAuditRecord` stamps this. |
 
 ### §1.2 Wire-bearing helpers
 
@@ -81,7 +82,7 @@ For each public surface we record:
 | `isIntentEnvelope` / `hasUnknownEnvelopeVersion` | F | core | none | none | medium | closed | none | Branch points used by the kernel's first-guard schema check. |
 | `buildAuditRecord` / `verifyAuditRecord` | F | core | none | additive | high | closed | none | Canonical record builder + tamper-detection verifier; signature seam stays additive. |
 | `replayEnvelopeFromAudit` | F | core | none | none | medium | closed | none | Pre-T8 → T8 nonce fallback is the only intentional foot-gun mitigation; do not relax. |
-| `sha256Canonical` | F | core | decision | hand-edit | high | closed | none | RFC 8785 JCS over `(version, kind, payload, nonce, actor, taint)` — pinned by cross-runtime vectors. |
+| `sha256Canonical` / `canonicalJson` | F | canonical | decision | hand-edit | high | closed | none | RFC 8785 JCS over `(version, kind, payload, nonce, actor, taint)` — pinned by cross-runtime vectors. Re-exported from `@adjudicate/canonical` (the standalone encoder; see §16); core preserves the historical import path with byte-identical output. |
 | `decisionExecute` / `decisionRefuse` / `decisionEscalate` / `decisionRequestConfirmation` / `decisionDefer` / `decisionRewrite` | F | core | decision | hand-edit | high | closed | none | Closed constructors mirror the closed enum. |
 
 ### §1.3 Basis-code vocabulary
@@ -174,6 +175,21 @@ For each public surface we record:
 
 ---
 
+## §3.1 — `@adjudicate/canonical`
+
+The standalone RFC 8785 / JCS encoder. Extracted so the kernel and
+runtime adopters (e.g. `@claustrum/grounding-pgvector` grounding proofs)
+share ONE encoder instead of forking copies that can silently drift.
+`@adjudicate/core` re-exports `sha256Canonical` / `canonicalJson` from
+here with byte-identical output (see §1.2). Golden vectors at
+`@adjudicate/canonical/golden-vectors.json` are pinned by core's suite.
+
+| Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
+|---|---|---|---|---|---|---|---|---|
+| `canonicalize` / `canonicalJson` / `sha256Canonical` | F | canonical | decision | hand-edit | high | closed | none | Normative content-addressed hash recipe; deviations are MAJOR and ship with golden vectors. Must stay browser-safe (no `node:crypto` / `Buffer`) — bundles into the Next.js consoles. |
+
+---
+
 ## §4 — `@adjudicate/primitives`
 
 | Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
@@ -193,11 +209,11 @@ For each public surface we record:
 | Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
 |---|---|---|---|---|---|---|---|---|
 | `parkDeferredIntent` / `ParkDeferredIntentArgs` / `ParkDeferredIntentResult` / `ParkRedis` / `ParkLogger` | F | runtime | decision | additive | high | additive | scheduled | Persistence handshake for DEFER; tampering with `parkedAt` hash is the threat model. |
-| `resumeDeferredIntent` / `ResumeDeferredIntentArgs` / `DeferResumeResult` / `DeferRedis` / `DeferLogger` / `ParkVerificationResult` / `ParkedEnvelope` | F | runtime | decision | additive | high | additive | scheduled | Resume contract; `verifyParkedHash` option defaults flip-tracked below. |
+| `resumeDeferredIntent` / `ResumeDeferredIntentArgs` / `DeferResumeResult` / `DeferRedis` / `DeferLogger` / `ParkVerificationResult` / `ParkedEnvelope` | F | runtime | decision | additive | high | additive | scheduled | Resume contract; `verifyHash?: "strict" \| "warn" \| "off"` defaults to `"strict"`. |
 | `deferResumeHash` / `verifyParkedEnvelopeHash` | F | runtime | decision | additive | high | closed | none | Hash-derivation helpers; deterministic. |
 | `DEFAULT_MAX_RESUME_CYCLES` / `DEFAULT_DEFER_QUOTA_PER_SESSION` / `DEFER_PENDING_TTL_GRACE_SECONDS` / `deferParkKey` / `deferCounterKey` / `decrementDeferCounter` / `CounterRedis` | F | runtime | decision | additive | medium | additive | scheduled | Numeric defaults — change is MAJOR if observable. |
 | `deadlinePromise` / `DEADLINE_HIT` | F | runtime | none | additive | low | closed | none | Deadline race primitive. |
-| `verifyParkedHash: "warn"` default value | G | runtime | decision | additive | medium | additive | by-evidence | Pre-v1 plan: flip default to `"strict"`. Gated on at least one adopter wiring evidence per [`V0.7-AUDIT-REPORT.md`](../architecture/V0.7-AUDIT-REPORT.md). |
+| `verifyHash` default = `"strict"` | F | runtime | decision | additive | medium | additive | scheduled | Resolved (SecurityReviewer-010): the default is `"strict"` — re-derives intentHash from stored fields and fails-closed on mismatch. Adopters with v0.1 parked blobs opt into `"warn"` explicitly. |
 
 ---
 
@@ -326,11 +342,11 @@ For each public surface we record:
 
 ---
 
-## §16 — `@adjudicate/locales-pt-BR`
+## §16 — `@adjudicate/locales-pt-br`
 
 | Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
 |---|---|---|---|---|---|---|---|---|
-| pt-BR `RefusalMessages` map | F | locales-pt-BR | none | additive | low | additive | scheduled | Translation table; additions are MINOR. |
+| pt-BR `RefusalMessages` map | F | locales-pt-br | none | additive | low | additive | scheduled | Translation table; additions are MINOR. |
 
 ---
 
@@ -356,6 +372,68 @@ For each public surface we record:
 
 ---
 
+## §17.1 — `@adjudicate/drift`
+
+Opt-in statistical drift detection — a pure observer over the
+AuditEventBus. Count-based windows → deterministic. Never reads the
+kernel; nothing here enters the decision path or `intentHash`. Distinct
+from the console's OPERATIONAL DriftPanel (integrity codes).
+
+| Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
+|---|---|---|---|---|---|---|---|---|
+| `createDriftDetector` / `totalVariationDistance` / `DriftAlert` / `DriftDetector` / `DriftDetectorOptions` / `DriftDimension` / `DriftDimensionSnapshot` / `DriftSignalKind` / `DriftSnapshot` | E | drift | none | additive | low | additive | by-evidence | Pre-1.0 package; closed `DriftSignalKind` taxonomy, additions MINOR. Defaults tunable. |
+| `createDriftHistory` / `DriftHistory` / `DriftHistoryDimensionEntry` / `DriftHistoryEntry` / `DriftHistoryOptions` / `DriftHistoryView` | E | drift | none | additive | low | additive | by-evidence | Bounded running-history view. |
+
+---
+
+## §17.2 — `@adjudicate/approval-engine`
+
+Reference orchestration for the REQUEST_CONFIRMATION → human review →
+resume flow. Pure I/O coordination ABOVE adapter-core: all crypto
+(single-use token, timing-safe verify, confirmationReceipt) stays in
+`agent.confirm()`. Emits no Decisions, adds no Guards; state is fetched
+fresh at resolve time, so nothing here touches `intentHash`.
+
+| Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
+|---|---|---|---|---|---|---|---|---|
+| `createApprovalEngine` / `ApprovalEngine` / `ApprovalEngineOptions` | E | approval-engine | none | additive | medium | additive | by-evidence | Pre-1.0; the engine MUST NOT own crypto — that is `agent.confirm()`. Wiring it as a money-decision source is a misuse. |
+| `createInMemoryApprovalRegistry` / `createRedisApprovalRegistry` / `ApprovalRegistry` / `ApprovalRequest` / `ApprovalStatus` / `ApprovalRedisClient` / `CreateRedisApprovalRegistryOptions` | E | approval-engine | none | additive | medium | additive | by-evidence | Display-projection registry (separate from the single-use ConfirmationStore). |
+| `createConsoleLogChannel` / `createWebhookChannel` / `ApprovalChannel` / `ApprovalChannelContext` | E | approval-engine | none | additive | low | additive | by-evidence | Pluggable fan-out channels. |
+| `ApprovalError` / `ApprovalErrorCode` | E | approval-engine | none | additive | low | closed | by-evidence | Error taxonomy. |
+
+---
+
+## §17.3 — `@adjudicate/red-team`
+
+Deterministic adversarial scenario generation (prompt-injection,
+taint-escalation, tool-scope-violation) run through the PURE kernel to
+assert a Pack's defenses hold (no clean EXECUTE escape). Same seed →
+byte-identical scenarios. No kernel changes; a consumer of the existing
+basis vocabulary.
+
+| Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
+|---|---|---|---|---|---|---|---|---|
+| `runRedTeam` / `runRedTeamAcrossPacks` / `computeRedTeamExitCode` / `RedTeamReport` / `RedTeamResult` / `RedTeamStatus` / `RedTeamSummary` | E | red-team | none | additive | medium | additive | by-evidence | Pre-1.0; runner + exit-code contract for CI gating. |
+| `generateAllVectors` / `generatePromptInjectionEnvelopes` / `generateTaintEscalationEnvelopes` / `generateToolScopeViolationEnvelopes` / `taintEscalationCausality` / `TaintEscalationCausality` / `TAINT_GATE_BASIS` / `NON_EXECUTE_DEFENSES` | E | red-team | decision | additive | medium | additive | by-evidence | Vector generators; deterministic per seed. |
+| `RED_TEAM_DEFAULT_SEED` / `lcg` / `Rng` / `AttackVector` / `GenerateOptions` / `RedTeamPack` / `RedTeamScenario` / `ScenarioIntent` / `emptyStateFor` / `toSimulateScenario` | E | red-team | none | additive | low | additive | by-evidence | PRNG + scenario shaping; `RED_TEAM_DEFAULT_SEED` pins reproducibility. |
+| `renderRedTeamJson` / `renderRedTeamText` / `digestRedTeamReport` | E | red-team | none | additive | low | closed | by-evidence | Renderers + report digest. |
+| `createInMemoryRedTeamHistoryStore` / `RedTeamHistoryOptions` / `RedTeamHistoryQuery` / `RedTeamHistoryStore` / `RedTeamHistoryView` / `RedTeamRunRecord` / `RedTeamTrendPoint` | E | red-team | none | additive | low | additive | by-evidence | Trend-over-time store. |
+
+---
+
+## §17.4 — Ecosystem reference Packs
+
+Both ship `contract: "v0"` Packs at `version: "0.1.0-experimental"` and
+exercise all six Decision outcomes against the existing kernel; they add
+no kernel surface (pure `PackV0` consumers).
+
+| Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
+|---|---|---|---|---|---|---|---|---|
+| `accessGovernancePack` / `accessPolicyBundle` / `accessCapabilityPlanner` / `ACCESS_TOOLS` / `rehydrateAccessState` / `refuseUnknownResource` / `refuseInvalidPrivilegeLevel` / `refuseReviewRejected` / `refuseNoActiveGrant` + `./types` (`AccessContext` / `AccessGrant` / `AccessIntentKind` / `AccessReview` / `AccessState`) | E | pack-access-governance | decision | additive | low | additive | by-evidence | Reference access-request lifecycle Pack; `access.review.resolve` is TRUSTED. |
+| `incidentResponsePack` / `incidentPolicyBundle` / `incidentCapabilityPlanner` / `INCIDENT_TOOLS` / `rehydrateIncidentState` / `refuseIncidentNotFound` / `refuseIncidentResolved` / `refuseInvalidBlastRadius` + `./types` (`Incident` / `IncidentContext` / `IncidentIntentKind` / `IncidentState`) | E | pack-incident-response | decision | additive | low | additive | by-evidence | Reference incident-remediation Pack; monitor callbacks are TRUSTED. |
+
+---
+
 ## §18 — Wire-format shapes
 
 | Artifact | Tier | Spec | Replay impact | Migration | Freeze rationale |
@@ -364,7 +442,7 @@ For each public surface we record:
 | Canonical JSON SHA-256 spec | F | `docs/specs/canonical-json-hash.md` | decision | hand-edit | Normative algorithm (RFC 8785 JCS); deviations are MAJOR. |
 | Cross-runtime golden vectors | F | `docs/specs/canonical-hash-vectors.json` | decision | additive | New vectors additive; deletions are MAJOR. |
 | Pack manifest schema (`package.json.adjudicate`) | F | `docs/pack-ecosystem/registry-foundations.md` | none | additive | Defined by `validatePackManifest`; new optional fields are MINOR, required-field add is MAJOR. |
-| Audit-record canonical-hash recipe | F | `packages/core/src/audit.ts` (`buildAuditRecord`/`verifyAuditRecord`) | none | additive | Hash over `canonical(record \ { auditHash, signature })`. |
+| Audit-record canonical-hash recipe | F | `packages/core/src/audit.ts` (`buildAuditRecord`/`verifyAuditRecord`) | none | additive | Hash over `canonical(record \ { auditHash, signature, metadata })`. |
 | Replay artifact (JSONL one-record-per-line) | F | (de-facto via `@adjudicate/audit`) | none | additive | Schema is `AuditRecord`; one row per line, append-only. |
 | Postgres audit schema | F | `packages/audit-postgres/migrations/*.sql` | none | additive | Migration-tracked; columns additive only. |
 
@@ -419,7 +497,8 @@ All keys live under `adjudicate.*` namespace. Renames are MAJOR; additions are M
 | `policyVersion?` | v4 | F | MAJOR | Optional; v1–v3 readers ignore. |
 | `kernelVersion?` | v4 | F | MAJOR | Optional; v1–v3 readers ignore. |
 | `auditHash?` | v4 | F | MAJOR | Optional; v1–v3 readers ignore. Replay-with-integrity reports `verified: null` for missing. |
-| `signature?` | v4 | F | MAJOR | Optional; pluggable AuditSigner. |
+| `signature?` | v4 | F | MAJOR | Optional; pluggable AuditSigner. **EXCLUDED from the `auditHash` pre-image** (stripped before re-derivation). |
+| `metadata?` (`Readonly<Record<string, unknown>>`) | v5 | F | MAJOR | Optional; adopter governance/observability metadata (e.g. `hallucination_score`). **EXCLUDED from the `auditHash` pre-image** so post-hoc/async `attachAuditMetadata` does not invalidate tamper-evidence. Never read by `adjudicate()`; never enters `intentHash`. Cross-version: a v5 record carrying metadata MUST be verified by core ≥ v5 (pre-v5 verifiers would falsely report `tampered`). |
 
 ---
 
@@ -452,37 +531,46 @@ surfaces MUST stay vendor-free.
 
 ---
 
-## §24 — Version + package state (advisory)
+## §24 — Version + package state
 
-The current workspace mixes pre-v1 (`0.1.0`) and v1-aspirational
-(`1.0.0`) package versions:
+Packages are versioned independently (per `EXTENSION_POLICY.md`), so the
+workspace is NOT version-aligned: the wire-bearing core is v1+, while the
+adapter/tooling/ecosystem layer is pre-1.0 (`0.x`) and ships
+experimental surface. Pin per-package, not a blanket `^1.0.0`. Current
+`package.json` versions at this re-cut:
 
-| Package | Current pkg-json version | Recommended v1.0 tag |
+| Package | Version | Stance |
 |---|---|---|
-| `@adjudicate/core` | `1.0.0` | `1.0.0` |
-| `@adjudicate/audit` | `1.0.0` | `1.0.0` |
-| `@adjudicate/audit-postgres` | `1.0.0` | `1.0.0` |
-| `@adjudicate/admin-sdk` | `1.0.0` | `1.0.0` |
-| `@adjudicate/adapter-core` | `0.1.0` | `1.0.0` |
-| `@adjudicate/anthropic` | `0.1.0` | `1.0.0` |
-| `@adjudicate/openai` | `0.1.0` | `1.0.0` |
-| `@adjudicate/conformance` | `0.1.0` | `1.0.0` |
-| `@adjudicate/observability` | `0.1.0` | `1.0.0` |
-| `@adjudicate/analyze` | `0.1.0` | `1.0.0` |
-| `@adjudicate/migrate` | `0.1.0` | `1.0.0` |
-| `@adjudicate/primitives` | `0.1.0` | `1.0.0` (with `createConfirm/Escalate/Idempotency/RewriteGuard` flagged `@experimental`) |
-| `@adjudicate/runtime` | `0.1.0` | `1.0.0` |
-| `@adjudicate/cli` | `0.1.0` | `1.0.0` |
-| `@adjudicate/locales-pt-BR` | `0.1.0` | `1.0.0` |
-| `@adjudicate/pack-payments-pix` | `0.1.0` | `1.0.0` (lighthouse Pack at parity with framework) |
-| `@adjudicate/pack-identity-kyc` | `0.1.0` | `1.0.0` |
-| `@adjudicate/pack-deployments-approval` | `0.1.0` | `1.0.0` |
-| `@adjudicate/eslint-config` | `0.0.1` | `1.0.0` |
+| `@adjudicate/core` | `1.3.0` | v1 line; wire surface frozen. |
+| `@adjudicate/admin-sdk` | `2.1.0` | v2 line. |
+| `@adjudicate/audit` | `2.0.1` | v2 line. |
+| `@adjudicate/audit-postgres` | `2.0.1` | v2 line. |
+| `@adjudicate/canonical` | `1.1.0` | v1 line; the standalone encoder (§3.1). |
+| `@adjudicate/conformance` | `1.1.0` | v1 line. |
+| `@adjudicate/observability` | `1.1.0` | v1 line. |
+| `@adjudicate/adapter-core` | `0.3.0` | pre-1.0 adapter surface. |
+| `@adjudicate/anthropic` | `0.3.0` | pre-1.0. |
+| `@adjudicate/openai` | `0.3.0` | pre-1.0. |
+| `@adjudicate/analyze` | `0.3.0` | pre-1.0. |
+| `@adjudicate/cli` | `0.3.0` | pre-1.0. |
+| `@adjudicate/pack-deployments-approval` | `0.3.0` | pre-1.0 Pack. |
+| `@adjudicate/primitives` | `0.3.0` | pre-1.0; `createConfirm/Escalate/Idempotency/RewriteGuard` are `@experimental` (§4). |
+| `@adjudicate/migrate` | `0.2.0` | pre-1.0. |
+| `@adjudicate/drift` | `0.2.0` | pre-1.0 ecosystem (§17.1). |
+| `@adjudicate/approval-engine` | `0.2.0` | pre-1.0 ecosystem (§17.2). |
+| `@adjudicate/red-team` | `0.2.0` | pre-1.0 ecosystem (§17.3). |
+| `@adjudicate/pack-access-governance` | `0.2.0` | pre-1.0 Pack (§17.4). |
+| `@adjudicate/pack-incident-response` | `0.2.0` | pre-1.0 Pack (§17.4). |
+| `@adjudicate/runtime` | `0.2.1` | pre-1.0. |
+| `@adjudicate/locales-pt-br` | `0.2.1` | pre-1.0. |
+| `@adjudicate/pack-payments-pix` | `0.2.1` | pre-1.0 lighthouse Pack. |
+| `@adjudicate/pack-identity-kyc` | `0.2.1` | pre-1.0 Pack. |
+| `@adjudicate/eslint-config` | `0.0.1` | tooling. |
 
-Rationale: every package in §24 is frozen-tier; aligning version numbers
-to `1.0.0` lets adopters pin `^1.0.0` without learning which packages
-were promoted independently. The four already at `1.0.0` are a noop
-during the cut; the others rev once via a single changeset.
+Frozen-tier rows in this matrix are a contract independent of the
+package's major: a `0.x` package can still carry `frozen` surface (its
+removal is a MINOR per the experimental policy, but its shape is pinned
+by the API-surface snapshot tests).
 
 ---
 
@@ -510,16 +598,16 @@ Two cleanups that should land with the v1.0 changeset:
 
 ## §26 — Evidence-gated defaults flip plan
 
-Two adopter-evidence items remain (per [`V0.7-AUDIT-REPORT.md`](../architecture/V0.7-AUDIT-REPORT.md)
-§"Operational evidence required before v1.0"). The freeze matrix
-treats them as evidence-gated rather than frozen-default:
+Remaining adopter-evidence-gated defaults (per [`V0.7-AUDIT-REPORT.md`](../architecture/V0.7-AUDIT-REPORT.md)).
+The freeze matrix treats these as evidence-gated rather than
+frozen-default:
 
-| Subject | Current default | RC default | v1.0 default trigger |
-|---|---|---|---|
-| `verifyParkedHash` | `"warn"` | `"warn"` (unchanged) | Flip to `"strict"` once one adopter confirms no legacy blobs in production. Changeset prepared; ships as MINOR. |
-| Kill-switch v2 `pollMs` (1000 ms) | 1000 | 1000 | Stays at 1000 unless adopter latency-profile shows pub/sub miss-rate >5%. |
-| `AuditEventBus` default channel `audit.event.v1` | `"audit.event.v1"` | `"audit.event.v1"` | Channel name stays; reconnect-backoff is the knob in scope. |
-| `maxIterations` on `createAdjudicatedAgent` | 8 | 8 | Holds; adopter override stays the escape valve. |
+| Subject | Current default | Status |
+|---|---|---|
+| `verifyHash` (runtime defer-resume) | `"strict"` | RESOLVED — flipped from `"warn"` to `"strict"` (SecurityReviewer-010). Adopters opt into `"warn"` for v0.1 legacy blobs. |
+| Kill-switch v2 `pollMs` (1000 ms) | 1000 | Stays at 1000 unless an adopter latency-profile shows pub/sub miss-rate >5%. |
+| `AuditEventBus` default channel `audit.event.v1` | `"audit.event.v1"` | Channel name stays; reconnect-backoff is the knob in scope. |
+| `maxIterations` on `createAdjudicatedAgent` | 8 | Holds; adopter override stays the escape valve. |
 
 ---
 
@@ -531,20 +619,20 @@ prepublish checks update:
 1. New row → corresponding type-level snapshot in `packages/core/tests/api-surface.test.ts` (or per-package equivalent) added in the same PR.
 2. Tier change (`E → F`, `F → D`, etc.) → CHANGELOG entry referencing the matrix row.
 3. Removal (`F` or `E` → `X`) → only on a MAJOR; deprecations.md updated.
-4. The freeze-matrix snapshot test (proposed in [Phase 5 plan](#phase-5)) runs in CI and fails if any public surface is undeclared here.
+4. `scripts/check-freeze-matrix.ts --strict` runs in the RC pipeline and fails if any `src/index.ts` export is undeclared here.
 
 ---
 
-## §28 — Open freeze questions (for sign-off)
+## §28 — Open freeze questions
 
-The following are explicit decisions remaining before the v1.0 changeset is cut:
+Core shipped v1; the questions below are the surfaces still NOT fully
+frozen, tracked for the next promotion changeset:
 
-1. **§4 ConfirmGuard/EscalateGuard/IdempotencyGuard/RewriteGuard** — promote to `frozen` at v1.0 or hold at `experimental` for v1.1? Recommendation: hold `experimental` until at least one external Pack consumes each, freeze proactively at v1.1 once that lands.
-2. **§5 `verifyParkedHash` default** — flip `"warn"` → `"strict"` in v1.0 or v1.1? Recommendation: ship v1.0 with `"warn"` and a changelog note; flip in v1.1 once at least two adopters confirm clean profiles.
-3. **§6 Distributed kill-switch v2** — promote from `evidence-gated` to `frozen` at v1.0 if production simulation evidence (Phase 2 of this RC effort) satisfies the latency SLO? Recommendation: yes — the surface is frozen; only the *option defaults* gate on evidence.
-4. **§6 `AuditEventBus`** — same evidence-gate posture as kill-switch v2. Recommendation: promote at v1.0 if Phase 2 fan-out simulation passes.
+1. **§4 ConfirmGuard/EscalateGuard/IdempotencyGuard/RewriteGuard** — still `@experimental` in code (`packages/primitives/src/guards.ts`), awaiting Pack #4–#6 feedback before freezing. Promote to `frozen` once at least one external Pack consumes each.
+2. **§6 Distributed kill-switch v2 / `AuditEventBus`** — functional surface is `frozen`; only the *option defaults* (poll cadence, reconnect-backoff) stay evidence-gated pending an adopter latency-profile at scale.
+3. **§17.1–§17.4 ecosystem packages** (`drift`, `approval-engine`, `red-team`, the two reference Packs) — pre-1.0 (`0.x`), surface `experimental`. Freeze per-package once each has a downstream consumer.
 
-All other surfaces are recommended `frozen` at v1.0 cut.
+The `verifyHash` default flip (formerly question §5) is RESOLVED — see §26.
 
 ---
 

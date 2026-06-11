@@ -77,7 +77,8 @@ These stances span the whole kernel and constrain every package.
   shape change is a new version shipped *with* its JSON Schema and golden
   vectors. v1 envelopes are refused with `schema_version_unsupported`.
 - **Audit immutability.** `AuditRecord` is a value type; sinks append, never
-  mutate. The schema is additive across minor versions (v1/v2/v3/v4 coexist).
+  mutate. The schema is additive across versions (`AuditRecordVersion = 1..5`
+  coexist; v4 added `auditHash`/`signature`).
 - **No-upward-imports rule.** Lower layers never import higher ones: the
   kernel does not import a provider SDK; provider adapters
   (`@adjudicate/anthropic`, `@adjudicate/openai`) own only the SDK mapping
@@ -85,9 +86,10 @@ These stances span the whole kernel and constrain every package.
 - **Pack isolation.** A Pack's `policy`, `planner`, `signals`, and `handlers`
   operate only on the Pack's own intents; installed Packs cannot see each
   other's policy state through the kernel.
-- **Local trust verification.** `verifyPackTrust(pack, signature)` is pure and
-  local — no network, no central authority. It verifies a signature against a
-  public key the adopter already trusts.
+- **Local trust verification.** `verifyPackTrust` (in `@adjudicate/conformance`,
+  not the kernel) is local — no network, no central authority. It verifies an
+  `ed25519` / `rsa-pss-sha256` signature over the Pack *fingerprint* against a
+  `publicKeyPem` the adopter already trusts, per a caller-supplied `TrustPolicy`.
 
 ---
 
@@ -115,17 +117,17 @@ Individual decisions live as numbered ADRs in
 
 | ADR | Decision |
 |---|---|
-| ADR-104 | Guard ordering — taint ahead of auth |
-| ADR-106 | Fail-closed default (`kernel.GUARD_PANIC`) |
-| ADR-108 | L2 risk-primitive stability tiers (3 frozen, 4 experimental) |
-| ADR-109 | Analyzer diagnostic-code catalog (`AJD-1NN`) |
-| ADR-111 | `AuditRecord` v4 (`auditHash`, `signature` seam) |
+| ADR-102 | Audit fail-closed by default |
+| ADR-104 | Envelope v2: nonce-based `intentHash` + auth-after-taint reorder |
+| ADR-106 | Guard exception isolation (`kernel.GUARD_PANIC`) |
+| ADR-108 | `@adjudicate/primitives` Layer 2 expansion |
+| ADR-111 | `AuditRecord` v4 additive fields + `verifyAuditRecord` |
 | ADR-113 | `@adjudicate/adapter-core` extraction (provider-neutral loop) |
 | ADR-114 | Distributed kill switch v2 (Redis pub/sub + polling fallback) |
-| ADR-115 | Pack trust primitives (ed25519 / RSA-PSS) |
+| ADR-115 | Pack trust primitives (fingerprinting + signature verification) |
 | ADR-116 | Post-v1 extension discipline |
 
-The ADR directory is authoritative for the full list (ADR-101..ADR-116).
+The ADR directory is authoritative for the full list (ADR-101..ADR-136).
 
 ---
 

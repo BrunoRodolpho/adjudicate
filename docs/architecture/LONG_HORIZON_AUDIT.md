@@ -33,19 +33,22 @@ Items are listed in roughly descending Imminence × Risk weight.
 
 ## 2. Conceptual-debt register
 
-### 2.1 `verifyParkedHash: "warn"` default
+### 2.1 Parked-blob `verifyHash` back-compat seam
 
-- **Imminence**: next MINOR.
-- **Reversibility**: coordinated (changeset pre-built; flip is MINOR).
-- **Coupling**: local (`@adjudicate/runtime`).
+- **Imminence**: resolved-but-watch.
+- **Reversibility**: coordinated.
+- **Coupling**: local (`@adjudicate/runtime`, `resumeDeferredIntent`).
 - **Risk class**: trust.
 
-The `warn` default keeps the legacy-blob escape hatch open: tampered
-blobs still fail-closed, but blobs missing verification fields resume
-silently. The freeze matrix records this as an evidence-gated flip to
-`strict` once an adopter confirms no legacy blobs remain in production.
-**Action when triggered:** evaluate adopter reports, flip default, ship
-changeset, mark §5 of freeze matrix as resolved.
+The resume path now defaults to `verifyHash: "strict"`
+(`defer-resume.ts`): a parked blob lacking verification fields fails
+closed (`park_blob_unverifiable`). The legacy escape hatch survives as
+the opt-in `"warn"` mode, which fails-closed on a hash mismatch but logs
+and proceeds when fields are simply missing — for v0.1 blobs only.
+**Watch for:** adopters who pin `"warn"` indefinitely. The freeze matrix
+(§G, and the defaults table) still tracks `verifyParkedHash` against the
+historical `"warn"` plan; reconcile it to the shipped `"strict"` default
+at the next freeze-matrix pass.
 
 ### 2.2 Kill-switch v2 default `pollMs = 1000`
 
@@ -77,14 +80,17 @@ promote individually as evidence lands.
 
 ### 2.4 `BASIS_CODES.deadline.EXCEEDED` legacy duplicate
 
-- **Imminence**: scheduled removal in v3.0.
+- **Imminence**: by-evidence.
 - **Reversibility**: coordinated (codemod required).
 - **Coupling**: local (`@adjudicate/core`).
 - **Risk class**: maintenance.
 
-The duplicate kernel-internal alias exists for back-compat. Removal
-target documented in `deprecations.md`. **Action**: ensure a codemod
-ships in the MAJOR before the alias deletion.
+The `deadline.EXCEEDED` alias is kept for back-compat alongside the
+kernel-internal `DEADLINE_EXCEEDED` code; the JSDoc in `basis-codes.ts`
+flags `deadline.EXCEEDED` as the preferred external code. It is not yet
+on the deprecation calendar. **Action**: when a removal is scheduled,
+add the `deprecations.md` row and ship a codemod in the MAJOR before the
+alias deletion.
 
 ### 2.5 Audit-postgres migration tooling stays additive-only
 
@@ -110,7 +116,7 @@ ADR before evolving.
 
 - **Pressure**: new providers (Vercel AI, Bedrock, Gemini) may want
   to surface streaming or vision-specific shapes through the bridge.
-- **Constraint**: the bridge is three methods (`emptyHistory`,
+- **Constraint**: the bridge is four methods (`emptyHistory`,
   `appendUserMessage`, `send`, `appendToolResults`). Widening would
   break vendor neutrality.
 - **Right answer**: per-provider shape lives inside the opaque history
@@ -380,7 +386,7 @@ within the v1 line — they are load-bearing:
 
 1. Closed `Decision` algebra (6 kinds).
 2. Closed `Taint` lattice (3 levels).
-3. Closed `RefusalKind` enum (6 categories).
+3. Closed `RefusalKind` enum (4 categories).
 4. Closed `BasisCategory` set (11 categories).
 5. Guard evaluation order (`state → taint → auth → business → default`).
 6. Fail-closed default (throwing guard → SECURITY REFUSE).

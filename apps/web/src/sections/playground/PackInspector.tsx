@@ -27,7 +27,7 @@ export function PackInspector({ activeTab }: { activeTab: string }) {
   }
   if (!packs) {
     return (
-      <div className="rounded-lg border border-edge bg-canvas px-3 py-2 text-xs italic text-faint">
+      <div className="rounded-lg border border-edge bg-canvas px-3 py-2 text-xs italic text-muted">
         Loading Pack metadata…
       </div>
     );
@@ -78,11 +78,11 @@ function PackPanel({
           <span className="truncate text-sm font-semibold text-ink">
             Pack: {pack.name}
           </span>
-          <span className="text-[11px] text-faint">
+          <span className="text-[11px] text-muted">
             ({named.length} named guard{named.length === 1 ? "" : "s"})
           </span>
         </div>
-        <span className="text-[10px] uppercase tracking-section text-faint">
+        <span className="text-[10px] uppercase tracking-section text-muted">
           default {pack.descriptor.default}
         </span>
       </button>
@@ -98,7 +98,7 @@ function PackPanel({
                   />
                   <div className="min-w-0 flex-1">
                     <code className="text-[12px] text-ink">
-                      <span className="text-faint">{g.phase}</span>
+                      <span className="text-muted">{g.phase}</span>
                       <span className="text-faint"> · </span>
                       {g.metadata.name ?? "(unnamed)"}
                     </code>
@@ -116,12 +116,12 @@ function PackPanel({
               );
             })}
             {named.length === 0 ? (
-              <li className="text-[12px] italic text-faint">
+              <li className="text-[12px] italic text-muted">
                 No named guards in this Pack.
               </li>
             ) : null}
           </ol>
-          <p className="mt-3 text-[10px] uppercase tracking-section text-faint">
+          <p className="mt-3 text-[10px] uppercase tracking-section text-muted">
             Source: <code>packages/{pack.id}</code>
           </p>
         </div>

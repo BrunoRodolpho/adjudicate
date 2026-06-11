@@ -64,8 +64,9 @@ by a deploy.
   ledger (replay-dedup window), rate-limiter token buckets, and the
   process-local kill-switch cache.
 - One Postgres (a single instance, daily backups). Holds the
-  `@adjudicate/audit-postgres` sink tables (AuditRecord v4 rows per
-  ADR-111) and whatever domain state the executor needs.
+  `@adjudicate/audit-postgres` sink tables (AuditRecord rows; ADR-111
+  introduced v4, the current shape is v5 per ADR-124) and whatever
+  domain state the executor needs.
 
 **What's not deployed:**
 - No NATS, no Kafka. Audit writes are synchronous to Postgres on this
@@ -277,7 +278,8 @@ time, with operational guarantees attached.**
 The two variables:
 
 - **Audit volume** — records ingested per month. A record is an
-  AuditRecord v4 (ADR-111) of any decision kind.
+  AuditRecord (current shape v5; ADR-111 introduced v4, ADR-124 added
+  `metadata` in v5) of any decision kind.
 - **Retention** — how long that record is queryable from the console
   and via the query API. Beyond retention, records are sealed to cold
   storage (Enterprise) or deleted (Free/Starter/Pro at their
@@ -343,8 +345,9 @@ paths:
     change).
 - **Self-hosted three-tier → hosted three-tier** (Starter/Pro):
   - Point the AuditSink at the hosted ingestion gateway endpoint
-    instead of the in-VPC broker. The wire format (AuditRecord v4) is
-    identical. The kernel code does not change.
+    instead of the in-VPC broker. The wire format (the AuditRecord
+    contract, additive across versions) is identical. The kernel code
+    does not change.
   - Existing audit records stay in the self-hosted Postgres; the
     hosted offering only stores records emitted after the cutover.
     Historical records remain queryable in the adopter's own
@@ -373,7 +376,7 @@ security posture; downgrading it does.
 
 A recurring question: why not sell the kernel?
 
-Because the kernel is **eight kilobytes of pure code** and its value
+Because the kernel is **a small body of pure code** and its value
 comes from being deterministic, embeddable, and trustworthy. A
 "hosted kernel" that runs `adjudicate()` over the network adds the
 latency, the failure mode, and the opacity that the kernel was

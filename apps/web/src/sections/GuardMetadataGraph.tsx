@@ -84,9 +84,9 @@ export function GuardMetadataGraph() {
           title="Your policy is no longer a black box."
           subtitle="Every guard carries optional metadata — name, author, since, and a structured description (threshold, state_defer, system_taint, rewrite, opaque). Tooling reads it; the graph below is one example."
         />
-        <p className="mx-auto mt-3 max-w-2xl text-center text-xs italic text-faint">
+        <p className="mx-auto mt-3 max-w-2xl text-center text-xs italic text-muted">
           New to Adjudicate? This view is for auditors and analyzers — the{" "}
-          <a href="/#playground" className="underline hover:text-muted">
+          <a href="/playground" className="underline hover:text-muted">
             playground
           </a>{" "}
           surfaces the same data interactively per Pack.
@@ -99,7 +99,7 @@ export function GuardMetadataGraph() {
                 Loading policy descriptors…
               </p>
             ) : nodes.length === 0 ? (
-              <p className="py-12 text-center text-sm italic text-faint">
+              <p className="py-12 text-center text-sm italic text-muted">
                 No named guards in the installed Packs.
               </p>
             ) : (
@@ -126,7 +126,7 @@ export function GuardMetadataGraph() {
             </ul>
             {active ? (
               <div className="mt-5 border-t border-edge pt-4">
-                <p className="text-xs uppercase tracking-section text-faint">
+                <p className="text-xs uppercase tracking-section text-muted">
                   Selected
                 </p>
                 <p className="mt-1 font-mono text-sm text-ink">{active.name}</p>
@@ -141,14 +141,14 @@ export function GuardMetadataGraph() {
                 />
               </div>
             ) : (
-              <p className="mt-5 border-t border-edge pt-4 text-xs italic text-faint">
+              <p className="mt-5 border-t border-edge pt-4 text-xs italic text-muted">
                 Hover a node to inspect its metadata.
               </p>
             )}
           </aside>
         </div>
 
-        <p className="mt-6 text-center text-xs italic text-faint">
+        <p className="mt-6 text-center text-xs italic text-muted">
           GuardMetadata landed in ADR-105 — analyser tooling is nascent and will
           deepen across upcoming releases.
         </p>

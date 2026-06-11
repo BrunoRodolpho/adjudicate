@@ -24,7 +24,7 @@ const ICONS: Record<DecisionContent["icon"], LucideIcon> = {
 
 export function DecisionsGrid() {
   return (
-    <section className="bg-canvas py-20">
+    <section className="bg-surface py-20">
       <div className="mx-auto max-w-6xl px-6">
         <SectionHeading
           eyebrow="Six outcomes, not two"
@@ -39,7 +39,7 @@ export function DecisionsGrid() {
             return (
               <motion.div
                 key={kind}
-                initial={{ opacity: 0, y: 12 }}
+                initial={{ y: 12 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-50px" }}
                 transition={{ duration: 0.4, delay: idx * 0.05 }}
@@ -60,7 +60,7 @@ export function DecisionsGrid() {
                   {c.oneLiner}
                 </p>
                 <a
-                  href="#playground"
+                  href="/playground"
                   className={`mt-4 inline-block text-xs font-medium ${c.accent} hover:underline`}
                 >
                   Try it in the playground →

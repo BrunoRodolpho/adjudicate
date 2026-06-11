@@ -197,7 +197,7 @@ A Pack ships the rulebook *and* helpers, not just the bundle.
 
 Why PIX first? It's the **lighthouse** for the framework. PIX is async by design — create charge → DEFER → webhook → resume. That's the kernel's hardest, most differentiated capability. Sync-only payments wouldn't exercise it. So PIX is the smallest realistic surface that demonstrates every Decision outcome end-to-end.
 
-> Several adjudication patterns repeat across vacation + commerce + PIX (clamp-to-cap, threshold-escalate, webhook-trusted-only, defer-until-signal). These are the seeds of a future *risk-primitives* layer between the kernel and domain Packs — see [§9 Architectural direction](#9-architectural-direction-intended-evolution).
+> Several adjudication patterns repeat across vacation + commerce + PIX (clamp-to-cap, threshold-escalate, webhook-trusted-only, defer-until-signal). These are factored into the *risk-primitives* layer between the kernel and domain Packs (`@adjudicate/primitives`) — see [§9 Architectural direction](#9-architectural-direction-intended-evolution).
 
 ---
 
@@ -221,10 +221,11 @@ If yes, the kernel is useful. If the LLM only reads or summarizes, you don't nee
 
 ## 9. Architectural direction (intended evolution)
 
-> **This section describes intent, not committed API.** The five headline
+> **This section describes direction, not a freeze.** The five headline
 > interfaces (`IntentEnvelope`, `Decision`, `PolicyBundle`, `CapabilityPlanner`,
-> `AuditSink`) remain stable. Everything in this section may shift before
-> `v1.0.0`. Read it as roadmap, not contract.
+> `AuditSink`) are stable. L1 has shipped; L2/L3/L4 are partly shipped (see the
+> status list below) and the `@experimental` factories may still shift. Read
+> this section as the organizing rationale, not a per-symbol contract.
 
 ### The real abstraction boundary
 
@@ -265,30 +266,34 @@ The reusable asset is **decision semantics**, not business logic. That's the lin
    └────────────────────────────────────────────────────────┘
 ```
 
-**Where we are today (v1.0-rc / @adjudicate/core@1.1.0):**
+**Where we are today (`@adjudicate/core@1.3.0`):**
 
 - **L1 — kernel:** shipped, API frozen. `adjudicate`, `adjudicateAndAudit`, `PolicyBundle`, taint lattice, replay safety, `verifyAuditRecord`, OTLP-shaped observability sinks.
-- **L2 — `@adjudicate/primitives`:** shipped with 7 factories. `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy` are **frozen**; `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard` are **experimental** per ADR-108 pending Pack #4–#6 feedback.
-- **L3 — domain Packs:** three published (`pack-payments-pix`, `pack-identity-kyc`, `pack-deployments-approval`). Two examples (`vacation-approval`, `commerce-reference`) remain handwritten as onboarding surfaces.
+- **L2 — `@adjudicate/primitives`:** shipped with ~10 guard factories plus `requireTenantBinding`. `createThresholdGuard`, `createStateDeferGuard`, `createSystemTaintPolicy` are **frozen**; `createRewriteGuard`, `createConfirmGuard`, `createEscalateGuard`, `createIdempotencyGuard` are **experimental** pending Pack #4–#6 feedback (freeze targeted at v1.1). The newer `createCommandRiskGuard`, `createDataClassificationGuard`, `createTokenBudgetGuard`, and `requireTenantBinding` are stable but not yet freeze-tagged.
+- **L3 — domain Packs:** five published (`pack-payments-pix`, `pack-identity-kyc`, `pack-deployments-approval`, `pack-access-governance`, `pack-incident-response`). Two examples (`vacation-approval`, `commerce-reference`) remain handwritten as onboarding surfaces.
 - **L4 — `@adjudicate/adapter-core`:** shipped. Provider-neutral tool-use loop + bridge + decision translator + persistence shims + error taxonomy (ADR-113). Anthropic and OpenAI adapters are thin SDK shims over it.
-- **L4 — `@adjudicate/observability`:** partial. OTLP sinks + `SEMCONV` (16 stable attributes); `@adjudicate/admin-sdk` read-only AQI + tRPC router.
+- **L4 — `@adjudicate/observability`:** partial. OTLP sinks + `SEMCONV` (18 stable attributes); `@adjudicate/admin-sdk` read-only AQI + tRPC router.
 - **L5 — Anthropic + OpenAI adapters:** shipped. `createAdjudicatedAgent` in each adapter package, wired to the provider-neutral loop.
 
 ### L2 surface today
 
 ```ts
 import {
-  createThresholdGuard,     // → any Decision via onCross
-  createStateDeferGuard,    // → DEFER on signal
-  createSystemTaintPolicy,  // → TaintPolicy declaring system-only kinds
-  createRewriteGuard,       // → REWRITE; declares mutatesPayloadFields
-  createConfirmGuard,       // → REQUEST_CONFIRMATION above threshold
-  createEscalateGuard,      // → ESCALATE above threshold + route
-  createIdempotencyGuard,   // → domain-level dedup (kernel ledger is separate)
+  createThresholdGuard,          // → any Decision via onCross
+  createStateDeferGuard,         // → DEFER on signal
+  createSystemTaintPolicy,       // → TaintPolicy declaring system-only kinds
+  createRewriteGuard,            // → REWRITE; declares mutatesPayloadFields
+  createConfirmGuard,            // → REQUEST_CONFIRMATION above threshold
+  createEscalateGuard,           // → ESCALATE above threshold + route
+  createIdempotencyGuard,        // → domain-level dedup (kernel ledger is separate)
+  createCommandRiskGuard,        // → confirm/refuse a shell command by risk class
+  createDataClassificationGuard, // → REWRITE-redact sensitive payload fields
+  createTokenBudgetGuard,        // → REFUSE/DEFER on session/tenant token cap
+  requireTenantBinding,          // → REFUSE when actor isn't bound to state's tenant
 } from "@adjudicate/primitives";
 ```
 
-All seven attach `GuardMetadata` so `@adjudicate/analyze` covers them.
+All of these attach `GuardMetadata` so `@adjudicate/analyze` covers them.
 
 ### Invariant to preserve through any refactor
 

@@ -11,7 +11,7 @@ ADR-117 already exposes aggregate PII dispositions via `governance.piiClassifica
 
 ## Decision
 
-- **`governance.piiEvents`** (new tRPC query) + `createPiiEventsHandler` over the existing `AuditStore`. Returns one event per `(record × pii basis code)` occurrence — `{ intentHash, at, intentKind, decisionKind, sensitivityLevel, disposition }` — newest-first, with optional `sensitivityLevel`/`disposition` filters and a `limit` (default 200, hard max 500) + a `truncated` flag. **Requires an authenticated actor** (record-level governance data, consistent with `audit.query`).
+- **`governance.piiEvents`** (new tRPC query) + `createPiiEventsHandler` over the existing `AuditStore`. Returns one event per `(record × pii basis code)` occurrence — `{ intentHash, at, intentKind, decisionKind, sensitivityLevel, disposition }` — newest-first, with optional `sensitivityLevel`/`disposition` filters and a `limit` (default 200, hard max 500) + a `truncated` flag. **Requires an authenticated actor** (record-level governance data, consistent with `audit.query`). `PiiEventsQuerySchema` also carries an optional `packId` filter that is reserved for forward-compatibility — the handler does not read it yet.
 - **Console:** a dedicated `/pii` page — sensitivity-class breakdown (`BarDistribution`), redacted-vs-blocked summary, and an event table (`DataTable`) whose rows link to the Decision Detail, all wrapped in the Phase-A `AsyncBoundary`.
 - **Web:** a public, aggregates-only `/transparency/pii` view fed by a committed *illustrative* fixture projected through the cohort-floor contract (`public-projection`), labeled as sample data.
 
@@ -31,4 +31,6 @@ ADR-117 already exposes aggregate PII dispositions via `governance.piiClassifica
 
 ## Lifecycle
 
-New `@adjudicate/admin-sdk` symbols (`governance.piiEvents`, `PiiEventsQuerySchema`/`PiiEventSchema`/`PiiEventsResultSchema` + inferred types, `createPiiEventsHandler`) ship in the combined WS3 MINOR wave with `.changeset/pii-events.md` and V1_FREEZE_MATRIX rows (added in the Phase-E backfill). Console/web are app-only.
+New `@adjudicate/admin-sdk` symbols (`governance.piiEvents`, `PiiEventsQuerySchema`/`PiiEventSchema`/`PiiEventsResultSchema` + inferred types, `createPiiEventsHandler`) are an additive MINOR on `@adjudicate/admin-sdk` (currently `2.1.0`). Console/web are app-only.
+
+**Release backfill outstanding:** these symbols are not yet covered by a dedicated changeset (no `.changeset/pii-events.md`), and `docs/release/V1_FREEZE_MATRIX.md` has no `PiiEventsQuerySchema`/`PiiEventSchema`/`PiiEventsResultSchema` rows. Add the changeset and the freeze-matrix rows before the next release wave.

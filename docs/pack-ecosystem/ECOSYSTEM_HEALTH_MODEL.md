@@ -24,8 +24,8 @@ A *healthy* adjudicate ecosystem has four observable properties.
    adopters who replay historical audit rows still classify the
    re-derived decisions as `IDENTICAL` or `BASIS_ONLY`. The Pack
    author is responsible for honouring the framework's semver rule
-   (cf. `semver.md` §"Replay invariant"); the framework provides the
-   classifier.
+   (cf. [`SEMVER_GOVERNANCE.md`](../release/SEMVER_GOVERNANCE.md)
+   §"Replay continuity"); the framework provides the classifier.
 3. **Pack adoption is decentralised.** Packs ship via npm under
    adopter-chosen scopes. There is no framework-owned registry, no
    framework-issued signing CA, and no framework-mediated discovery.
@@ -82,7 +82,11 @@ operating environment.
 
 Adopters who want partial scoring call the primitives directly. The
 roll-up exists so a CI gate can be `npm test && pnpm adjudicate pack
-verify --policy require_signature && pnpm adjudicate pack health`.
+verify --policy require_signature && pnpm adjudicate pack bom`. The CLI
+exposes `scorePackHealth` through `pack bom` (the AI-BOM embeds the
+health report); there is no standalone `pack health` command. CI gates
+that want only the score call `scorePackHealth` from
+`@adjudicate/conformance` directly.
 
 ---
 
@@ -95,10 +99,12 @@ across the v1 line:
   network, or any process-global state.
 - **Input is parsed by the caller.** `validatePackManifest` takes the
   parsed `package.json`; `runConformance` takes the live Pack object;
-  `verifyPackTrust` takes a public key PEM string; `scorePackHealth`
-  takes the pre-computed reports from the other three. CLI commands
-  wrap I/O around these primitives — the primitives themselves never
-  touch the filesystem.
+  `verifyPackTrust` takes a `VerifyPackTrustOptions` object (Pack
+  fingerprint input plus optional `publicKeyPem`, `signature`, and
+  `policy` — the bare-PEM signature check is `verifyPackSignature`);
+  `scorePackHealth` takes the pre-computed reports from the other three.
+  CLI commands wrap I/O around these primitives — the primitives
+  themselves never touch the filesystem.
 - **Outputs are JSON-stable.** Every primitive returns a value that
   serialises deterministically; field ordering inside the report is
   pinned by the canonical-JSON convention.
@@ -124,7 +130,7 @@ Each stage maps to a primitive:
 | conform   | `runConformance`                           | Does the Pack pass AC-001..AC-006?               |
 | trust     | `verifyPackTrust` (policy `require_signature`) | Does the signature verify against my CA?     |
 | operate   | `scorePackHealth`                          | One-line dashboard score for ongoing health.     |
-| upgrade   | replay-classify (per `semver.md`)          | Does the new version replay-equivalent the old?  |
+| upgrade   | replay-classify (per `SEMVER_GOVERNANCE.md`) | Does the new version replay-equivalent the old?  |
 | deprecate | `deprecations.md` + `@adjudicate/migrate`  | Is there a codemod to the replacement?           |
 
 ---
@@ -156,7 +162,7 @@ The ecosystem develops health problems when:
 3. **A Pack adds a basis code outside `BASIS_CODES`.** Signal: AJD-103
    (analyzer) plus `runConformance` AC-004 fails. The framework's
    basis vocabulary is closed at category level; new codes within a
-   category are MINOR per `semver.md`. Custom codes belong in
+   category are MINOR per `SEMVER_GOVERNANCE.md`. Custom codes belong in
    `Pack.basisCodes`, not silently injected.
 4. **A Pack ships behaviour that diverges from replay history.** Signal:
    `classifyReplayDrift` reports `regressing` over a window of release
@@ -217,8 +223,15 @@ Ecosystem-side invariants the framework will not relax in the v1 line:
    and the CLI.
 3. **No framework-owned namespace lockout.** Adopters publish under
    their own npm scope; the framework does not gatekeep `@adjudicate-*`.
-4. **No silent Pack mutation.** `installPack` freezes the Pack; trust
-   primitives detect drift; no mutator exists in the public surface.
+4. **No silent Pack mutation.** Drift is detected, not hidden.
+   `installPack` returns a wrapped Pack (`withBasisAudit`: a spread-copy
+   whose guards are decorated by a basis-audit proxy) that *records*
+   refusal-code / vocabulary / taint drift to the MetricsSink without
+   altering any Decision; the wrapper is idempotent (the
+   `BASIS_AUDIT_WRAPPED` tag makes a second pass a no-op). It is not
+   `Object.freeze` — the framework relies on drift observability plus
+   the trust primitives, not immutability, and ships no mutator in the
+   public surface.
 5. **No marketplace economics.** The framework does not collect rent on
    Pack distribution, install volume, or signing service.
 

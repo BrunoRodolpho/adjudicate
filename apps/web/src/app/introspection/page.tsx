@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { GuardMetadataGraph } from "@/sections/GuardMetadataGraph";
 import { ConsolePreview } from "@/sections/ConsolePreview";
-import { Footer } from "@/sections/FinalCTA";
+import { GuardMetadataPrimer } from "@/sections/GuardMetadataPrimer";
+import { DepthHeader } from "@/components/ui/DepthHeader";
 
 export const metadata: Metadata = {
   title: "Introspection · adjudicate",
@@ -29,42 +28,12 @@ export default function IntrospectionPage() {
     <main>
       <DepthHeader
         eyebrow="Depth · introspection"
-        title="Your policy is no longer a black box."
-        subtitle="Every guard carries optional structured metadata that downstream tooling — auditors, analyzers, the operator console — can read programmatically. The graph below renders one descriptor per shipped Pack."
+        title="Inspect every rule that governs an AI action."
+        subtitle="GuardMetadata is a layer of structured labels on every policy rule — so auditors, analyzers, and the operator console can read what governs your AI actions programmatically, not by guessing from a name. The primer below explains the five description kinds; the graph renders one descriptor per shipped Pack."
       />
+      <GuardMetadataPrimer />
       <GuardMetadataGraph />
       <ConsolePreview />
-      <Footer />
     </main>
-  );
-}
-
-function DepthHeader({
-  eyebrow,
-  title,
-  subtitle,
-}: {
-  eyebrow: string;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <header className="bg-canvas pb-6 pt-10">
-      <div className="mx-auto max-w-6xl px-6">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-xs uppercase tracking-section text-muted hover:text-ink"
-        >
-          <ArrowLeft size={12} /> Back to homepage
-        </Link>
-        <p className="mt-6 text-xs uppercase tracking-section text-muted">
-          {eyebrow}
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight text-ink md:text-4xl">
-          {title}
-        </h1>
-        <p className="mt-3 max-w-2xl text-base text-muted">{subtitle}</p>
-      </div>
-    </header>
   );
 }

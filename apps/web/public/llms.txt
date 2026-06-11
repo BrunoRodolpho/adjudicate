@@ -1,0 +1,27 @@
+# adjudicate
+
+> Guardrails for AI agents: a deterministic control layer between LLM tool-calls and execution. Every AI action is adjudicated to one of six outcomes — execute, refuse, rewrite, defer, escalate, request-confirmation — and recorded as a signed, replay-verifiable audit receipt.
+
+## Pages
+
+- [Home](/): What adjudicate is and why six outcomes beat allow/deny.
+- [How it works](/how-it-works): The kernel mechanism, end to end.
+- [Capabilities](/capabilities): The fourteen things the kernel does, each mapped to a real package and ADR.
+- [Deploy](/deploy): Run the kernel in your own infrastructure.
+- [Console](/console): The operator console — decisions, approvals, audit explorer, governance surfaces.
+- [Playground](/playground): Run the real kernel against an intent and see the decision.
+- [Architecture: data flow](/architecture/data-flow): How an intent travels from AI to side-effect.
+- [Comparisons](/comparisons): Where six decisions beat binary allow/deny.
+- [Transparency](/transparency): Public trust hub — PII handling, AI-BOM, drift, red-team posture.
+- [Blog](/blog): Engineering and design notes from the kernel.
+
+## Install
+
+- `pnpm add @adjudicate/core` — the API-frozen v1 kernel.
+- Adapters: `@adjudicate/anthropic`, `@adjudicate/openai`.
+- Packs: `@adjudicate/pack-*`. CLI: `@adjudicate/cli`.
+
+## Source
+
+- [GitHub](https://github.com/BrunoRodolpho/adjudicate)
+- [Docs](https://github.com/BrunoRodolpho/adjudicate/tree/main/docs)

@@ -40,8 +40,9 @@ about the failure.
 
 ## Decision
 
-1. **`BASIS_CODES.kernel`** — new category added to the closed enum.
-   Initial codes: `GUARD_PANIC` (this ADR). Future ADRs may extend.
+1. **`BASIS_CODES.kernel`** — new category added to the closed enum,
+   with `GUARD_PANIC` as its first code (this ADR). The category is
+   additive; later ADRs have extended it (see the Neutral consequence).
 
 2. **Every guard invocation in `_adjudicateImpl` is wrapped in
    `try/catch`.** This applies to:
@@ -70,10 +71,11 @@ about the failure.
    guard as a `match` entry — consistent with the "match is what
    produced the final decision" semantics.
 
-7. **Adopters retain the `kernelEnforcement.allowGuardExceptions`
-   escape hatch** for a one-cycle migration window. Default: false
-   (kernel converts). Adopters who opt in get pre-M1 propagation
-   behavior. The flag is scheduled for removal at v1.0.
+7. **A one-cycle escape hatch shipped, then was removed.** The
+   `kernelEnforcement.allowGuardExceptions` flag (default `false` —
+   kernel converts) shipped in v0.2 to let adopters opt back into pre-M1
+   propagation for a single migration window, and was removed in v0.5 as
+   scheduled. The kernel now always converts; there is no opt-out.
 
 ## Consequences
 
@@ -97,8 +99,8 @@ about the failure.
   policies; the wrapper cost is negligible vs the guard call itself).
 - A subtle behavior change for adopters that *expected* the exception
   (e.g., tests that asserted `expect(() => adjudicate(...)).toThrow()`).
-  Mitigation: `allowGuardExceptions: true` opt-in for 1 minor cycle,
-  documented in CHANGELOG.
+  Mitigated at the time by the now-removed `allowGuardExceptions: true`
+  opt-in for one minor cycle (see Migration path).
 
 ### Neutral
 
@@ -142,14 +144,18 @@ because:
 - REFUSE with a structured code routes the failure to the same
   observability path as security refusals (the right home).
 
-## Migration path
+## Migration path (completed — historical)
 
-- v0.2 ships the change default-on with `allowGuardExceptions: false`.
-- CHANGELOG entry alerts adopters: "Throwing guards now produce REFUSE
+This migration is done; no action remains. The flag it describes no
+longer exists in the codebase. Recorded here for provenance only:
+
+- v0.2 shipped the change default-on with `allowGuardExceptions: false`.
+- A CHANGELOG entry alerted adopters: "Throwing guards now produce REFUSE
   instead of propagating. If you relied on the prior behavior, set
   `kernelEnforcement.allowGuardExceptions: true` for one minor cycle
   while you migrate your tests."
-- v0.5 removes the flag.
+- v0.5 removed the flag. The kernel always converts; the conversion is
+  unconditional and there is no longer any way to restore propagation.
 
 ## References
 

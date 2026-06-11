@@ -18,7 +18,7 @@ export function LatestPosts() {
           </h2>
           <Link
             href="/blog"
-            className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+            className="inline-flex items-center gap-1 text-sm font-medium text-brand-ink hover:text-brand-ink"
           >
             All posts <ArrowRight size={14} />
           </Link>
@@ -29,7 +29,7 @@ export function LatestPosts() {
               key={p.slug}
               className="rounded-xl border border-edge bg-surface p-5 transition-shadow hover:shadow-md"
             >
-              <span className="text-xs uppercase tracking-section text-faint">
+              <span className="text-xs uppercase tracking-section text-muted">
                 {p.date}
               </span>
               <h3 className="mt-1 text-base font-semibold leading-snug text-ink">
@@ -40,7 +40,7 @@ export function LatestPosts() {
               </p>
               <Link
                 href={`/blog/${p.slug}`}
-                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-brand-ink hover:text-brand-ink"
               >
                 Read post <ArrowRight size={14} />
               </Link>

@@ -50,9 +50,14 @@ corruption.
 **Procedure.**
 
 1. **Stop further writes.** Trip the kill-switch to prevent
-   additional records from joining a possibly-poisoned corpus.
-   ```
-   adjudicate ops kill-switch trip --reason "replay-corpus-integrity-incident"
+   additional records from joining a possibly-poisoned corpus. Once
+   active, `adjudicate()` short-circuits every intent to a SECURITY
+   refusal `kill_switch_active`. There is no CLI for this; engage it
+   via the env var (restart with `IBX_KILL_SWITCH=1`) or
+   programmatically:
+   ```ts
+   // from packages/core/src/kernel/enforce-config.ts
+   setKillSwitch(true, "replay-corpus-integrity-incident")
    ```
 2. **Quarantine the suspect corpus.** Snapshot the audit-postgres
    tables to a quarantine schema or read-only export.
@@ -70,7 +75,9 @@ corruption.
 6. **Replay forward from backup.** Use
    [`packages/audit/src/replay-integrity.ts`](../../packages/audit/src/replay-integrity.ts)
    to re-validate the restored corpus.
-7. **Re-enable writes.** Clear the kill-switch.
+7. **Re-enable writes.** Release the kill-switch:
+   `setKillSwitch(false, "...")` (or unset `IBX_KILL_SWITCH` and
+   restart). Adjudication resumes for all intent kinds.
 8. **Document.** Add an entry to
    [`docs/execution/incidents.md`](../execution/incidents.md) with
    the inflection point, the root cause, and the restoration source.
@@ -164,9 +171,9 @@ malicious update was published.
    suspect version. A failing signature, a mismatched fingerprint,
    or an analyzer flag is the trigger.
 2. **Notify adopters.** GitHub advisory + announcement channels.
-3. **CLI hardening.** Recommend that adopters set `--mode
-   require_signature` in the `adjudicate pack verify` CLI to block
-   future unverified Packs.
+3. **CLI hardening.** Recommend that adopters pass `--policy
+   require_signature` to `adjudicate pack verify` to block future
+   unverified Packs.
 4. **Document.** Add the Pack + version to a public revocation list
    (the framework does not host one, but adopters can maintain their
    own). The framework provides the verification primitive; adopters

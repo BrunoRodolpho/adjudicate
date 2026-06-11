@@ -1,9 +1,13 @@
 # Pack Registry Foundations
 
-> Status: **v0.3.0 — npm-conventions phase.** The dedicated registry
-> ships post-v1.0. v0.3-v0.5 use npm + a thin `registry.adjudicate.io`
-> reverse proxy that indexes Packs published under the `@adjudicate-community/*`
-> npm org and validates their `package.json` `adjudicate` field.
+> Status: **npm-conventions phase** (core `@adjudicate/core` v1.3.0).
+> Packs are distributed as ordinary npm packages today. A dedicated
+> registry — a thin `registry.adjudicate.io` reverse proxy that indexes
+> Packs published under the `@adjudicate-community/*` npm org and
+> validates their `package.json` `adjudicate` field — is still design-only.
+> This doc is the canonical home for the npm convention; the manifest
+> schema is enforced in code by `validatePackManifest`
+> (`packages/conformance/src/manifest.ts`).
 
 ## npm convention
 
@@ -18,19 +22,20 @@ A community Pack is an npm package satisfying ALL of:
    export. Adopters typically also export it named (e.g.,
    `export const myPack = { ... }`).
 5. **Peer dependency.** `@adjudicate/core` listed as a peer dep with a
-   semver range matching `Pack.kernelMinVersion`.
+   semver range matching `Pack.kernelMinVersion`. `validatePackManifest`
+   errors if it is missing or disagrees with `kernelMinVersion`.
 
 ## The `adjudicate` field schema
 
 ```jsonc
 {
   "name": "@adjudicate-community/pack-acme-refunds",
-  "version": "0.4.2",
+  "version": "1.2.0",
   "type": "module",
   "adjudicate": {
     "contract": "v1",
     "packId": "@acme/refunds",
-    "kernelMinVersion": ">=0.3 <2",
+    "kernelMinVersion": ">=1 <2",
     "intents": [
       "acme.refund.request",
       "acme.refund.approve"
@@ -48,7 +53,7 @@ A community Pack is an npm package satisfying ALL of:
     }
   },
   "peerDependencies": {
-    "@adjudicate/core": ">=0.3 <2"
+    "@adjudicate/core": ">=1 <2"
   }
 }
 ```
@@ -57,39 +62,27 @@ A community Pack is an npm package satisfying ALL of:
 
 - **`contract`**: `"v0"` or `"v1"`. v1 packs declare `version` + `kernelMinVersion`.
 - **`packId`**: stable string identifier used in audit records and replay registries. NOT the npm package name (which can be renamed); the `packId` is the immutable handle for an "AuditRecord.policyVersion @ packId" pair.
-- **`kernelMinVersion`**: semver range against `@adjudicate/core`.
+- **`kernelMinVersion`**: semver range against `@adjudicate/core`. CLI/tests default to `>=1 <2` for the v1 kernel.
 - **`intents`**: enumeration of intent-kind strings the Pack handles. Adopter tooling validates this matches the IntentEnvelope's `kind` at install time.
-- **`signals`**: enumeration of DEFER signals the Pack parks on. Cross-checked against actual `decisionDefer` calls by the M2 analyzer (AJD-102).
+- **`signals`**: enumeration of DEFER signals the Pack parks on. Cross-checked against the signal declared on DEFER guards (the `GuardMetadata.description.signal` of `state_defer` guards) by the M2 SignalConsistencyAnalyzer (AJD-102, `packages/analyze/src/analyzers.ts`).
 - **`qualityTier`**: self-declared Bronze/Silver; Gold is reviewed.
 - **`docs`**: URL to the Pack's documentation.
 - **`compatibility.adapters`**: array of adapter semver ranges this Pack is known compatible with.
 - **`signed.sigstore`**: URL into a Sigstore transparency log for the signed release.
 
-## Discovery: `registry.adjudicate.io` (post-v0.3)
+> **AI-BOM fields (ADR-127).** `PackManifest` also carries additive,
+> optional, author-declared AI-BOM metadata: `modelVersion`,
+> `promptHashes`, `tools`, `rag`. They are omitted above to keep the
+> distribution example small; the source of truth for their shape is the
+> `PackManifest` type in `packages/conformance/src/manifest.ts`.
 
-The registry is a static-site reverse proxy over npm:
+## Discovery
 
-```
-GET registry.adjudicate.io/packs/@acme/refunds
-→ {
-    versions: [...],
-    latestStableTier: "silver",
-    publisher: "@adjudicate-community",
-    homepage: "https://github.com/acme/adjudicate-pack-refunds",
-    weeklyDownloads: 1247,
-    lastPublished: "2026-04-21T10:14:22Z"
-  }
-
-GET registry.adjudicate.io/packs?tier=silver+&signal=payment.confirmed
-→ filtered listing
-```
-
-The registry runs `adjudicate pack lint --strict` against each published
-version (via a webhook on npm publish) and stores the computed tier.
-
-## Discovery: pre-v0.3 (npm-only)
-
-Until the dedicated registry is live, adopters discover Packs via:
+The dedicated registry (`registry.adjudicate.io`) is a planned static-site
+reverse proxy over npm: it would index published versions, run
+`adjudicate pack lint --strict` on each publish via webhook, and surface
+the computed quality tier and a verification flag. Until it is live,
+adopters discover Packs via:
 
 - `npm search @adjudicate-community`
 - The framework's published catalog at `adjudicate.io/packs` (manually
@@ -97,21 +90,37 @@ Until the dedicated registry is live, adopters discover Packs via:
 - GitHub topic `adjudicate-pack` for community-published Packs in
   other orgs.
 
-## Pack signing (design preview)
+## Pack verification and signing
 
-T-039 (this milestone) ships the design; implementation lands post-v1.0:
+**Verification ships today.** `adjudicate pack verify`
+(`packages/cli/src/commands/pack-verify.ts`, `runPackVerify`) composes,
+in one install-time command:
 
-1. Pack author runs `pnpm release` (per their own release toolchain).
-2. CI workflow (template provided) runs `cosign sign-blob` over the
-   published tarball using OIDC-issued ephemeral keys.
-3. Signature URL written into `package.json` `adjudicate.signed.sigstore`.
-4. Registry verifies the signature on indexing; surfaces `verified: true`
-   to adopters.
-5. Adopter CLI can run `adjudicate pack verify <package>` to verify
-   locally before install.
+1. **Manifest validation** — `validatePackManifest` against the
+   `adjudicate` field (skipped for workspace Packs that predate the
+   convention).
+2. **Fingerprint** — `computePackFingerprint`; `--expect <hex>` fails on
+   mismatch (CI gate).
+3. **Optional signature verification** — `--public-key <pem>
+   --signature <json>` under a `--policy` (`best_effort` /
+   `require_signature`), evaluated by `verifyPackTrust`.
 
-The same model (Sigstore + OIDC + transparency log) used by
-`@adjudicate/*` first-party releases (T-017) applies to community Packs.
+```
+adjudicate pack verify                                   # local — fingerprint only
+adjudicate pack verify --expect <hex>                    # CI gate
+adjudicate pack verify --public-key <pem> --signature <json> --policy require_signature   # prod
+```
+
+The signing/verifying crypto primitive (`signPackFingerprint` /
+`verifyPackSignature`, ed25519 + rsa-pss-sha256) also exists in
+`packages/conformance/src/pack-trust.ts`.
+
+**Design-only:** the *publish-side* cosign/sigstore pipeline that would
+populate `adjudicate.signed.sigstore` (CI runs `cosign sign-blob` over the
+tarball with OIDC-issued ephemeral keys; the registry verifies on
+indexing). No cosign/sigstore implementation exists in the CLI or
+conformance package yet — only the manifest field that records the
+resulting transparency-log URL.
 
 ## Naming conventions
 
@@ -121,18 +130,10 @@ The same model (Sigstore + OIDC + transparency log) used by
 
 ## Compatibility against multiple kernel versions
 
-A Pack declares one `kernelMinVersion` range. Adopters using a kernel
+A Pack declares one `kernelMinVersion` range. Adopters running a kernel
 outside the range get a boot-time `PackConformanceError` (via
 `assertPackConformance`). Adopters needing to support multiple
-kernel-major versions ship parallel Pack versions:
+kernel-major versions ship parallel Pack versions, each pinning its range:
 
-- `@acme/refunds@1.x` — kernels `>=0.3 <1`
-- `@acme/refunds@2.x` — kernels `>=1 <2`
-
-## When this evolves
-
-- v0.4: registry static-site live for community discovery.
-- v0.5: signing workflow shipped (Sigstore + OIDC).
-- v1.0: dedicated registry with full tier-computation pipeline; npm
-  remains the distribution substrate (single source of truth).
-- post-v1.0: marketplace UI (browseable web app).
+- `@acme/refunds@1.x` — kernels `>=1 <2`
+- `@acme/refunds@2.x` — kernels `>=2 <3`

@@ -63,3 +63,9 @@ apps/commerce/.medusa/types/query-entry-points.d.ts
 # Medusa admin file uploads
 apps/commerce/static/
 infra/terraform/environments/dev/tfplan
+
+# UI/UX audit raw screenshots (large; regenerate via audit-artifacts/crawl.spec.ts)
+audit-artifacts/screenshots/
+audit-artifacts/recrawl-after/
+audit-artifacts/recrawl-final/
+audit-artifacts/recrawl-r4/

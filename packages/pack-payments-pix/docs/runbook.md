@@ -12,7 +12,12 @@ The Pack's policies are not the same as your current PIX code's behavior — eve
 
 Rolling out enforced-from-day-one risks production incidents. **Shadow first, enforce later** — record what the kernel *would* have decided alongside your real flow, compare, then flip the switch when divergence is zero (or explained).
 
-The staging is per-intent, gated by environment variables (`*_KERNEL_SHADOW`, `*_KERNEL_ENFORCE`) — the kernel reads them at call time. Same flag pattern IbateXas uses; see [`@adjudicate/core/kernel/enforce-config.ts`](../../core/src/kernel/enforce-config.ts).
+The staging is per-intent, gated by two env vars read once at context creation:
+
+- `IBX_KERNEL_SHADOW` — comma-separated intent kinds (or `*`) that run `adjudicate()` alongside legacy; legacy stays authoritative.
+- `IBX_KERNEL_ENFORCE` — comma-separated intent kinds (or `*`) where `adjudicate()` is authoritative.
+
+The env vars are snapshotted into `RuntimeContext.enforceConfig` at context creation (see [`@adjudicate/core/kernel/runtime-context.ts`](../../core/src/kernel/runtime-context.ts)); the kernel never reads live `process.env` inside `adjudicate()`. Call `validateEnforceConfig(knownIntents)` once at boot — a typo'd intent kind silently leaves that intent on the legacy path, and the validator surfaces it as a warning + `enforce_config_typo` sink failure ([`enforce-config.ts`](../../core/src/kernel/enforce-config.ts)).
 
 ---
 
@@ -42,7 +47,8 @@ const decision = adjudicate(envelope, state, paymentsPixPack.policy);
 // Existing code path (still authoritative):
 const result = await myExistingRefundHandler(payload);
 
-// Record divergence for analysis:
+// Record divergence for analysis. classifyDivergence() is adopter-supplied —
+// map your legacy result + the kernel Decision to a DivergenceClass.
 metricsSink.recordShadowDivergence({
   intentKind: "pix.charge.refund",
   legacy: { kind: result.success ? "EXECUTE" : "REFUSE" },
@@ -51,16 +57,16 @@ metricsSink.recordShadowDivergence({
 });
 ```
 
-**What to watch:**
+`recordShadowDivergence` is a `MetricsSink` method ([`metrics.ts:43`](../../core/src/kernel/metrics.ts)). Its `divergence` field is a `DivergenceClass`, one of:
 
-- `divergence === "BASIS_ONLY"` — same outcome, different basis codes. Usually safe.
-- `divergence === "KIND_DIFFER"` — different outcome (e.g., your code says EXECUTE, kernel says REFUSE). Investigate every one.
-- `divergence === "REWRITE_DIFFER"` — kernel REWRITEs but your code didn't. Cross-check the clamp behavior.
+- `BASIS_ONLY` — same outcome, different basis codes. Usually safe (the kernel emits richer basis than legacy code did).
+- `DECISION_KIND` — different outcome (e.g., your code says EXECUTE, kernel says REFUSE). Investigate every one.
+- `PAYLOAD_REWRITE` — kernel REWRITEs but your code didn't. Cross-check the clamp behavior.
 
 **Acceptance to advance:**
 
-- 7-day window with zero `KIND_DIFFER` and zero `REWRITE_DIFFER` events.
-- Any `BASIS_ONLY` divergences explained in a brief note (usually the kernel emits richer basis than legacy code did).
+- 7-day window with zero `DECISION_KIND` and zero `PAYLOAD_REWRITE` events.
+- Any `BASIS_ONLY` divergences explained in a brief note.
 
 **Duration:** ≥ 7 days of production traffic.
 
@@ -75,18 +81,20 @@ metricsSink.recordShadowDivergence({
 **Setup:**
 
 ```bash
-export PIX_KERNEL_ENFORCE="pix.charge.refund"
-export PIX_KERNEL_SHADOW="pix.charge.confirm"
+export IBX_KERNEL_ENFORCE="pix.charge.refund"
+export IBX_KERNEL_SHADOW="pix.charge.confirm"
 ```
 
 ```ts
-if (isEnforced("pix.charge.refund")) {
+if (ctx.enforceConfig.isEnforced("pix.charge.refund")) {
   const decision = adjudicate(envelope, state, paymentsPixPack.policy);
   // act on decision authoritatively
 } else {
   // legacy refund path
 }
 ```
+
+`ctx` is the `RuntimeContext`; `enforceConfig.isEnforced(intentKind)` reads the snapshot captured at context creation. (The old module-level `isEnforced()` / `isShadowed()` wrappers were removed — they re-read live `process.env`, violating the deterministic-core invariant.)
 
 **Acceptance to advance:**
 
@@ -100,27 +108,33 @@ if (isEnforced("pix.charge.refund")) {
 
 ## Stage 4 — Enforce `create` and `confirm` (full lifecycle)
 
-**Scope:** Full lifecycle now kernel-authoritative. `create` triggers DEFER + parking via `@adjudicate/runtime`'s `resumeDeferredIntent`; webhook arrives, intent resumes, EXECUTE applies.
+**Scope:** Full lifecycle now kernel-authoritative. `create` triggers DEFER + parking; webhook arrives, intent resumes, EXECUTE applies.
 
 **Setup:**
 
 ```bash
-export PIX_KERNEL_ENFORCE="pix.charge.create,pix.charge.confirm,pix.charge.refund"
-export PIX_KERNEL_SHADOW=""
+export IBX_KERNEL_ENFORCE="pix.charge.create,pix.charge.confirm,pix.charge.refund"
+export IBX_KERNEL_SHADOW=""
 ```
 
-You'll also need to wire the runtime's resume path. See `@adjudicate/runtime`'s [`resumeDeferredIntent`](../../runtime/src/defer-resume.ts) — it expects a Redis adapter for the parked-envelope store.
+Wire the runtime's resume path. On `charge.create` returning DEFER, the responder parks the envelope blob in Redis at `rk("defer:pending:${sessionId}")`. In your webhook handler, call [`resumeDeferredIntent`](../../runtime/src/defer-resume.ts), which reads that blob back itself — it takes a single `ResumeDeferredIntentArgs` object, not a parked envelope:
 
 ```ts
-// On charge.create returning DEFER:
-await park(envelope.intentHash, decision.signal, envelope);
-
-// In your webhook handler:
-const result = await resumeDeferredIntent(parkedEnvelope, decision.signal, redis, keyBuilder);
+// In your webhook handler (parkDeferredIntent ran on the earlier DEFER):
+const result = await resumeDeferredIntent({
+  sessionId,
+  signal: decision.signal,
+  redis,           // a DeferRedis adapter (get / set NX / del; optional incr/decr/expire)
+  rk: keyBuilder,  // (raw) => namespaced key
+  // verifyHash defaults to "strict": a parked blob lacking the hash-verification
+  // fields fails closed (park_blob_unverifiable). Opt into "warn" for v0.1 blobs.
+});
 if (result.resumed) {
   // synthesize a TRUSTED pix.charge.confirm intent and re-adjudicate
 }
 ```
+
+Idempotency is by construction: `resumeDeferredIntent` writes a `defer:resumed:${hash}` ledger key via SET NX, so duplicate webhook deliveries return `duplicate_resume_suppressed` instead of re-applying.
 
 **Acceptance:**
 
@@ -134,14 +148,16 @@ if (result.resumed) {
 
 ## Rollback
 
-At any stage, set both env vars to empty:
+At any stage, set both env vars to empty and create a fresh `RuntimeContext` (the snapshot is captured at context creation):
 
 ```bash
-export PIX_KERNEL_ENFORCE=""
-export PIX_KERNEL_SHADOW=""
+export IBX_KERNEL_ENFORCE=""
+export IBX_KERNEL_SHADOW=""
 ```
 
 The kernel becomes a no-op for these intents; your legacy code path resumes. Audit records from before rollback remain queryable.
+
+For an incident-time global revoke that does not require touching the enforce list, use the kill switch (`setKillSwitch(true, "reason")` or `IBX_KILL_SWITCH=1`): `adjudicate()` short-circuits every intent to a SECURITY refusal `kill_switch_active`.
 
 ---
 
@@ -155,4 +171,4 @@ The kernel becomes a no-op for these intents; your legacy code path resumes. Aud
 
 ## Compatibility note
 
-The Pack ships at `0.1.0-experimental`. Threshold guards (`ESCALATE_REFUND_THRESHOLD_CENTAVOS`, `CONFIRM_REFUND_THRESHOLD_CENTAVOS`) are exported constants — adopters who need different values today should compose their own PolicyBundle wrapping these guards. A configurable thresholds API is an open question for `PackV1` (see ADR-001).
+The Pack ships at `0.2.1`. Threshold guards (`ESCALATE_REFUND_THRESHOLD_CENTAVOS`, `CONFIRM_REFUND_THRESHOLD_CENTAVOS`) are exported constants — adopters who need different values today should compose their own PolicyBundle wrapping these guards. A configurable thresholds API is an open question for `PackV1` (see ADR-001).

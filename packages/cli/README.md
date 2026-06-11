@@ -1,8 +1,8 @@
 # @adjudicate/cli
 
-> **Status: `0.1.0-experimental`** — Pack lifecycle commands for policy authors.
+> **Status: `0.3.0`** — Pack lifecycle and verification commands for policy authors.
 
-The framework CLI for **authoring and verifying** Packs, complementing the operator Console for **running** them.
+The framework CLI for **authoring, verifying, and exercising** Packs, complementing the operator Console for **running** them.
 
 ```bash
 # Scaffold a new Pack — auto-detects monorepo vs standalone
@@ -20,6 +20,32 @@ adjudicate simulate --pack ./dist/index.js --scenarios ./scenarios
 # Verify the local environment
 adjudicate doctor
 ```
+
+---
+
+## Command surface
+
+Run `adjudicate <command> --help` for the authoritative flag list. The full inventory:
+
+| Command | Purpose |
+|---|---|
+| `pack init <name>` | Scaffold a new Pack from a domain template |
+| `pack lint [path]` | Validate a Pack against kernel conformance |
+| `pack bom <path>` | Emit an AI Bill-of-Materials (AI-BOM) for a Pack (ADR-127) |
+| `pack verify [path]` | Verify a Pack's trust posture (fingerprint + optional signature) |
+| `simulate` | Run envelopes against a Pack's policy and render Decisions |
+| `analyze` | Run `@adjudicate/analyze` Tier 1 static analysis against a Pack |
+| `red-team` | Generate adversarial scenarios and assert kernel-level defenses hold |
+| `scenarios generate` | Generate scenario JSON fixtures from a Pack's intents (seeded) |
+| `replay` | Re-adjudicate stored AuditRecords against a Pack and report divergence |
+| `repl` | Interactive intent → decision shell (no audit sink) |
+| `visualize` | Render a Pack's PolicyBundle as a standalone HTML/SVG policy graph |
+| `export` | Export audit records (JSONL) to JSON or CSV (Parquet deferred to v0.6) |
+| `reap` | Scan the Idle-DeferStore (Redis) for `defer:pending:*` keys and report TTL |
+| `dev` | Spin up a local Docker Compose harness (Redis + Postgres) |
+| `doctor` | Verify the local environment |
+
+The sections below document the core authoring loop in detail.
 
 ---
 
@@ -44,7 +70,19 @@ Scaffolds a new Pack with the canonical file layout:
 
 The scaffolded Pack passes `assertPackConformance` immediately. Run `pnpm test` to verify, `pnpm build && pnpm test:scenarios` to walk the sample fixture.
 
-**Detection model:** if a `pnpm-workspace.yaml` declaring `packages/*` is found walking up from cwd, scaffolds under `<workspace-root>/packages/<name>`. Otherwise scaffolds under `<cwd>/<name>`. Override with `--target <dir>`.
+**Templates** (`--template <name>`, default `basic`). `basic` is the minimal hello-world Pack; the domain templates ship richer guard patterns (REWRITE / ESCALATE / DEFER / REQUEST_CONFIRMATION) keyed off the domain shape. Available templates:
+
+| Template | Domain shape |
+|---|---|
+| `basic` | Minimal hello-world Pack (default) |
+| `payment` | Payment charge/refund with confirmation thresholds |
+| `approval` | Human-in-the-loop approval gating |
+| `kyc` | Async identity verification with DEFER lifecycle |
+| `deployment` | Deployment/release gating |
+
+Each template lives under `packages/cli/templates/<name>/`.
+
+**Detection model:** if a `pnpm-workspace.yaml` declaring `packages/*` is found walking up from cwd, scaffolds under `<workspace-root>/packages/<name>`. Otherwise scaffolds under `<cwd>/<name>`. Override the parent directory with `--target <dir>`.
 
 ### `adjudicate pack lint [path]`
 
@@ -96,9 +134,10 @@ Mismatch beats error — a policy regression is more actionable than a malformed
 Verifies the local environment:
 
 - Node version ≥ 20
-- pnpm version ≥ 10 (when applicable)
+- Workspace shape (`monorepo` vs `standalone`, detected via pnpm-workspace.yaml)
 - `@adjudicate/core` is built (`dist/` exists for workspace resolution)
-- pnpm-workspace.yaml shape (when in a monorepo)
+
+Exits `1` if any check fails; warnings (e.g. standalone mode) are non-fatal.
 
 ---
 

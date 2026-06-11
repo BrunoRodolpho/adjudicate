@@ -6,9 +6,18 @@ Implements `AuditSink` from `@adjudicate/audit` against a partitioned-by-month
 `intent_audit` table. Adopters supply a Postgres writer that runs an INSERT;
 the sink flattens each `AuditRecord` into the table's row shape.
 
+This README covers the **audit sink + replay reader**. The package also exports
+SDK-shape readers and additional stores (`createPostgresAuditStore`,
+governance-events, guard-fire-stats, outcomes, `legacyV1ToV2`) — see
+[`src/index.ts`](./src/index.ts).
+
 ## Schema
 
-See [`migrations/001-create-intent-audit.sql`](./migrations/001-create-intent-audit.sql).
+See [`migrations/`](./migrations/). Migration `001` creates the base v1 table;
+the additive migrations widen it for later record versions (`002` plan_jsonb,
+`003` nonce, `005` supersedes_jsonb, `008` v4 fields, `010` v5 metadata) plus
+the sibling stores (`004` governance-events, `006` guard-fire-stats,
+`007` outcomes, `009` the (intent_hash, recorded_at) unique constraint).
 
 Partitioned by `recorded_at` (range, monthly). Adopters create partitions
 monthly via cron, [pg_partman](https://github.com/pgpartman/pg_partman), or
@@ -18,8 +27,22 @@ according to the compliance window (typically 7y for financial intents,
 
 ## Usage
 
+The reference INSERT is exported as `INSERT_AUDIT_SQL` — the single source of
+truth for the row shape — paired with `auditInsertParams(row)`, which produces
+the bound parameter array in matching column order. **Use them; do not
+hand-roll the statement.** The row spans 25 columns (base v1 schema plus the
+v2–v5 additive migrations), and every column carries part of the
+tamper-evidence binding: omitting the v4 fields (`audit_hash`,
+`signature_jsonb`, `kernel_identity_jsonb`, …) makes `verifyAuditRecord` report
+`missing_hash` on read-back. The const + helper keep the column set complete and
+in sync by construction.
+
 ```ts
-import { createPostgresSink } from "@adjudicate/audit-postgres";
+import {
+  createPostgresSink,
+  INSERT_AUDIT_SQL,
+  auditInsertParams,
+} from "@adjudicate/audit-postgres";
 import { multiSink, createConsoleSink, createNatsSink } from "@adjudicate/audit";
 
 const sink = multiSink(
@@ -27,23 +50,8 @@ const sink = multiSink(
   createNatsSink({ publisher: natsPublisher }),
   createPostgresSink({
     writer: {
-      async insertAudit(row) {
-        await pgClient.query(
-          `INSERT INTO intent_audit (intent_hash, session_id, kind, principal,
-             taint, decision_kind, refusal_kind, refusal_code, decision_basis,
-             resource_version, envelope_jsonb, decision_jsonb, recorded_at,
-             duration_ms, partition_month)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb,
-             $12::jsonb, $13, $14, $15)
-           ON CONFLICT DO NOTHING`,
-          [
-            row.intent_hash, row.session_id, row.kind, row.principal,
-            row.taint, row.decision_kind, row.refusal_kind, row.refusal_code,
-            row.decision_basis, row.resource_version, row.envelope_jsonb,
-            row.decision_jsonb, row.recorded_at, row.duration_ms, row.partition_month,
-          ],
-        );
-      },
+      insertAudit: (row) =>
+        pool.query(INSERT_AUDIT_SQL, [...auditInsertParams(row)]),
     },
     onError: (err, record) => {
       Sentry.captureException(err, { extra: { intentHash: record.intentHash } });
@@ -52,13 +60,27 @@ const sink = multiSink(
 );
 ```
 
+`INSERT_AUDIT_SQL` names all 25 columns explicitly (`$1..$25`) and ends with
+`ON CONFLICT (intent_hash, recorded_at) DO NOTHING` — the grain backed by the
+unique constraint from migration `009`, so idempotent re-emit of the same record
+is a no-op. (A re-adjudication at a later `recorded_at` is a distinct row.)
+
 ## Replay
+
+`readAuditWindow` takes an `AuditQueryFn` — an object exposing
+`fetchRows(window)` — as its first argument. Adopters wrap their Postgres client
+in that shape (window ends are both inclusive).
 
 ```ts
 import { readAuditWindow } from "@adjudicate/audit-postgres";
 import { replay } from "@adjudicate/audit";
 
-const records = await readAuditWindow(myQuery, {
+const query = {
+  fetchRows: (window) => pool.query(/* SELECT … WHERE recorded_at BETWEEN … */)
+    .then((res) => res.rows),
+};
+
+const records = await readAuditWindow(query, {
   fromIso: "2026-04-01T00:00:00Z",
   toIso: "2026-04-30T23:59:59Z",
   intentKind: "order.submit",
@@ -71,14 +93,6 @@ console.log(`${report.matched}/${report.total} matched, ${report.mismatches.leng
 The replay is deterministic — running today's policy against last month's
 records detects drift before any audit. Hook this into CI for "no
 divergence" regression fences.
-
-## When to ship this vs ConsoleSink-only
-
-Per the v2.0 plan's open decision #3: ship after P0-h (intent-level dedup
-authoritative) so 30 days of records are available before the first
-compliance audit. Earlier adoption is fine but adds operational surface
-(migrations, partition rotation, retention) that's not strictly required
-until durable retention matters.
 
 ## Why a separate package
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-`v0.1.0-experimental` — pending publish to npm. PackV0-conformant. Phase 1 lighthouse for the [platform roadmap](../../README.md#status).
+`v0.2.1` — PackV0-conformant. Phase 1 lighthouse for the [platform roadmap](../../README.md#status).
 
 ## Why this Pack first
 
@@ -97,7 +97,7 @@ const orderPolicyBundle: PolicyBundle<string, unknown, OrderState> = {
 };
 ```
 
-The factory's `signal`, `timeoutMs`, `confirmedStatuses`, and `pixMethodLabel` are all overridable per call. Canonical example: IbateXas's `@ibatexas/llm-provider` composes the factory against `order.confirm` in `packages/llm-provider/src/order-policy-bundle.ts`. See [`tests/adopter-guard.test.ts`](./tests/adopter-guard.test.ts) for the contract.
+The factory's `signal`, `timeoutMs`, `confirmedStatuses`, and `pixMethodLabel` are all overridable per call. Canonical adopter: IbateXas's `@ibatexas/pack-orders` composes the factory against `order.confirm` in `packages/pack-orders/src/policies.ts`. See [`tests/adopter-guard.test.ts`](./tests/adopter-guard.test.ts) for the contract.
 
 ## Composition into your `PackV0` consumer
 

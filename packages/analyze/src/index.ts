@@ -37,3 +37,26 @@ export {
 export { analyzePolicy, type AnalyzePolicyArgs } from "./analyze.js";
 
 export { renderJson, renderSarif, renderText } from "./render.js";
+
+export {
+  describePack,
+  describeInstalledPacks,
+  computeManifestDigest,
+  diffPolicyManifests,
+  type ManifestVersion,
+  type GuardManifestNode,
+  type DecisionEvidence,
+  type DecisionOutcomeSummary,
+  type IntentManifestNode,
+  type PackManifestNode,
+  type PolicyManifest,
+  type DescribePackOptions,
+  type DescribeManifestOptions,
+  type DiffStatus,
+  type PackDiff,
+  type IntentDiff,
+  type GuardDiff,
+  type ManifestDiff,
+} from "./manifest.js";
+
+export { type NameSource, type Phase } from "./internal/walk.js";

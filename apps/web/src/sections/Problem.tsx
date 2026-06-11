@@ -4,11 +4,21 @@ import { motion } from "framer-motion";
 import { ArrowRight, Database, AlertTriangle } from "lucide-react";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 
-const PHASES = ["state", "taint", "auth", "business"] as const;
+/**
+ * The four kernel phases, each with a one-line gloss of what it gates. The
+ * gloss surfaces on hover/focus as a native title + aria-label (AUDIT P2) so
+ * the animated phase strip becomes demonstrative, not just decorative.
+ */
+const PHASES = [
+  { id: "state", gates: "Checks the request is valid for the current state." },
+  { id: "taint", gates: "Validates actor provenance — is the caller trusted?" },
+  { id: "auth", gates: "Confirms the actor is authorized for this kind." },
+  { id: "business", gates: "Applies domain rules — caps, ramps, thresholds." },
+] as const;
 
 export function Problem() {
   return (
-    <section className="bg-surface py-20">
+    <section className="bg-canvas py-20">
       <div className="mx-auto max-w-6xl px-6">
         <SectionHeading
           eyebrow="The problem"
@@ -21,7 +31,7 @@ export function Problem() {
           <Panel
             title="Without adjudicate"
             tint="rose"
-            statusIcon={<AlertTriangle size={18} className="text-refuse" />}
+            statusIcon={<AlertTriangle size={18} className="text-refuse-strong" />}
           >
             <div className="flex items-center justify-between gap-3 text-sm">
               <Pill label="LLM" />
@@ -29,7 +39,7 @@ export function Problem() {
                 aria-hidden
                 animate={{ x: [0, 8, 0] }}
                 transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-                className="text-refuse"
+                className="text-refuse-strong"
               >
                 <ArrowRight size={20} />
               </motion.div>
@@ -44,20 +54,20 @@ export function Problem() {
 
           <Panel
             title="With adjudicate"
-            tint="indigo"
+            tint="brand"
             statusIcon={
-              <span className="rounded-full bg-execute/15 px-2 py-0.5 text-[10px] uppercase tracking-section text-execute">
+              <span className="rounded-full bg-execute/15 px-2 py-0.5 text-[10px] uppercase tracking-section text-execute-strong">
                 Kernel
               </span>
             }
           >
-            <div className="flex items-center justify-between gap-2 text-sm">
+            <div className="flex min-w-0 items-center justify-between gap-2 text-sm">
               <Pill label="LLM" />
-              <ArrowRight size={16} className="text-faint" />
-              <div className="flex flex-1 items-center gap-1">
+              <ArrowRight size={16} className="shrink-0 text-faint" />
+              <div className="flex min-w-0 flex-1 items-center gap-1">
                 {PHASES.map((p, idx) => (
                   <motion.div
-                    key={p}
+                    key={p.id}
                     initial={{ opacity: 0.3 }}
                     animate={{ opacity: [0.3, 1, 0.3] }}
                     transition={{
@@ -65,9 +75,12 @@ export function Problem() {
                       repeat: Infinity,
                       delay: idx * 0.4,
                     }}
-                    className="flex-1 rounded-sm border border-edge bg-canvas px-1.5 py-1 text-center text-[10px] uppercase tracking-section text-muted"
+                    tabIndex={0}
+                    title={`${p.id} — ${p.gates}`}
+                    aria-label={`${p.id} phase: ${p.gates}`}
+                    className="flex-1 cursor-help rounded-sm border border-edge bg-canvas px-1.5 py-1 text-center text-[10px] uppercase tracking-section text-muted transition-colors hover:border-brand/40 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   >
-                    {p}
+                    {p.id}
                   </motion.div>
                 ))}
               </div>
@@ -94,13 +107,13 @@ function Panel({
 }: {
   title: string;
   children: React.ReactNode;
-  tint: "indigo" | "rose";
+  tint: "brand" | "rose";
   statusIcon: React.ReactNode;
 }) {
-  const tintBorder = tint === "indigo" ? "border-indigo-200" : "border-rose-200";
-  const tintBg = tint === "indigo" ? "bg-indigo-50" : "bg-rose-50";
+  const tintBorder = tint === "brand" ? "border-brand/30" : "border-rose-200";
+  const tintBg = tint === "brand" ? "bg-brand/5" : "bg-rose-50";
   return (
-    <div className={`rounded-2xl border ${tintBorder} ${tintBg} p-6 shadow-sm`}>
+    <div className={`min-w-0 rounded-2xl border ${tintBorder} ${tintBg} p-6 shadow-sm`}>
       <div className="mb-5 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-ink">{title}</h3>
         {statusIcon}
@@ -121,7 +134,7 @@ function Pill({
 }) {
   const cls =
     tone === "danger"
-      ? "border-refuse/40 bg-refuse/10 text-refuse"
+      ? "border-refuse/40 bg-refuse/10 text-refuse-strong"
       : "border-edge bg-surface text-ink";
   return (
     <span

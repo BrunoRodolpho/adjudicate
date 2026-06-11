@@ -125,9 +125,13 @@ operating on user-supplied payloads SHOULD validate inputs before hashing;
 the `IntentEnvelope.payload` field is typed as `unknown` and adopters must
 ensure it contains only JSON-safe values.
 
-`pack-trust.ts`'s local `canonicalJson` (used for Pack fingerprints) throws on
-`typeof value` not in `{null, boolean, number, string, array, object}`, which
-is the stricter, preferred behavior for new implementations.
+The shared `canonicalJson` in
+[`packages/conformance/src/canonical-json.ts`](../../packages/conformance/src/canonical-json.ts)
+(imported by `pack-trust.ts`, `config-seal.ts`, and `ai-bom.ts` for Pack
+fingerprints, config seals, and AI-BOM digests) throws
+`canonicalJson: unsupported value type (${typeof value})` on any `typeof value`
+not in `{null, boolean, number, string, array, object}`. That fail-closed
+behavior is the stricter, preferred default for new implementations.
 
 ---
 
@@ -215,6 +219,10 @@ The following Python is provided as a literal cross-runtime check, not as a
 dependency. It produces the same hash as the reference Node implementation
 for the golden vectors in
 [`packages/core/tests/hash-golden-vectors.test.ts`](../../packages/core/tests/hash-golden-vectors.test.ts).
+The cross-repo conformance fixture
+[`packages/canonical/golden-vectors.json`](../../packages/canonical/golden-vectors.json)
+is the source of truth shared with claustrum's proof hasher (mirrored test:
+`packages/canonical/tests/golden-vectors.test.ts`).
 
 ```python
 import hashlib

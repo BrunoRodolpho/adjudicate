@@ -26,13 +26,13 @@ The v0.5 status doc flagged this as **Priority 1 — adoption-blocking**.
 
 Extract a provider-neutral `@adjudicate/adapter-core` package containing:
 
-- `runAdjudicatedLoop` — the orchestration loop, parameterised by `ProviderBridge<H>`.
+- `createAdjudicatedAgent` — the orchestration loop, parameterised by `ProviderBridge<H>`. Returns an agent with `send` / `resume` / `confirm`.
 - `classifyIncomingToolUse` + `buildEnvelopeFromToolUse` — the bridge primitives.
 - `translateDecision` — Decision → provider-neutral `ToolResultBlock` + `LoopAction`.
-- `ConfirmationStore<H>` + `DeferRedis` + `ParkRedis` + in-memory shims.
+- `ConfirmationStore<H>` + `DeferRedis` + `ParkRedis` + in-memory shims (`createInMemoryConfirmationStore`, `createInMemoryDeferStore`).
 - `AdapterError` + `AdapterErrorCode` taxonomy.
 
-Provider adapters become **thin SDK shims**: each implements a `ProviderBridge<H>` against its SDK and re-exports `createAdjudicatedAgent` from adapter-core. History `H` is opaque to the loop — the bridge is the only thing in the codebase that knows the SDK-specific conversation-history shape.
+Provider adapters become **thin SDK shims**: each builds a `ProviderBridge<H>` against its SDK and re-exports a `createAdjudicatedAgent` that wires the bridge into `createAdjudicatedAgent` from adapter-core (imported as `createAdjudicatedAgentCore`). History `H` is opaque to the loop — the bridge is the only thing in the codebase that knows the SDK-specific conversation-history shape.
 
 ### `ProviderBridge<H>` contract
 
@@ -48,7 +48,7 @@ interface ProviderBridge<H> {
 }
 ```
 
-Where `AssistantTurn = { textBlocks: ReadonlyArray<string>; toolUses: ReadonlyArray<ToolUseRequest> }` and `ToolResultBlock = { toolUseId, content, isError? }` are both provider-neutral.
+Where `AssistantTurn = { textBlocks: ReadonlyArray<string>; toolUses: ReadonlyArray<ToolUseRequest>; usage?: TokenUsage }` and `ToolResultBlock = { toolUseId, content, isError? }` are both provider-neutral. The `usage?` field is additive (ADR-120): bridges that cannot report token usage omit it, and the loop treats absence as "no usage to report".
 
 ## Invariants preserved
 

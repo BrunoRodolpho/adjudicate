@@ -109,7 +109,7 @@ v2 cut only.
 
 1. Closed `Decision` algebra (6 kinds).
 2. Closed `Taint` lattice (3 levels).
-3. Closed `RefusalKind` enum (6 categories).
+3. Closed `RefusalKind` enum (4 categories: `SECURITY`, `BUSINESS_RULE`, `AUTH`, `STATE`).
 4. Closed `BasisCategory` set (11 categories).
 5. Guard evaluation order (`state → taint → auth → business → default`).
 6. Fail-closed default (throwing guard → `kernel.GUARD_PANIC` SECURITY REFUSE).
@@ -119,7 +119,7 @@ v2 cut only.
 10. `AuditRecord` schema additivity.
 11. Pack isolation (`installPack` freezes).
 12. Adopter-controlled clocks/ledgers/sinks via `deps`.
-13. ProviderBridge<H> shape (three methods).
+13. `ProviderBridge<H>` shape (four methods: `emptyHistory`, `appendUserMessage`, `send`, `appendToolResults`).
 14. Wire-format equivalence across multi-runtime implementations.
 
 Cross-reference: [`docs/architecture/LONG_HORIZON_AUDIT.md §10`](../architecture/LONG_HORIZON_AUDIT.md).
@@ -289,9 +289,11 @@ maintainers for the life of the v1 line.
 Post-v1 the framework tracks (when adopters report via opt-in
 telemetry):
 
-- **Test count.** Currently 1036; growth via additive primitives and
-  invariants is expected.
-- **ADR count.** Currently 116; growth tracks architectural decisions.
+- **Test count.** Currently ~1790 `it()`/`test()` cases across 231
+  `.test.ts` files; growth via additive primitives and invariants is
+  expected.
+- **ADR count.** Currently 36 (ADR-101 through ADR-136); growth tracks
+  architectural decisions.
 - **Freeze-matrix coverage.** Every public export classified; gaps
   flagged by `check-freeze-matrix.ts`.
 - **Conformance pass rate** across the in-tree Pack set.

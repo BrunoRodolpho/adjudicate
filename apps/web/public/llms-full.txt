@@ -1,0 +1,84 @@
+# adjudicate — full brief
+
+> Guardrails for AI agents: a deterministic control layer between LLM tool-calls and execution. Every state-mutating AI action crosses the kernel as an IntentEnvelope and is adjudicated to exactly one of six outcomes, then recorded as a signed, replay-verifiable audit receipt.
+
+## What it is
+
+adjudicate is a decision kernel for AI actions. An LLM-driven agent does not call your tools or APIs directly; it *proposes* an action, and the kernel *disposes* — deciding whether that action should run, change, wait, escalate to a human, or stop. The decision is deterministic: given the same `(envelope, state, policy)` the kernel returns a byte-identical outcome, and every decision is written to an append-only audit ledger.
+
+The kernel `@adjudicate/core` is at v1.x and API-frozen — post-v1 disciplined evolution, production-grade. Packs and primitives are evolving at v0.2–0.3.
+
+## The problem it solves
+
+LLM agents that hold real tool-calls turn a prompt-injection, a hallucination, or a runaway loop into a real side-effect: a destructive command, a data exfiltration, a runaway API bill, an unapproved production deploy. Binary allow/deny is too blunt — it either blocks useful work or lets risky work through. adjudicate inserts a typed, auditable control layer with six graded outcomes instead of two, so a risky action can be rewritten, deferred, or routed to a human rather than only allowed or refused.
+
+## The six decision outcomes
+
+- EXECUTE — the intent runs against the side-effect.
+- REFUSE — the intent is rejected with a structured refusal (a basis code, never a silent drop).
+- REWRITE — the kernel returns a sanitised replacement intent (e.g. PII masked, blast radius clamped, an unsafe flag removed).
+- DEFER — the intent is parked until an external signal arrives (a dependency recovers, a review resolves).
+- ESCALATE — the intent is routed to a human approver; the parked request is resumable.
+- REQUEST_CONFIRMATION — the kernel asks for an affirmative re-confirmation before proceeding.
+
+## The IntentEnvelope (v2)
+
+Every action crosses the kernel as an IntentEnvelope — the canonical mutation proposal. It has exactly eight top-level fields:
+
+- `version` — envelope schema version (currently 2).
+- `kind` — the intent type string (e.g. `deployment.approval.request`, `terminal.run`, `support.ticket.create`).
+- `payload` — the action's arguments.
+- `createdAt` — ISO-8601 wall-clock timestamp; descriptive metadata, NOT part of the hash.
+- `nonce` — adopter-supplied idempotency key; part of the hash. Retries of the same logical action reuse the same nonce so the ledger can dedupe.
+- `actor` — `{ principal: "llm" | "user" | "system", sessionId: string }` (optional reserved `attestation`).
+- `taint` — `SYSTEM | TRUSTED | UNTRUSTED` provenance label.
+- `intentHash` — `sha256` over the canonical JSON of `(version, kind, payload, nonce, actor, taint)`. Verified by the kernel, not trusted; a forged/drifted hash is refused with `schema:intent_hash_mismatch`.
+
+## The audit receipt
+
+Each decision yields an AuditRecord binding the envelope, the decision, and the basis. Tamper-evidence is two cryptographic fields:
+
+- `auditHash` — `sha256Canonical(record \ { auditHash, signature, metadata })`. Binds envelope + decision + basis + supersession into one content hash; re-derivable for tamper detection.
+- `signature` — an optional, pluggable cryptographic signature over `auditHash`, adding non-repudiation. (auditHash alone gives tamper detection; the signature adds attribution.)
+
+Because the decision is deterministic and content-addressed, the whole ledger is replay-verifiable: re-running the recorded envelopes reproduces the recorded hashes.
+
+## Install (real npm packages)
+
+- `pnpm add @adjudicate/core` — the API-frozen v1 kernel.
+- Adapters: `@adjudicate/anthropic`, `@adjudicate/openai`.
+- CLI: `@adjudicate/cli`.
+- Governance packs (`@adjudicate/pack-*`):
+  - `@adjudicate/pack-incident-response` — incident → remediation lifecycle exercising all six outcomes.
+  - `@adjudicate/pack-access-governance` — least-privilege clamps, sensitive-resource escalation, confirmed revokes.
+  - `@adjudicate/pack-deployments-approval` — release-gating: ramp clamp, approval/eval-score escalation, zone-bounded green-region clamp.
+
+## Capabilities (selected)
+
+- PII / data-classification guard — masks classified data (SSNs, cards, secrets) via REWRITE, taint preserved.
+- Command-risk guard — classifies a terminal command and chooses EXECUTE / REWRITE / REQUEST_CONFIRMATION / REFUSE; never echoes the raw command.
+- Token-budget guard — enforces a per-session token budget held in audited state; REFUSE/DEFER once the cap is crossed.
+- Red Team — deterministic adversarial test suite reporting how many attack vectors the kernel refused.
+- Behavioral drift — detects statistical drift in the decision-outcome distribution over time.
+- AI bill-of-materials — signed manifest of every model, pack, guard and adapter in the deployment.
+- Configuration integrity seal — verifiable hash of the active policy/pack config so tampering is detectable.
+- Smart approval engine — registry + channels turning ESCALATE into a resumable human-in-the-loop step.
+
+## Key page URLs
+
+- / — overview.
+- /how-it-works — the kernel mechanism.
+- /capabilities — the fourteen capabilities, each mapped to a real package and ADR.
+- /capabilities/<slug> — per-capability deep-dive.
+- /deploy — run the kernel in your own infrastructure.
+- /console — operator console (decisions, approvals, audit explorer, governance surfaces).
+- /playground — run the real kernel against an intent.
+- /architecture/data-flow — how an intent travels from AI to side-effect.
+- /comparisons — where six decisions beat allow/deny.
+- /transparency — public trust hub (PII handling, AI-BOM, drift, red-team, command-risk, token governance, config integrity).
+- /blog — engineering and design notes.
+
+## Source
+
+- GitHub: https://github.com/BrunoRodolpho/adjudicate
+- Docs: https://github.com/BrunoRodolpho/adjudicate/tree/main/docs

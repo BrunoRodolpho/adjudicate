@@ -30,53 +30,70 @@ adjudicate(R.envelope, recovered_state(R, S_n), policy_for(R.packId, P_n))
   → Decision_n
 ```
 
-Replay produces a `ReplayMismatch` (or `null` for match) by comparing
-`Decision_n` against `R.decision`. The classifier
+Replay produces a `ReplayMismatch` (or `null` for an exact match) by
+comparing `Decision_n` against `R.decision`. The per-record classifier
+lives in core
+([`packages/core/src/replay-classify.ts`](../../packages/core/src/replay-classify.ts),
+shared by `@adjudicate/audit`'s `replay()` and admin-sdk's `replay.run`);
+the audit-layer harness
 [`packages/audit/src/replay.ts`](../../packages/audit/src/replay.ts)
 and the integrity layer
 [`packages/audit/src/replay-integrity.ts`](../../packages/audit/src/replay-integrity.ts)
-emit the structured result.
+wrap it. `classify()` returns `null` on a match, otherwise a
+`ReplayMismatch` whose `kind` is the *first* axis of divergence in
+priority order:
 
-The replay-drift classifier
-[`packages/audit/src/replay-drift.ts`](../../packages/audit/src/replay-drift.ts)
-aggregates classifications across a corpus into one of:
-
-| Class | Meaning |
+| `kind` | Meaning |
 |---|---|
-| `IDENTICAL` | Decision kind, basis flat-set, and (when present) supersession identical. |
-| `BASIS_ONLY` | Decision kind identical; basis set re-ordered or refined. |
 | `DECISION_KIND` | Decision kind itself changed. **This is a regression on any v1.x replay.** |
+| `BASIS_DRIFT` | Decision kind identical; basis flat-set differs (`basisDelta` lists `missing`/`extra`). |
 | `REFUSAL_CODE_DRIFT` | Decision kind `REFUSE` on both sides; refusal code changed. |
 
+Two *adjacent* vocabularies live in separate modules and should not be
+confused with these per-record kinds:
+
+- **Trend classes** — the replay-drift detector
+  [`packages/audit/src/replay-drift.ts`](../../packages/audit/src/replay-drift.ts)
+  turns a *series* of `ReplayReport`s into one of
+  `stable | improving | regressing | flapping | insufficient_data`
+  (see §5.3), answering "is replay quality regressing over time?".
+- **Shadow divergence classes** — the boot-time shadow comparator
+  [`packages/core/src/kernel/shadow.ts`](../../packages/core/src/kernel/shadow.ts)
+  classifies live `adjudicate()` vs legacy-boolean outcomes into
+  `NONE | BASIS_ONLY | DECISION_KIND | PAYLOAD_REWRITE`. That is a
+  migration-cutover signal, not a replay result.
+
 The longevity model is the framework's commitment about what *should*
-be true for each class over the 10-year horizon.
+be true for each per-record `kind` over the 10-year horizon.
 
 ---
 
 ## 2. The longevity commitment
 
+A "match" below means `classify()` returned `null`.
+
 ### 2.1 Within a MINOR (v1.x.y → v1.x.z)
 
-- **Required**: `IDENTICAL` for 100 % of records.
-- **Forbidden**: `BASIS_ONLY`, `DECISION_KIND`, `REFUSAL_CODE_DRIFT`
+- **Required**: match for 100 % of records.
+- **Forbidden**: `BASIS_DRIFT`, `DECISION_KIND`, `REFUSAL_CODE_DRIFT`
   caused by kernel or Pack changes.
 
 The only acceptable drift within a MINOR cycle is a state-store
 recovery quirk (e.g., a row was hand-edited; the record carries the
-edit). The framework treats any non-IDENTICAL classification as a
+edit). The framework treats any non-`null` classification as a
 release-blocker bug.
 
 ### 2.2 Within a MAJOR (v1.x → v1.y)
 
-- **Required**: `IDENTICAL` or `BASIS_ONLY` for ≥ 99 % of records.
-- **Tolerated**: `BASIS_ONLY` from documented basis-vocabulary
+- **Required**: match or `BASIS_DRIFT` for ≥ 99 % of records.
+- **Tolerated**: `BASIS_DRIFT` from documented basis-vocabulary
   refinements (e.g., narrowing a generic basis code into a specific
   one).
 - **Forbidden**: `DECISION_KIND` for any audit record.
 
 ### 2.3 Across a MAJOR boundary (v1 → v2)
 
-- **Required**: `IDENTICAL` or `BASIS_ONLY` for ≥ 95 % of records,
+- **Required**: match or `BASIS_DRIFT` for ≥ 95 % of records,
   measured on the *unchanged* sub-corpus (records that target Pack
   versions still supported in v2).
 - **Tolerated**: `DECISION_KIND` for records targeting Packs that
@@ -89,7 +106,7 @@ release-blocker bug.
 
 ### 2.4 Decade horizon (year 1 → year 10)
 
-- **Required**: `IDENTICAL` or `BASIS_ONLY` for ≥ 90 % of records on
+- **Required**: match or `BASIS_DRIFT` for ≥ 90 % of records on
   the unchanged sub-corpus, measured against any kernel release that
   still claims to be in the v1 line.
 - The expectation is *not* that 10-year-old records re-adjudicate at
@@ -111,9 +128,11 @@ It does not promise:
   but the *state* lives in the adopter's database. Archival of
   state-snapshot fixtures is the adopter's responsibility.
 - **Pack availability.** If a Pack has been deleted from npm,
-  replay must use a locally archived Pack. The framework provides
-  [`scripts/archive-pack.ts`](#) as a reference but does not host
-  Pack archives.
+  replay must use a locally archived Pack. A reference
+  `scripts/archive-pack.ts` helper is **not yet implemented** (today
+  `scripts/` holds only `check-freeze-matrix.ts`, `check-versions.ts`,
+  and `rc-checks.ts`); until it exists, adopters archive Pack tarballs
+  by their own means. The framework does not host Pack archives.
 - **LLM output reproducibility.** The framework explicitly does *not*
   replay the LLM. The envelope is the kernel's input; the LLM's
   output is incidental. Adopters who need LLM reproducibility for
@@ -152,16 +171,18 @@ parameterised by a tag retrieves the historical contract.
 
 ### 4.3 Long-range fixtures
 
-[`packages/audit/tests/fixtures/longevity/`](../../packages/audit/tests/fixtures/longevity/)
-holds a curated corpus of envelopes + audit records spanning the
-versions the framework has shipped. The longevity test
+[`docs/specs/replay-longevity-corpus.json`](./replay-longevity-corpus.json)
+is the single cumulative corpus file: a curated set of
+`(envelopeInput, decision)` fixtures spanning the versions the
+framework has shipped, normative for any cross-runtime
+re-implementation. The longevity test
 [`packages/audit/tests/replay-longevity.test.ts`](../../packages/audit/tests/replay-longevity.test.ts)
-re-adjudicates the corpus against the current kernel and asserts
+loads it, re-adjudicates against the current kernel, and asserts
 the longevity commitment.
 
-The corpus grows additively. A record added at v1.0 is never
-deleted; new records are added at v1.x, v2.0, etc. The
-longevity test gates the release pipeline.
+The corpus grows additively (append-only JSON). A record added at v1.0
+is never deleted or mutated; new records are added at v1.x, v2.0, etc.
+The longevity test gates the release pipeline.
 
 ### 4.4 Cross-runtime vectors
 
@@ -183,35 +204,44 @@ expansion" for the trigger.
 
 ## 5. The replay primitives
 
-The framework ships four primitives that operationalise replay over
-the longevity horizon. All four live in `@adjudicate/audit`.
+The framework ships pure primitives that operationalise replay over the
+longevity horizon. All live in `@adjudicate/audit`, except the
+per-record `classify()` (in `@adjudicate/core`, see §1).
 
 ### 5.1 `replay(records, adjudicator)`
 
 Pure replay: re-adjudicates each record, classifies divergences.
-Returns `{ total, matched, mismatches[] }`.
+Returns a `ReplayReport` (`{ total, matched, mismatches[] }`).
 
 ### 5.2 `replayWithIntegrity(records, adjudicator)`
 
 Adds tamper-detection: re-derives `intentHash` and `auditHash` per
-record and reports `integrityFailures[]` independently. v4+ records
-participate fully; pre-v4 records are flagged in `preV4Records` and
-skipped for hash verification.
+record and reports `integrityFailures[]` independently. Records at the
+current `AUDIT_RECORD_VERSION` (5, per
+[`packages/core/src/audit.ts`](../../packages/core/src/audit.ts)) carry
+an `auditHash` and participate fully; older records lacking it are
+counted in the report's `preV4Records` field and skipped for hash
+verification. `isReplayIntegrityClean(report)` is the boolean gate.
 
 ### 5.3 `classifyReplayDrift(samples, thresholds)`
 
-Trend classifier: takes a series of replay reports (per day, per
-release, per cohort) and emits `{ classification, points, deltas,
-directionFlips, netDelta, headline }`. Operators use it to detect
-drift inflections before they become incidents.
+Trend classifier: takes a series of `ReplayReport`s (per day, per
+release, per cohort) and emits a drift summary with a `classification`
+of `stable | improving | regressing | flapping | insufficient_data`.
+Operators use it to detect drift inflections before they become
+incidents. Pure; no clock, I/O, or RNG. Thresholds default via
+`DEFAULT_DRIFT_THRESHOLDS` and are adopter-overridable.
 
-### 5.4 `analyzeSupersessionChain(records)`
+### 5.4 `buildSupersessionChains` / `explainSupersessionChainReport`
 
-Replay-aware chain analyser
-([`packages/audit/src/supersession-chain.ts`](../../packages/audit/src/supersession-chain.ts)):
-follows `supersedes` links across `REQUEST_CONFIRMATION → resolve`,
-`DEFER → resume`, `REWRITE → execute`, and emits a structured chain
-report. Each chain is itself replayable.
+Replay-aware chain analysis
+([`packages/audit/src/supersession-chain.ts`](../../packages/audit/src/supersession-chain.ts)).
+`buildSupersessionChains(records)` follows `supersedes` links —
+`REQUEST_CONFIRMATION → resolve`, `DEFER → resume`,
+`REWRITE → execute`, replay-of-original, and LGPD/GDPR per-surface
+scrub — into a `SupersessionChainReport`;
+`explainSupersessionChainReport(report)` renders it to a one-line
+human summary. Each chain is itself replayable.
 
 ---
 
@@ -224,7 +254,7 @@ The framework anticipates four kinds of long-range replay scenario.
 An adopter is audited; the auditor requests "show me that decision
 X at date T was lawful per policy P". The adopter retrieves the
 audit record, runs `replayWithIntegrity` against the historical
-kernel + Pack, and the report classifies as `IDENTICAL`. **The
+kernel + Pack, and the report matches with zero mismatches. **The
 framework's value proposition.**
 
 Longevity contract: as long as the adopter has the historical
@@ -241,8 +271,9 @@ this at version X". The replay-drift classifier reveals the
 inflection.
 
 Longevity contract: as long as the audit record carries
-`policyVersion` and `kernelVersion` (mandatory from v4+),
-investigators can pinpoint the version inflection.
+`policyVersion` and `kernelVersion` (mandatory in the v4+ record
+schema; v5 is current), investigators can pinpoint the version
+inflection.
 
 ### 6.3 Multi-runtime migration
 
@@ -258,8 +289,8 @@ files. A Rust runtime at year 5 still matches the year-1 vectors.
 
 An audit record sat in cold storage for 7 years; someone needs to
 verify it now. They retrieve the kernel binary at the record's
-`kernelVersion`, run `replayWithIntegrity`, and the report is
-`IDENTICAL`.
+`kernelVersion`, run `replayWithIntegrity`, and the report matches
+with a clean integrity check.
 
 Longevity contract: this works as long as (a) the historical kernel
 binary is preserved (adopter responsibility), (b) Node.js still
@@ -292,7 +323,7 @@ The mitigations:
   `canonical-json-hash.md` §"Cross-runtime consumers" produces the
   same hashes from a *different* language stack; agreement is
   evidence of correctness.
-- **Long-range fixtures** in `packages/audit/tests/fixtures/longevity/`
+- **Long-range fixtures** in `docs/specs/replay-longevity-corpus.json`
   re-test replay across versions; a silent drift would surface as
   classification failures.
 
@@ -312,7 +343,7 @@ The headlines:
 
 - **Basis vocabulary refinement** (an existing basis code is split
   into more specific codes): MINOR; replay classifies as
-  `BASIS_ONLY`; the change ships with a `supersedes`-aware migration.
+  `BASIS_DRIFT`; the change ships with a `supersedes`-aware migration.
 - **Refusal code addition**: MINOR; old records continue to use old
   codes; new decisions use new codes.
 - **Decision-kind algebra change**: MAJOR; multi-runtime coordinated
@@ -333,15 +364,21 @@ The longevity test is implemented in
 It:
 
 1. Loads the cumulative fixture corpus from
-   `packages/audit/tests/fixtures/longevity/`.
-2. Builds a deterministic adjudicator from each fixture's Pack
-   version (the Pack is reconstructed from snapshot, not loaded from
-   npm).
+   `docs/specs/replay-longevity-corpus.json`.
+2. Rebuilds each fixture's envelope and `AuditRecord` and re-derives
+   `intentHash` from the envelope (asserting it against the fixture's
+   `expectedIntentHash` when present). The adjudicator under replay is
+   a trivial identity function — `() => fixture.decision` — so the test
+   isolates the kernel's *canonicalisation and hashing* path rather
+   than re-running policy logic.
 3. Runs `replayWithIntegrity` over each record.
-4. Asserts classification matches the per-record expected outcome
-   (`IDENTICAL`, `BASIS_ONLY`, etc.).
-5. Aggregates results and asserts the longevity commitment per §2 is
-   honoured.
+4. Asserts a clean result: `total` and `matched` equal, zero
+   `mismatches`, zero `integrityFailures`, `preV4Records === 0`,
+   `isReplayIntegrityClean(report) === true`, and that the record is at
+   the current version (`record.version === 5`) with a valid 64-hex
+   `auditHash`.
+5. Aggregates across the full corpus and asserts the same clean result,
+   honouring the longevity commitment per §2.
 
 The test is gated by `rc-checks.ts` and runs on every release. A
 failure is a release-blocker.

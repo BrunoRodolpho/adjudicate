@@ -53,11 +53,15 @@ A minor release marks the API `@deprecated` and:
 
    ```ts
    /**
-    * @deprecated v0.5 — see `withMetadata`. Removal: v2.0.
+    * @deprecated v0.5 — use `withMetadata(g, { name })`. Removal: v2.0.
     * Codemod: `adjudicate-migrate name-guard-to-with-metadata`.
     */
    export function nameGuard<...>(...): ...;
    ```
+
+The Anthropic adapter aliases follow this pattern today — see
+`packages/anthropic/src/index.ts` (`AnthropicAdapterError` /
+`AnthropicAdapterErrorCode`, both tagged `@deprecated since v0.6`).
 
 Deprecated APIs continue to **function unchanged**. Tests against them
 keep passing. The kernel's invariants apply to deprecated surfaces
@@ -91,8 +95,8 @@ the guide and makes the call.
 Examples of codemod-eligible deprecations:
 
 - `nameGuard("x", g)` → `withMetadata(g, { name: "x" })` — purely
-  mechanical, ships in v0.4 with the `name-guard-to-with-metadata`
-  codemod.
+  mechanical, deprecated in v0.5 with the `name-guard-to-with-metadata`
+  codemod in `@adjudicate/migrate`.
 - Renaming an exported identifier (e.g., a hypothetical
   `createPolicyBundle` → `definePack`) — codemod rewrites both the
   import and the call site.
@@ -132,7 +136,14 @@ lands, the calendar records both the tier and the chosen removal target.
 
 | API | Package | Deprecated | Tier | Removal target | Codemod |
 |---|---|---|---|---|---|
-| `nameGuard(name, guard)` | `@adjudicate/core/kernel` | v0.4.0 | Pack-author | v2.0.0 | `adjudicate-migrate name-guard-to-with-metadata` |
+| `nameGuard(name, guard)` | `@adjudicate/core/kernel` | v0.5 | Pack-author | v2.0.0 | `adjudicate-migrate name-guard-to-with-metadata` |
+
+> **Source-tag gap (track to close):** the codemod and CHANGELOG entry
+> exist, but `nameGuard` in `packages/core/src/kernel/adjudicate.ts` does
+> **not** yet carry the `@deprecated` JSDoc tag, and
+> `docs/release/api-surface.md` lists `nameGuard` without a `(deprecated)`
+> marker. Apply both (per "How to add a deprecation" steps #2 and #6) to
+> bring the source in line with this calendar.
 
 ### Removed
 

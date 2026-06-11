@@ -34,8 +34,9 @@ The named failure modes are the only failures the framework's design
 ### 2.1 Guard panic
 
 - **Symptom**: a Decision with kind `REFUSE` and basis
-  `kernel.GUARD_PANIC`. Audit record carries the captured exception
-  on `metadata.exception`.
+  `kernel.GUARD_PANIC`. The captured exception is carried in the
+  `kernel.GUARD_PANIC` basis details as `errorName` + `message`
+  (alongside `phase` and the resolved `guardName`).
 - **Root cause class**: bug in adopter or Pack guard code.
 - **Detection signal**: spike in `REFUSE` rate with the
   `kernel.GUARD_PANIC` basis. The operator's dashboard must surface
@@ -98,8 +99,8 @@ The named failure modes are the only failures the framework's design
 ### 3.2 Integrity verification failure
 
 - **Symptom**: `replayWithIntegrity` reports a non-empty
-  `integrityFailures[]` with `kind: "envelope_hash_mismatch"` or
-  `"audit_hash_mismatch"`.
+  `integrityFailures[]` with `kind: "AUDIT_HASH_TAMPERED"` or
+  `"INTENT_HASH_MISMATCH"`.
 - **Root cause class**: tampering, storage corruption, or a buggy
   importer mutating records on ingest.
 - **Detection signal**: any non-zero integrity-failure count. This is
@@ -115,15 +116,18 @@ The named failure modes are the only failures the framework's design
 
 - **Symptom**: `replayWithIntegrity` reports `preV4Records.count > 0`
   with `verified: null, reason: "missing_hash"`.
-- **Root cause class**: archival records emitted before
-  `AUDIT_RECORD_VERSION = 4` (which introduced `auditHash`).
+- **Root cause class**: archival records emitted before v4 introduced
+  `auditHash`. Current records are at `AUDIT_RECORD_VERSION = 5`;
+  v5 added optional `metadata`, which is **excluded** from the
+  `auditHash` pre-image (so post-hoc metadata never invalidates
+  tamper-evidence). The pre-v4 framing remains historically correct.
 - **Detection signal**: expected on any deployment with pre-v0.7
   history.
 - **Degraded-mode contract**: pre-v4 records are *replay-verifiable*
   but not *integrity-verifiable*. The operator runs a Decision
   comparison without the auditHash check.
-- **Recovery path**: none required; documented behaviour. Future
-  deployments writing v4+ records inherit the integrity layer.
+- **Recovery path**: none required; documented behaviour. Records
+  written at v4+ (current: v5) inherit the integrity layer.
 
 ---
 
@@ -204,8 +208,9 @@ The named failure modes are the only failures the framework's design
 
 ### 6.1 Pack manifest validation failure
 
-- **Symptom**: `validatePackManifest(pack, manifest)` returns
-  diagnostics with `severity: "error"`.
+- **Symptom**: `validatePackManifest(pkg)` returns
+  `{ ok: false, errors }` — a list of operator-readable violation
+  strings.
 - **Root cause class**: manifest drift from runtime Pack (e.g., basis
   codes declared in manifest not used in code).
 - **Detection signal**: CI gate or install-time CLI check.
@@ -228,8 +233,8 @@ The named failure modes are the only failures the framework's design
 
 ### 6.3 Pack conformance failure
 
-- **Symptom**: `runConformance(pack)` returns a check with
-  `status: "fail"`.
+- **Symptom**: `runConformance(pack)` returns a report with
+  `passed: false` (any check result with `passed: false`).
 - **Root cause class**: Pack-author error (taint policy missing,
   default policy is EXECUTE without opt-in, etc.).
 - **Detection signal**: CI gate or pre-publish lint.
@@ -244,9 +249,9 @@ The named failure modes are the only failures the framework's design
 
 ### 7.1 `rc-checks.ts` gate failure
 
-- **Symptom**: release-candidate workflow fails on one of the six
-  gates (lint, test, version, freeze-matrix, hash vectors, scale
-  smoke).
+- **Symptom**: release-candidate workflow fails on one of the seven
+  gates (lint, test, version, freeze-matrix, kernel dep allowlist
+  for `@adjudicate/core`, hash vectors, scale smoke).
 - **Root cause class**: a PR landed on `main` that violates one of
   the gated invariants.
 - **Detection signal**: red CI on the `release-candidate.yml`

@@ -3,6 +3,13 @@
 **Status**: Accepted (2026-05-18 — M3 overnight execution)
 **Related**: ADR-105 (closed metadata vocabulary), ADR-106 (guard exception isolation), ADR-109 (analyzer architecture)
 
+> Scope note: this ADR covers the original six-check conformance slice
+> (`runConformance` / AC-001..AC-006). The package has since matured
+> (`packages/conformance` is at 1.1.0) and `index.ts` now also exports
+> manifest validation, pack-trust, AI-BOM (ADR-127), config-seal
+> (ADR-121), and pack-health. Those primitives are governed by their
+> own ADRs (ADR-115 / ADR-121 / ADR-127), not this one.
+
 ## Context
 
 The framework's correctness claims live as property tests in
@@ -19,7 +26,7 @@ verify their own Packs satisfy them without copying the test code.
 
 ## Decision
 
-Ship `@adjudicate/conformance` v0.4.0 as a public package exposing
+Ship `@adjudicate/conformance` exposing
 `runConformance(pack, options) → ConformanceReport`. Six checks
 ship with stable IDs (`AC-001` through `AC-006`), one per invariant.
 
@@ -60,26 +67,38 @@ Severity is mutable across minor versions following deprecation policy.
 - Determinism contract means flake-free CI: pass/fail does not depend
   on JIT warmup, GC pauses, or wall-clock.
 
-### Negative
+### Design note — two entry points by intent
 
-- The `KERNEL_REFUSAL_CODES` set in `pack-conformance.ts` doesn't
-  include `guard_panic` (post-M1 addition). The harness compensates
-  with a local overlay. Follow-up: align `KERNEL_REFUSAL_CODES` so
-  the overlay becomes a no-op.
-
-- Boot-time `assertPackConformance` and runtime `runConformance`
-  overlap in scope. The split is intentional: `assertPackConformance`
-  is fast structural validation (called by `installPack`);
-  `runConformance` is slower property-based validation (called by
-  CI). Adopters can use both.
+Boot-time `assertPackConformance` and runtime `runConformance` overlap
+in scope. The split is intentional: `assertPackConformance` is fast
+structural validation (called by `installPack`); `runConformance` is
+slower property-based validation (called by CI). Adopters can use both.
 
 ## Migration path
 
-- v0.4 ships the package.
-- v0.5 wires `runConformance` into `pack lint --strict` as a required gate.
-- v1.0 freezes the AC code catalog.
+All milestones below are complete:
+
+- The package ships and is published (`packages/conformance`, currently 1.1.0).
+- `KERNEL_REFUSAL_CODES` in `core/src/pack-conformance.ts` now includes
+  `guard_panic` (the SECURITY REFUSE code a thrown guard converts to,
+  per ADR-106). The local overlay the basis-vocabulary-purity check
+  carried pre-merge is removed — see the comment in
+  `checks/basis-vocabulary-purity.ts`.
+- The AC code catalog is frozen.
+
+Note on the CLI gate: `runConformance` is wired into the CLI via the
+`pack bom` command (`packages/cli/src/commands/pack-bom.ts`), which
+composes fingerprint + conformance + health + manifest. The `pack lint`
+command runs the kernel's fast structural check (`assertPackConformance`)
+rather than the property suite, and `--strict` is an `analyze`-command
+flag (escalate warnings to errors), not a conformance gate.
 
 ## References
 
-- Implementation: `packages/conformance/src/`.
-- Tests: `packages/conformance/tests/conformance.test.ts` (9 tests).
+- Implementation: `packages/conformance/src/` (this ADR scopes
+  `runner.ts` + `checks/`; the package now also ships manifest /
+  pack-trust / ai-bom / config-seal / pack-health under their own ADRs).
+- Tests: `packages/conformance/tests/conformance.test.ts` (9 tests) for
+  the conformance slice; the package additionally has `ai-bom.test.ts`,
+  `config-seal.test.ts`, `manifest.test.ts`, `pack-health.test.ts`, and
+  `pack-trust.test.ts` for the later primitives.

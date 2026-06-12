@@ -74,6 +74,38 @@ export const SEMCONV = {
   HALLUCINATION_SCORE: "adjudicate.hallucination.score",
   /** Bounded-cardinality bucket: grounded | uncertain | hallucinated. */
   HALLUCINATION_BUCKET: "adjudicate.hallucination.bucket",
+
+  // ── Simulation / journey-testing runs (`adjudicate.sim.*`) ────────────────
+  //
+  // Attributes for adopter journey-test harnesses that drive an LLM persona
+  // ("driver") against the adopter's deployed system ("sut" — system under
+  // test) and adjudicate the resulting envelopes through the kernel. Names
+  // align with the harness JSONL event vocabulary (`journey`, `runId`,
+  // `inputTokens`/`outputTokens`, `source: "driver" | "sut"`).
+
+  /** Stable journey identifier — e.g. "JOURNEY-001". Low cardinality (the journey catalog). */
+  SIM_JOURNEY_ID: "adjudicate.sim.journey.id",
+  /** Unique run identifier for one journey-run attempt. High cardinality — span/event use only, never a metric label. */
+  SIM_RUN_ID: "adjudicate.sim.run.id",
+  /** 1-based attempt counter within a repeated run (e.g. green-twice / `--k N`). Bounded by the harness's k. */
+  SIM_ATTEMPT: "adjudicate.sim.attempt",
+  /** Whether this run counts toward certification (pinned certification model) vs an exploratory run. Boolean. */
+  SIM_CERTIFYING: "adjudicate.sim.certifying",
+  /** Run outcome. Low cardinality: `pass | fail | error`. */
+  SIM_OUTCOME: "adjudicate.sim.outcome",
+  /**
+   * Total run cost in USD (float), computed from token counts × the
+   * harness's checked-in price table — driver + SUT combined.
+   */
+  SIM_COST_USD: "adjudicate.sim.cost.usd",
+  /** Input (prompt) tokens consumed by the persona driver's own model calls. */
+  SIM_DRIVER_TOKENS_IN: "adjudicate.sim.driver.tokens.in",
+  /** Output (completion) tokens produced by the persona driver's own model calls. */
+  SIM_DRIVER_TOKENS_OUT: "adjudicate.sim.driver.tokens.out",
+  /** Input (prompt) tokens consumed by the system under test's model calls during the run. */
+  SIM_SUT_TOKENS_IN: "adjudicate.sim.sut.tokens.in",
+  /** Output (completion) tokens produced by the system under test's model calls during the run. */
+  SIM_SUT_TOKENS_OUT: "adjudicate.sim.sut.tokens.out",
 } as const;
 
 export type SemconvKey = keyof typeof SEMCONV;

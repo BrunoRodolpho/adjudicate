@@ -56,7 +56,6 @@ docs/
   concepts.md              Mental model. Start here.
   guides/                  Testing your policy. (Scenario fixtures + simulate.)
   execution/               Build/execution planning notes.
-  roadmap/                 Forward-looking roadmap notes.
   release/                 Semver, API surface, deprecations, v1 RC artifacts.
   perf/                    Microbench + scale baselines (>200× SLO headroom).
   ops/runbooks/            4-stage shadow → enforce rollout playbook (IbateXas example; generalize for your domain).
@@ -64,7 +63,6 @@ docs/
   compliance/              SOC 2 mapping + shared responsibility matrix.
   pack-ecosystem/          Registry foundations + signing design (design only, not built).
   specs/                   IntentEnvelope v2 JSON Schema + canonical-JSON hash spec (RFC 8785 JCS) + golden vectors.
-PROJECT_STATUS_AND_NEXT_STEPS.md  Authoritative remaining-work snapshot.
 ```
 
 ## Runtime flow
@@ -194,7 +192,7 @@ Park/resume cycle uses `deferResumeHash` + `verifyParkedEnvelopeHash` for tamper
 
 ## Where to look for outstanding work
 
-`PROJECT_STATUS_AND_NEXT_STEPS.md` — priority-ordered list of what's open and what was deliberately deferred or rejected (do not re-litigate the rejections without an ADR).
+[`docs/release/POST_V1_STRATEGY.md`](docs/release/POST_V1_STRATEGY.md) — evidence-annotated, horizon-sorted direction for the v1 line. Deliberately deferred or rejected items live in the ADRs under `docs/architecture/adr/` — do not re-litigate the rejections without a new ADR.
 
 ## Stewardship documentation set (post-v1)
 

@@ -98,6 +98,12 @@ export {
 } from "./token-usage-store.js";
 
 export {
+  applyCostTable,
+  type CostBreakdown,
+  type PriceTable,
+} from "./cost.js";
+
+export {
   noopTraceSink,
   createInMemoryTraceSink,
   type AdapterPauseReason,

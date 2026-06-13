@@ -75,6 +75,20 @@ export const SEMCONV = {
   /** Bounded-cardinality bucket: grounded | uncertain | hallucinated. */
   HALLUCINATION_BUCKET: "adjudicate.hallucination.bucket",
 
+  // ── Per-decision cost (item 3) ────────────────────────────────────────────
+  //
+  // USD cost folded from token counts x an adopter PriceTable at READ time
+  // (never on the stored sample — determinism boundary). Leaf siblings only:
+  // there is deliberately NO bare `adjudicate.cost` key (the prefix-namespace
+  // test forbids `a.b` coexisting with `a.b.c`).
+
+  /** Total decision/session/tenant cost in USD (float) = input + output. */
+  COST_USD: "adjudicate.cost.usd",
+  /** Input/prompt-token cost in USD (float). */
+  COST_INPUT_USD: "adjudicate.cost.input.usd",
+  /** Output/completion-token cost in USD (float). */
+  COST_OUTPUT_USD: "adjudicate.cost.output.usd",
+
   // ── Simulation / journey-testing runs (`adjudicate.sim.*`) ────────────────
   //
   // Attributes for adopter journey-test harnesses that drive an LLM persona

@@ -31,6 +31,12 @@ export const TokenBudgetSessionSchema = z.object({
   consumed: z.number().int().nonnegative(),
   budget: z.number().int().nonnegative().optional(),
   remaining: z.number().int().optional(),
+  /**
+   * Read-time USD cost (item 3). FLOAT (not .int()) — priced from the token
+   * split x an adopter PriceTable in the route handler. Additive optional;
+   * absent when no price table is configured.
+   */
+  costUsd: z.number().nonnegative().optional(),
 });
 
 export type TokenBudgetSession = z.infer<typeof TokenBudgetSessionSchema>;
@@ -46,6 +52,8 @@ export const TokenBudgetTenantSchema = z.object({
   budget: z.number().int().nonnegative().optional(),
   remaining: z.number().int().optional(),
   sessionCount: z.number().int().nonnegative().optional(),
+  /** Read-time USD cost (item 3). FLOAT — see TokenBudgetSessionSchema.costUsd. */
+  costUsd: z.number().nonnegative().optional(),
 });
 
 export type TokenBudgetTenant = z.infer<typeof TokenBudgetTenantSchema>;

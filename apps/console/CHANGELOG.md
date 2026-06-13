@@ -1,5 +1,12 @@
 # @adjudicate/console
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [22d1de5]
+  - @adjudicate/observability@1.2.0
+
 ## 0.1.3
 
 ### Patch Changes

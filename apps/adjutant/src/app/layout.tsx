@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
-import { AdjutantShell } from "@/components/shell/AdjutantShell";
 import { Providers } from "./providers";
+import { AdjutantShell } from "@/components/shell/AdjutantShell";
 import "./globals.css";
 
 const mono = JetBrains_Mono({

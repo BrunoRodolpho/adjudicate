@@ -110,4 +110,51 @@ describe("orchestrator.resolve — full re-adjudication via confirmationReceipt"
     expect(res.executed).toBe(false);
     expect(executor.invokeIntent).not.toHaveBeenCalled();
   });
+
+  it("accept but the incident went terminal after propose -> KERNEL refuses; nothing executes (safety)", async () => {
+    // Mutable state so the incident can transition to terminal between handle()
+    // and resolve(). The kernel re-adjudicates against CURRENT state at resolve
+    // time — a confirmation receipt only overrides REQUEST_CONFIRMATION, never a
+    // state-guard REFUSE — so an operator's approval cannot force a stale action.
+    const executor: AdopterExecutor<IncidentIntentKind, unknown, IncidentState> = {
+      invokeRead: vi.fn(async () => ({})),
+      invokeIntent: vi.fn(async () => ({ ok: true })),
+    };
+    const approvalRegistry = createInMemoryApprovalRegistry();
+    const proposalStore = createInMemoryRemediationProposalStore();
+    let state: IncidentState = {
+      incidents: new Map([
+        ["inc-1", { id: "inc-1", severity: "sev2", status: "open", dependencies: [], createdAt: "2026-06-01T00:00:00.000Z" }],
+      ]),
+    };
+    let i = 0;
+    const orch = createRemediationOrchestrator({
+      executor,
+      getState: () => state,
+      approvalRegistry,
+      proposalStore,
+      generateToken: () => `tok-${i++}`,
+    });
+
+    await orch.handle(reviewSignal("n-1")); // -> pending_review, token tok-0
+
+    // The incident is resolved (terminal) before the operator approves.
+    state = {
+      incidents: new Map([
+        ["inc-1", { id: "inc-1", severity: "sev2", status: "resolved", dependencies: [], createdAt: "2026-06-01T00:00:00.000Z" }],
+      ]),
+    };
+
+    const res = await orch.resolve({ token: "tok-0", accepted: true, at: "2026-06-07T10:00:00.000Z" });
+    expect(res.resolved).toBe(true);
+    expect(res.accepted).toBe(true);
+    expect(res.executed).toBe(false);
+    expect(res.decision?.kind).toBe("REFUSE"); // validateRemediationTarget: terminal
+    expect(executor.invokeIntent).not.toHaveBeenCalled();
+    // The proposal reflects the kernel's refusal; the approval reflects that the
+    // operator did approve (distinguishable from an operator decline).
+    expect(proposalStore.getByToken("tok-0")?.status).toBe("refused");
+    const list = await approvalRegistry.list();
+    expect(list.find((r) => r.token === "tok-0")?.status).toBe("approved");
+  });
 });

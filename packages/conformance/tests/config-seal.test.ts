@@ -104,3 +104,25 @@ describe("config-seal — tamper detection (adversarial)", () => {
     expect(report.errors.length).toBeGreaterThan(0);
   });
 });
+
+describe("config-seal — registry fields are NOT sealed (non-interference)", () => {
+  it("adding sideEffects / executorContract / handlers leaves the digest unchanged", () => {
+    const baseDigest = computeConfigDigest(extractSealableSurface(makePack()));
+
+    // The sealable surface is {id,version,contract,intents,signals,basisCodes,
+    // policyStructure,taintMinimums}. Registry-layer fields (items 1 & 2, plus
+    // the existing handlers/rehydrateState) are NOT part of it, so attaching
+    // them must produce a byte-identical digest.
+    const withRegistry = {
+      ...makePack(),
+      sideEffects: { "x.create": "write", "x.webhook": "destructive" },
+      executorContract: {
+        "x.create": { outputShape: { kind: "object", fields: { id: { kind: "string" } } } },
+      },
+      handlers: { "x.create": async () => ({}) },
+      rehydrateState: (raw: unknown) => raw,
+    } as SealablePackInput;
+
+    expect(computeConfigDigest(extractSealableSurface(withRegistry))).toBe(baseDigest);
+  });
+});

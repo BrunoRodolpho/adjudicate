@@ -38,6 +38,7 @@
 import type { PolicyBundle } from "./kernel/policy.js";
 import type { CapabilityPlanner } from "./llm/planner.js";
 import type { SideEffectClass } from "./side-effects.js";
+import type { ExecutorContract } from "./pack-output-contract.js";
 
 export interface PackV0<
   Kind extends string = string,
@@ -154,6 +155,17 @@ export interface PackV0<
    * itself enforce anything — install the guard to act on it.
    */
   readonly sideEffects?: Readonly<Partial<Record<Kind, SideEffectClass>>>;
+
+  /**
+   * Optional: per-kind executor output contract. Pure registry metadata — NOT
+   * on the hashed envelope and NOT pinned by ConfigSeal, like `handlers?`.
+   *
+   * When supplied, the adapter validates the executor's return value AFTER
+   * `invokeIntent` and emits an `executor_contract_violation` observation event
+   * on a structural mismatch. EXECUTE is never flipped — the contract is an
+   * observation layer over a side effect that already ran, not a guard.
+   */
+  readonly executorContract?: Readonly<Partial<Record<Kind, ExecutorContract>>>;
 }
 
 /**

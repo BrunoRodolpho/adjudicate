@@ -17,6 +17,7 @@ import type {
   IntentEnvelope,
   Ledger,
   PackV0,
+  StructuralMismatch,
   Taint,
 } from "@adjudicate/core";
 import type { PromptRenderer, ToolSchema } from "@adjudicate/core/llm";
@@ -291,6 +292,19 @@ export type AgentEvent =
       kind: "tool_result";
       toolUseId: string;
       payload: ToolResultBlock;
+    }
+  /**
+   * Post-EXECUTE output-contract violation (item 1). Emitted when a Pack
+   * declared `executorContract[kind]` and the executor's return value failed
+   * the structural shape. Observation only — EXECUTE already happened and is
+   * never flipped; this rides `AgentTurnResult.events`, never the AuditRecord
+   * bus.
+   */
+  | {
+      kind: "executor_contract_violation";
+      intentHash: string;
+      intentKind: string;
+      mismatch: StructuralMismatch;
     };
 
 export interface AdjudicatedAgent<_K extends string, _P, S, C, H> {

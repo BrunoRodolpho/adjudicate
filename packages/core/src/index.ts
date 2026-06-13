@@ -11,6 +11,7 @@ export * from "./basis-codes.js";
 export * from "./refusal.js";
 export * from "./refusal-messages.js";
 export * from "./taint.js";
+export * from "./side-effects.js";
 export * from "./audit.js";
 export * from "./hash.js";
 export * from "./timing-safe.js";

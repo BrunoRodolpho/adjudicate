@@ -35,7 +35,9 @@ import {
   decisionRefuse,
   decisionRequestConfirmation,
   decisionRewrite,
+  DEFAULT_SIDE_EFFECT_FLOOR,
   refuse,
+  taintRank,
 } from "@adjudicate/core";
 import type {
   Decision,
@@ -43,6 +45,8 @@ import type {
   IntentActor,
   IntentEnvelope,
   RefusalKind,
+  SideEffectClass,
+  Taint,
 } from "@adjudicate/core";
 import { withMetadata, type Guard } from "@adjudicate/core/kernel";
 import {
@@ -1053,5 +1057,95 @@ export function createSessionConsistencyGuard<K extends string, P, S>(
       kind: "opaque",
       note: "session-consistency guard (adopter predicate)",
     },
+  });
+}
+
+// ─── createSideEffectTaintFloor (blanket taint floor by side-effect class) ────
+
+export interface SideEffectTaintFloorOptions<K extends string, P, S> {
+  /**
+   * Declared side-effect class per intent kind — typically the same object set
+   * on `PackV0.sideEffects`. Kinds absent here fall to `defaultClass`.
+   */
+  readonly sideEffects: Readonly<Partial<Record<K, SideEffectClass>>>;
+  /**
+   * Class assumed for any kind absent from `sideEffects`. Defaults to
+   * "destructive" so an unmapped kind fails CLOSED (highest floor) — never
+   * fail-open on an unclassified, possibly-destructive kind.
+   */
+  readonly defaultClass?: SideEffectClass;
+  /**
+   * Minimum-taint table per class. Defaults to `DEFAULT_SIDE_EFFECT_FLOOR`
+   * (none/read: UNTRUSTED, write: TRUSTED, destructive: SYSTEM).
+   */
+  readonly floor?: Readonly<Record<SideEffectClass, Taint>>;
+  /**
+   * Disposition when the envelope's taint is below the floor. "REFUSE"
+   * (default) hard-blocks; "ESCALATE" routes to a supervisor.
+   */
+  readonly onBelowFloor?: "REFUSE" | "ESCALATE";
+  /** Optional predicate to scope the guard; returning false short-circuits to null. */
+  readonly matches?: (envelope: IntentEnvelope<K, P>, state: S) => boolean;
+  /** User-facing refusal text for the REFUSE disposition. */
+  readonly refusalUserFacing?: string;
+}
+
+/**
+ * Blanket taint-floor guard keyed by side-effect class.
+ *
+ * Per envelope: `kind → SideEffectClass → required Taint`, then an integer
+ * `taintRank` compare. When the envelope's taint is below the class floor it
+ * emits REFUSE (default) or ESCALATE — structurally preventing, e.g., an
+ * UNTRUSTED (LLM-proposed) envelope from driving a `destructive` side effect.
+ *
+ * Conformance: pure Record-lookup + integer compare (mirrors `canPropose`); no
+ * scoring, no clock, no RNG. Place it in `stateGuards` so it short-circuits
+ * before any auth-guard side effect. The default class is "destructive"
+ * (fail-closed), so an unmapped kind never slips through.
+ */
+export function createSideEffectTaintFloor<K extends string, P, S>(
+  options: SideEffectTaintFloorOptions<K, P, S>,
+): Guard<K, P, S> {
+  const floor = options.floor ?? DEFAULT_SIDE_EFFECT_FLOOR;
+  const defaultClass = options.defaultClass ?? "destructive";
+  const onBelowFloor = options.onBelowFloor ?? "REFUSE";
+  const refusalUserFacing =
+    options.refusalUserFacing ??
+    "That action requires a higher trust level than this request carries.";
+
+  const guard: Guard<K, P, S> = (envelope, state) => {
+    if (options.matches && !options.matches(envelope, state)) return null;
+
+    const sideEffectClass = options.sideEffects[envelope.kind] ?? defaultClass;
+    const required = floor[sideEffectClass];
+    if (taintRank(envelope.taint) >= taintRank(required)) return null;
+
+    const detail = {
+      rule: "side_effect_taint_floor",
+      sideEffectClass,
+      requiredTaint: required,
+      actualTaint: envelope.taint,
+    };
+
+    if (onBelowFloor === "ESCALATE") {
+      return decisionEscalate(
+        "supervisor",
+        `${sideEffectClass} side effect requires ${required}; envelope is ${envelope.taint}`,
+        [basis("taint", BASIS_CODES.taint.LEVEL_INSUFFICIENT, detail)],
+      );
+    }
+    return decisionRefuse(
+      refuse(
+        "SECURITY",
+        "side_effect.taint_floor",
+        refusalUserFacing,
+        `${sideEffectClass} requires ${required}; got ${envelope.taint}`,
+      ),
+      [basis("taint", BASIS_CODES.taint.LEVEL_INSUFFICIENT, detail)],
+    );
+  };
+
+  return withMetadata(guard, {
+    description: { kind: "opaque", note: "side-effect taint floor" },
   });
 }

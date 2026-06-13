@@ -42,6 +42,7 @@ import type {
   DecisionBasis,
   IntentActor,
   IntentEnvelope,
+  RefusalKind,
 } from "@adjudicate/core";
 import { withMetadata, type Guard } from "@adjudicate/core/kernel";
 import {
@@ -936,4 +937,121 @@ function rewriteCommand<K extends string, P>(
       stripped: [...stripped],
     }),
   ]);
+}
+
+// ─── createSessionConsistencyGuard (runtime contradiction detection) ─────────
+
+/**
+ * Discriminated verdict returned by the adopter's `contradicts` predicate.
+ * Returning `null` from the predicate means "no contradiction" — the guard then
+ * returns `null`, matching the kernel's "this guard has no opinion" semantics.
+ */
+export interface SessionContradiction {
+  /**
+   * "hard" — the envelope is logically incompatible with established session
+   * facts; the guard REFUSEs. "suspicious" — the envelope is anomalous but not
+   * provably contradictory; the guard ESCALATEs for human/supervisor review.
+   */
+  readonly severity: "hard" | "suspicious";
+  /** Operator/log-facing explanation; rides ESCALATE.reason and the basis detail. */
+  readonly reason: string;
+  /** Optional structured context merged into the DecisionBasis detail. */
+  readonly detail?: Record<string, unknown>;
+}
+
+export interface SessionConsistencyGuardOptions<K extends string, P, S> {
+  /**
+   * Pure contradiction predicate. Reads ALL session history out of the
+   * adopter-owned `state` (exactly as `createTokenBudgetGuard` reads counters
+   * out of `S`); returns a `SessionContradiction` to act, or `null` for "no
+   * opinion". This predicate is the guard's ENTIRE semantic — the factory adds
+   * no scoring or contradiction logic of its own.
+   */
+  readonly contradicts: (
+    envelope: IntentEnvelope<K, P>,
+    state: S,
+  ) => SessionContradiction | null;
+  /** RefusalKind for the "hard" case. Defaults to "STATE". */
+  readonly refusalKind?: RefusalKind;
+  /**
+   * Stable, machine-readable `Refusal.code` for the "hard" case. Defaults to
+   * "session.contradiction". (This is the refusal identifier, not a BASIS_CODES
+   * entry — the basis stays in the closed `state` vocabulary.)
+   */
+  readonly refusalCode?: string;
+  /**
+   * User-facing refusal text, or a builder receiving the verdict + envelope.
+   * Defaults to a generic state-conflict message.
+   */
+  readonly userFacing?:
+    | string
+    | ((
+        contradiction: SessionContradiction,
+        envelope: IntentEnvelope<K, P>,
+      ) => string);
+  /** Escalation target for the "suspicious" case. Defaults to "supervisor". */
+  readonly escalateTo?: "human" | "supervisor";
+}
+
+const DEFAULT_CONTRADICTION_USER_FACING =
+  "That request conflicts with what we have on record for this session.";
+
+/**
+ * Runtime session-consistency / contradiction guard.
+ *
+ * The runtime analogue of the design-time consistency analyzer: it detects when
+ * a proposed envelope contradicts facts already established in the adopter-owned
+ * session `State` and maps the adopter's verdict onto a frozen outcome —
+ *
+ *   severity "hard"        → REFUSE   (default RefusalKind "STATE")
+ *   severity "suspicious"  → ESCALATE (default "supervisor")
+ *
+ * Conformance: it never calls `buildEnvelope` and never returns REWRITE, so it
+ * is structurally incapable of touching a hashed envelope byte; given
+ * `(envelope, state)` it is pure and emits only frozen outcomes; metadata is
+ * opaque. Crucially it contains ZERO scoring logic — the entire semantic is the
+ * adopter's deterministic predicate, so no probabilistic scoring reaches the
+ * decision path (invariant 3).
+ */
+export function createSessionConsistencyGuard<K extends string, P, S>(
+  options: SessionConsistencyGuardOptions<K, P, S>,
+): Guard<K, P, S> {
+  const refusalKind = options.refusalKind ?? "STATE";
+  const refusalCode = options.refusalCode ?? "session.contradiction";
+  const escalateTo = options.escalateTo ?? "supervisor";
+
+  const guard: Guard<K, P, S> = (envelope, state) => {
+    const verdict = options.contradicts(envelope, state);
+    if (verdict === null) return null;
+
+    // Canonical keys win over adopter-supplied detail (spread first).
+    const detail = {
+      ...(verdict.detail ?? {}),
+      rule: "session_contradiction",
+      severity: verdict.severity,
+      reason: verdict.reason,
+    };
+
+    if (verdict.severity === "hard") {
+      const userFacing =
+        typeof options.userFacing === "function"
+          ? options.userFacing(verdict, envelope)
+          : (options.userFacing ?? DEFAULT_CONTRADICTION_USER_FACING);
+      return decisionRefuse(
+        refuse(refusalKind, refusalCode, userFacing, verdict.reason),
+        [basis("state", BASIS_CODES.state.TRANSITION_ILLEGAL, detail)],
+      );
+    }
+
+    return decisionEscalate(escalateTo, verdict.reason, [
+      basis("state", BASIS_CODES.state.TRANSITION_ILLEGAL, detail),
+    ]);
+  };
+
+  return withMetadata(guard, {
+    description: {
+      kind: "opaque",
+      note: "session-consistency guard (adopter predicate)",
+    },
+  });
 }

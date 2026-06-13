@@ -94,6 +94,11 @@ export const SEMCONV = {
   // Span/event attributes for the out-of-plan catch path. CATCH_TOOL is
   // adopter/model-controlled cardinality — span/event use ONLY, never a metric
   // label. Leaf siblings; no bare `adjudicate.catch`.
+  //
+  // RESERVED: these names are the stable vocabulary for the catch span/event
+  // exporter that is not yet wired (nothing emits `learning.catch` today). They
+  // are declared now — the SEMCONV file is deliberately add-only — so dashboards
+  // and adopter exporters can key on the final names ahead of the emitter.
 
   /** Catch reason. Low cardinality: currently `out_of_plan`. */
   CATCH_REASON: "adjudicate.catch.reason",

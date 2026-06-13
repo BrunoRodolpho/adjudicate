@@ -10,6 +10,7 @@ import {
 } from "../lib/mcp-client.js";
 import {
   buildDiscoverVars,
+  discoveredToolCollisions,
   renderDiscoverBlocks,
   renderScenarioFiles,
 } from "../lib/discover-codegen.js";
@@ -149,6 +150,21 @@ export async function runDiscover(
   stdout(`${chalk.dim("•")} endpoint: ${chalk.cyan(endpoint)}`);
   stdout(`${chalk.dim("•")} discovered: ${chalk.cyan(String(tools.length))} tool(s)`);
   stdout(`${chalk.dim("•")} intents: ${chalk.cyan(String(vars.intents.length))} (deduped)`);
+
+  // Warn on tools dropped by sanitization collisions — otherwise a discovered
+  // tool silently vanishes from the generated pack.
+  const collisions = discoveredToolCollisions(baseVars.intentPrefix, tools);
+  if (collisions.length > 0) {
+    stdout(
+      chalk.yellow(
+        `! ${collisions.length} tool(s) collided after sanitization and were dropped (disambiguate the source tool names):`,
+      ),
+    );
+    for (const c of collisions) {
+      stdout(chalk.yellow(`  - "${c.toolName}" -> ${c.intentKind} (duplicate)`));
+    }
+  }
+
   stdout(`${chalk.dim("•")} target: ${chalk.cyan(targetDir)}`);
 
   // ── 4. Render the static template set with the dynamic blocks. ─────

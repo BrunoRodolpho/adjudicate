@@ -12,21 +12,22 @@ beforeEach(() => {
 });
 
 describe("CaughtBadCallsPanel", () => {
-  it("sums the REWRITE bucket + out-of-plan catches into one headline", () => {
+  it("shows the two catch sources as separate, window-scoped figures (not summed)", () => {
     mocked.mockReturnValue({
       isError: false,
       data: { total: 3, byReason: { out_of_plan: 3 }, byTool: [] },
     } as never);
     render(<CaughtBadCallsPanel rewriteCount={5} />);
-    expect(screen.getByTestId("caught-total").textContent).toBe("8");
+    // No combined total across windows.
+    expect(screen.queryByTestId("caught-total")).toBeNull();
     expect(screen.getByTestId("caught-rewrite").textContent).toBe("5");
     expect(screen.getByTestId("caught-out-of-plan").textContent).toBe("3");
   });
 
-  it("treats a catch-store error as 0 out-of-plan (still shows the REWRITE bucket)", () => {
+  it("treats a catch-store error as 0 out-of-plan (still shows the REWRITE figure)", () => {
     mocked.mockReturnValue({ isError: true, data: undefined } as never);
     render(<CaughtBadCallsPanel rewriteCount={2} />);
-    expect(screen.getByTestId("caught-total").textContent).toBe("2");
+    expect(screen.getByTestId("caught-rewrite").textContent).toBe("2");
     expect(screen.getByTestId("caught-out-of-plan").textContent).toBe("0");
   });
 
@@ -36,6 +37,7 @@ describe("CaughtBadCallsPanel", () => {
       data: { total: 0, byReason: {}, byTool: [] },
     } as never);
     render(<CaughtBadCallsPanel rewriteCount={0} />);
-    expect(screen.getByTestId("caught-total").textContent).toBe("0");
+    expect(screen.getByTestId("caught-out-of-plan").textContent).toBe("0");
+    expect(screen.getByTestId("caught-rewrite").textContent).toBe("0");
   });
 });

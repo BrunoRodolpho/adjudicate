@@ -119,6 +119,28 @@ export function discoveredIntents(
 }
 
 /**
+ * The tools that `discoveredIntents` SILENTLY dropped because they sanitized
+ * onto an already-seen intent kind. Surfaced so the command can warn the
+ * operator (otherwise a discovered tool vanishes from the pack with no notice).
+ */
+export function discoveredToolCollisions(
+  prefix: string,
+  tools: ReadonlyArray<{ readonly name: string }>,
+): ReadonlyArray<{ readonly toolName: string; readonly intentKind: string }> {
+  const seen = new Set<string>();
+  const dropped: { toolName: string; intentKind: string }[] = [];
+  for (const tool of tools) {
+    const intentKind = mcpToolNameToIntentKind(prefix, tool.name);
+    if (seen.has(intentKind)) {
+      dropped.push({ toolName: tool.name, intentKind });
+      continue;
+    }
+    seen.add(intentKind);
+  }
+  return dropped;
+}
+
+/**
  * Derive the basis code a discovered intent's REFUSE guard declares. A
  * non-empty `basisCodes` list is mandatory — `assertPackConformance`
  * throws on an empty one. We mint one stable refusal code per intent.

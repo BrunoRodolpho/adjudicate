@@ -4,22 +4,19 @@ import { ShieldCheck } from "lucide-react";
 import { useCatches } from "@/hooks/useCatches";
 
 /**
- * "Caught a bad call" headline (item 7).
+ * "Caught a bad call" panel (item 7).
  *
- * SUMS the two ways the kernel catches a bad LLM tool call into one
- * operator-facing number:
- *   - REWRITE outcomes (already counted by the outcome distribution; the
- *     dashboard passes that bucket in as `rewriteCount`), and
- *   - out-of-plan tool calls the loop blocked before any adjudication
- *     (`governance.catches`, never adjudicated so counted separately here).
- *
- * Avoids double-counting: REWRITE comes only from the outcome distribution,
- * out_of_plan only from the catch store.
+ * Surfaces the two ways the kernel catches a bad LLM tool call. They are
+ * tracked over DIFFERENT windows, so they are shown side by side and are
+ * deliberately NOT summed:
+ *   - REWRITE outcomes — from the dashboard's outcome distribution over the
+ *     SELECTED time window (`rewriteCount`).
+ *   - out-of-plan tool calls the loop blocked before any adjudication —
+ *     ALL-TIME counts from `governance.catches` (the store keeps no timeline).
  */
 export function CaughtBadCallsPanel({ rewriteCount }: { rewriteCount: number }) {
   const { data, isError } = useCatches();
   const outOfPlan = isError ? 0 : (data?.total ?? 0);
-  const total = rewriteCount + outOfPlan;
 
   return (
     <section
@@ -34,15 +31,14 @@ export function CaughtBadCallsPanel({ rewriteCount }: { rewriteCount: number }) 
       </header>
       <div className="flex items-center gap-2">
         <ShieldCheck size={16} className="shrink-0 text-emerald-400" aria-hidden />
-        <span className="text-[15px] font-mono tabular-nums text-ink">
-          caught <span data-testid="caught-total">{total.toLocaleString()}</span> bad{" "}
-          {total === 1 ? "call" : "calls"}
+        <span className="text-[13px] font-mono tabular-nums text-ink">
+          <span data-testid="caught-out-of-plan">{outOfPlan.toLocaleString()}</span> blocked
+          out-of-plan <span className="text-faint">(all-time)</span>
         </span>
       </div>
       <p className="text-[11px] tabular-nums text-muted">
-        <span data-testid="caught-rewrite">{rewriteCount.toLocaleString()}</span> rewritten
-        {" · "}
-        <span data-testid="caught-out-of-plan">{outOfPlan.toLocaleString()}</span> blocked out-of-plan
+        <span data-testid="caught-rewrite">{rewriteCount.toLocaleString()}</span> rewritten{" "}
+        <span className="text-faint">(selected window)</span>
       </p>
     </section>
   );

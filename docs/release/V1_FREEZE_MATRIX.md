@@ -133,6 +133,14 @@ For each public surface we record:
 |---|---|---|---|---|---|---|---|---|
 | `RefusalMessages` (interface) / `englishRefusalMessages` / `resolveRefusalMessage` / `localizeDecision` | F | core | none | additive | low | open | scheduled | Adopter-supplied locale tables; English defaults stay frozen. |
 
+### §1.9 Side-effect + executor-contract surface (post-v1 additive)
+
+| Symbol | Tier | Owner pkg | Replay impact | Migration | Semver | Extension | Tol. | Freeze rationale |
+|---|---|---|---|---|---|---|---|---|
+| `SideEffectClass` / `DEFAULT_SIDE_EFFECT_FLOOR` (item 2) | F | core | none | additive | low | additive | scheduled | Side-effect taint-floor vocabulary; consumed by the L2 `createSideEffectTaintFloor` guard. Registry-only. |
+| `ExecutorContract` / `OutputShape` / `StructuralMismatch` / `validateOutputShape` (item 1) | F | core | none | additive | low | additive | scheduled | Structural post-EXECUTE output validation. Observation layer — never on the hashed envelope or ConfigSeal. |
+| `PackV0.sideEffects` / `PackV0.executorContract` (optional fields) | F | core | none | additive | medium | additive | scheduled | Optional registry fields on the frozen `PackV0`; not pinned by ConfigSeal, never hashed. |
+
 ---
 
 ## §2 — `@adjudicate/core/kernel`

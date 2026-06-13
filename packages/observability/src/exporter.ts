@@ -34,6 +34,10 @@ export type ExportedEventKind =
   | "metrics.shadow_divergence"
   | "metrics.resource_limit"
   | "learning.outcome"
+  // RESERVED (item 7): the catch read-model + onCatch hook exist, but no
+  // exporter emits this kind yet — it is the stable vocabulary for the catch
+  // OTLP span/event exporter once that lands. Kept here so adopters' routers can
+  // switch on it ahead of time (the union is add-only).
   | "learning.catch"
   | "audit.span";
 

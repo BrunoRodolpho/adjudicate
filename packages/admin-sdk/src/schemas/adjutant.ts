@@ -16,9 +16,11 @@ export const RemediationDispositionSchema = z.enum(["SAFE", "REVIEW", "MANUAL"])
 export type RemediationDispositionParsed = z.infer<typeof RemediationDispositionSchema>;
 
 export const PendingActionSchema = z.object({
-  kind: z.enum(["review", "escalation"]),
+  kind: z.enum(["review", "escalation", "defer"]),
   prompt: z.string().optional(),
   reason: z.string().optional(),
+  signal: z.string().optional(),
+  timeoutMs: z.number().int().nonnegative().optional(),
 });
 
 export const IncidentDependencySchema = z.object({

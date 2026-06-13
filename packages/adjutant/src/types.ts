@@ -52,11 +52,17 @@ export interface RemediationSignal {
   readonly at?: string;
 }
 
-/** What awaits a human after adjudication, when the outcome is not auto-executed. */
+/** What awaits a human/signal after adjudication, when the outcome is not auto-executed. */
 export interface PendingAction {
-  readonly kind: "review" | "escalation";
+  readonly kind: "review" | "escalation" | "defer";
+  /** REQUEST_CONFIRMATION prompt (review). */
   readonly prompt?: string;
+  /** ESCALATE reason (escalation). */
   readonly reason?: string;
+  /** DEFER signal the remediation is parked on (defer). */
+  readonly signal?: string;
+  /** DEFER timeout in milliseconds (defer). */
+  readonly timeoutMs?: number;
 }
 
 /** The result of handling one signal. */

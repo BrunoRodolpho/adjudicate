@@ -155,6 +155,24 @@ describe("RemediationOrchestrator — refusal", () => {
   });
 });
 
+describe("RemediationOrchestrator — DEFER (dependency down)", () => {
+  it("DEFERs a SAFE remediation when a dependency is down; nothing executes", async () => {
+    const { orch, executor } = setup(stateWith({ deps: [{ service: "db", status: "down" }] }));
+    const out = await orch.handle({
+      incidentId: "inc-1",
+      action: "rollback",
+      blastRadius: 3,
+      disposition: "SAFE",
+      nonce: "n-defer",
+    });
+    expect(out.decisions.at(-1)!.kind).toBe("DEFER");
+    expect(out.pending?.kind).toBe("defer");
+    expect(out.pending?.signal).toBe("incident.dependency.restored");
+    expect(out.executed).toBe(false);
+    expect(executor.invokeIntent).not.toHaveBeenCalled();
+  });
+});
+
 describe("RemediationOrchestrator — zero independent authority", () => {
   it("exposes only handle()/resolve() — no invokeIntent of its own", () => {
     const { orch } = setup();

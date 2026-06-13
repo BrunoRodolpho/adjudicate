@@ -128,7 +128,7 @@ not widen and carries no `metadata` bag or `confidence` field"
 `Decision.confidence` field was explicitly considered and rejected: it
 "implies probabilistic semantics the kernel does not have; couples policy
 authors to a numeric scale"
-([`MAINTAINER_GUIDE.md:234-236`](../ops/MAINTAINER_GUIDE.md)). A refusal
+([`MAINTAINER_GUIDE.md:232-233`](../ops/MAINTAINER_GUIDE.md)). A refusal
 is not a probability that something is bad; it is a structured, reason-coded
 outcome — refusals are stratified `SECURITY | BUSINESS_RULE | AUTH |
 STATE` and are first-class output, never a thrown exception or a score

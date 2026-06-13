@@ -195,7 +195,7 @@ export function createRemediationOrchestrator(
       }
     } else if (pending?.kind === "escalation") {
       status = "pending_escalation";
-    } else if (finalDecisionKind === "DEFER") {
+    } else if (pending?.kind === "defer" || finalDecisionKind === "DEFER") {
       status = "deferred";
     } else {
       status = "refused";
@@ -257,7 +257,11 @@ export function createRemediationOrchestrator(
           pending = { kind: "escalation", reason: decision.reason };
           break;
         }
-        break; // REFUSE or DEFER
+        if (decision.kind === "DEFER") {
+          pending = { kind: "defer", signal: decision.signal, timeoutMs: decision.timeoutMs };
+          break;
+        }
+        break; // REFUSE
       }
 
       await recordProposal(

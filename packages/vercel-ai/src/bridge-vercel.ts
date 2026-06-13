@@ -140,9 +140,15 @@ export function createVercelBridge(
         const part: VercelToolResultPart = {
           type: "tool-result",
           toolCallId: r.toolUseId,
-          // The AI SDK has no per-result is_error flag in this subset; the
-          // loop already prefixes error content with "Tool failed: …" /
-          // similar so the model still sees the failure semantics.
+          // The provider-neutral ToolResultBlock carries only `toolUseId`, not
+          // the tool name. The AI SDK correlates a result to its call by
+          // `toolCallId` (set above), so `toolName` is redundant for matching —
+          // we emit an empty sentinel rather than fabricate a name. Carrying the
+          // real name would require widening ToolResultBlock across adapter-core
+          // and every bridge; tracked as a separate change. The AI SDK also has
+          // no per-result is_error flag in this subset — the loop already
+          // prefixes failed-tool content with "Tool failed: …", so the model
+          // still sees the failure semantics.
           toolName: "",
           output: r.content,
         };

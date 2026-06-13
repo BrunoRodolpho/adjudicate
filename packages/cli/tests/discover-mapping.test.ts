@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   discoveredIntents,
+  discoveredToolCollisions,
   mcpToolNameToIntentKind,
 } from "../src/lib/discover-codegen.js";
 
@@ -111,5 +112,16 @@ describe("discoveredIntents — de-duplication", () => {
     const [intent] = discoveredIntents("demo", [{ name: "create_order" }]);
     expect(intent!.intentKind).toBe("demo.create-order");
     expect(intent!.apiName).toBe("demo_create-order");
+  });
+
+  it("discoveredToolCollisions reports dropped tools (for the operator warning)", () => {
+    const dropped = discoveredToolCollisions("demo", [
+      { name: "create_order" },
+      { name: "create.order" }, // collides onto demo.create-order
+      { name: "delete_order" },
+    ]);
+    expect(dropped).toEqual([
+      { toolName: "create.order", intentKind: "demo.create-order" },
+    ]);
   });
 });

@@ -54,9 +54,13 @@ export interface {{className}}Context {
 // above). `safePlan` enforces that no MUTATING tool leaks into the
 // planner's `visibleReadTools` — load-bearing security.
 
-const TOOLS: ReadonlyArray<ToolClassification> = [
+const TOOLS: ToolClassification = {
+  // Re-classify a tool here once you have verified it is side-effect-free.
+  READ_ONLY: new Set<string>([]),
+  MUTATING: new Set<string>([
 {{toolClassificationBlock}}
-];
+  ]),
+};
 
 // ─── Capability planner ────────────────────────────────────────────────────
 //

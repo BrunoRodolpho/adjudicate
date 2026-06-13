@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runDiscover } from "../src/commands/discover.js";
 import type { McpTool } from "../src/lib/mcp-client.js";
 
@@ -147,4 +148,24 @@ describe("discover — codegen produces a conformant deny-by-default Pack", () =
       expect(scenario.intent.kind).toMatch(/^discover-fixture\./);
     }
   });
+
+  // Detection gate for the ToolClassification-shape regression: the generated
+  // pack must TYPECHECK, not just run. Vitest's esbuild loader strips types, and
+  // the scaffold's planner returns empty visibleReadTools, so a wrong-shaped
+  // `TOOLS` (array vs `{READ_ONLY,MUTATING}`) is invisible at runtime — only tsc
+  // catches it. Runs tsc against the generated pack's self-contained tsconfig.
+  it("generated Pack typechecks under tsc", () => {
+    const repoRoot = path.join(__dirname, "..", "..", "..");
+    const tscBin = path.join(repoRoot, "node_modules", ".bin", "tsc");
+    try {
+      execFileSync(tscBin, ["--noEmit", "-p", path.join(PACK_DIR, "tsconfig.json")], {
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const e = err as { stdout?: Buffer; stderr?: Buffer };
+      throw new Error(
+        `tsc failed on the generated discover pack:\n${e.stdout?.toString() ?? ""}${e.stderr?.toString() ?? ""}`,
+      );
+    }
+  }, 60_000);
 });

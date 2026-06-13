@@ -48,11 +48,10 @@ export interface {{className}}Context {
 // the kernel). `safePlan` enforces that MUTATING tools never leak into
 // the planner's `visibleReadTools` output — load-bearing security.
 
-const TOOLS: ReadonlyArray<ToolClassification> = [
-  { name: "list_demo", classification: "READ_ONLY" },
-  { name: "create_demo", classification: "MUTATING" },
-  { name: "confirm_demo", classification: "MUTATING" },
-];
+const TOOLS: ToolClassification = {
+  READ_ONLY: new Set<string>(["list_demo"]),
+  MUTATING: new Set<string>(["create_demo", "confirm_demo"]),
+};
 
 // ─── Capability planner ────────────────────────────────────────────────────
 //
@@ -69,7 +68,6 @@ const rawPlanner: CapabilityPlanner<{{className}}State, {{className}}Context> = 
         "{{intentPrefix}}.demo.create",
         "{{intentPrefix}}.demo.confirm",
       ],
-      forbiddenConcepts: [],
     };
   },
 };

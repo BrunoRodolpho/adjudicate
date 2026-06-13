@@ -281,7 +281,10 @@ export function createRemediationOrchestrator(
 
     async resolve(args: ResolveArgs): Promise<RemediationResolution> {
       const proposal = options.proposalStore?.getByToken(args.token) ?? null;
-      if (!proposal || !proposal.envelope) {
+      // Unknown token, no parked envelope, or ALREADY resolved -> no-op. The
+      // status guard makes resolve idempotent even with no ledger wired: a
+      // repeated approve cannot re-adjudicate and double-fire invokeIntent.
+      if (!proposal || !proposal.envelope || proposal.status !== "pending_review") {
         return { resolved: false, accepted: args.accepted, executed: false, decision: null, request: null };
       }
 

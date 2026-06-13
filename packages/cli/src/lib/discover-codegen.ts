@@ -190,16 +190,15 @@ export function renderIntentKindUnionBlock(
     .join("\n");
 }
 
-/** `  { name: "tool-a", classification: "MUTATING" },` per tool. */
+/**
+ * `    "tool-a",` per tool — the body of the MUTATING `Set` in the
+ * `ToolClassification` object. Every discovered tool is MUTATING by default
+ * (the conservative posture); READ_ONLY is emitted empty for re-classification.
+ */
 export function renderToolClassificationBlock(
   intents: ReadonlyArray<DiscoveredIntent>,
 ): string {
-  return intents
-    .map(
-      (i) =>
-        `  { name: ${jsonString(i.toolName)}, classification: "MUTATING" },`,
-    )
-    .join("\n");
+  return intents.map((i) => `    ${jsonString(i.toolName)},`).join("\n");
 }
 
 /** One named REFUSE guard per tool. */

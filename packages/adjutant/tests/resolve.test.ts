@@ -103,6 +103,18 @@ describe("orchestrator.resolve — full re-adjudication via confirmationReceipt"
     expect(list.find((r) => r.token === "tok-1")?.status).toBe("declined");
   });
 
+  it("is idempotent with NO ledger wired - a repeated approve executes only once", async () => {
+    const { orch, executor, proposalStore } = setup();
+    await orch.handle(reviewSignal("n-1")); // -> pending_review, token tok-1
+    const r1 = await orch.resolve({ token: "tok-1", accepted: true, at: "2026-06-07T10:00:00.000Z" });
+    const r2 = await orch.resolve({ token: "tok-1", accepted: true, at: "2026-06-07T10:05:00.000Z" });
+    expect(r1.executed).toBe(true);
+    expect(r2.resolved).toBe(false); // already resolved -> no-op
+    expect(r2.executed).toBe(false);
+    expect(executor.invokeIntent).toHaveBeenCalledTimes(1);
+    expect(proposalStore.getByToken("tok-1")?.status).toBe("executed");
+  });
+
   it("unknown token -> resolved:false; nothing executes", async () => {
     const { orch, executor } = setup();
     const res = await orch.resolve({ token: "ghost", accepted: true, at: "2026-06-07T10:00:00.000Z" });

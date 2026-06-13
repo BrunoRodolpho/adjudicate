@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { runAnalyze, type AnalyzeFormat } from "./commands/analyze.js";
 import { runDev } from "./commands/dev.js";
+import { runDiscover } from "./commands/discover.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runExport, type ExportFormat } from "./commands/export.js";
 import { runPackInit, TEMPLATE_NAMES, type TemplateName } from "./commands/pack-init.js";
@@ -72,6 +73,28 @@ program
   .action(async (options: { stop?: boolean; logs?: boolean }) => {
     await runDev({ stop: options.stop ?? false, logs: options.logs ?? false });
   });
+
+program
+  .command("discover <mcp-endpoint>")
+  .description(
+    "Connect to an MCP server (HTTP/SSE), call tools/list, and scaffold a conformant deny-by-default Pack",
+  )
+  .option(
+    "--name <name>",
+    "Pack name to scaffold (kebab-case). Defaults to a name derived from the endpoint.",
+  )
+  .option(
+    "--target <dir>",
+    "Override the parent directory the Pack is created under",
+  )
+  .action(
+    async (endpoint: string, options: { name?: string; target?: string }) => {
+      await runDiscover(endpoint, {
+        ...(options.name !== undefined ? { name: options.name } : {}),
+        ...(options.target !== undefined ? { target: options.target } : {}),
+      });
+    },
+  );
 
 program
   .command("doctor")

@@ -107,6 +107,10 @@ function describeOutcome(result: AgentTurnResult): string {
       return `escalated to=${o.to} reason="${o.reason}"`;
     case "max_iterations_exceeded":
       return `max_iterations_exceeded`;
+    default:
+      // Total fallback — keeps describeOutcome returning on every path
+      // (satisfies noImplicitReturns even if the AgentOutcome union widens).
+      return (o as { kind: string }).kind;
   }
 }
 

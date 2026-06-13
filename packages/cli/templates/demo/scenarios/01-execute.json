@@ -1,0 +1,17 @@
+{
+  "intent": {
+    "kind": "vacation.request",
+    "payload": { "startDate": "2026-05-01", "durationDays": 3 },
+    "actor": { "principal": "llm", "sessionId": "demo-execute" },
+    "taint": "UNTRUSTED",
+    "nonce": "demo-execute",
+    "createdAt": "2026-04-23T12:00:00.000Z"
+  },
+  "state": {
+    "employee": { "id": "mgr_1", "role": "manager", "ptoBalanceDays": 20 },
+    "request": null,
+    "approverId": null,
+    "nowISO": "2026-04-23T12:00:00.000Z"
+  },
+  "expected": { "kind": "EXECUTE" }
+}

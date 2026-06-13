@@ -22,6 +22,8 @@
  */
 
 export { createAdjudicatedAgent } from "./loop.js";
+export { createQuickAgent } from "./quick-agent.js";
+export type { QuickAgentOptions } from "./quick-agent.js";
 export type {
   AdjudicatedAgent,
   AdjudicatedAgentOptions,

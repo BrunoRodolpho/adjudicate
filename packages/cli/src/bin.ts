@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { runAnalyze, type AnalyzeFormat } from "./commands/analyze.js";
+import { runDemo } from "./commands/demo.js";
 import { runDev } from "./commands/dev.js";
 import { runDiscover } from "./commands/discover.js";
 import { runDoctor } from "./commands/doctor.js";
@@ -62,6 +63,21 @@ program
       });
     },
   );
+
+program
+  .command("demo")
+  .description(
+    "Zero-config tour: adjudicate a bundled Pack across six scenarios and render every Decision kind in colour. No API key, network, or Docker.",
+  )
+  .option("--format <text|json>", "Output format. Defaults to text", "text")
+  .action(async (options: { format?: string }) => {
+    const format = (options.format ?? "text") as SimulationFormat;
+    if (format !== "text" && format !== "json") {
+      console.error(`✗ Unknown --format value "${options.format}". Use text or json.`);
+      process.exit(1);
+    }
+    await runDemo({ format });
+  });
 
 program
   .command("dev")

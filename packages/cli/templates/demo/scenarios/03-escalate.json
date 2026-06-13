@@ -1,0 +1,24 @@
+{
+  "intent": {
+    "kind": "vacation.approve",
+    "payload": { "requestId": "req_1" },
+    "actor": { "principal": "llm", "sessionId": "demo-escalate" },
+    "taint": "TRUSTED",
+    "nonce": "demo-escalate",
+    "createdAt": "2026-04-23T12:00:00.000Z"
+  },
+  "state": {
+    "employee": { "id": "mgr_1", "role": "manager", "ptoBalanceDays": 20 },
+    "request": {
+      "id": "req_1",
+      "employeeId": "mgr_1",
+      "startDate": "2026-05-01",
+      "durationDays": 3,
+      "status": "pending",
+      "approvedBy": null
+    },
+    "approverId": "mgr_1",
+    "nowISO": "2026-04-23T12:00:00.000Z"
+  },
+  "expected": { "kind": "ESCALATE" }
+}

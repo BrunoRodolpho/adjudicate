@@ -26,7 +26,7 @@ import {
   createInMemoryDeferStore,
   createMemoryLedger,
 } from "@adjudicate/vercel-ai";
-import { paymentsPixPack, PIX_TOOL_SCHEMAS } from "@adjudicate/pack-payments-pix";
+import { paymentsPixPack } from "@adjudicate/pack-payments-pix";
 
 const { pack } = installPack(paymentsPixPack);
 
@@ -37,7 +37,7 @@ const agent = createAdjudicatedAgent({
   maxTokens: 1024,
   renderer: createVercelPromptRenderer({
     packId: pack.id,
-    toolSchemas: PIX_TOOL_SCHEMAS,
+    toolSchemas: [], // the ToolSchema[] the model sees for this pack's intents
   }),
   deferStore: createInMemoryDeferStore(),
   confirmationStore: createInMemoryConfirmationStore(),

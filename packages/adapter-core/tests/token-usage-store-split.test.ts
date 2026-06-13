@@ -34,4 +34,26 @@ describe("token-usage-store — prompt/completion split accumulation (item 3)", 
     expect(sess.promptConsumed).toBe(700);
     expect(sess.completionConsumed).toBe(300);
   });
+
+  it("coerces float / negative / non-finite split values to non-negative integers", () => {
+    const store = createInMemoryTokenUsageStore({});
+    store.record({
+      sessionId: "s4",
+      prompt: 100.9, // trunc -> 100
+      completion: -5, // max(0, …) -> 0
+      total: 96,
+      at: "2026-06-07T00:00:00.000Z",
+    });
+    store.record({
+      sessionId: "s4",
+      prompt: Number.POSITIVE_INFINITY, // non-finite -> 0
+      completion: 10.4, // trunc -> 10
+      total: 10,
+      at: "2026-06-07T00:01:00.000Z",
+    });
+    const sess = store.sessions({ sessionId: "s4" })[0]!;
+    expect(sess.promptConsumed).toBe(100); // 100 + 0
+    expect(sess.completionConsumed).toBe(10); // 0 + 10
+    expect(sess.consumed).toBe(106); // total 96 + 10 (finite totals honored)
+  });
 });

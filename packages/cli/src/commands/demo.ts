@@ -92,6 +92,10 @@ export async function runDemo(options: DemoOptions = {}): Promise<void> {
       ? renderDiffJson(report, { id: vacationPack.id })
       : renderDiffText(report, { id: vacationPack.id }),
   );
+  // `demo` is a showcase, not a CI gate — it intentionally exits 0 even if a
+  // bundled scenario drifted from its expected outcome. The drift gate is
+  // `adjudicate simulate`; demo.test.ts asserts the bundled fixtures still
+  // produce all six outcomes.
 }
 
 async function renderScenarioBox(scenarioPath: string): Promise<string> {

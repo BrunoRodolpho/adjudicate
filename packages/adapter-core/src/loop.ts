@@ -464,9 +464,10 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         rk,
         log: options.log,
         // Item 1: resolve the per-kind executor output contract (if the Pack
-        // declared one) so runExecute can validate the executor's output. The
-        // rewritten envelope preserves `kind`, so resolving by the original
-        // envelope's kind is correct for both EXECUTE and REWRITE.
+        // declared one) so runExecute can validate the executor's output.
+        // REWRITE is scope-restricted to payload sanitization and never changes
+        // `kind` (the Decision contract; see core/decision.ts), so resolving by
+        // the original envelope's kind is correct for both EXECUTE and REWRITE.
         executorContract: options.pack.executorContract?.[args.envelope.kind],
         // SecurityReviewer-003: the confirmation token is a single-use
         // credential authorizing REQUEST_CONFIRMATION → EXECUTE substitution.

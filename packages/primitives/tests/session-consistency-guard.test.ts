@@ -59,6 +59,9 @@ describe("createSessionConsistencyGuard", () => {
     expect(d.refusal.kind).toBe("STATE");
     expect(d.refusal.code).toBe("session.contradiction");
     expect(d.refusal.detail).toBe("order already shipped");
+    expect(d.refusal.userFacing).toBe(
+      "That request conflicts with what we have on record for this session.",
+    );
     expect(d.basis[0]).toMatchObject({ category: "state", code: "transition_illegal" });
     expect(d.basis[0]!.detail).toMatchObject({
       rule: "session_contradiction",

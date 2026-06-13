@@ -8,7 +8,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { assertPackConformance } from "@adjudicate/core";
 import { runDemo } from "../src/commands/demo.js";
+import { vacationPack } from "../src/commands/demo-pack.js";
 
 const ALL_SIX = [
   "EXECUTE",
@@ -43,8 +45,9 @@ describe("demo — bundled six-decision tour", () => {
     await runDemo({ format: "text", stdout: cap.write });
 
     const text = cap.joined();
-    // Each scenario prints a `DECISION:` box header via the shared renderer.
-    expect(text).toMatch(/DECISION:/);
+    // Each of the six scenarios prints its own `DECISION:` box header via the
+    // shared renderer — assert exactly six, not just presence.
+    expect((text.match(/DECISION:/g) ?? []).length).toBe(6);
     for (const kind of ALL_SIX) {
       expect(text, `expected decision kind ${kind} in demo output`).toContain(
         kind,
@@ -76,6 +79,10 @@ describe("demo — bundled six-decision tour", () => {
     for (const r of report.results) {
       expect(r.status).toBe("match");
     }
+  });
+
+  it("the bundled vacationPack passes kernel conformance (its cited gate)", () => {
+    expect(() => assertPackConformance(vacationPack as never)).not.toThrow();
   });
 
   it("does not depend on the @example/vacation-approval package", async () => {

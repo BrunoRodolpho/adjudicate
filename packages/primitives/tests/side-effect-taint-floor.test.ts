@@ -80,11 +80,26 @@ describe("createSideEffectTaintFloor — fail-closed default class", () => {
 });
 
 describe("createSideEffectTaintFloor — options", () => {
-  it("onBelowFloor ESCALATE routes to supervisor", () => {
+  it("onBelowFloor ESCALATE routes to supervisor with a descriptive reason", () => {
     const d = guard({ onBelowFloor: "ESCALATE" })(env("order.write", "UNTRUSTED"), {});
     if (d?.kind !== "ESCALATE") throw new Error("expected ESCALATE");
     expect(d.to).toBe("supervisor");
+    expect(d.reason).toBe("write side effect requires TRUSTED; envelope is UNTRUSTED");
     expect(d.basis[0]).toMatchObject({ category: "taint", code: "level_insufficient" });
+  });
+
+  it("'none'-class kinds clear the floor at UNTRUSTED", () => {
+    // defaultClass "none" -> floor UNTRUSTED -> an UNTRUSTED unmapped kind passes.
+    expect(guard({ defaultClass: "none" })(env("mystery.op", "UNTRUSTED"), {})).toBeNull();
+  });
+
+  it("honors a custom refusalUserFacing string on the REFUSE disposition", () => {
+    const d = guard({ refusalUserFacing: "Elevated approval required." })(
+      env("order.write", "UNTRUSTED"),
+      {},
+    );
+    if (d?.kind !== "REFUSE") throw new Error("expected REFUSE");
+    expect(d.refusal.userFacing).toBe("Elevated approval required.");
   });
 
   it("matches predicate false short-circuits to null", () => {

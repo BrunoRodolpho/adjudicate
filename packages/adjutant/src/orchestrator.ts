@@ -229,6 +229,11 @@ export function createRemediationOrchestrator(
       let executorResult: unknown = undefined;
       let pending: PendingAction | null = null;
 
+      // Bounded REWRITE -> re-adjudicate loop: a well-formed clamp REWRITEs once
+      // then EXECUTEs on the second pass. maxPasses guards a pathological policy
+      // that REWRITEs forever — on exhaustion nothing executes (executed stays
+      // false, pending stays null, and the last REWRITE is surfaced in
+      // `decisions` for the operator to see).
       for (let pass = 0; pass < maxPasses; pass += 1) {
         const { decision, record } = await adjudicateAndAudit(
           envelope,

@@ -76,14 +76,16 @@ export function parseToolsListBody(
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice("data:".length).trim())
     .filter((line) => line.length > 0);
-  for (const line of dataLines) {
-    const msg = JSON.parse(line) as JsonRpcResponse;
-    if (msg.id === JSON_RPC_ID) {
-      return msg;
-    }
-  }
+  const parsed = dataLines.map((line) => JSON.parse(line) as JsonRpcResponse);
+  // Match by string-coerced id (some servers echo the request id as a string),
+  // then fall back to the last message — MCP SSE typically streams the result
+  // as the final data line.
+  const matched = parsed.find((m) => String(m.id) === String(JSON_RPC_ID));
+  if (matched) return matched;
+  const last = parsed.at(-1);
+  if (last) return last;
   throw new Error(
-    `MCP SSE response contained no JSON-RPC message with id ${JSON_RPC_ID}`,
+    `MCP SSE response contained no JSON-RPC message (request id ${JSON_RPC_ID})`,
   );
 }
 

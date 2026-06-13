@@ -2,21 +2,12 @@ import type { NextConfig } from "next";
 
 const config: NextConfig = {
   reactStrictMode: true,
-  // Workspace packages are imported via TS path mapping (see tsconfig.json)
-  // pointing directly at packages/*/src. Next must transpile these at runtime
-  // since they aren't pre-built dist/ files when consumed via source paths.
-  // This keeps "Go to Definition" landing in source while still letting the
-  // dev/prod server execute the workspace TS. Mirrors console's list and adds
-  // the Adjutant core + its peer packages consumed as source by the route
-  // handler.
-  transpilePackages: [
-    "@adjudicate/core",
-    "@adjudicate/audit",
-    "@adjudicate/adapter-core",
-    "@adjudicate/adjutant",
-    "@adjudicate/approval-engine",
-    "@adjudicate/pack-incident-response",
-  ],
+  // Only the packages mapped to source in tsconfig.json (`@adjudicate/core`,
+  // `@adjudicate/audit`) need runtime transpilation — Next must compile their
+  // `.ts` since they're consumed via source paths. Every other `@adjudicate/*`
+  // dependency resolves through its built `dist/` (already JS) and must NOT be
+  // listed here. Mirrors apps/console.
+  transpilePackages: ["@adjudicate/core", "@adjudicate/audit"],
   webpack: (config) => {
     // Path-aliased packages emit `.js` import suffixes in their TS sources
     // (ESM-emit compatibility). Without this mapping `next build` tries to

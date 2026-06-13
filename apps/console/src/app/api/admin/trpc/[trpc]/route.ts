@@ -831,7 +831,11 @@ const tokenBudget = {
         consumed: s.consumed,
         ...(s.budget !== undefined ? { budget: s.budget } : {}),
         ...(s.remaining !== undefined ? { remaining: s.remaining } : {}),
-        costUsd: applyCostTable(s, TOKEN_PRICE_TABLE).usd,
+        // Only price rows that carry a prompt/completion split — total-only
+        // samples have no priced split, so omit costUsd (the page shows "—").
+        ...(s.promptConsumed + s.completionConsumed > 0
+          ? { costUsd: applyCostTable(s, TOKEN_PRICE_TABLE).usd }
+          : {}),
       }));
     return {
       sessions,
@@ -852,7 +856,9 @@ const tokenBudget = {
         ...(t.budget !== undefined ? { budget: t.budget } : {}),
         ...(t.remaining !== undefined ? { remaining: t.remaining } : {}),
         sessionCount: t.sessionCount,
-        costUsd: applyCostTable(t, TOKEN_PRICE_TABLE).usd,
+        ...(t.promptConsumed + t.completionConsumed > 0
+          ? { costUsd: applyCostTable(t, TOKEN_PRICE_TABLE).usd }
+          : {}),
       }));
     const exhaustionEvents = tokenUsageStore.exhaustionEvents({
       ...(input.tenantId !== undefined ? { tenantId: input.tenantId } : {}),

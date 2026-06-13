@@ -156,10 +156,10 @@ describe("RemediationOrchestrator — refusal", () => {
 });
 
 describe("RemediationOrchestrator — zero independent authority", () => {
-  it("exposes ONLY handle() — no invokeIntent of its own", () => {
+  it("exposes only handle()/resolve() — no invokeIntent of its own", () => {
     const { orch } = setup();
     expect("invokeIntent" in orch).toBe(false);
-    expect(Object.keys(orch)).toEqual(["handle"]);
+    expect(Object.keys(orch).sort()).toEqual(["handle", "resolve"]);
   });
 
   it("the only side-effect path is the injected adopter executor", async () => {

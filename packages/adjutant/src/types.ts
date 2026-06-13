@@ -43,6 +43,13 @@ export interface RemediationSignal {
    * retry.
    */
   readonly nonce: string;
+  /**
+   * Adopter-supplied ISO timestamp for proposal/approval read-model entries
+   * (`createdAt`/`requestedAt`). Required for the orchestrator to record a
+   * proposal or register an approval (determinism: the core never calls
+   * `Date.now()`). When omitted, recording is skipped.
+   */
+  readonly at?: string;
 }
 
 /** What awaits a human after adjudication, when the outcome is not auto-executed. */

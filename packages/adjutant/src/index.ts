@@ -18,7 +18,15 @@ export {
   createRemediationOrchestrator,
   type RemediationOrchestrator,
   type RemediationOrchestratorOptions,
+  type RemediationResolution,
+  type ResolveArgs,
 } from "./orchestrator.js";
+export {
+  createInMemoryRemediationProposalStore,
+  type RemediationProposal,
+  type RemediationProposalStatus,
+  type RemediationProposalStore,
+} from "./proposal-store.js";
 export {
   createSignalChannel,
   auditBusToSignal,

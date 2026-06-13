@@ -47,6 +47,7 @@ import {
 } from "@adjudicate/approval-engine";
 import {
   applyCostTable,
+  createInMemoryCatchUsageStore,
   createInMemoryMemoryStore,
   createInMemoryTokenUsageStore,
   type PriceTable,
@@ -865,6 +866,31 @@ const tokenBudget = {
   },
 };
 
+// Catch telemetry (item 7). Like the token store, a real deployment feeds this
+// from the adapter's onCatch hook; the console seeds deterministic demo catches
+// so the "caught N bad calls" card is populated. TELEMETRY only — never a
+// kernel input.
+const catchUsageStore = createInMemoryCatchUsageStore();
+for (const c of [
+  { toolName: "shell.rm_rf", reason: "out_of_plan" as const, at: "2026-06-07T09:01:00.000Z" },
+  { toolName: "shell.rm_rf", reason: "out_of_plan" as const, at: "2026-06-07T09:03:00.000Z" },
+  { toolName: "db.drop_table", reason: "out_of_plan" as const, at: "2026-06-07T09:04:00.000Z" },
+]) {
+  catchUsageStore.record(c);
+}
+const catches = {
+  async query() {
+    // Map the store's readonly view to the mutable wire shape the router output
+    // schema expects.
+    const c = catchUsageStore.counts();
+    return {
+      total: c.total,
+      byReason: { ...c.byReason },
+      byTool: c.byTool.map((t) => ({ toolName: t.toolName, count: t.count })),
+    };
+  },
+};
+
 export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
@@ -882,6 +908,7 @@ export const { GET, POST } = toNextRouteHandler({
     },
     driftHistory: driftHistoryPort,
     tokenBudget,
+    catches,
     configSealStatus,
     configSealReports,
     // Recomputed per request from the live emergency history so the timeline

@@ -104,6 +104,14 @@ export {
 } from "./cost.js";
 
 export {
+  createInMemoryCatchUsageStore,
+  type CatchCounts,
+  type CatchSample,
+  type CatchUsageStore,
+  type CreateInMemoryCatchUsageStoreOptions,
+} from "./catch-usage-store.js";
+
+export {
   noopTraceSink,
   createInMemoryTraceSink,
   type AdapterPauseReason,

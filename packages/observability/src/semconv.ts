@@ -89,6 +89,17 @@ export const SEMCONV = {
   /** Output/completion-token cost in USD (float). */
   COST_OUTPUT_USD: "adjudicate.cost.output.usd",
 
+  // ── Caught a bad call (item 7) ────────────────────────────────────────────
+  //
+  // Span/event attributes for the out-of-plan catch path. CATCH_TOOL is
+  // adopter/model-controlled cardinality — span/event use ONLY, never a metric
+  // label. Leaf siblings; no bare `adjudicate.catch`.
+
+  /** Catch reason. Low cardinality: currently `out_of_plan`. */
+  CATCH_REASON: "adjudicate.catch.reason",
+  /** Tool name that was caught. HIGH cardinality — span/event only, never a metric label. */
+  CATCH_TOOL: "adjudicate.catch.tool",
+
   // ── Simulation / journey-testing runs (`adjudicate.sim.*`) ────────────────
   //
   // Attributes for adopter journey-test harnesses that drive an LLM persona

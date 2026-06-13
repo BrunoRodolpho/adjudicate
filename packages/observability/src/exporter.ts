@@ -34,6 +34,7 @@ export type ExportedEventKind =
   | "metrics.shadow_divergence"
   | "metrics.resource_limit"
   | "learning.outcome"
+  | "learning.catch"
   | "audit.span";
 
 /**

@@ -189,6 +189,19 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
     readonly usage: TokenUsage | undefined;
   }) => void;
   /**
+   * Fired when the loop catches an out-of-plan tool call (item 7). Side-effect-
+   * only; MUST NOT throw (the loop guards it, mirroring `onTokenUsage`). The
+   * out_of_plan branch never builds an envelope or reaches `adjudicateAndAudit`,
+   * so this can never touch hashed bytes — it is pure "caught a bad call"
+   * telemetry the adopter folds into a `CatchUsageStore`.
+   */
+  readonly onCatch?: (info: {
+    readonly sessionId: string;
+    readonly toolUseId: string;
+    readonly toolName: string;
+    readonly reason: "out_of_plan";
+  }) => void;
+  /**
    * Optional cross-session memory store (ADR-126). When omitted, context passes
    * through unchanged. Read-many; ENRICHES the planner/renderer context only —
    * never the kernel decision, state S, or intentHash.
@@ -305,6 +318,17 @@ export type AgentEvent =
       intentHash: string;
       intentKind: string;
       mismatch: StructuralMismatch;
+    }
+  /**
+   * The loop caught an out-of-plan tool call (item 7). The tool was never
+   * adjudicated (no envelope built); this is observation only. Pairs with the
+   * guarded `onCatch` option and the existing REWRITE-catch counting.
+   */
+  | {
+      kind: "tool_blocked";
+      toolUseId: string;
+      toolName: string;
+      reason: "out_of_plan";
     };
 
 export interface AdjudicatedAgent<_K extends string, _P, S, C, H> {

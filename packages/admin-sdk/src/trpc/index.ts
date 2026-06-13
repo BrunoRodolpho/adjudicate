@@ -88,6 +88,10 @@ import {
   type DriftHistoryResultParsed,
 } from "../schemas/behavioral-drift.js";
 import {
+  CatchCountsResultSchema,
+  type CatchCountsResult,
+} from "../schemas/catches.js";
+import {
   TokenBudgetByTenantResultSchema,
   TokenBudgetQuerySchema,
   TokenBudgetResultSchema,
@@ -249,6 +253,15 @@ export interface AdminContext {
   readonly tokenBudget?: {
     query(input: TokenBudgetQuery): Promise<TokenBudgetResult>;
     queryByTenant?(input: TokenBudgetTenantQuery): Promise<TokenBudgetByTenantResult>;
+  };
+  /**
+   * Optional "caught a bad call" telemetry port (item 7), fed from a
+   * `CatchUsageStore` (the adapter's `onCatch` hook). `governance.catches`
+   * throws PRECONDITION_FAILED when absent. TELEMETRY — outside the determinism
+   * boundary, never a kernel input.
+   */
+  readonly catches?: {
+    query(): Promise<CatchCountsResult>;
   };
   /**
    * Optional config-seal verification report (ADR-121), computed at startup via
@@ -650,6 +663,25 @@ const governanceRouter = t.router({
         });
       }
       return ctx.tokenBudget.queryByTenant(input);
+    }),
+
+  /**
+   * "Caught a bad call" telemetry (item 7) — aggregated out-of-plan catch
+   * counts. Throws PRECONDITION_FAILED when no CatchUsageStore is wired. The
+   * console card SUMS this total with the existing REWRITE outcome bucket into
+   * one "caught N bad calls" headline.
+   */
+  catches: t.procedure
+    .output(CatchCountsResultSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.catches) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Catch store not configured. Wire a CatchUsageStore fed by the adapter's onCatch hook into the route handler context.",
+        });
+      }
+      return ctx.catches.query();
     }),
 
   /**

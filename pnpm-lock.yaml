@@ -403,6 +403,34 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0)
 
+  packages/adjutant:
+    dependencies:
+      '@adjudicate/adapter-core':
+        specifier: workspace:*
+        version: link:../adapter-core
+      '@adjudicate/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@adjudicate/core':
+        specifier: workspace:*
+        version: link:../core
+      '@adjudicate/drift':
+        specifier: workspace:*
+        version: link:../drift
+      '@adjudicate/pack-incident-response':
+        specifier: workspace:*
+        version: link:../pack-incident-response
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^3.2.0
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0))
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@1.21.7)(jsdom@25.0.1)(terser@5.47.1)(tsx@4.21.0)
+
   packages/admin-sdk:
     dependencies:
       '@trpc/server':

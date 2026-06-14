@@ -872,10 +872,12 @@ const tokenBudget = {
   },
 };
 
-// Catch telemetry (item 7). Like the token store, a real deployment feeds this
-// from the adapter's onCatch hook; the console seeds deterministic demo catches
-// so the "caught N bad calls" card is populated. TELEMETRY only — never a
-// kernel input.
+// Catch telemetry (item 7). P3a: when DATABASE_URL is set the "caught N bad
+// calls" card reads REAL REFUSE-row counts from `intent_audit` (the data is
+// already present) — the rare literal `out_of_plan` hallucinated-tool concept is
+// ~absent (the adopter exposes one tool, so true out-of-plan catches are rare).
+// Without a DB it falls back to the deterministic demo store so the card is
+// still populated. TELEMETRY only — never a kernel input.
 const catchUsageStore = createInMemoryCatchUsageStore();
 for (const c of [
   { toolName: "shell.rm_rf", reason: "out_of_plan" as const, at: "2026-06-07T09:01:00.000Z" },
@@ -886,8 +888,35 @@ for (const c of [
 }
 const catches = {
   async query() {
-    // Map the store's readonly view to the mutable wire shape the router output
-    // schema expects.
+    // P3a — real catches = REFUSE rows from intent_audit, grouped by refusal
+    // category (byReason) and intent kind (byTool). Fail-open to the demo store:
+    // a telemetry card must never 500 the route.
+    if (process.env.DATABASE_URL) {
+      try {
+        const pool = getPgPool();
+        const [totalRes, byReasonRes, byToolRes] = await Promise.all([
+          pool.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM intent_audit WHERE decision_kind = 'REFUSE'`,
+          ),
+          pool.query<{ reason: string; n: number }>(
+            `SELECT COALESCE(refusal_kind, 'UNKNOWN') AS reason, count(*)::int AS n
+               FROM intent_audit WHERE decision_kind = 'REFUSE' GROUP BY refusal_kind`,
+          ),
+          pool.query<{ tool: string; n: number }>(
+            `SELECT kind AS tool, count(*)::int AS n
+               FROM intent_audit WHERE decision_kind = 'REFUSE'
+               GROUP BY kind ORDER BY n DESC, kind ASC LIMIT 50`,
+          ),
+        ]);
+        return {
+          total: totalRes.rows[0]?.n ?? 0,
+          byReason: Object.fromEntries(byReasonRes.rows.map((r) => [r.reason, r.n])),
+          byTool: byToolRes.rows.map((r) => ({ toolName: r.tool, count: r.n })),
+        };
+      } catch {
+        // Fall through to the demo store.
+      }
+    }
     const c = catchUsageStore.counts();
     return {
       total: c.total,

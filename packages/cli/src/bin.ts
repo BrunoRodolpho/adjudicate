@@ -26,7 +26,7 @@ program
   .description(
     "adjudicate framework CLI — Pack lifecycle commands for policy authors",
   )
-  .version("0.3.0");
+  .version("0.3.1");
 
 // Commands listed in alphabetical order matching the eventual `--help` layout.
 

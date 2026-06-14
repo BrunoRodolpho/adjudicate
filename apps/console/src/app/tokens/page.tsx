@@ -41,6 +41,11 @@ function bandFor(consumed: number, budget?: number): Band {
   return "ok";
 }
 
+/** Read-time USD cost (item 3); "—" when no price table was applied. */
+function formatUsd(usd?: number): string {
+  return typeof usd === "number" ? `$${usd.toFixed(2)}` : "—";
+}
+
 const BAND_STYLE: Record<Band, { text: string; bar: string; label: string }> = {
   ok: { text: "text-ink", bar: "bg-emerald-400/55", label: "within budget" },
   near: { text: "text-amber-300", bar: "bg-amber-400/60", label: "near budget" },
@@ -103,6 +108,7 @@ export default function TokensPage() {
                   <th scope="col" className="px-3 py-1.5 text-right font-normal">Consumed</th>
                   <th scope="col" className="px-3 py-1.5 text-right font-normal">Budget</th>
                   <th scope="col" className="px-3 py-1.5 text-right font-normal">Remaining</th>
+                  <th scope="col" className="px-3 py-1.5 text-right font-normal">Cost</th>
                   <th scope="col" className="px-3 py-1.5 text-right font-normal">Sessions</th>
                   <th scope="col" className="px-3 py-1.5 font-normal">Burn</th>
                 </tr>
@@ -132,6 +138,12 @@ export default function TokensPage() {
                       </td>
                       <td className={cn("px-3 py-1.5 text-right tabular-nums", style.text)}>
                         {t.remaining?.toLocaleString() ?? "—"}
+                      </td>
+                      <td
+                        className="px-3 py-1.5 text-right tabular-nums text-muted"
+                        data-testid={`tenant-cost-${t.tenantId}`}
+                      >
+                        {formatUsd(t.costUsd)}
                       </td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-muted">
                         {t.sessionCount?.toLocaleString() ?? "—"}
@@ -177,6 +189,7 @@ export default function TokensPage() {
                   <th scope="col" className="px-3 py-1.5 text-right font-normal">Consumed</th>
                   <th scope="col" className="px-3 py-1.5 text-right font-normal">Budget</th>
                   <th scope="col" className="px-3 py-1.5 text-right font-normal">Remaining</th>
+                  <th scope="col" className="px-3 py-1.5 text-right font-normal">Cost</th>
                 </tr>
               </thead>
               <tbody>
@@ -213,6 +226,12 @@ export default function TokensPage() {
                       </td>
                       <td className={cn("px-3 py-1.5 text-right tabular-nums", style.text)}>
                         {s.remaining?.toLocaleString() ?? "—"}
+                      </td>
+                      <td
+                        className="px-3 py-1.5 text-right tabular-nums text-muted"
+                        data-testid={`session-cost-${s.sessionId}`}
+                      >
+                        {formatUsd(s.costUsd)}
                       </td>
                     </tr>
                   );

@@ -46,8 +46,11 @@ import {
   type ApprovalRequest,
 } from "@adjudicate/approval-engine";
 import {
+  applyCostTable,
+  createInMemoryCatchUsageStore,
   createInMemoryMemoryStore,
   createInMemoryTokenUsageStore,
+  type PriceTable,
   type TokenUsageSample,
 } from "@adjudicate/adapter-core";
 import type {
@@ -451,17 +454,27 @@ const tokenUsageStore = createInMemoryTokenUsageStore({
   sessionBudget: TOKEN_SESSION_BUDGET,
   perTenantBudget: TOKEN_TENANT_BUDGET,
 });
-// Deterministic demo samples — fixed timestamps, total tokens per sample.
+// Deterministic demo samples — fixed timestamps. `total` drives the budget
+// counters (unchanged); `prompt`/`completion` carry the split that powers the
+// read-time USD Cost column (item 3). Each split sums to its `total`.
 const DEMO_TOKEN_SAMPLES: ReadonlyArray<TokenUsageSample> = [
   // acme: two sessions; sess-dep-03 crosses the session cap, and acme's
   // aggregate (18.4k + 47.9k + 52.3k = 118.6k) crosses the 90k tenant cap.
-  { sessionId: "sess-pix-01", tenantId: "acme", total: 18_400, at: "2026-06-07T09:00:00.000Z" },
-  { sessionId: "sess-kyc-02", tenantId: "acme", total: 47_900, at: "2026-06-07T09:05:00.000Z" },
-  { sessionId: "sess-dep-03", tenantId: "acme", total: 52_300, at: "2026-06-07T09:10:00.000Z" },
+  { sessionId: "sess-pix-01", tenantId: "acme", total: 18_400, prompt: 12_880, completion: 5_520, at: "2026-06-07T09:00:00.000Z" },
+  { sessionId: "sess-kyc-02", tenantId: "acme", total: 47_900, prompt: 33_530, completion: 14_370, at: "2026-06-07T09:05:00.000Z" },
+  { sessionId: "sess-dep-03", tenantId: "acme", total: 52_300, prompt: 36_610, completion: 15_690, at: "2026-06-07T09:10:00.000Z" },
   // globex: one session, comfortably under both caps.
-  { sessionId: "sess-bil-04", tenantId: "globex", total: 12_500, at: "2026-06-07T09:12:00.000Z" },
+  { sessionId: "sess-bil-04", tenantId: "globex", total: 12_500, prompt: 8_750, completion: 3_750, at: "2026-06-07T09:12:00.000Z" },
 ];
 for (const s of DEMO_TOKEN_SAMPLES) tokenUsageStore.record(s);
+
+// Display-only reference price table (USD/token) for the Cost column. A real
+// deployment configures its own per-model table; price is applied at READ time
+// (item 3), never on the stored sample — the store stays clock/RNG/price-free.
+const TOKEN_PRICE_TABLE: PriceTable = {
+  inputUsdPerToken: 3 / 1_000_000,
+  outputUsdPerToken: 15 / 1_000_000,
+};
 // Config-integrity seal status (ADR-121). Seal the installed pack at startup and
 // verify it against itself — a real deployment loads a committed/signed seal.
 const sealablePack = deploymentsApprovalPack as unknown as SealablePackInput;
@@ -818,6 +831,11 @@ const tokenBudget = {
         consumed: s.consumed,
         ...(s.budget !== undefined ? { budget: s.budget } : {}),
         ...(s.remaining !== undefined ? { remaining: s.remaining } : {}),
+        // Only price rows that carry a prompt/completion split — total-only
+        // samples have no priced split, so omit costUsd (the page shows "—").
+        ...(s.promptConsumed + s.completionConsumed > 0
+          ? { costUsd: applyCostTable(s, TOKEN_PRICE_TABLE).usd }
+          : {}),
       }));
     return {
       sessions,
@@ -838,6 +856,9 @@ const tokenBudget = {
         ...(t.budget !== undefined ? { budget: t.budget } : {}),
         ...(t.remaining !== undefined ? { remaining: t.remaining } : {}),
         sessionCount: t.sessionCount,
+        ...(t.promptConsumed + t.completionConsumed > 0
+          ? { costUsd: applyCostTable(t, TOKEN_PRICE_TABLE).usd }
+          : {}),
       }));
     const exhaustionEvents = tokenUsageStore.exhaustionEvents({
       ...(input.tenantId !== undefined ? { tenantId: input.tenantId } : {}),
@@ -847,6 +868,31 @@ const tokenBudget = {
       tenants,
       exhaustionEvents,
       totalConsumed: tokenUsageStore.totalConsumed(),
+    };
+  },
+};
+
+// Catch telemetry (item 7). Like the token store, a real deployment feeds this
+// from the adapter's onCatch hook; the console seeds deterministic demo catches
+// so the "caught N bad calls" card is populated. TELEMETRY only — never a
+// kernel input.
+const catchUsageStore = createInMemoryCatchUsageStore();
+for (const c of [
+  { toolName: "shell.rm_rf", reason: "out_of_plan" as const, at: "2026-06-07T09:01:00.000Z" },
+  { toolName: "shell.rm_rf", reason: "out_of_plan" as const, at: "2026-06-07T09:03:00.000Z" },
+  { toolName: "db.drop_table", reason: "out_of_plan" as const, at: "2026-06-07T09:04:00.000Z" },
+]) {
+  catchUsageStore.record(c);
+}
+const catches = {
+  async query() {
+    // Map the store's readonly view to the mutable wire shape the router output
+    // schema expects.
+    const c = catchUsageStore.counts();
+    return {
+      total: c.total,
+      byReason: { ...c.byReason },
+      byTool: c.byTool.map((t) => ({ toolName: t.toolName, count: t.count })),
     };
   },
 };
@@ -868,6 +914,7 @@ export const { GET, POST } = toNextRouteHandler({
     },
     driftHistory: driftHistoryPort,
     tokenBudget,
+    catches,
     configSealStatus,
     configSealReports,
     // Recomputed per request from the live emergency history so the timeline

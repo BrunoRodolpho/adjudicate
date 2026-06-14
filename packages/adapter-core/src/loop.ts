@@ -283,6 +283,32 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         if (cls.kind === "out_of_plan") {
           const result = makeOutOfPlanToolResult(tu.id, tu.name);
           toolResults.push(result);
+          // Item 7: the agent caught an out-of-plan tool call. Emit a
+          // tool_blocked event and (guarded) notify onCatch so a CatchUsageStore
+          // can count it. This branch never builds an envelope or reaches
+          // adjudicateAndAudit, so it cannot touch hashed bytes; a throwing
+          // onCatch must not alter loop control flow (mirror onTokenUsage).
+          events.push({
+            kind: "tool_blocked",
+            toolUseId: tu.id,
+            toolName: tu.name,
+            reason: "out_of_plan",
+          });
+          if (options.onCatch) {
+            try {
+              options.onCatch({
+                sessionId,
+                toolUseId: tu.id,
+                toolName: tu.name,
+                reason: "out_of_plan",
+              });
+            } catch (err) {
+              options.log?.warn?.({
+                msg: "onCatch threw; ignoring",
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
           events.push({ kind: "tool_result", toolUseId: tu.id, payload: result });
           continue;
         }
@@ -437,6 +463,12 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         historySnapshot: args.historySnapshot,
         rk,
         log: options.log,
+        // Item 1: resolve the per-kind executor output contract (if the Pack
+        // declared one) so runExecute can validate the executor's output.
+        // REWRITE is scope-restricted to payload sanitization and never changes
+        // `kind` (the Decision contract; see core/decision.ts), so resolving by
+        // the original envelope's kind is correct for both EXECUTE and REWRITE.
+        executorContract: options.pack.executorContract?.[args.envelope.kind],
         // SecurityReviewer-003: the confirmation token is a single-use
         // credential authorizing REQUEST_CONFIRMATION → EXECUTE substitution.
         // Never fall back to Math.random() (V8 xorshift-128+ is reversible) —

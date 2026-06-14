@@ -1,0 +1,24 @@
+{
+  "intent": {
+    "kind": "vacation.cancel",
+    "payload": { "requestId": "req_1" },
+    "actor": { "principal": "llm", "sessionId": "demo-confirm" },
+    "taint": "UNTRUSTED",
+    "nonce": "demo-confirm",
+    "createdAt": "2026-04-23T12:00:00.000Z"
+  },
+  "state": {
+    "employee": { "id": "emp_1", "role": "employee", "ptoBalanceDays": 10 },
+    "request": {
+      "id": "req_1",
+      "employeeId": "emp_1",
+      "startDate": "2026-04-24T08:00:00.000Z",
+      "durationDays": 2,
+      "status": "approved",
+      "approvedBy": "mgr_1"
+    },
+    "approverId": null,
+    "nowISO": "2026-04-23T12:00:00.000Z"
+  },
+  "expected": { "kind": "REQUEST_CONFIRMATION" }
+}

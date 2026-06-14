@@ -24,6 +24,7 @@ import { PiiClassificationPanel } from "@/components/dashboard/PiiClassification
 import { TokenBudgetPanel } from "@/components/dashboard/TokenBudgetPanel";
 import { SLOPanel } from "@/components/dashboard/SLOPanel";
 import { TopRefusals } from "@/components/dashboard/TopRefusals";
+import { CaughtBadCallsPanel } from "@/components/dashboard/CaughtBadCallsPanel";
 
 /**
  * Dashboard — Console v0.2 outcome-distribution surface.
@@ -105,6 +106,8 @@ export default function DashboardPage() {
           );
         })}
       </section>
+
+      <CaughtBadCallsPanel rewriteCount={totals.REWRITE ?? 0} />
 
       <section className="flex flex-col gap-2">
         <header className="text-[10px] uppercase tracking-section text-faint">

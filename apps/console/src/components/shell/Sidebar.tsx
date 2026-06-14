@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Boxes, ClipboardCheck, Coins, EyeOff, ListFilter, ListTree, Network, ShieldAlert, ShieldCheck, Swords, Terminal, TrendingUp, X } from "lucide-react";
+import { Activity, Bot, Boxes, ClipboardCheck, Coins, EyeOff, ListFilter, ListTree, Network, ShieldAlert, ShieldCheck, Swords, Terminal, TrendingUp, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Taint } from "@adjudicate/core";
@@ -29,6 +29,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { href: "/ai-bom", label: "AI-BOM", icon: Boxes },
   { href: "/integrity", label: "Integrity", icon: ShieldCheck },
   { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
+  { href: "/agents", label: "Agents", icon: Bot },
   { href: "/control", label: "Control", icon: ShieldAlert },
 ] as const;
 

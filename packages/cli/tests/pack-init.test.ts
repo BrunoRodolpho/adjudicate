@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { runPackInit } from "../src/commands/pack-init.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -126,6 +127,37 @@ describe("pack init — scaffold integration (dogfood)", () => {
     expect(pack.contract).toBe("v0");
     expect(pack.basisCodes.length).toBeGreaterThan(0);
   });
+
+  it("generated planner.plan() filters MUTATING tools out of visibleReadTools", async () => {
+    // Runtime exercise of the object-shaped ToolClassification: the old array
+    // shape made filterReadOnly(TOOLS, allTools) throw (TOOLS.READ_ONLY is
+    // undefined). list_demo is READ_ONLY; create_demo/confirm_demo are MUTATING.
+    const mod = (await import(path.join(PACK_DIR, "src", "policy.ts"))) as {
+      planner: {
+        plan: (
+          s: unknown,
+          c: unknown,
+        ) => { visibleReadTools: readonly string[] };
+      };
+    };
+    const plan = mod.planner.plan({ entities: new Map() }, { tenantId: "t1" });
+    expect([...plan.visibleReadTools]).toEqual(["list_demo"]);
+  });
+
+  it("scaffolded Pack typechecks under tsc", () => {
+    const repoRoot = path.join(__dirname, "..", "..", "..");
+    const tscBin = path.join(repoRoot, "node_modules", ".bin", "tsc");
+    try {
+      execFileSync(tscBin, ["--noEmit", "-p", path.join(PACK_DIR, "tsconfig.json")], {
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const e = err as { stdout?: Buffer; stderr?: Buffer };
+      throw new Error(
+        `tsc failed on the scaffolded pack:\n${e.stdout?.toString() ?? ""}${e.stderr?.toString() ?? ""}`,
+      );
+    }
+  }, 60_000);
 
   it("rejects invalid pack names (regex gate)", async () => {
     const exitSpy = vi

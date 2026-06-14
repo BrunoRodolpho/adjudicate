@@ -98,6 +98,14 @@ export interface SessionConsumption {
   readonly sessionId: string;
   readonly tenantId?: string;
   readonly consumed: number;
+  /**
+   * Cumulative prompt/input tokens, when the provider reported a split
+   * (sample.prompt). Zero when only a pre-summed `total` was recorded. Used by
+   * `applyCostTable` for read-time split pricing — never an enforcement input.
+   */
+  readonly promptConsumed: number;
+  /** Cumulative completion/output tokens, when the split was reported (else 0). */
+  readonly completionConsumed: number;
   readonly budget?: number;
   readonly remaining?: number;
   readonly lastAt: string;
@@ -107,6 +115,10 @@ export interface SessionConsumption {
 export interface TenantConsumption {
   readonly tenantId: string;
   readonly consumed: number;
+  /** Cumulative prompt/input tokens across the tenant's sessions (split-aware; else 0). */
+  readonly promptConsumed: number;
+  /** Cumulative completion/output tokens across the tenant's sessions (split-aware; else 0). */
+  readonly completionConsumed: number;
   readonly budget?: number;
   readonly remaining?: number;
   readonly sessionCount: number;
@@ -206,10 +218,31 @@ function sampleTotal(sample: TokenUsageSample): number {
   return Math.max(0, Math.trunc(prompt) + Math.trunc(completion));
 }
 
+/**
+ * Split a sample into non-negative integer (prompt, completion) tokens. Only the
+ * explicitly-reported split is counted; a `total`-only sample contributes 0 to
+ * both (the split is unknown). Cost pricing therefore reflects only samples that
+ * carried a provider split — by construction, never an over-estimate.
+ */
+function samplePromptCompletion(sample: TokenUsageSample): {
+  prompt: number;
+  completion: number;
+} {
+  const prompt = Number.isFinite(sample.prompt)
+    ? Math.max(0, Math.trunc(sample.prompt as number))
+    : 0;
+  const completion = Number.isFinite(sample.completion)
+    ? Math.max(0, Math.trunc(sample.completion as number))
+    : 0;
+  return { prompt, completion };
+}
+
 interface SessionRow {
   sessionId: string;
   tenantId?: string;
   consumed: number;
+  promptConsumed: number;
+  completionConsumed: number;
   lastAt: string;
   /** True once a session-scope exhaustion event has been emitted (emit once per crossing, not per over-budget sample). */
   exhausted: boolean;
@@ -218,6 +251,8 @@ interface SessionRow {
 interface TenantRow {
   tenantId: string;
   consumed: number;
+  promptConsumed: number;
+  completionConsumed: number;
   sessionIds: Set<string>;
   lastAt: string;
   exhausted: boolean;
@@ -271,6 +306,7 @@ export function createInMemoryTokenUsageStore(
   return {
     record(sample: TokenUsageSample): void {
       const add = sampleTotal(sample);
+      const split = samplePromptCompletion(sample);
       const { sessionId, tenantId, at } = sample;
 
       // ── Session counter (LRU touch) ──────────────────────────────────────
@@ -283,6 +319,8 @@ export function createInMemoryTokenUsageStore(
           sessionId,
           ...(tenantId !== undefined ? { tenantId } : {}),
           consumed: 0,
+          promptConsumed: 0,
+          completionConsumed: 0,
           lastAt: at,
           exhausted: false,
         };
@@ -294,6 +332,8 @@ export function createInMemoryTokenUsageStore(
       }
       const prevSession = srow.consumed;
       srow.consumed = prevSession + add;
+      srow.promptConsumed += split.prompt;
+      srow.completionConsumed += split.completion;
       srow.lastAt = at;
       sessions.set(sessionId, srow);
 
@@ -330,6 +370,8 @@ export function createInMemoryTokenUsageStore(
           trow = {
             tenantId,
             consumed: 0,
+            promptConsumed: 0,
+            completionConsumed: 0,
             sessionIds: new Set<string>(),
             lastAt: at,
             exhausted: false,
@@ -338,6 +380,8 @@ export function createInMemoryTokenUsageStore(
         }
         const prevTenant = trow.consumed;
         trow.consumed = prevTenant + add;
+        trow.promptConsumed += split.prompt;
+        trow.completionConsumed += split.completion;
         trow.sessionIds.add(sessionId);
         trow.lastAt = at;
 
@@ -372,6 +416,8 @@ export function createInMemoryTokenUsageStore(
           sessionId: row.sessionId,
           ...(row.tenantId !== undefined ? { tenantId: row.tenantId } : {}),
           consumed: row.consumed,
+          promptConsumed: row.promptConsumed,
+          completionConsumed: row.completionConsumed,
           ...(budget !== undefined
             ? { budget, remaining: budget - row.consumed }
             : {}),
@@ -396,6 +442,8 @@ export function createInMemoryTokenUsageStore(
         out.push({
           tenantId: row.tenantId,
           consumed: row.consumed,
+          promptConsumed: row.promptConsumed,
+          completionConsumed: row.completionConsumed,
           ...(budget !== undefined
             ? { budget, remaining: budget - row.consumed }
             : {}),

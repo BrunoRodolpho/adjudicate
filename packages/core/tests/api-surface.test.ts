@@ -68,6 +68,11 @@ const ROOT_FROZEN: ReadonlyArray<string> = [
   "tainted",
   "isTaintedValue",
   "collectFieldTaints",
+  // post-v1 additive runtime exports — tracked so removal is a release-blocker.
+  // (Item 1) ExecutorContract structural output validation:
+  "validateOutputShape",
+  // (Item 2) side-effect taint-floor vocabulary:
+  "DEFAULT_SIDE_EFFECT_FLOOR",
 ];
 
 const KERNEL_FROZEN: ReadonlyArray<string> = [

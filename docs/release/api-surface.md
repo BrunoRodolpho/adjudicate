@@ -70,6 +70,11 @@ keep this prose in sync with those barrels.
   `noopAuditSink`, `installPack`, `assertPackConformance`,
   `withBasisAudit`, `classify` (replay), `localizeDecision` + the explain
   helpers.
+- Post-v1 additive (items 1 & 2): `SideEffectClass`, `DEFAULT_SIDE_EFFECT_FLOOR`
+  (side-effect taint-floor vocabulary); `ExecutorContract`, `OutputShape`,
+  `StructuralMismatch`, `validateOutputShape` (structural post-EXECUTE output
+  validation). Optional `PackV0.sideEffects` / `PackV0.executorContract` registry
+  fields — outside the hashed envelope and outside ConfigSeal.
 
 **Public surface (`./kernel`):**
 

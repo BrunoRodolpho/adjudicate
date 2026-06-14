@@ -1,0 +1,17 @@
+{
+  "intent": {
+    "kind": "vacation.request",
+    "payload": { "startDate": "2026-05-01", "durationDays": 3 },
+    "actor": { "principal": "llm", "sessionId": "demo-defer" },
+    "taint": "UNTRUSTED",
+    "nonce": "demo-defer",
+    "createdAt": "2026-04-23T12:00:00.000Z"
+  },
+  "state": {
+    "employee": { "id": "emp_1", "role": "employee", "ptoBalanceDays": 10 },
+    "request": null,
+    "approverId": null,
+    "nowISO": "2026-04-23T12:00:00.000Z"
+  },
+  "expected": { "kind": "DEFER" }
+}

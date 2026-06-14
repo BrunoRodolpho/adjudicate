@@ -20,8 +20,8 @@ const tenantReady = {
   data: {
     tenants: [
       // over budget
-      { tenantId: "acme", consumed: 118_600, budget: 90_000, remaining: -28_600, sessionCount: 3 },
-      // within budget
+      { tenantId: "acme", consumed: 118_600, budget: 90_000, remaining: -28_600, sessionCount: 3, costUsd: 0.76 },
+      // within budget; no costUsd -> Cost column shows the em-dash fallback
       { tenantId: "globex", consumed: 12_500, budget: 90_000, remaining: 77_500, sessionCount: 1 },
     ],
     exhaustionEvents: [
@@ -37,7 +37,7 @@ const sessionsReady = {
   isError: false,
   data: {
     sessions: [
-      { sessionId: "sess-pix-01", tenantId: "acme", consumed: 18_400, budget: 50_000, remaining: 31_600 },
+      { sessionId: "sess-pix-01", tenantId: "acme", consumed: 18_400, budget: 50_000, remaining: 31_600, costUsd: 0.12 },
       { sessionId: "sess-dep-03", tenantId: "acme", consumed: 52_300, budget: 50_000, remaining: -2_300 },
       { sessionId: "sess-bil-04", tenantId: "globex", consumed: 12_500, budget: 50_000, remaining: 37_500 },
     ],
@@ -81,6 +81,13 @@ describe("TokensPage", () => {
     expect(over.textContent).toContain("acme");
     expect(over.textContent).toContain("-2,300");
     expect(screen.getByTestId("session-row-sess-pix-01").getAttribute("data-band")).toBe("ok");
+  });
+
+  it("renders the read-time USD cost column with a — fallback when unpriced", () => {
+    render(<TokensPage />);
+    expect(screen.getByTestId("tenant-cost-acme").textContent).toContain("$0.76");
+    expect(screen.getByTestId("tenant-cost-globex").textContent).toContain("—");
+    expect(screen.getByTestId("session-cost-sess-pix-01").textContent).toContain("$0.12");
   });
 
   it("renders the exhaustion timeline newest-first with scope badges", () => {

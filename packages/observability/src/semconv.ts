@@ -75,6 +75,36 @@ export const SEMCONV = {
   /** Bounded-cardinality bucket: grounded | uncertain | hallucinated. */
   HALLUCINATION_BUCKET: "adjudicate.hallucination.bucket",
 
+  // ── Per-decision cost (item 3) ────────────────────────────────────────────
+  //
+  // USD cost folded from token counts x an adopter PriceTable at READ time
+  // (never on the stored sample — determinism boundary). Leaf siblings only:
+  // there is deliberately NO bare `adjudicate.cost` key (the prefix-namespace
+  // test forbids `a.b` coexisting with `a.b.c`).
+
+  /** Total decision/session/tenant cost in USD (float) = input + output. */
+  COST_USD: "adjudicate.cost.usd",
+  /** Input/prompt-token cost in USD (float). */
+  COST_INPUT_USD: "adjudicate.cost.input.usd",
+  /** Output/completion-token cost in USD (float). */
+  COST_OUTPUT_USD: "adjudicate.cost.output.usd",
+
+  // ── Caught a bad call (item 7) ────────────────────────────────────────────
+  //
+  // Span/event attributes for the out-of-plan catch path. CATCH_TOOL is
+  // adopter/model-controlled cardinality — span/event use ONLY, never a metric
+  // label. Leaf siblings; no bare `adjudicate.catch`.
+  //
+  // RESERVED: these names are the stable vocabulary for the catch span/event
+  // exporter that is not yet wired (nothing emits `learning.catch` today). They
+  // are declared now — the SEMCONV file is deliberately add-only — so dashboards
+  // and adopter exporters can key on the final names ahead of the emitter.
+
+  /** Catch reason. Low cardinality: currently `out_of_plan`. */
+  CATCH_REASON: "adjudicate.catch.reason",
+  /** Tool name that was caught. HIGH cardinality — span/event only, never a metric label. */
+  CATCH_TOOL: "adjudicate.catch.tool",
+
   // ── Simulation / journey-testing runs (`adjudicate.sim.*`) ────────────────
   //
   // Attributes for adopter journey-test harnesses that drive an LLM persona

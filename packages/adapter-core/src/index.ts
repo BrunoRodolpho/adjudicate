@@ -22,6 +22,8 @@
  */
 
 export { createAdjudicatedAgent } from "./loop.js";
+export { createQuickAgent } from "./quick-agent.js";
+export type { QuickAgentOptions } from "./quick-agent.js";
 export type {
   AdjudicatedAgent,
   AdjudicatedAgentOptions,
@@ -96,6 +98,20 @@ export {
   type TokenUsageSample,
   type TokenUsageStore,
 } from "./token-usage-store.js";
+
+export {
+  applyCostTable,
+  type CostBreakdown,
+  type PriceTable,
+} from "./cost.js";
+
+export {
+  createInMemoryCatchUsageStore,
+  type CatchCounts,
+  type CatchSample,
+  type CatchUsageStore,
+  type CreateInMemoryCatchUsageStoreOptions,
+} from "./catch-usage-store.js";
 
 export {
   noopTraceSink,

@@ -21,7 +21,12 @@
  * remaining blocks are surfaced as `not_processed_due_to_pause`.
  */
 
-import type { Decision, IntentEnvelope } from "@adjudicate/core";
+import { validateOutputShape } from "@adjudicate/core";
+import type {
+  Decision,
+  ExecutorContract,
+  IntentEnvelope,
+} from "@adjudicate/core";
 import { parkDeferredIntent } from "@adjudicate/runtime";
 import { AdapterError, AdapterErrorCode } from "./errors.js";
 import type {
@@ -53,6 +58,14 @@ export interface DecisionTranslationContext<K extends string, P, S, H> {
    * default; tests can inject a deterministic generator.
    */
   readonly generateToken: () => string;
+  /**
+   * Optional executor output contract for this envelope's kind (resolved by the
+   * loop from `PackV0.executorContract`). When present, `runExecute` validates
+   * the executor's return value AFTER `invokeIntent` and PREPENDS an
+   * `executor_contract_violation` event on mismatch — never altering the tool
+   * result or loop action.
+   */
+  readonly executorContract?: ExecutorContract;
 }
 
 export type LoopAction =
@@ -265,10 +278,31 @@ async function runExecute<K extends string, P, S, H>(
     toolUseId: ctx.toolUseId,
     content: JSON.stringify(body),
   };
+
+  // Optional post-EXECUTE output-contract check (item 1). EXECUTE has already
+  // happened; a mismatch is a SEPARATE observation layer — it PREPENDS an event
+  // and never alters the tool result or loop action (the non-flip invariant).
+  const contractEvents: AgentEvent[] = [];
+  if (ctx.executorContract) {
+    const mismatch = validateOutputShape(
+      executorResult,
+      ctx.executorContract.outputShape,
+    );
+    if (mismatch) {
+      contractEvents.push({
+        kind: "executor_contract_violation",
+        intentHash: effectiveEnvelope.intentHash,
+        intentKind: effectiveEnvelope.kind,
+        mismatch,
+      });
+    }
+  }
+
   return {
     toolResult: result,
     loopAction: { kind: "continue" },
     extraEvents: [
+      ...contractEvents,
       handlerEvent,
       { kind: "tool_result", toolUseId: ctx.toolUseId, payload: result },
     ],

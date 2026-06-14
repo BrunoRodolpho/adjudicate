@@ -88,6 +88,18 @@ import {
   type DriftHistoryResultParsed,
 } from "../schemas/behavioral-drift.js";
 import {
+  CatchCountsResultSchema,
+  type CatchCountsResult,
+} from "../schemas/catches.js";
+import {
+  IncidentListQuerySchema,
+  IncidentRowSchema,
+  ProposalListQuerySchema,
+  RemediationProposalSchema,
+  type IncidentRowParsed,
+  type RemediationProposalParsed,
+} from "../schemas/adjutant.js";
+import {
   TokenBudgetByTenantResultSchema,
   TokenBudgetQuerySchema,
   TokenBudgetResultSchema,
@@ -249,6 +261,31 @@ export interface AdminContext {
   readonly tokenBudget?: {
     query(input: TokenBudgetQuery): Promise<TokenBudgetResult>;
     queryByTenant?(input: TokenBudgetTenantQuery): Promise<TokenBudgetByTenantResult>;
+  };
+  /**
+   * Optional "caught a bad call" telemetry port (item 7), fed from a
+   * `CatchUsageStore` (the adapter's `onCatch` hook). `governance.catches`
+   * throws PRECONDITION_FAILED when absent. TELEMETRY — outside the determinism
+   * boundary, never a kernel input.
+   */
+  readonly catches?: {
+    query(): Promise<CatchCountsResult>;
+  };
+  /**
+   * Optional Adjutant operator-surface ports (task 13). `incidentsPort` JOINs
+   * the IncidentProjection over IncidentState; `proposalsPort` lists the
+   * RemediationProposalStore read-model. `adjutant.*` throws PRECONDITION_FAILED
+   * when absent. The approvals queue reuses `approvalPort` (approval.list/resolve).
+   */
+  readonly incidentsPort?: {
+    list(filter?: { status?: string; limit?: number }): Promise<ReadonlyArray<IncidentRowParsed>>;
+  };
+  readonly proposalsPort?: {
+    list(filter?: {
+      incidentId?: string;
+      status?: string;
+      limit?: number;
+    }): Promise<ReadonlyArray<RemediationProposalParsed>>;
   };
   /**
    * Optional config-seal verification report (ADR-121), computed at startup via
@@ -653,6 +690,25 @@ const governanceRouter = t.router({
     }),
 
   /**
+   * "Caught a bad call" telemetry (item 7) — aggregated out-of-plan catch
+   * counts. Throws PRECONDITION_FAILED when no CatchUsageStore is wired. The
+   * console card SUMS this total with the existing REWRITE outcome bucket into
+   * one "caught N bad calls" headline.
+   */
+  catches: t.procedure
+    .output(CatchCountsResultSchema)
+    .query(async ({ ctx }) => {
+      if (!ctx.catches) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Catch store not configured. Wire a CatchUsageStore fed by the adapter's onCatch hook into the route handler context.",
+        });
+      }
+      return ctx.catches.query();
+    }),
+
+  /**
    * Behavioral/statistical drift snapshot (ADR-119) — decision-distribution
    * shift over a baseline-vs-recent window. Distinct from the operational
    * DriftPanel. Throws PRECONDITION_FAILED when no detector is wired.
@@ -1029,6 +1085,44 @@ const packRouter = t.router({
     }),
 });
 
+const adjutantRouter = t.router({
+  /**
+   * Incident rows for the operator surface (task 13) — a JOIN of the
+   * IncidentProjection over IncidentState. PRECONDITION_FAILED when no incidents
+   * port is wired.
+   */
+  incidents: t.procedure
+    .input(IncidentListQuerySchema)
+    .output(z.array(IncidentRowSchema))
+    .query(async ({ input, ctx }) => {
+      if (!ctx.incidentsPort) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Incidents port not configured. Wire an Adjutant IncidentProjection JOIN into the route handler context.",
+        });
+      }
+      return [...(await ctx.incidentsPort.list(input))];
+    }),
+  /**
+   * Remediation proposals read-model. PRECONDITION_FAILED when no proposals port
+   * is wired.
+   */
+  proposals: t.procedure
+    .input(ProposalListQuerySchema)
+    .output(z.array(RemediationProposalSchema))
+    .query(async ({ input, ctx }) => {
+      if (!ctx.proposalsPort) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Proposals port not configured. Wire an Adjutant RemediationProposalStore into the route handler context.",
+        });
+      }
+      return [...(await ctx.proposalsPort.list(input))];
+    }),
+});
+
 export const adminRouter = t.router({
   audit: auditRouter,
   emergency: emergencyRouter,
@@ -1037,6 +1131,7 @@ export const adminRouter = t.router({
   approval: approvalRouter,
   pack: packRouter,
   memory: memoryRouter,
+  adjutant: adjutantRouter,
 });
 
 export type AdminRouter = typeof adminRouter;

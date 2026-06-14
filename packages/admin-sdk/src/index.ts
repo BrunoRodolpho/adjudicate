@@ -221,6 +221,21 @@ export {
   type ApprovalChainStep,
   type ApprovalChainResult,
 } from "./schemas/approval.js";
+export {
+  RemediationDispositionSchema,
+  PendingActionSchema,
+  IncidentDependencySchema,
+  IncidentRowSchema,
+  IncidentListQuerySchema,
+  RemediationProposalStatusSchema,
+  RemediationProposalSchema,
+  ProposalListQuerySchema,
+  type IncidentRowParsed,
+  type IncidentListQuery,
+  type RemediationProposalParsed,
+  type ProposalListQuery,
+  type RemediationDispositionParsed,
+} from "./schemas/adjutant.js";
 
 export {
   CoherenceDiagnosticSchema,

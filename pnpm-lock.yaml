@@ -84,6 +84,9 @@ importers:
       next:
         specifier: ^15.5.18
         version: 15.5.18(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.60.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      pg:
+        specifier: ^8.13.0
+        version: 8.20.0
       react:
         specifier: ^19.0.0
         version: 19.2.5
@@ -106,6 +109,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
+      '@types/pg':
+        specifier: ^8.11.0
+        version: 8.20.0
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
@@ -5834,7 +5840,7 @@ snapshots:
       react-dom: 19.2.5(react@19.2.5)
       react-refresh: 0.18.0
       remotion: 4.0.461(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      style-loader: 4.0.0(webpack@5.105.0(postcss@8.5.12))
+      style-loader: 4.0.0(webpack@5.105.0(esbuild@0.28.1)(postcss@8.5.10))
       webpack: 5.105.0(esbuild@0.28.1)(postcss@8.5.10)
     transitivePeerDependencies:
       - '@minify-html/node'
@@ -8745,7 +8751,7 @@ snapshots:
 
   strip-json-comments@3.1.1: {}
 
-  style-loader@4.0.0(webpack@5.105.0(postcss@8.5.12)):
+  style-loader@4.0.0(webpack@5.105.0(esbuild@0.28.1)(postcss@8.5.10)):
     dependencies:
       webpack: 5.105.0(esbuild@0.28.1)(postcss@8.5.10)
 

@@ -15,9 +15,14 @@ import { createInMemoryApprovalRegistry } from "@adjudicate/approval-engine";
 import {
   createIncidentProjection,
   createInMemoryRemediationProposalStore,
+  createPostgresIncidentProjection,
+  createPostgresRemediationProposalStore,
   createRemediationOrchestrator,
+  type IncidentProjection,
+  type RemediationProposalStore,
   type RemediationSignal,
 } from "@adjudicate/adjutant";
+import { getPgPool, isPostgresBacked } from "@/lib/postgres-pool";
 import type {
   Incident,
   IncidentIntentKind,
@@ -100,8 +105,22 @@ const generateToken = (): string => `tok-${tokenCounter++}`;
 
 // ── Stores + orchestrator ────────────────────────────────────────────────────
 const registry = createInMemoryApprovalRegistry();
-const proposalStore = createInMemoryRemediationProposalStore();
-const projection = createIncidentProjection();
+
+// P4: when DATABASE_URL is set, PROJECT real managed-agent runs — the proposal
+// store reads the shared `remediation_proposals` table (the adopter's producer
+// seam writes it on park) and the incident projection folds
+// `ibx_domain.agent_runs`. No demo signals, no second adjudication. Otherwise
+// fall back to the in-memory demo seed.
+const dbBacked = isPostgresBacked();
+const pgProposalStore = dbBacked
+  ? createPostgresRemediationProposalStore({ sql: getPgPool() })
+  : null;
+const pgProjection = dbBacked
+  ? createPostgresIncidentProjection({ sql: getPgPool() })
+  : null;
+const proposalStore: RemediationProposalStore =
+  pgProposalStore ?? createInMemoryRemediationProposalStore();
+const projection: IncidentProjection = pgProjection ?? createIncidentProjection();
 const orch = createRemediationOrchestrator({
   executor,
   getState: () => STATE,
@@ -158,12 +177,18 @@ const DEMO_SIGNALS: ReadonlyArray<RemediationSignal> = [
   },
 ];
 
-// Module-load seeding. Top-level await keeps the seed deterministic and ordered
-// (each signal awaited before the next so token minting is stable). The
-// projection folds each outcome under the signal's incidentId + `at`.
-for (const signal of DEMO_SIGNALS) {
-  const outcome = await orch.handle(signal);
-  projection.record(signal.incidentId, outcome, signal.at ?? "");
+// Module-load seeding. When DB-backed (P4), load the LIVE projection from
+// Postgres instead of running demo signals (per-request refresh happens in
+// createContext). Otherwise top-level-await the deterministic demo seed (each
+// signal awaited before the next so token minting is stable).
+if (dbBacked) {
+  await pgProposalStore!.init();
+  await pgProjection!.refresh();
+} else {
+  for (const signal of DEMO_SIGNALS) {
+    const outcome = await orch.handle(signal);
+    projection.record(signal.incidentId, outcome, signal.at ?? "");
+  }
 }
 
 // ── Context ports ────────────────────────────────────────────────────────────
@@ -285,12 +310,24 @@ export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
   requireAuth: requireConsoleAdminAuth,
-  createContext: async (req) => ({
-    store,
-    emergencyStore,
-    actor: extractActor(req),
-    incidentsPort,
-    proposalsPort,
-    approvalPort,
-  }),
+  createContext: async (req) => {
+    // P4: re-project the live data per request so the operator sees the latest
+    // agent_runs + remediation_proposals (best-effort; ignore transient DB blips).
+    if (dbBacked) {
+      try {
+        await pgProjection!.refresh();
+        await pgProposalStore!.init();
+      } catch {
+        /* serve the last-loaded snapshot on a transient DB error */
+      }
+    }
+    return {
+      store,
+      emergencyStore,
+      actor: extractActor(req),
+      incidentsPort,
+      proposalsPort,
+      approvalPort,
+    };
+  },
 });

@@ -38,3 +38,18 @@ export {
   type IncidentProjection,
   type IncidentProjectionEntry,
 } from "./incident-projection.js";
+// P4 — durable Postgres-backed projection stores (project real agent_runs; no
+// second adjudication). Synthesized SRE analogy is labeled in each module.
+export {
+  createPostgresRemediationProposalStore,
+  remediationProposalsDDL,
+  type PostgresRemediationProposalStore,
+  type PostgresProposalStoreOptions,
+  type SqlExecutor,
+} from "./proposal-store-postgres.js";
+export {
+  createPostgresIncidentProjection,
+  dispositionFromDecisionKind,
+  type PostgresIncidentProjection,
+  type PostgresIncidentProjectionOptions,
+} from "./incident-projection-postgres.js";

@@ -54,6 +54,22 @@ export {
   createInMemoryAuditStore,
 } from "./store/index.js";
 
+// ─── Turn-trace store (responder-trace-admin C3) ─────────────────────────────
+export {
+  type TurnTraceStore,
+  type TurnTraceCall,
+  type InMemoryTurnTraceStoreOptions,
+  TURN_TRACE_DEFAULT_LIMIT,
+  createInMemoryTurnTraceStore,
+} from "./store/turn-trace-store.js";
+export {
+  TurnTraceCallSchema,
+  TurnTraceListSchema,
+  TraceByTurnQuerySchema,
+  TraceByConversationQuerySchema,
+  type TurnTraceCallDTO,
+} from "./schemas/turn-trace.js";
+
 // ─── Emergency store ────────────────────────────────────────────────────────
 export {
   type EmergencyStateStore,

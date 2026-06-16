@@ -306,21 +306,43 @@ const approvalPort = {
 const store = createInMemoryAuditStore({ records: [] });
 const emergencyStore = createInMemoryEmergencyStateStore();
 
+// P4 perf: throttle the live re-projection so a burst of admin requests does not
+// reload both Postgres-backed stores on EVERY request. Reload at most once per
+// RELOAD_TTL_MS; concurrent requests share a single in-flight reload; on a
+// transient DB error we still back off for one window (no retry storm).
+const RELOAD_TTL_MS = Number.parseInt(
+  process.env.ADJUTANT_ADMIN_RELOAD_TTL_MS || "5000",
+  10,
+);
+let lastReloadAtMs = 0;
+let inflightReload: Promise<void> | null = null;
+async function reloadLiveStores(): Promise<void> {
+  if (!dbBacked) return;
+  if (Date.now() - lastReloadAtMs < RELOAD_TTL_MS) return;
+  if (inflightReload) return inflightReload;
+  inflightReload = (async () => {
+    try {
+      await pgProjection!.refresh();
+      await pgProposalStore!.init();
+    } catch {
+      /* serve the last-loaded snapshot on a transient DB error */
+    } finally {
+      lastReloadAtMs = Date.now();
+      inflightReload = null;
+    }
+  })();
+  return inflightReload;
+}
+
 export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
   requireAuth: requireConsoleAdminAuth,
   createContext: async (req) => {
-    // P4: re-project the live data per request so the operator sees the latest
-    // agent_runs + remediation_proposals (best-effort; ignore transient DB blips).
-    if (dbBacked) {
-      try {
-        await pgProjection!.refresh();
-        await pgProposalStore!.init();
-      } catch {
-        /* serve the last-loaded snapshot on a transient DB error */
-      }
-    }
+    // P4: re-project the live data so the operator sees the latest agent_runs +
+    // remediation_proposals — throttled to at most once per RELOAD_TTL_MS so a
+    // burst of admin requests does not hammer Postgres (best-effort).
+    await reloadLiveStores();
     return {
       store,
       emergencyStore,

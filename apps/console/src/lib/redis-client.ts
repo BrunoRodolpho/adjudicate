@@ -1,6 +1,7 @@
 import { createClient, type RedisClientType } from "redis";
 import type { RedisLedgerClient } from "@adjudicate/audit";
 import type { ApprovalRedisClient } from "@adjudicate/approval-engine";
+import type { TokenUsageRedisClient } from "@adjudicate/adapter-core";
 
 /**
  * Lazy Redis client + `RedisLedgerClient` adapter.
@@ -97,6 +98,30 @@ export function createLazyRedisApprovalAdapter(): ApprovalRedisClient {
         found.push(key);
       }
       return found;
+    },
+  };
+}
+
+/**
+ * `TokenUsageRedisClient` adapter for the Redis-backed `TokenUsageStore`
+ * (ADR-135 durable variant). `scan` enumerates the `llm:tokens:*` keys the
+ * agent runtime writes — SCAN (NOT the blocking `KEYS`), same lazy connection.
+ * READ-ONLY: the console never writes these keys (the runtime owns them).
+ */
+export function createLazyRedisTokenUsageAdapter(): TokenUsageRedisClient {
+  return {
+    async scan(pattern) {
+      const c = await getRedisClient();
+      const found: string[] = [];
+      for await (const key of c.scanIterator({ MATCH: pattern, COUNT: 200 })) {
+        found.push(key);
+      }
+      return found;
+    },
+    async get(key) {
+      const c = await getRedisClient();
+      const result = await c.get(key);
+      return result ?? null;
     },
   };
 }

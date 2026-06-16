@@ -84,6 +84,11 @@ export {
   type ConfirmationRedisClient,
   type CreateRedisConfirmationStoreOptions,
 } from "./persistence-redis.js";
+export {
+  createPostgresMemoryStore,
+  type CreatePostgresMemoryStoreOptions,
+  type MemorySqlExecutor,
+} from "./persistence-postgres.js";
 
 export {
   createInMemoryTokenUsageStore,
@@ -98,6 +103,13 @@ export {
   type TokenUsageSample,
   type TokenUsageStore,
 } from "./token-usage-store.js";
+
+export {
+  createRedisTokenUsageStore,
+  type CreateRedisTokenUsageStoreOptions,
+  type RedisTokenUsageStore,
+  type TokenUsageRedisClient,
+} from "./token-usage-store-redis.js";
 
 export {
   applyCostTable,

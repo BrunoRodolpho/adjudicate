@@ -11,7 +11,11 @@ import { adminRouter } from "@adjudicate/admin-sdk/trpc";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import { createConsoleSink, createMemoryLedger } from "@adjudicate/audit";
 import type { AdopterExecutor } from "@adjudicate/adapter-core";
-import { createInMemoryApprovalRegistry } from "@adjudicate/approval-engine";
+import {
+  createInMemoryApprovalRegistry,
+  createRedisApprovalRegistry,
+  type ApprovalRegistry,
+} from "@adjudicate/approval-engine";
 import {
   createIncidentProjection,
   createInMemoryRemediationProposalStore,
@@ -23,6 +27,7 @@ import {
   type RemediationSignal,
 } from "@adjudicate/adjutant";
 import { getPgPool, isPostgresBacked } from "@/lib/postgres-pool";
+import { createLazyRedisApprovalAdapter } from "@/lib/redis-client";
 import type {
   Incident,
   IncidentIntentKind,
@@ -104,7 +109,17 @@ let tokenCounter = 0;
 const generateToken = (): string => `tok-${tokenCounter++}`;
 
 // ── Stores + orchestrator ────────────────────────────────────────────────────
-const registry = createInMemoryApprovalRegistry();
+// SHARED APPROVAL REGISTRY (ERDS-070): Redis-backed when REDIS_URL is set, using
+// the EXACT shared keyPrefix `adjudicate:approval`. The ibatexas runtime writes
+// agent approvals to `adjudicate:approval:req:*`, so the adjutant MUST read the
+// same prefix to surface real, agent-driven approvals in its queue (in-memory is
+// per-process and would never see them). Falls back to in-memory without Redis.
+const registry: ApprovalRegistry = process.env.REDIS_URL
+  ? createRedisApprovalRegistry({
+      redis: createLazyRedisApprovalAdapter(),
+      keyPrefix: "adjudicate:approval",
+    })
+  : createInMemoryApprovalRegistry();
 
 // P4: when DATABASE_URL is set, PROJECT real managed-agent runs — the proposal
 // store reads the shared `remediation_proposals` table (the adopter's producer

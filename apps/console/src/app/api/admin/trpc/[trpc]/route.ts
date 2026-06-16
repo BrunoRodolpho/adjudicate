@@ -50,8 +50,12 @@ import {
   createInMemoryCatchUsageStore,
   createInMemoryMemoryStore,
   createInMemoryTokenUsageStore,
+  createPostgresMemoryStore,
+  createRedisTokenUsageStore,
+  type MemoryStore,
   type PriceTable,
   type TokenUsageSample,
+  type TokenUsageStore,
 } from "@adjudicate/adapter-core";
 import type {
   ApprovalRequestParsed,
@@ -64,9 +68,11 @@ import type {
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import {
   createInMemoryRedTeamHistoryStore,
+  createPostgresRedTeamHistoryStore,
   generateAllVectors,
   runRedTeam,
   runRedTeamAcrossPacks,
+  type RedTeamHistoryStore,
   type RedTeamPack,
 } from "@adjudicate/red-team";
 import {
@@ -112,6 +118,7 @@ import {
 import {
   createLazyRedisApprovalAdapter,
   createLazyRedisLedgerAdapter,
+  createLazyRedisTokenUsageAdapter,
 } from "@/lib/redis-client";
 import { createReferenceReplayInvoker } from "@/lib/replay-invoker";
 import { PackRegistry } from "@/lib/packs/registry";
@@ -264,7 +271,20 @@ const redTeamReport = runRedTeam(
 // store is content-keyed + idempotent, bounded, and clock-free (timestamps are
 // caller-supplied), so this history is byte-stable across restarts and never a
 // system of record; the kernel never reads it.
-const redTeamHistoryStore = createInMemoryRedTeamHistoryStore({ capacity: 500 });
+//
+// DURABILITY (ERDS-058): Postgres-backed when DATABASE_URL is set so the Trend
+// chart survives restarts (a real deployment records one run per CI release-
+// candidate); in-memory otherwise. The Postgres store is a write-through cache
+// (`UNIQUE(pack_id, digest)` + ON CONFLICT DO NOTHING), loaded by `init()` below.
+const redTeamHistoryStorePg = process.env.DATABASE_URL
+  ? createPostgresRedTeamHistoryStore({ sql: getPgPool(), capacity: 500 })
+  : null;
+const redTeamHistoryStore: RedTeamHistoryStore =
+  redTeamHistoryStorePg ?? createInMemoryRedTeamHistoryStore({ capacity: 500 });
+if (redTeamHistoryStorePg) {
+  // Load any prior real runs persisted by earlier processes / CI release runs.
+  await redTeamHistoryStorePg.init();
+}
 
 // Deterministic demo-timeline base + spacing. The red-team package is clock-free
 // (digests exclude timing; `record(report, at)` takes the stamp), so we derive
@@ -289,37 +309,45 @@ const PRIOR_RUN_OFFSETS: ReadonlyArray<{ step: number; defendedDelta: number }> 
   { step: 2, defendedDelta: 0 }, // recovered to baseline
 ];
 for (const report of currentRedTeamReports) {
-  for (const { step, defendedDelta } of PRIOR_RUN_OFFSETS) {
-    // Clamp so we never fabricate negative/over-total counts; shift one scenario
-    // from defended → escaped to keep total constant and the digest distinct.
-    const escapedShift = Math.max(
-      0,
-      Math.min(report.summary.total, -defendedDelta),
-    );
-    const priorReport = {
-      ...report,
-      summary: {
-        ...report.summary,
-        defended: report.summary.defended - escapedShift,
-        escaped: report.summary.escaped + escapedShift,
-        escapesByVector: {
-          ...report.summary.escapesByVector,
-          prompt_injection:
-            report.summary.escapesByVector.prompt_injection + escapedShift,
+  // ERDS-058: the SYNTHETIC prior history is reference-demo scaffolding only —
+  // seed it ONLY when there is no real durable store. In DB mode the trend is
+  // built from REAL persisted runs (init() above), so we record solely the live
+  // current run and let real CI release-candidate runs accumulate over time.
+  if (!process.env.DATABASE_URL) {
+    for (const { step, defendedDelta } of PRIOR_RUN_OFFSETS) {
+      // Clamp so we never fabricate negative/over-total counts; shift one
+      // scenario from defended → escaped to keep total constant and the digest
+      // distinct.
+      const escapedShift = Math.max(
+        0,
+        Math.min(report.summary.total, -defendedDelta),
+      );
+      const priorReport = {
+        ...report,
+        summary: {
+          ...report.summary,
+          defended: report.summary.defended - escapedShift,
+          escaped: report.summary.escaped + escapedShift,
+          escapesByVector: {
+            ...report.summary.escapesByVector,
+            prompt_injection:
+              report.summary.escapesByVector.prompt_injection + escapedShift,
+          },
         },
-      },
-      // Tag the synthetic results so the content digest differs per prior run.
-      results: report.results.map((r, i) =>
-        i === 0 ? { ...r, name: `${r.name}#prior-${step}` } : r,
-      ),
-    };
-    const at = new Date(
-      RED_TEAM_TIMELINE_BASE + step * RED_TEAM_TIMELINE_STEP_MS,
-    ).toISOString();
-    redTeamHistoryStore.record(priorReport, at);
+        // Tag the synthetic results so the content digest differs per prior run.
+        results: report.results.map((r, i) =>
+          i === 0 ? { ...r, name: `${r.name}#prior-${step}` } : r,
+        ),
+      };
+      const at = new Date(
+        RED_TEAM_TIMELINE_BASE + step * RED_TEAM_TIMELINE_STEP_MS,
+      ).toISOString();
+      redTeamHistoryStore.record(priorReport, at);
+    }
   }
   // The REAL current run, recorded LAST (newest timestamp) so it is the latest
-  // trend point and the newest-first run.
+  // trend point and the newest-first run. Recorded in BOTH modes; in DB mode the
+  // write-through upsert is idempotent on (pack_id, digest).
   const currentAt = new Date(
     RED_TEAM_TIMELINE_BASE + PRIOR_RUN_OFFSETS.length * RED_TEAM_TIMELINE_STEP_MS,
   ).toISOString();
@@ -438,35 +466,59 @@ const driftHistoryPort = {
   },
 };
 
-// Token-budget telemetry (ADR-120, extended ADR-135). The reference console
-// does not run an adapter loop, so this is a real `createInMemoryTokenUsageStore`
-// seeded via `record(...)` with deterministic demo samples (fixed timestamps)
-// spanning two tenants and several sessions; a real deployment feeds the same
-// store from the adapter's `onTokenUsage` hook. The store is TELEMETRY, outside
-// the determinism boundary — it never feeds a kernel decision.
+// Token-budget telemetry (ADR-120, extended ADR-135). The store is TELEMETRY,
+// outside the determinism boundary — it never feeds a kernel decision.
 //
-// Caps: 50k per session, 90k per tenant. The seed deliberately crosses BOTH a
-// session cap (sess-dep-03 @ 52.3k) AND a tenant cap (acme aggregates past 90k)
-// so the exhaustion-event timeline is populated for the demo.
-const TOKEN_SESSION_BUDGET = 50_000;
-const TOKEN_TENANT_BUDGET = 90_000;
-const tokenUsageStore = createInMemoryTokenUsageStore({
-  sessionBudget: TOKEN_SESSION_BUDGET,
-  perTenantBudget: TOKEN_TENANT_BUDGET,
-});
-// Deterministic demo samples — fixed timestamps. `total` drives the budget
-// counters (unchanged); `prompt`/`completion` carry the split that powers the
-// read-time USD Cost column (item 3). Each split sums to its `total`.
-const DEMO_TOKEN_SAMPLES: ReadonlyArray<TokenUsageSample> = [
-  // acme: two sessions; sess-dep-03 crosses the session cap, and acme's
-  // aggregate (18.4k + 47.9k + 52.3k = 118.6k) crosses the 90k tenant cap.
-  { sessionId: "sess-pix-01", tenantId: "acme", total: 18_400, prompt: 12_880, completion: 5_520, at: "2026-06-07T09:00:00.000Z" },
-  { sessionId: "sess-kyc-02", tenantId: "acme", total: 47_900, prompt: 33_530, completion: 14_370, at: "2026-06-07T09:05:00.000Z" },
-  { sessionId: "sess-dep-03", tenantId: "acme", total: 52_300, prompt: 36_610, completion: 15_690, at: "2026-06-07T09:10:00.000Z" },
-  // globex: one session, comfortably under both caps.
-  { sessionId: "sess-bil-04", tenantId: "globex", total: 12_500, prompt: 8_750, completion: 3_750, at: "2026-06-07T09:12:00.000Z" },
-];
-for (const s of DEMO_TOKEN_SAMPLES) tokenUsageStore.record(s);
+// REAL DATA (ERDS-053): when REDIS_URL is set, the agent runtime (which runs the
+// adapter loop) writes per-session token totals to `llm:tokens:*`, and this
+// console READS them via `createRedisTokenUsageStore` (SCAN, ~1-min cache). The
+// reference console runs no adapter loop, so without Redis it falls back to a
+// real `createInMemoryTokenUsageStore` seeded with deterministic demo samples.
+//
+// Caps come from AGENT_SESSION_TOKEN_BUDGET / AGENT_TENANT_TOKEN_BUDGET (the same
+// env the runtime's token-budget guard reads), defaulting to the demo's 50k/90k.
+// The demo seed deliberately crosses BOTH a session cap (sess-dep-03 @ 52.3k) AND
+// a tenant cap (acme aggregates past 90k) so the exhaustion timeline populates.
+function parseBudgetEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+const TOKEN_SESSION_BUDGET = parseBudgetEnv("AGENT_SESSION_TOKEN_BUDGET", 50_000);
+const TOKEN_TENANT_BUDGET = parseBudgetEnv("AGENT_TENANT_TOKEN_BUDGET", 90_000);
+
+// `tokenUsageStoreRedis` is non-null only in Redis mode; it carries the extra
+// `refresh()` the port awaits before each read. `tokenUsageStore` is the base
+// interface used for the (synchronous) view reads.
+const tokenUsageStoreRedis = process.env.REDIS_URL
+  ? createRedisTokenUsageStore({
+      redis: createLazyRedisTokenUsageAdapter(),
+      sessionBudget: TOKEN_SESSION_BUDGET,
+      perTenantBudget: TOKEN_TENANT_BUDGET,
+    })
+  : null;
+const tokenUsageStore: TokenUsageStore =
+  tokenUsageStoreRedis ??
+  createInMemoryTokenUsageStore({
+    sessionBudget: TOKEN_SESSION_BUDGET,
+    perTenantBudget: TOKEN_TENANT_BUDGET,
+  });
+if (!tokenUsageStoreRedis) {
+  // Deterministic demo samples — fixed timestamps. `total` drives the budget
+  // counters; `prompt`/`completion` carry the split that powers the read-time
+  // USD Cost column. Each split sums to its `total`. Only seeded WITHOUT Redis.
+  const DEMO_TOKEN_SAMPLES: ReadonlyArray<TokenUsageSample> = [
+    // acme: two sessions; sess-dep-03 crosses the session cap, and acme's
+    // aggregate (18.4k + 47.9k + 52.3k = 118.6k) crosses the 90k tenant cap.
+    { sessionId: "sess-pix-01", tenantId: "acme", total: 18_400, prompt: 12_880, completion: 5_520, at: "2026-06-07T09:00:00.000Z" },
+    { sessionId: "sess-kyc-02", tenantId: "acme", total: 47_900, prompt: 33_530, completion: 14_370, at: "2026-06-07T09:05:00.000Z" },
+    { sessionId: "sess-dep-03", tenantId: "acme", total: 52_300, prompt: 36_610, completion: 15_690, at: "2026-06-07T09:10:00.000Z" },
+    // globex: one session, comfortably under both caps.
+    { sessionId: "sess-bil-04", tenantId: "globex", total: 12_500, prompt: 8_750, completion: 3_750, at: "2026-06-07T09:12:00.000Z" },
+  ];
+  for (const s of DEMO_TOKEN_SAMPLES) tokenUsageStore.record(s);
+}
 
 // Display-only reference price table (USD/token) for the Cost column. A real
 // deployment configures its own per-model table; price is applied at READ time
@@ -683,6 +735,12 @@ const approvalRegistry: ApprovalRegistry = process.env.REDIS_URL
 // drives the queue; the RESOLVED one (intentHash = the seeded resumed-decision
 // AuditRecord's hash) drives Decision history + the audit chain, which joins to
 // `deploymentRollbackResumed` in ALL_MOCKS via that hash + its supersession.
+//
+// SEED GUARD (ERDS-063): these synthetic projections are reference-demo only.
+// In DB mode the registry is driven by REAL kernel approvals written by the
+// agent runtime (the ibatexas runtime writes to `adjudicate:approval:req:*`),
+// so seeding here would inject fake rows alongside the real queue. Skip the
+// seed whenever DATABASE_URL is set — DB mode means a real producer exists.
 const DEMO_APPROVAL: ApprovalRequest = {
   token: "demo-approval-token",
   sessionId: "sess-dep-03",
@@ -709,8 +767,10 @@ const DEMO_RESOLVED_APPROVAL: ApprovalRequest = {
   // live path (shared bearer authenticates the console, not the operator).
   resolvedBy: { id: "operator@example.com", displayName: "Demo Operator" },
 };
-void approvalRegistry.put(DEMO_APPROVAL, 24 * 60 * 60);
-void approvalRegistry.put(DEMO_RESOLVED_APPROVAL, 24 * 60 * 60);
+if (!process.env.DATABASE_URL) {
+  void approvalRegistry.put(DEMO_APPROVAL, 24 * 60 * 60);
+  void approvalRegistry.put(DEMO_RESOLVED_APPROVAL, 24 * 60 * 60);
+}
 
 const APPROVAL_STATUSES = ["pending", "approved", "declined", "expired"] as const;
 type ApprovalStatusLiteral = (typeof APPROVAL_STATUSES)[number];
@@ -804,15 +864,34 @@ const approvalPort = {
   },
 };
 
-// Session-memory lookup (ADR-126). The reference console seeds a demo memory
-// store; a real deployment wires the same store the adapter writes to.
+// Session-memory lookup (ADR-126). REAL DATA (ERDS-054): when DATABASE_URL is
+// set, read the claustrum memory tables the agent runtime writes — joining
+// `sessionId → customer_id` via `intent_audit`, then folding
+// `claustrum_memory_semantic` + `claustrum_memory_relational`
+// (`createPostgresMemoryStore`). Fail-open to the in-memory demo store so the
+// panel always renders: an unmapped session, a missing table, or a DB blip
+// resolves to the demo memory rather than an empty/erroring card.
 const memoryStore = createInMemoryMemoryStore<Record<string, unknown>>();
 void memoryStore.put(
   "sess-dep-03",
   { lastApprovedRegion: "us-west-1", priorEscalations: 2, note: "prefers low-carbon regions" },
   24 * 60 * 60,
 );
-const memoryLookup = { get: (sessionId: string) => memoryStore.get(sessionId) };
+const pgMemoryStore: MemoryStore<Record<string, unknown>> | null = process.env
+  .DATABASE_URL
+  ? createPostgresMemoryStore<Record<string, unknown>>({ sql: getPgPool() })
+  : null;
+const memoryLookup = {
+  async get(sessionId: string): Promise<Record<string, unknown> | null> {
+    if (pgMemoryStore) {
+      // Fail-open: createPostgresMemoryStore already swallows query errors to
+      // null; fall back to the in-memory demo store when there's no real row.
+      const real = await pgMemoryStore.get(sessionId);
+      if (real !== null) return real;
+    }
+    return memoryStore.get(sessionId);
+  },
+};
 
 // Token-budget port (ADR-120 + ADR-135). `query` is the session view
 // (back-compat); `queryByTenant` is the additive per-tenant + exhaustion-timeline
@@ -820,6 +899,9 @@ const memoryLookup = { get: (sessionId: string) => memoryStore.get(sessionId) };
 // telemetry store, never a kernel input.
 const tokenBudget = {
   async query(input: TokenBudgetQuery): Promise<TokenBudgetResult> {
+    // Re-fold the live `llm:tokens:*` keyspace (self-throttled ~1-min cache) so
+    // the view reflects recent runtime activity; no-op in in-memory mode.
+    await tokenUsageStoreRedis?.refresh();
     const sessions = tokenUsageStore
       .sessions({
         ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
@@ -845,6 +927,7 @@ const tokenBudget = {
   async queryByTenant(
     input: TokenBudgetTenantQuery,
   ): Promise<TokenBudgetByTenantResult> {
+    await tokenUsageStoreRedis?.refresh();
     const tenants = tokenUsageStore
       .tenants({
         ...(input.tenantId !== undefined ? { tenantId: input.tenantId } : {}),

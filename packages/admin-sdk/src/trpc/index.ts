@@ -153,6 +153,12 @@ import {
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
+import type { TurnTraceStore } from "../store/turn-trace-store.js";
+import {
+  TraceByConversationQuerySchema,
+  TraceByTurnQuerySchema,
+  TurnTraceListSchema,
+} from "../schemas/turn-trace.js";
 
 /**
  * tRPC v11 router for the Admin Query Interface.
@@ -169,6 +175,13 @@ import type { ReplayInvoker } from "../store/replay-invoker.js";
 export interface AdminContext {
   readonly store: AuditStore | (AuditStore & OutcomeDistributionStore);
   readonly emergencyStore: EmergencyStateStore;
+  /**
+   * Optional per-LLM-call trace store (responder-trace-admin C3). When omitted,
+   * `trace.*` procedures throw PRECONDITION_FAILED so the surface is
+   * feature-detectable at runtime (the adopter wires it only when the
+   * turn_trace store is configured).
+   */
+  readonly turnTrace?: TurnTraceStore;
   /**
    * Resolved by the adopter's `createContext` from request headers via
    * `extractActor(req)`. `null` is allowed for queries; mutating
@@ -1123,6 +1136,58 @@ const adjutantRouter = t.router({
     }),
 });
 
+/**
+ * Turn-trace router (responder-trace-admin C3) — reads the generic, redacted
+ * `turn_trace` store. `byTurn` returns the model calls for one turn (planner→
+ * responder); `byConversation` returns the whole conversation's calls so the
+ * console can render one timeline grouped by turnId. PRECONDITION_FAILED when
+ * no turn_trace store is wired (feature-detectable surface).
+ */
+const traceRouter = t.router({
+  byTurn: t.procedure
+    .input(TraceByTurnQuerySchema)
+    .output(TurnTraceListSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "x-adjudicate-actor-id header required for trace queries",
+        });
+      }
+      if (!ctx.turnTrace) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Turn-trace store not configured. Wire a TurnTraceStore into the route handler context.",
+        });
+      }
+      return { calls: [...(await ctx.turnTrace.byTurn(input.turnId))] };
+    }),
+  byConversation: t.procedure
+    .input(TraceByConversationQuerySchema)
+    .output(TurnTraceListSchema)
+    .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "x-adjudicate-actor-id header required for trace queries",
+        });
+      }
+      if (!ctx.turnTrace) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Turn-trace store not configured. Wire a TurnTraceStore into the route handler context.",
+        });
+      }
+      const calls = await ctx.turnTrace.byConversation(
+        input.conversationId,
+        input.limit,
+      );
+      return { calls: [...calls] };
+    }),
+});
+
 export const adminRouter = t.router({
   audit: auditRouter,
   emergency: emergencyRouter,
@@ -1132,6 +1197,7 @@ export const adminRouter = t.router({
   pack: packRouter,
   memory: memoryRouter,
   adjutant: adjutantRouter,
+  trace: traceRouter,
 });
 
 export type AdminRouter = typeof adminRouter;

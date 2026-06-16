@@ -35,6 +35,13 @@ export {
   type CreatePostgresAuditStoreDeps,
 } from "./audit-store.js";
 
+// Turn-trace read store (responder-trace-admin C3) — reads the redacted,
+// kernel-shaped `turn_trace` table the adopter writes.
+export {
+  createPostgresTurnTraceStore,
+  type CreatePostgresTurnTraceStoreDeps,
+} from "./turn-trace-store.js";
+
 export {
   governanceEventToRow,
   rowToGovernanceEvent,

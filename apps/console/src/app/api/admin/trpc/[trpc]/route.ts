@@ -1,9 +1,12 @@
 import {
   createInMemoryAuditStore,
   createInMemoryEmergencyStateStore,
+  createInMemoryTurnTraceStore,
   extractActor,
   type AuditStore,
   type EmergencyStateStore,
+  type TurnTraceCall,
+  type TurnTraceStore,
 } from "@adjudicate/admin-sdk";
 import { adminRouter } from "@adjudicate/admin-sdk/trpc";
 import type {
@@ -91,6 +94,7 @@ import {
 import {
   createPostgresAuditStore,
   createPostgresGovernanceLog,
+  createPostgresTurnTraceStore,
 } from "@adjudicate/audit-postgres";
 import {
   describePolicyBundle,
@@ -151,14 +155,60 @@ import { getAuditBus } from "@/lib/audit-bus";
  * in `withClerkAuth` / `withOidcAuth` that verify a real OIDC/SAML/Clerk session
  * before `extractActor` reads the `x-adjudicate-actor-*` headers.
  */
+// Dev-mode demo turn-trace (one conversation, one turn: planner call → grounded
+// responder call). Renders the "Turn trace" view without a database. Completion
+// text is already-redacted-shape (this is the read surface).
+const DEMO_TURN_TRACE: readonly TurnTraceCall[] = [
+  {
+    turnId: "demo-turn-1",
+    callIndex: 0,
+    conversationId: "demo-conv-1",
+    intentHash: null,
+    model: "claude-sonnet-4-6",
+    temperature: 0,
+    inputTokens: 124,
+    outputTokens: 18,
+    promptManifest: ["ibatexas/planner.persona@0a1b2c3d4e5f"],
+    completion: '{"toolCalls":[{"name":"express_intent","input":{"capability":"order.cancel"}}]}',
+    durationMs: 410,
+    recordedAt: "2026-06-14T12:00:00.000Z",
+    schemaVersion: 1,
+  },
+  {
+    turnId: "demo-turn-1",
+    callIndex: 1,
+    conversationId: "demo-conv-1",
+    intentHash: "0000000000000000000000000000000000000000000000000000000000000000",
+    model: "claude-sonnet-4-6",
+    temperature: 0,
+    inputTokens: 156,
+    outputTokens: 22,
+    promptManifest: [
+      "ibatexas/responder.grounded@1a2b3c4d5e6f",
+      "ibatexas/capability.order.cancel@9f8e7d6c5b4a",
+    ],
+    completion: "Pronto! Cancelei o seu pedido. Posso ajudar em mais alguma coisa?",
+    durationMs: 380,
+    recordedAt: "2026-06-14T12:00:01.000Z",
+    schemaVersion: 1,
+  },
+];
+
 function createStores(): {
   auditStore: AuditStore;
   emergencyStore: EmergencyStateStore;
+  turnTraceStore: TurnTraceStore;
 } {
   // Audit-side: Postgres if DATABASE_URL, mocks otherwise.
   const auditStore: AuditStore = process.env.DATABASE_URL
     ? createPostgresAuditStore({ reader: createPgPoolReader(getPgPool()) })
     : createInMemoryAuditStore({ records: ALL_MOCKS });
+
+  // Turn-trace store (responder-trace-admin C3): Postgres `turn_trace` when
+  // DATABASE_URL is set, else an in-memory demo so the view renders in dev.
+  const turnTraceStore: TurnTraceStore = process.env.DATABASE_URL
+    ? createPostgresTurnTraceStore({ reader: createPgPoolReader(getPgPool()) })
+    : createInMemoryTurnTraceStore({ calls: DEMO_TURN_TRACE });
 
   // Live state backend: Redis if REDIS_URL + EMERGENCY_REDIS_KEY are
   // both set; otherwise in-memory.
@@ -185,10 +235,10 @@ function createStores(): {
     });
   }
 
-  return { auditStore, emergencyStore };
+  return { auditStore, emergencyStore, turnTraceStore };
 }
 
-const { auditStore, emergencyStore } = createStores();
+const { auditStore, emergencyStore, turnTraceStore } = createStores();
 
 // Reference console always wires the replay capability against the
 // installed PIX Pack with synthetic state. Adopters fork
@@ -904,6 +954,7 @@ export const { GET, POST } = toNextRouteHandler({
   createContext: async (req) => ({
     store: auditStore,
     emergencyStore,
+    turnTrace: turnTraceStore,
     actor: extractActor(req),
     replayer,
     guardFireStats,

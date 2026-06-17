@@ -34,6 +34,50 @@ describe("createInMemoryMemoryStore", () => {
     expect(merged).toEqual({ a: 1, b: 2 });
     expect(await m.get("s")).toEqual({ a: 1, b: 2 });
   });
+
+  it("maxEntries evicts the least-recently-used entry, and get() bumps recency", async () => {
+    const m = createInMemoryMemoryStore<number>({ maxEntries: 2 });
+    await m.put("a", 1, 3600);
+    await m.put("b", 2, 3600);
+    await m.get("a"); // bump 'a' so 'b' is now LRU
+    await m.put("c", 3, 3600); // size would be 3 → evict LRU ('b')
+    expect(await m.get("a")).toBe(1);
+    expect(await m.get("b")).toBeNull(); // evicted
+    expect(await m.get("c")).toBe(3);
+  });
+
+  it("keyFor namespaces map keys (cross-tenant isolation)", async () => {
+    const a = createInMemoryMemoryStore<number>({ keyFor: (s) => `t1:${s}` });
+    const b = createInMemoryMemoryStore<number>({ keyFor: (s) => `t2:${s}` });
+    await a.put("s", 1, 3600);
+    await b.put("s", 2, 3600);
+    expect(await a.get("s")).toBe(1);
+    expect(await b.get("s")).toBe(2); // independent namespaces
+  });
+
+  it("CAS: getVersioned reports versions; putIfVersion rejects stale writes", async () => {
+    const m = createInMemoryMemoryStore<{ n: number }>();
+    expect(await m.getVersioned!("s")).toEqual({ value: null, version: 0 });
+
+    const v1 = await m.putIfVersion!("s", { n: 1 }, 0, 3600);
+    expect(v1).toBe(1);
+    expect(await m.getVersioned!("s")).toEqual({ value: { n: 1 }, version: 1 });
+
+    // stale write against version 0 is rejected (conflict → null)
+    expect(await m.putIfVersion!("s", { n: 99 }, 0, 3600)).toBeNull();
+    expect(await m.get("s")).toEqual({ n: 1 }); // unchanged
+
+    // correct version succeeds and bumps the version
+    expect(await m.putIfVersion!("s", { n: 2 }, 1, 3600)).toBe(2);
+    expect(await m.getVersioned!("s")).toEqual({ value: { n: 2 }, version: 2 });
+  });
+
+  it("put() bumps the version (interop with CAS readers)", async () => {
+    const m = createInMemoryMemoryStore<number>();
+    await m.put("s", 1, 3600);
+    await m.put("s", 2, 3600);
+    expect(await m.getVersioned!("s")).toEqual({ value: 2, version: 2 });
+  });
 });
 
 describe("createRedisMemoryStore", () => {

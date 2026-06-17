@@ -118,16 +118,34 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
   }
 
   // Optional best-effort post-turn writeback (outside the decision path).
+  // When the store supports CAS (getVersioned/putIfVersion), use it with a
+  // bounded retry-on-conflict so concurrent turns on the same session don't
+  // clobber each other; otherwise fall back to the read→derive→put path.
   async function writeMemoryback(
     sessionId: string,
     baseContext: C,
     result: AgentTurnResult<H>,
   ): Promise<void> {
-    if (!options.memoryStore || !options.deriveMemoryWriteback) return;
+    const store = options.memoryStore;
+    const derive = options.deriveMemoryWriteback;
+    if (!store || !derive) return;
+    const MAX_CAS_RETRIES = 3;
     try {
-      const prior = await options.memoryStore.get(sessionId);
-      const patch = options.deriveMemoryWriteback({ sessionId, baseContext, priorMemory: prior, result });
-      if (patch !== null) await options.memoryStore.put(sessionId, patch.memory, patch.ttlSeconds);
+      if (store.getVersioned && store.putIfVersion) {
+        for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
+          const { value: prior, version } = await store.getVersioned(sessionId);
+          const patch = derive({ sessionId, baseContext, priorMemory: prior, result });
+          if (patch === null) return;
+          const newVersion = await store.putIfVersion(sessionId, patch.memory, version, patch.ttlSeconds);
+          if (newVersion !== null) return; // committed
+          // null → version conflict: another writer won; re-read and retry.
+        }
+        options.log?.warn?.({ msg: "memory writeback CAS exhausted retries; skipping", sessionId });
+        return;
+      }
+      const prior = await store.get(sessionId);
+      const patch = derive({ sessionId, baseContext, priorMemory: prior, result });
+      if (patch !== null) await store.put(sessionId, patch.memory, patch.ttlSeconds);
     } catch (err) {
       options.log?.warn?.({ msg: "memory writeback failed; ignoring", error: err instanceof Error ? err.message : String(err) });
     }

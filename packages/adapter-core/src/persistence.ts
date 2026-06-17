@@ -231,26 +231,81 @@ export function createInMemoryConfirmationStore<H = unknown>(): ConfirmationStor
   };
 }
 
-// ─── MemoryStore (cross-session planner memory, ADR-126) ────────────────────
+// ─── MemoryStore (cross-session planner memory, ADR-126 + lifecycle addendum) ─
+
+/**
+ * A memory value paired with its optimistic-concurrency version. `version` is
+ * monotonic per key; `0` means the key is absent. Used by the CAS seam
+ * (`getVersioned`/`putIfVersion`) to make concurrent writebacks safe.
+ */
+export interface VersionedMemory<M = unknown> {
+  readonly value: M;
+  readonly version: number;
+}
 
 /**
  * Cross-session memory store. Read-many (non-destructive `get`), unlike the
  * single-use `ConfirmationStore.take`. Used ONLY to enrich the planner/renderer
- * context — never the kernel decision (see loop `resolveContext`). Memory never
- * enters `intentHash`, state `S`, or any guard.
+ * context — never the kernel decision (see loop `resolveContext`).
+ *
+ * FIREWALL — memory is **NOT audit evidence** (ADR-126 lifecycle addendum). It
+ * never enters `intentHash`, state `S`, any guard, the taint gate, or the
+ * `auditHash` pre-image. It is mutable and fail-open by design, and is never
+ * replayed; routing a memory value into the decision path would silently break
+ * deterministic replay. Treat it as best-effort prompt context only.
  */
 export interface MemoryStore<M = unknown> {
   get(sessionId: string): Promise<M | null>;
   put(sessionId: string, memory: M, ttlSeconds: number): Promise<void>;
   merge?(sessionId: string, patch: Partial<M>, ttlSeconds: number): Promise<M>;
+  /**
+   * Optimistic-concurrency read: the value (or `null`) plus the current
+   * version (`0` when absent). Optional — backends without versioning omit it
+   * and callers fall back to `get`/`put`. Out of the decision path like `get`.
+   */
+  getVersioned?(sessionId: string): Promise<VersionedMemory<M | null>>;
+  /**
+   * Compare-and-set write: applies only if the stored version equals
+   * `expectedVersion`. Returns the new version on success, or `null` on a
+   * version conflict (the caller should re-read and retry). Never throws on
+   * conflict. Optional companion to `getVersioned`.
+   */
+  putIfVersion?(
+    sessionId: string,
+    memory: M,
+    expectedVersion: number,
+    ttlSeconds: number,
+  ): Promise<number | null>;
 }
 
-/** In-memory reference MemoryStore. Non-destructive get; opportunistic TTL sweep. */
-export function createInMemoryMemoryStore<M = unknown>(opts: {
+export interface CreateInMemoryMemoryStoreOptions {
   readonly defaultTtlSeconds?: number;
-} = {}): MemoryStore<M> {
-  const store = new Map<string, { value: M; expiresAt: number }>();
+  /**
+   * Hard cap on live entries. When `put`/`putIfVersion` would exceed it, the
+   * least-recently-used entry is evicted (Map insertion order; `get`/`put`
+   * bump recency). Bounds growth for long-lived processes. Default: unbounded.
+   */
+  readonly maxEntries?: number;
+  /**
+   * Namespacing transform applied to `sessionId` before it is used as the map
+   * key — for cross-tenant isolation and symmetry with the Redis store's
+   * `keyFor`. Default: identity.
+   */
+  readonly keyFor?: (sessionId: string) => string;
+}
+
+/**
+ * In-memory reference MemoryStore. Non-destructive get; opportunistic TTL
+ * sweep; optional `maxEntries` LRU cap, `keyFor` namespacing, and CAS.
+ */
+export function createInMemoryMemoryStore<M = unknown>(
+  opts: CreateInMemoryMemoryStoreOptions = {},
+): MemoryStore<M> {
+  const store = new Map<string, { value: M; expiresAt: number; version: number }>();
   const defaultTtl = opts.defaultTtlSeconds ?? 24 * 60 * 60;
+  const keyFor = opts.keyFor ?? ((s: string) => s);
+  const maxEntries = opts.maxEntries;
+
   function sweep(): void {
     const now = Date.now();
     let n = 0;
@@ -259,25 +314,74 @@ export function createInMemoryMemoryStore<M = unknown>(opts: {
       if (++n >= SWEEP_BATCH) break;
     }
   }
-  return {
+  // Evict least-recently-used (oldest in insertion order) until within cap.
+  function evictIfNeeded(): void {
+    if (maxEntries === undefined) return;
+    while (store.size > maxEntries) {
+      const oldest = store.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      store.delete(oldest);
+    }
+  }
+  // Read a live (non-expired) entry, expiring stale ones, and bump recency by
+  // re-inserting at the tail so insertion order tracks LRU.
+  function readLive(key: string): { value: M; expiresAt: number; version: number } | null {
+    const e = store.get(key);
+    if (e === undefined) return null;
+    if (e.expiresAt <= Date.now()) {
+      store.delete(key);
+      return null;
+    }
+    store.delete(key);
+    store.set(key, e);
+    return e;
+  }
+
+  const self: MemoryStore<M> = {
     async get(sessionId) {
-      const e = store.get(sessionId);
-      if (e === undefined) return null;
-      if (e.expiresAt <= Date.now()) {
-        store.delete(sessionId);
-        return null;
-      }
-      return e.value;
+      const e = readLive(keyFor(sessionId));
+      return e === null ? null : e.value;
     },
     async put(sessionId, memory, ttlSeconds) {
       sweep();
-      store.set(sessionId, { value: memory, expiresAt: Date.now() + (ttlSeconds || defaultTtl) * 1000 });
+      const key = keyFor(sessionId);
+      const prev = store.get(key);
+      store.delete(key); // re-insert at tail (recency)
+      store.set(key, {
+        value: memory,
+        expiresAt: Date.now() + (ttlSeconds || defaultTtl) * 1000,
+        version: (prev?.version ?? 0) + 1,
+      });
+      evictIfNeeded();
     },
     async merge(sessionId, patch, ttlSeconds) {
-      const current = (await this.get(sessionId)) ?? ({} as M);
+      const current = (await self.get(sessionId)) ?? ({} as M);
       const merged = { ...current, ...patch } as M;
-      await this.put(sessionId, merged, ttlSeconds);
+      await self.put(sessionId, merged, ttlSeconds);
       return merged;
     },
+    async getVersioned(sessionId) {
+      const e = readLive(keyFor(sessionId));
+      return e === null
+        ? { value: null, version: 0 }
+        : { value: e.value, version: e.version };
+    },
+    async putIfVersion(sessionId, memory, expectedVersion, ttlSeconds) {
+      sweep();
+      const key = keyFor(sessionId);
+      const live = readLive(key);
+      const currentVersion = live?.version ?? 0;
+      if (currentVersion !== expectedVersion) return null; // conflict
+      const newVersion = currentVersion + 1;
+      store.delete(key);
+      store.set(key, {
+        value: memory,
+        expiresAt: Date.now() + (ttlSeconds || defaultTtl) * 1000,
+        version: newVersion,
+      });
+      evictIfNeeded();
+      return newVersion;
+    },
   };
+  return self;
 }

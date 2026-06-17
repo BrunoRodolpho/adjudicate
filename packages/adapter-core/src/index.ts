@@ -70,10 +70,12 @@ export {
 } from "./persistence.js";
 export type {
   ConfirmationStore,
+  CreateInMemoryMemoryStoreOptions,
   DeferRedis,
   MemoryStore,
   ParkRedis,
   PendingConfirmation,
+  VersionedMemory,
 } from "./persistence.js";
 export {
   createRedisMemoryStore,

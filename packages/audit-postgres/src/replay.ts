@@ -56,9 +56,23 @@ export interface AuditQueryFn {
  * `intentHash` does NOT reproduce (different recipe) but the Decision
  * does, so kind/basis comparison is meaningful.
  */
+/**
+ * Parse a jsonb column value tolerantly. node-postgres returns `jsonb`/`json`
+ * columns as ALREADY-PARSED objects by default; a reader that configures a text
+ * type parser (or casts `::text`) returns the raw string. Accept BOTH so the
+ * reader works with any pool config — a plain `new pg.Pool()` (e.g. the operator
+ * console's) returns objects, and `JSON.parse(object)` would throw
+ * `"[object Object]" is not valid JSON`. Postgres normalizes jsonb either way,
+ * so the reconstructed object is identical and auditHash verification is
+ * unaffected.
+ */
+function parseJsonb(value: unknown): unknown {
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+
 export function rowToRecord(row: IntentAuditRow): AuditRecord {
-  const envelope = JSON.parse(row.envelope_jsonb) as IntentEnvelope;
-  const decision = JSON.parse(row.decision_jsonb) as Decision;
+  const envelope = parseJsonb(row.envelope_jsonb) as IntentEnvelope;
+  const decision = parseJsonb(row.decision_jsonb) as Decision;
   const version: AuditRecordVersion =
     row.record_version === 5
       ? 5
@@ -71,11 +85,11 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
             : 1;
   const plan: AuditPlanSnapshot | undefined =
     version >= 2 && row.plan_jsonb
-      ? (JSON.parse(row.plan_jsonb) as AuditPlanSnapshot)
+      ? (parseJsonb(row.plan_jsonb) as AuditPlanSnapshot)
       : undefined;
   const supersedes: Supersession | undefined =
     version >= 3 && row.supersedes_jsonb
-      ? (JSON.parse(row.supersedes_jsonb) as Supersession)
+      ? (parseJsonb(row.supersedes_jsonb) as Supersession)
       : undefined;
   // v3+ kernelIdentity and v4+ policyVersion/kernelVersion are part of the
   // v4 auditHash pre-image. They MUST be reconstructed with the same
@@ -86,13 +100,13 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
   // has a stored value to compare against.
   const kernelIdentity: NonNullable<AuditRecord["kernelIdentity"]> | undefined =
     version >= 3 && row.kernel_identity_jsonb
-      ? (JSON.parse(row.kernel_identity_jsonb) as NonNullable<
+      ? (parseJsonb(row.kernel_identity_jsonb) as NonNullable<
           AuditRecord["kernelIdentity"]
         >)
       : undefined;
   const signature: NonNullable<AuditRecord["signature"]> | undefined =
     version >= 4 && row.signature_jsonb
-      ? (JSON.parse(row.signature_jsonb) as NonNullable<
+      ? (parseJsonb(row.signature_jsonb) as NonNullable<
           AuditRecord["signature"]
         >)
       : undefined;
@@ -101,7 +115,7 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
   // but it is restored so the round-trip is lossless and the console can read it.
   const metadata: NonNullable<AuditRecord["metadata"]> | undefined =
     version >= 5 && row.metadata_jsonb
-      ? (JSON.parse(row.metadata_jsonb) as NonNullable<AuditRecord["metadata"]>)
+      ? (parseJsonb(row.metadata_jsonb) as NonNullable<AuditRecord["metadata"]>)
       : undefined;
   return {
     version,

@@ -304,3 +304,63 @@ describe("pack-payments-pix — DEFER round-trip + taint security", () => {
     expect(decision.refusal.kind).toBe("SECURITY");
   });
 });
+
+// ── B1 — agent-session refund confirm rule ───────────────────────────────────
+
+describe("pack-payments-pix — B1 agent-session refund always confirms", () => {
+  /** An envelope whose actor.sessionId lives in the `agent:` namespace. */
+  function agentRefund(
+    chargeId: string,
+    refundCentavos: number,
+  ): IntentEnvelope<PixIntentKind, unknown> {
+    return buildEnvelope({
+      kind: "pix.charge.refund",
+      payload: { chargeId, refundCentavos, reason: "agent remediation" },
+      // The production planner stamps principal:"llm" for agent triggers; agent
+      // identity rides the sessionId namespace, not the principal.
+      actor: {
+        principal: "llm",
+        sessionId: "agent:pix-payment-failure-remediation@0.1.0:entity:order-1",
+      },
+      taint: "UNTRUSTED",
+      nonce: "n-test",
+      createdAt: DET_TIME,
+    });
+  }
+
+  it("agent refund BELOW the confirm threshold → REQUEST_CONFIRMATION (not EXECUTE)", () => {
+    // 20_000 is < CONFIRM_REFUND_THRESHOLD (50_000): a user session EXECUTEs
+    // this exact refund (the EXECUTE test above), but an agent session confirms.
+    const decision = adjudicate(
+      agentRefund("cha-confirmed-low", 20_000),
+      state(),
+      pixPolicyBundle,
+    );
+    expect(decision.kind).toBe("REQUEST_CONFIRMATION");
+  });
+
+  it("agent refund pre-empts the supervisor-escalate threshold → still REQUEST_CONFIRMATION", () => {
+    // 120_000 ≥ ESCALATE_REFUND_THRESHOLD (100_000), so a user session would
+    // ESCALATE; the agent rule runs first and confirms instead (parks an approval).
+    const decision = adjudicate(
+      agentRefund("cha-confirmed-high", 120_000),
+      state(),
+      pixPolicyBundle,
+    );
+    expect(decision.kind).toBe("REQUEST_CONFIRMATION");
+  });
+
+  it("non-agent (user/system) refund under the threshold still EXECUTEs — no regression", () => {
+    // Default `envelope()` stamps sessionId "s-1" (not agent-namespaced).
+    const decision = adjudicate(
+      envelope("pix.charge.refund", {
+        chargeId: "cha-confirmed-low",
+        refundCentavos: 20_000,
+        reason: "customer request",
+      }),
+      state(),
+      pixPolicyBundle,
+    );
+    expect(decision.kind).toBe("EXECUTE");
+  });
+});

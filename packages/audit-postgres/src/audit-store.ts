@@ -37,7 +37,7 @@ const SELECT_COLUMNS = `
   envelope_jsonb, decision_jsonb, recorded_at, duration_ms,
   partition_month, record_version, plan_jsonb, nonce, supersedes_jsonb,
   kernel_identity_jsonb, policy_version, kernel_version, audit_hash,
-  signature_jsonb
+  signature_jsonb, metadata_jsonb
 `.trim();
 
 /**

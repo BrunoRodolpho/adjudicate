@@ -11,13 +11,23 @@ import { adminRouter } from "@adjudicate/admin-sdk/trpc";
 import { toNextRouteHandler } from "@adjudicate/admin-sdk/adapters/next";
 import { createConsoleSink, createMemoryLedger } from "@adjudicate/audit";
 import type { AdopterExecutor } from "@adjudicate/adapter-core";
-import { createInMemoryApprovalRegistry } from "@adjudicate/approval-engine";
+import {
+  createInMemoryApprovalRegistry,
+  createRedisApprovalRegistry,
+  type ApprovalRegistry,
+} from "@adjudicate/approval-engine";
 import {
   createIncidentProjection,
   createInMemoryRemediationProposalStore,
+  createPostgresIncidentProjection,
+  createPostgresRemediationProposalStore,
   createRemediationOrchestrator,
+  type IncidentProjection,
+  type RemediationProposalStore,
   type RemediationSignal,
 } from "@adjudicate/adjutant";
+import { getPgPool, isPostgresBacked } from "@/lib/postgres-pool";
+import { createLazyRedisApprovalAdapter } from "@/lib/redis-client";
 import type {
   Incident,
   IncidentIntentKind,
@@ -99,9 +109,33 @@ let tokenCounter = 0;
 const generateToken = (): string => `tok-${tokenCounter++}`;
 
 // ── Stores + orchestrator ────────────────────────────────────────────────────
-const registry = createInMemoryApprovalRegistry();
-const proposalStore = createInMemoryRemediationProposalStore();
-const projection = createIncidentProjection();
+// SHARED APPROVAL REGISTRY (ERDS-070): Redis-backed when REDIS_URL is set, using
+// the EXACT shared keyPrefix `adjudicate:approval`. The ibatexas runtime writes
+// agent approvals to `adjudicate:approval:req:*`, so the adjutant MUST read the
+// same prefix to surface real, agent-driven approvals in its queue (in-memory is
+// per-process and would never see them). Falls back to in-memory without Redis.
+const registry: ApprovalRegistry = process.env.REDIS_URL
+  ? createRedisApprovalRegistry({
+      redis: createLazyRedisApprovalAdapter(),
+      keyPrefix: "adjudicate:approval",
+    })
+  : createInMemoryApprovalRegistry();
+
+// P4: when DATABASE_URL is set, PROJECT real managed-agent runs — the proposal
+// store reads the shared `remediation_proposals` table (the adopter's producer
+// seam writes it on park) and the incident projection folds
+// `ibx_domain.agent_runs`. No demo signals, no second adjudication. Otherwise
+// fall back to the in-memory demo seed.
+const dbBacked = isPostgresBacked();
+const pgProposalStore = dbBacked
+  ? createPostgresRemediationProposalStore({ sql: getPgPool() })
+  : null;
+const pgProjection = dbBacked
+  ? createPostgresIncidentProjection({ sql: getPgPool() })
+  : null;
+const proposalStore: RemediationProposalStore =
+  pgProposalStore ?? createInMemoryRemediationProposalStore();
+const projection: IncidentProjection = pgProjection ?? createIncidentProjection();
 const orch = createRemediationOrchestrator({
   executor,
   getState: () => STATE,
@@ -158,12 +192,18 @@ const DEMO_SIGNALS: ReadonlyArray<RemediationSignal> = [
   },
 ];
 
-// Module-load seeding. Top-level await keeps the seed deterministic and ordered
-// (each signal awaited before the next so token minting is stable). The
-// projection folds each outcome under the signal's incidentId + `at`.
-for (const signal of DEMO_SIGNALS) {
-  const outcome = await orch.handle(signal);
-  projection.record(signal.incidentId, outcome, signal.at ?? "");
+// Module-load seeding. When DB-backed (P4), load the LIVE projection from
+// Postgres instead of running demo signals (per-request refresh happens in
+// createContext). Otherwise top-level-await the deterministic demo seed (each
+// signal awaited before the next so token minting is stable).
+if (dbBacked) {
+  await pgProposalStore!.init();
+  await pgProjection!.refresh();
+} else {
+  for (const signal of DEMO_SIGNALS) {
+    const outcome = await orch.handle(signal);
+    projection.record(signal.incidentId, outcome, signal.at ?? "");
+  }
 }
 
 // ── Context ports ────────────────────────────────────────────────────────────
@@ -281,16 +321,50 @@ const approvalPort = {
 const store = createInMemoryAuditStore({ records: [] });
 const emergencyStore = createInMemoryEmergencyStateStore();
 
+// P4 perf: throttle the live re-projection so a burst of admin requests does not
+// reload both Postgres-backed stores on EVERY request. Reload at most once per
+// RELOAD_TTL_MS; concurrent requests share a single in-flight reload; on a
+// transient DB error we still back off for one window (no retry storm).
+const RELOAD_TTL_MS = Number.parseInt(
+  process.env.ADJUTANT_ADMIN_RELOAD_TTL_MS || "5000",
+  10,
+);
+let lastReloadAtMs = 0;
+let inflightReload: Promise<void> | null = null;
+async function reloadLiveStores(): Promise<void> {
+  if (!dbBacked) return;
+  if (Date.now() - lastReloadAtMs < RELOAD_TTL_MS) return;
+  if (inflightReload) return inflightReload;
+  inflightReload = (async () => {
+    try {
+      await pgProjection!.refresh();
+      await pgProposalStore!.init();
+    } catch {
+      /* serve the last-loaded snapshot on a transient DB error */
+    } finally {
+      lastReloadAtMs = Date.now();
+      inflightReload = null;
+    }
+  })();
+  return inflightReload;
+}
+
 export const { GET, POST } = toNextRouteHandler({
   router: adminRouter,
   endpoint: "/api/admin/trpc",
   requireAuth: requireConsoleAdminAuth,
-  createContext: async (req) => ({
-    store,
-    emergencyStore,
-    actor: extractActor(req),
-    incidentsPort,
-    proposalsPort,
-    approvalPort,
-  }),
+  createContext: async (req) => {
+    // P4: re-project the live data so the operator sees the latest agent_runs +
+    // remediation_proposals — throttled to at most once per RELOAD_TTL_MS so a
+    // burst of admin requests does not hammer Postgres (best-effort).
+    await reloadLiveStores();
+    return {
+      store,
+      emergencyStore,
+      actor: extractActor(req),
+      incidentsPort,
+      proposalsPort,
+      approvalPort,
+    };
+  },
 });

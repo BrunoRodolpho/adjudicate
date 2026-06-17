@@ -295,6 +295,39 @@ const executeConfirmedCharge: PixGuard = (envelope, state) => {
   ]);
 };
 
+/**
+ * Logical namespace marker for managed-agent sessions. Kept as a literal — the
+ * pix Pack must not depend on an adopter's agents package (wrong direction):
+ * the production planner stamps envelope.actor.sessionId = `agent:<id>@<ver>:…`.
+ */
+const AGENT_SESSION_NAMESPACE = "agent:";
+
+/**
+ * B1 — agent-session refunds ALWAYS confirm. A managed-agent trigger that
+ * proposes a `pix.charge.refund` (actor.sessionId in the `agent:` namespace)
+ * adjudicates to REQUEST_CONFIRMATION regardless of amount, so wire-PSP money
+ * never moves on an agent's say-so — a human resolves the parked approval, and
+ * the kernel's confirmationReceipt converts the re-adjudicated decision to
+ * EXECUTE. Keyed on the sessionId NAMESPACE, NOT the principal: the production
+ * planner stamps principal:"llm" for agent triggers and the principal union
+ * (`llm | user | system`) has no `agent:` member — agent identity rides
+ * actor.sessionId. Ordered BEFORE the escalate/threshold/execute guards so it
+ * pre-empts them (an agent refund confirms whatever the amount).
+ */
+const confirmAgentRefund: PixGuard = (envelope) => {
+  if (envelope.kind !== "pix.charge.refund") return null;
+  if (!envelope.actor.sessionId.startsWith(AGENT_SESSION_NAMESPACE)) return null;
+  return decisionRequestConfirmation(
+    "Reembolso proposto por agente — confirmação humana obrigatória.",
+    [
+      basis("business", BASIS_CODES.business.RULE_SATISFIED, {
+        rule: "agent_refund_confirm",
+        sessionId: envelope.actor.sessionId,
+      }),
+    ],
+  );
+};
+
 const executeValidRefund: PixGuard = (envelope, state) => {
   if (envelope.kind !== "pix.charge.refund") return null;
   const { chargeId, refundCentavos } = envelope.payload as {
@@ -329,6 +362,9 @@ export const pixPolicyBundle: PolicyBundle<
   business: [
     validateChargeAmount,
     clampRefundToOriginal,
+    // B1: an agent-session refund confirms whatever the amount — pre-empts the
+    // escalate/threshold/execute guards below so wire money never auto-moves.
+    confirmAgentRefund,
     escalateLargeRefunds,
     requestConfirmForMediumRefund,
     deferChargeCreate,

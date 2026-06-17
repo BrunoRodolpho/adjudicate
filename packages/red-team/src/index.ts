@@ -56,3 +56,11 @@ export {
   type RedTeamRunRecord,
   type RedTeamTrendPoint,
 } from "./history.js";
+
+export {
+  createPostgresRedTeamHistoryStore,
+  redTeamRunsDDL,
+  type PostgresRedTeamHistoryStore,
+  type PostgresRedTeamHistoryStoreOptions,
+  type SqlExecutor,
+} from "./history-postgres.js";

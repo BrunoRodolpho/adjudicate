@@ -877,6 +877,15 @@ importers:
         specifier: ^8.0.0
         version: 8.59.0(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
 
+  packages/locales-en-US:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: '>=3.2.6'
+        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(@vitest/coverage-v8@3.2.4(vitest@4.1.8))(jsdom@25.0.1)(vite@7.3.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.47.1)(tsx@4.21.0))
+
   packages/locales-pt-BR:
     dependencies:
       '@adjudicate/core':

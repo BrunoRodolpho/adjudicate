@@ -40,3 +40,32 @@ export const portugueseRefusalMessages: RefusalMessages = {
     kernel_deadline_exceeded: "Não foi possível processar a ação no tempo disponível.",
   },
 };
+
+/**
+ * pt-BR PII patterns (ADR-141). Structurally compatible with
+ * `DataClassificationPattern` from `@adjudicate/primitives` (no dependency added
+ * — pass directly to `createDataClassificationGuard({ patterns })`). Anchored
+ * and bounded so matching is linear-time; they pass `assertSafePattern`.
+ *
+ * COMPLIANCE: format matchers only — they accept syntactically valid CPF/CNPJ,
+ * NOT check-digit validity. @needs-legal-review before use on regulated data.
+ */
+export interface LocalePiiPattern {
+  readonly id: string;
+  readonly pattern: RegExp;
+}
+
+/** Brazilian CPF — `000.000.000-00` (separators optional). */
+export const cpfPattern: LocalePiiPattern = {
+  id: "cpf",
+  pattern: /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/,
+};
+
+/** Brazilian CNPJ — `00.000.000/0000-00` (separators optional). */
+export const cnpjPattern: LocalePiiPattern = {
+  id: "cnpj",
+  pattern: /\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/,
+};
+
+/** Both Brazilian PII patterns, for convenient spread into a guard's patterns. */
+export const brazilianPiiPatterns: ReadonlyArray<LocalePiiPattern> = [cnpjPattern, cpfPattern];

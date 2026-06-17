@@ -36,6 +36,14 @@ export {
 
 export { analyzePolicy, type AnalyzePolicyArgs } from "./analyze.js";
 
+export {
+  analyzeComposition,
+  type CompositionAnalyzeOptions,
+  type CompositionCheck,
+  type CompositionConflict,
+  type CompositionReport,
+} from "./composition.js";
+
 export { renderJson, renderSarif, renderText } from "./render.js";
 
 export {

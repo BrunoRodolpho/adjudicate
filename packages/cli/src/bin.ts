@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { runAnalyze, type AnalyzeFormat } from "./commands/analyze.js";
+import { runAnalyzeComposition } from "./commands/analyze-composition.js";
 import { runDemo } from "./commands/demo.js";
 import { runDev } from "./commands/dev.js";
 import { runDiscover } from "./commands/discover.js";
@@ -63,6 +64,28 @@ program
       });
     },
   );
+
+program
+  .command("analyze-composition")
+  .description(
+    "Detect cross-pack conflicts (ADR-140) across a declared set of Packs — offline/CI only",
+  )
+  .requiredOption(
+    "--pack <module>",
+    "Pack module spec (repeatable; pass at least two)",
+    (v: string, acc: string[]) => {
+      acc.push(v);
+      return acc;
+    },
+    [] as string[],
+  )
+  .option("--format <text|json>", "Output format", "text")
+  .action(async (options: { pack: string[]; format?: string }) => {
+    await runAnalyzeComposition({
+      packs: options.pack,
+      format: options.format === "json" ? "json" : "text",
+    });
+  });
 
 program
   .command("demo")

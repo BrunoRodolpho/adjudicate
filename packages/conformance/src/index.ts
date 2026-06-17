@@ -82,8 +82,10 @@ export {
 export {
   computeConfigDigest,
   extractSealableSurface,
+  freezeSealableSurface,
   sealPackConfig,
   verifyConfigSeal,
+  verifyConfigSealFrozen,
   type ConfigSeal,
   type ConfigSealPolicy,
   type ConfigSealReport,

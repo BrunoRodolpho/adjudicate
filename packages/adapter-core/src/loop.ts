@@ -28,7 +28,15 @@ import {
   type IntentEnvelope,
 } from "@adjudicate/core";
 import { adjudicateAndAudit, getDefaultRuntimeContext } from "@adjudicate/core/kernel";
-import { verifyConfigSeal, type SealablePackInput } from "@adjudicate/conformance";
+import {
+  extractSealableSurface,
+  freezeSealableSurface,
+  verifyConfigSeal,
+  verifyConfigSealFrozen,
+  type ConfigSealReport,
+  type SealableSurface,
+  type SealablePackInput,
+} from "@adjudicate/conformance";
 import { resumeDeferredIntent } from "@adjudicate/runtime";
 import {
   buildEnvelopeFromToolUse,
@@ -65,47 +73,81 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
   const bridge = options.bridge;
   const traceSink = options.traceSink ?? noopTraceSink;
 
-  // Configuration-integrity seal gate (ADR-121). Verified once per agent
-  // instance, cached. On mismatch the turn is refused before any adjudication.
-  let sealChecked = false;
-  let sealRefusal: { reason: string; detail: string } | null = null;
+  // Configuration-integrity seal gate (ADR-121, hardened by ADR-137). Re-verified
+  // per the `reverify` cadence (default every_turn) BEFORE each adjudication —
+  // upstream of adjudicate(), never a kernel input. Kills the old boot-only latch
+  // so a post-boot reference-swap is caught. On mismatch the turn is refused.
+  let frozenSurface: Readonly<SealableSurface> | null = null;
+  let sealCachedReport: { report: ConfigSealReport; atMs: number } | null = null;
+  let sealWarned = false;
+
+  function sealVerifyOptions() {
+    const cfg = options.configSeal!;
+    return {
+      ...(cfg.publicKeyPem !== undefined ? { publicKeyPem: cfg.publicKeyPem } : {}),
+      ...(cfg.policy !== undefined ? { policy: cfg.policy } : {}),
+    };
+  }
 
   function checkConfigSeal(sessionId: string): AgentTurnResult<H> | null {
-    if (!options.configSeal) return null;
-    if (!sealChecked) {
-      sealChecked = true;
-      const report = verifyConfigSeal(
-        options.pack as unknown as SealablePackInput,
-        options.configSeal.seal,
-        {
-          ...(options.configSeal.publicKeyPem !== undefined
-            ? { publicKeyPem: options.configSeal.publicKeyPem }
-            : {}),
-          ...(options.configSeal.policy !== undefined
-            ? { policy: options.configSeal.policy }
-            : {}),
-        },
-      );
-      if (!report.verified) {
-        sealRefusal = {
-          reason: "config_seal_mismatch",
-          detail: report.errors.join("; "),
-        };
-        if (options.configSeal.engageKillSwitchOnMismatch) {
-          const ctx = options.runtimeContext ?? getDefaultRuntimeContext();
-          ctx.killSwitch.set(true, "config_seal_mismatch");
-        }
+    const cfg = options.configSeal;
+    if (!cfg) return null;
+
+    // L1 deprecation warning (once per instance): defaults are still lax.
+    if (!sealWarned) {
+      sealWarned = true;
+      const unsigned = cfg.policy !== "require_signature" || cfg.publicKeyPem === undefined;
+      if (unsigned || cfg.engageKillSwitchOnMismatch !== true) {
+        options.log?.warn?.({
+          msg:
+            "config seal: lax defaults (deprecation) — a future release defaults to " +
+            "require_signature + engageKillSwitchOnMismatch=true. Set them explicitly.",
+          unsigned,
+          killSwitchOnMismatch: cfg.engageKillSwitchOnMismatch === true,
+        });
       }
     }
-    if (sealRefusal === null) return null;
+
+    const pack = options.pack as unknown as SealablePackInput;
+    const mode = cfg.reverify ?? "every_turn";
+    let report: ConfigSealReport;
+    if (mode === "frozen") {
+      if (frozenSurface === null) {
+        frozenSurface = freezeSealableSurface(extractSealableSurface(pack));
+      }
+      report = verifyConfigSealFrozen(frozenSurface, cfg.seal, sealVerifyOptions());
+    } else if (typeof mode === "object") {
+      // {ttlMs}: amortize live re-verification via a loop-layer clock (never the kernel).
+      const now = Date.now();
+      if (sealCachedReport !== null && now - sealCachedReport.atMs < mode.ttlMs) {
+        report = sealCachedReport.report;
+      } else {
+        report = verifyConfigSeal(pack, cfg.seal, sealVerifyOptions());
+        sealCachedReport = { report, atMs: now };
+      }
+    } else {
+      report = verifyConfigSeal(pack, cfg.seal, sealVerifyOptions());
+    }
+
+    if (report.verified) return null;
+
+    // Drift: tamper-evident hook + optional kill latch + refuse the turn. Not
+    // latched across turns — once the pack/seal is fixed, every_turn self-heals.
+    try {
+      cfg.onDrift?.(report);
+    } catch {
+      /* best-effort telemetry */
+    }
+    if (cfg.engageKillSwitchOnMismatch) {
+      const ctx = options.runtimeContext ?? getDefaultRuntimeContext();
+      ctx.killSwitch.set(true, "config_seal_mismatch");
+    }
     traceSink.onTrace({ phase: "config_seal_violation", sessionId, iteration: 0 });
-    options.log?.warn?.(
-      { msg: "config seal mismatch — refusing turn", detail: sealRefusal.detail },
-    );
+    options.log?.warn?.({ msg: "config seal mismatch — refusing turn", detail: report.errors.join("; ") });
     return {
       events: [],
       history: bridge.emptyHistory(),
-      outcome: { kind: "refused", reason: sealRefusal.reason, detail: sealRefusal.detail },
+      outcome: { kind: "refused", reason: "config_seal_mismatch", detail: report.errors.join("; ") },
     };
   }
 

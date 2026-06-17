@@ -93,6 +93,13 @@ export {
 } from "./persistence-postgres.js";
 
 export {
+  composeFolds,
+  composeMetadataProviders,
+  type Fold,
+  type MetadataProvider,
+} from "./fold-hooks.js";
+
+export {
   createInMemoryTokenUsageStore,
   type CreateInMemoryTokenUsageStoreOptions,
   type ExhaustionEventsFilter,

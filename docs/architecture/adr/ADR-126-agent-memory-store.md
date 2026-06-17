@@ -36,3 +36,13 @@ Add `MemoryStore<M>` (`get`/`put`/`merge?`; in-memory + Redis impls) to adapter-
 ## Lifecycle
 
 In-memory + Redis impls ship; redis `merge` is non-atomic (documented). `resolveContext` runs per-iteration (matches the existing "plan every iteration" invariant).
+
+## Addendum (2026-06-17) — lifecycle controls
+
+Adds bounded-growth + concurrency controls without changing the firewall:
+
+- **`maxEntries` LRU** on the in-memory store (Map insertion order; `get`/`put` bump recency) — bounds growth for long-lived processes.
+- **`keyFor` namespacing** on the in-memory and Postgres stores (mirrors the Redis store) for cross-tenant isolation. On Postgres it transforms the `session_id` used in the WHERE clause — adopters must namespace stored session ids consistently (documented footgun).
+- **Optimistic CAS** — optional `getVersioned`/`putIfVersion` (+ `VersionedMemory`) on `MemoryStore`, implemented on the in-memory store (per-entry monotonic version). The loop's `writeMemoryback` uses CAS with a bounded retry-on-conflict when supported, else best-effort `put`.
+
+**Firewall reaffirmed (the crux):** memory is **NOT audit evidence** — it never enters `intentHash`, state `S`, any guard, the taint gate, or the `auditHash` pre-image (verified: no memory→decision/audit seam exists). Memory flows only into `enrichContext` → planner/renderer (upstream of the envelope) and the post-turn writeback. The report's "memory-as-audit-evidence" idea is consciously **rejected** — making mutable, fail-open memory part of the audit pre-image would break replay/auditHash determinism. New TSDoc states this explicitly. **Deferred:** embeddings-at-scale and federated marketplace memory. Tests: `memory-store.test.ts` (LRU eviction + recency, keyFor isolation, CAS conflict rejection) + `loop-memory.test.ts` (loop CAS retry-then-commit).

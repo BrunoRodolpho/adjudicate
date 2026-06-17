@@ -56,6 +56,18 @@ describe("redTeamRunsDDL", () => {
 });
 
 describe("createPostgresRedTeamHistoryStore", () => {
+  it("init() self-provisions the table (idempotent DDL) BEFORE the SELECT load", async () => {
+    const sql = fakeSql();
+    const store = createPostgresRedTeamHistoryStore({ sql });
+    await store.init();
+    const ddlIdx = sql.calls.findIndex((c) =>
+      /CREATE TABLE IF NOT EXISTS red_team_runs/.test(c.sql),
+    );
+    const selIdx = sql.calls.findIndex((c) => /^\s*SELECT/i.test(c.sql));
+    expect(ddlIdx).toBe(0); // DDL runs first
+    expect(ddlIdx).toBeLessThan(selIdx); // before the cache-loading SELECT
+  });
+
   it("record → sync view + fire-and-forget upsert (ON CONFLICT DO NOTHING)", async () => {
     const sql = fakeSql();
     const store = createPostgresRedTeamHistoryStore({ sql });

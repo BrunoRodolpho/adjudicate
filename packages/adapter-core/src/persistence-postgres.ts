@@ -56,6 +56,19 @@ export interface CreatePostgresMemoryStoreOptions {
   readonly relationalTable?: string;
   /** Session→customer join table. Default `intent_audit`. */
   readonly auditTable?: string;
+  /** Session-id column on the audit table. Default `session_id`. */
+  readonly sessionColumn?: string;
+  /**
+   * Resolved customer-id column on the audit table. Default `customer_id`.
+   * NOTE: the stock `@adjudicate/audit-postgres` `intent_audit` does NOT carry a
+   * customer column — an adopter must add one (or point this at theirs) for
+   * session→customer resolution to return memory; otherwise the store stays
+   * fail-open (resolves to `null` → in-memory/demo fallback).
+   */
+  readonly customerColumn?: string;
+  /** Timestamp column used to pick the most-recent audit row. Default
+   *  `recorded_at` (the audit-postgres column — NOT `at`). */
+  readonly recordedAtColumn?: string;
   /** Best-effort read-error hook (default: swallow → fail-open to null). */
   readonly onReadError?: (err: unknown) => void;
 }
@@ -91,6 +104,12 @@ export function createPostgresMemoryStore<M = Record<string, unknown>>(
     "claustrum_memory_relational",
   );
   const auditTable = safeIdent(opts.auditTable ?? "intent_audit", "intent_audit");
+  const sessionColumn = safeIdent(opts.sessionColumn ?? "session_id", "session_id");
+  const customerColumn = safeIdent(opts.customerColumn ?? "customer_id", "customer_id");
+  const recordedAtColumn = safeIdent(
+    opts.recordedAtColumn ?? "recorded_at",
+    "recorded_at",
+  );
   const onReadError = opts.onReadError ?? (() => {});
 
   return {
@@ -99,10 +118,10 @@ export function createPostgresMemoryStore<M = Record<string, unknown>>(
         // 1) Resolve sessionId → customer_id via the most-recent audit row that
         //    carries both. LIMIT 1 — one session maps to at most one customer.
         const customerRes = await opts.sql.query<{ customer_id: string | null }>(
-          `SELECT customer_id
+          `SELECT ${customerColumn} AS customer_id
              FROM ${auditTable}
-            WHERE session_id = $1 AND customer_id IS NOT NULL
-            ORDER BY at DESC
+            WHERE ${sessionColumn} = $1 AND ${customerColumn} IS NOT NULL
+            ORDER BY ${recordedAtColumn} DESC
             LIMIT 1`,
           [sessionId],
         );

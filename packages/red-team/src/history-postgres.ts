@@ -158,6 +158,9 @@ export function createPostgresRedTeamHistoryStore(
 
   return {
     async init() {
+      // Self-provision the run-history table (idempotent) so a fresh adopter DB
+      // doesn't 500 the console route on the first SELECT below.
+      await opts.sql.query(redTeamRunsDDL(table));
       const { rows } = await opts.sql.query<RunRow>(
         `SELECT pack_id, digest, at, summary_jsonb FROM ${table} ORDER BY at ASC`,
       );

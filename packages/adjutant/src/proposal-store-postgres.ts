@@ -122,6 +122,9 @@ export function createPostgresRemediationProposalStore(
 
   return {
     async init() {
+      // Self-provision the read-model table (idempotent) so a fresh adopter DB
+      // doesn't 500 the admin route on the first SELECT below.
+      await opts.sql.query(remediationProposalsDDL(table));
       const { rows } = await opts.sql.query<ProposalRow>(
         `SELECT * FROM ${table} ORDER BY updated_at ASC`,
       );

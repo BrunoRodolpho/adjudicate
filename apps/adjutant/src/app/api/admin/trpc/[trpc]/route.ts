@@ -197,8 +197,15 @@ const DEMO_SIGNALS: ReadonlyArray<RemediationSignal> = [
 // createContext). Otherwise top-level-await the deterministic demo seed (each
 // signal awaited before the next so token minting is stable).
 if (dbBacked) {
-  await pgProposalStore!.init();
-  await pgProjection!.refresh();
+  // Fail open: if the DB is unreachable/unprovisioned at module load, serve the
+  // in-memory read-model rather than 500ing the admin route on import. The
+  // per-request reloadLiveStores() already retries on later requests.
+  try {
+    await pgProposalStore!.init();
+    await pgProjection!.refresh();
+  } catch {
+    /* serve last-loaded / empty projection until a later request reloads */
+  }
 } else {
   for (const signal of DEMO_SIGNALS) {
     const outcome = await orch.handle(signal);

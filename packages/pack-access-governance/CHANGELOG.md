@@ -1,5 +1,13 @@
 # @adjudicate/pack-access-governance
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [93d5cda]
+  - @adjudicate/core@1.4.0
+  - @adjudicate/primitives@0.3.1
+
 ## 0.2.0
 
 ### Minor Changes

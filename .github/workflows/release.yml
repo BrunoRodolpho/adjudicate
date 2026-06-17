@@ -42,7 +42,11 @@ jobs:
         uses: changesets/action@v1
         with:
           version: pnpm changeset version
-          publish: pnpm publish -r --access public --provenance
+          # --no-git-checks: the `pnpm build` step above regenerates committed
+          # artifacts (e.g. apps/web/src/content/stats.generated.ts), leaving the
+          # tree dirty; changesets already manages versioning/commits, so pnpm's
+          # redundant clean-tree gate must not block publishing the built dist.
+          publish: pnpm publish -r --access public --provenance --no-git-checks
           commit: "chore(release): version packages"
           title: "chore(release): version packages"
         env:

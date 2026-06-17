@@ -1,7 +1,7 @@
 {
-  "name": "@adjudicate/locales-en-us",
-  "version": "0.1.0",
-  "description": "US English (en-US) PII patterns (SSN) for @adjudicate/primitives' createDataClassificationGuard.",
+  "name": "@adjudicate/pack-cli-agent",
+  "version": "0.1.0-experimental",
+  "description": "Default-deny CLI/terminal agent Pack — composes the shipped command-risk guard with allowlist EXECUTE, credential ESCALATE, maintenance DEFER, and a fail-closed default-deny sink.",
   "publishConfig": {
     "access": "public"
   },
@@ -19,6 +19,10 @@
     "build": "tsc --outDir dist",
     "lint": "tsc --noEmit",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@adjudicate/core": "workspace:*",
+    "@adjudicate/primitives": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

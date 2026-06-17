@@ -1,12 +1,12 @@
 /**
- * @adjudicate/locales-en-US — US English (en-US) PII patterns.
+ * @adjudicate/locales-en-us — US English (en-US) PII patterns.
  *
  * Locale-specific companion to `@adjudicate/primitives`' `PII_PATTERNS_COMMON`.
  * Pass directly to `createDataClassificationGuard({ patterns })` or compose:
  *
  * ```ts
  * import { PII_PATTERNS_COMMON } from "@adjudicate/primitives";
- * import { ssnPattern } from "@adjudicate/locales-en-US";
+ * import { ssnPattern } from "@adjudicate/locales-en-us";
  * const patterns = [...PII_PATTERNS_COMMON, ssnPattern];
  * ```
  *

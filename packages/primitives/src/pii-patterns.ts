@@ -3,7 +3,7 @@
  *
  * `PII_PATTERNS_COMMON` holds locale-agnostic patterns (email, payment-card,
  * phone). Locale-specific patterns live in the locale packages:
- * `@adjudicate/locales-pt-BR` (CPF/CNPJ) and `@adjudicate/locales-en-US` (SSN).
+ * `@adjudicate/locales-pt-br` (CPF/CNPJ) and `@adjudicate/locales-en-us` (SSN).
  *
  * `assertSafePattern` is the construction-time catastrophic-backtracking guard:
  * unsafe patterns fail at guard construction, never at request time.

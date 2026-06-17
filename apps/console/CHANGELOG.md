@@ -1,5 +1,27 @@
 # @adjudicate/console
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [93d5cda]
+  - @adjudicate/core@1.4.0
+  - @adjudicate/adapter-core@0.3.2
+  - @adjudicate/admin-sdk@3.0.0
+  - @adjudicate/analyze@0.4.1
+  - @adjudicate/approval-engine@0.2.2
+  - @adjudicate/audit@3.0.0
+  - @adjudicate/audit-postgres@3.0.0
+  - @adjudicate/conformance@2.0.0
+  - @adjudicate/drift@0.2.1
+  - @adjudicate/observability@2.0.0
+  - @adjudicate/pack-access-governance@0.2.1
+  - @adjudicate/pack-deployments-approval@0.3.1
+  - @adjudicate/pack-identity-kyc@0.2.2
+  - @adjudicate/pack-incident-response@0.2.1
+  - @adjudicate/pack-payments-pix@0.2.2
+  - @adjudicate/red-team@0.2.1
+
 ## 0.1.4
 
 ### Patch Changes

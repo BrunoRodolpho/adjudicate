@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/primitives",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Layer 2 risk primitives — generic guard + taint factories that two or more Packs already share. Sits between @adjudicate/core (Layer 1, kernel) and per-domain Packs (Layer 3).",
   "publishConfig": {
     "access": "public"

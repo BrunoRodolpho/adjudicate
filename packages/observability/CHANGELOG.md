@@ -1,5 +1,12 @@
 # @adjudicate/observability
 
+## 2.0.0
+
+### Patch Changes
+
+- Updated dependencies [93d5cda]
+  - @adjudicate/core@1.4.0
+
 ## 1.2.0
 
 ### Minor Changes

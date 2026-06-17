@@ -24,6 +24,9 @@ export {
 
 export {
   createConsoleLogChannel,
+  createEmailChannel,
+  createSlackChannel,
+  createTeamsChannel,
   createWebhookChannel,
   type ApprovalChannel,
   type ApprovalChannelContext,
@@ -34,5 +37,14 @@ export {
   type ApprovalEngine,
   type ApprovalEngineOptions,
 } from "./engine.js";
+
+export {
+  createEd25519AttestationVerifier,
+  isEscalationDue,
+  quorumMet,
+  type Attestation,
+  type AttestationVerifier,
+  type QuorumPolicy,
+} from "./governance.js";
 
 export { ApprovalError, type ApprovalErrorCode } from "./errors.js";

@@ -22,6 +22,17 @@ export interface ApprovalRequest {
   readonly resolvedAt?: string;
   readonly resolvedBy?: { readonly id: string; readonly displayName?: string };
   /**
+   * Accumulated approvers for quorum (ADR-143). Each accepted vote is appended;
+   * with `distinctApprovers` a repeat approver id is ignored. Quorum is reached
+   * when this reaches `QuorumPolicy.minApprovals`.
+   */
+  readonly approvals?: ReadonlyArray<{ readonly id: string; readonly at: string; readonly displayName?: string }>;
+  /**
+   * Escalation policy carried from request() for an out-of-band scheduler
+   * (`isEscalationDue` computes when it fires). Never read by the kernel.
+   */
+  readonly escalation?: { readonly afterMs: number; readonly to: "human" | "supervisor" };
+  /**
    * Optional provenance tag stamped by a multiplexing reader (e.g. the adjutant
    * reading both checkout and agent keyspaces). Never persisted by `put` — it is
    * a read-side display hint only, never a security boundary.

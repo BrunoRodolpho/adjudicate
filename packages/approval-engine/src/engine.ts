@@ -3,6 +3,7 @@ import type { AdjudicatedAgent, AgentTurnResult } from "@adjudicate/adapter-core
 import type { ApprovalChannel, ApprovalChannelContext } from "./channel.js";
 import { ApprovalError } from "./errors.js";
 import type { ApprovalRegistry, ApprovalRequest, ApprovalStatus } from "./registry.js";
+import { quorumMet, type Attestation, type AttestationVerifier, type QuorumPolicy } from "./governance.js";
 
 export interface ApprovalEngineOptions<S, C, H> {
   /** The adapter-core agent whose confirm() owns the replay-safe resume. */
@@ -18,6 +19,19 @@ export interface ApprovalEngineOptions<S, C, H> {
   /** Registry TTL; defaults to 24h (matches ConfirmationStore.put). */
   readonly ttlSeconds?: number;
   readonly now?: () => string;
+  /**
+   * Multi-approver quorum (ADR-143). When set, an accepted `resolve` accumulates
+   * the approver and only runs the underlying confirm() once `minApprovals` is
+   * reached (returning `turn: null` while still awaiting more). A single decline
+   * resolves immediately. Absent → single-approver (legacy) behavior.
+   */
+  readonly quorum?: QuorumPolicy;
+  /**
+   * Approver attestation (ADR-143). When set, `resolve` REQUIRES a valid
+   * `attestation` (a signature over the token by the approver), replacing the
+   * forgeable `resolvedBy` claim. Verification failure rejects the resolve.
+   */
+  readonly attestationVerifier?: AttestationVerifier;
 }
 
 export interface ApprovalEngine<S, C, H> {
@@ -28,12 +42,14 @@ export interface ApprovalEngine<S, C, H> {
     intentKind: string;
     prompt: string;
     taint: Taint;
+    escalation?: { afterMs: number; to: "human" | "supervisor" };
   }): Promise<ApprovalRequest>;
   resolve(input: {
     token: string;
     accepted: boolean;
     by?: { id: string; displayName?: string };
-  }): Promise<{ request: ApprovalRequest; turn: AgentTurnResult<H> }>;
+    attestation?: Attestation;
+  }): Promise<{ request: ApprovalRequest; turn: AgentTurnResult<H> | null }>;
   list(filter?: { status?: ApprovalStatus; sessionId?: string; limit?: number }): Promise<ReadonlyArray<ApprovalRequest>>;
   get(token: string): Promise<ApprovalRequest | null>;
 }
@@ -100,6 +116,7 @@ export function createApprovalEngine<S, C, H>(
         ...(channelRef !== undefined ? { channelRef } : {}),
         status: "pending",
         requestedAt: now(),
+        ...(input.escalation ? { escalation: input.escalation } : {}),
       };
       await opts.registry.put(req, ttl);
       return req;
@@ -111,6 +128,44 @@ export function createApprovalEngine<S, C, H>(
       if (existing.status !== "pending") {
         throw new ApprovalError("ALREADY_RESOLVED", `approval ${input.token} already ${existing.status}`);
       }
+
+      // Attestation gate (ADR-143): when configured, require a verified approver
+      // signature over the token — replaces the forgeable resolvedBy claim.
+      if (opts.attestationVerifier) {
+        const att = input.attestation;
+        const ok =
+          att !== undefined &&
+          opts.attestationVerifier({ approverId: att.approverId, token: input.token, signature: att.signature });
+        if (!ok) {
+          throw new ApprovalError("ATTESTATION_INVALID", `approval ${input.token}: missing or invalid attestation`);
+        }
+      }
+
+      // Quorum (ADR-143): an accepted vote under quorum accumulates and returns
+      // turn:null until minApprovals is reached. A decline resolves immediately.
+      if (opts.quorum && input.accepted) {
+        const voter = input.attestation
+          ? { id: input.attestation.approverId, ...(input.by?.displayName ? { displayName: input.by.displayName } : {}) }
+          : input.by;
+        if (!voter?.id) {
+          throw new ApprovalError("QUORUM_VOTER_REQUIRED", `approval ${input.token}: quorum requires an identified approver`);
+        }
+        const distinct = opts.quorum.distinctApprovers !== false;
+        const prior = existing.approvals ?? [];
+        const approvals =
+          distinct && prior.some((a) => a.id === voter.id)
+            ? prior
+            : [...prior, { id: voter.id, at: now(), ...(voter.displayName ? { displayName: voter.displayName } : {}) }];
+        if (!quorumMet(approvals, opts.quorum)) {
+          const updated: ApprovalRequest = { ...existing, approvals };
+          await opts.registry.put(updated, ttl);
+          return { request: updated, turn: null };
+        }
+        // Quorum reached — persist the accumulated approvals so the resolved
+        // record carries them (markResolved spreads the stored req).
+        await opts.registry.put({ ...existing, approvals }, ttl);
+      }
+
       // Fetch state/context FRESH — never stored by the engine, never in intentHash.
       const { state, context } = await opts.resolveStateContext(existing.sessionId);
       let turn: AgentTurnResult<H>;
@@ -128,7 +183,8 @@ export function createApprovalEngine<S, C, H>(
         throw new ApprovalError("CONFIRM_REJECTED", err instanceof Error ? err.message : String(err));
       }
       const status = input.accepted ? "approved" : "declined";
-      const request = (await opts.registry.markResolved(input.token, status, input.by))!;
+      const effectiveBy = input.by ?? (input.attestation ? { id: input.attestation.approverId } : undefined);
+      const request = (await opts.registry.markResolved(input.token, status, effectiveBy))!;
       const channel = channelsById.get(existing.channel);
       if (channel?.notifyResolved) {
         await channel.notifyResolved(
@@ -140,7 +196,7 @@ export function createApprovalEngine<S, C, H>(
             prompt: existing.prompt,
             taint: existing.taint,
           },
-          { status, ...(input.by ? { by: input.by } : {}) },
+          { status, ...(effectiveBy ? { by: effectiveBy } : {}) },
         );
       }
       return { request, turn };

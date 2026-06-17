@@ -333,7 +333,13 @@ const redTeamHistoryStore: RedTeamHistoryStore =
   redTeamHistoryStorePg ?? createInMemoryRedTeamHistoryStore({ capacity: 500 });
 if (redTeamHistoryStorePg) {
   // Load any prior real runs persisted by earlier processes / CI release runs.
-  await redTeamHistoryStorePg.init();
+  // Fail open: never 500 the admin route at module load on a DB blip — serve
+  // the in-memory ring until a record/restart succeeds.
+  try {
+    await redTeamHistoryStorePg.init();
+  } catch {
+    /* serve the in-memory ring until the next successful load */
+  }
 }
 
 // Deterministic demo-timeline base + spacing. The red-team package is clock-free

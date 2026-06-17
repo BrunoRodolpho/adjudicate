@@ -6,6 +6,16 @@ import { trpc } from "@/lib/trpc-client";
 /**
  * Lists approval requests from `approval.list`, polling at a live cadence so the
  * queue drains as resolutions land.
+ *
+ * Display-projection guidance (#28-13) — these rows are a lossy read view, not a
+ * control plane:
+ *  - `source: "agent"` rows are READ-ONLY here; resolution stays in ibatexas
+ *    (the adjutant hides approve/decline for them — see approvals/page.tsx).
+ *  - `expired` is reachable only via an active rejected-confirm (single-use
+ *    token taken / tampered), NOT a passive TTL sweep (TTL expiry deletes the
+ *    row). Treat `expired` as terminal/non-actionable, never a live agent row.
+ *  - `channelRef` is a notification-delivery handle, NOT a stable id — key the
+ *    UI on `token`, never on `channelRef`.
  */
 export function useApprovals(
   filter: { status?: "pending" | "approved" | "declined" | "expired" } = {},

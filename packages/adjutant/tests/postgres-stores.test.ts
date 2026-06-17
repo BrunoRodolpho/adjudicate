@@ -142,4 +142,50 @@ describe("createPostgresIncidentProjection", () => {
     await proj.refresh();
     expect(sql.calls[0]!.sql).toMatch(/DISTINCT ON \(entity\)[\s\S]*ibx_domain\.agent_runs/);
   });
+
+  // #28-10: the loader is bounded (LIMIT/top-N) — a COUNT cap, not a time window.
+  it("bounds the refresh scan with a LIMIT (no time window, no dropped-by-age)", async () => {
+    const sql = fakeSql([]);
+    const proj = createPostgresIncidentProjection({ sql, capacity: 50 });
+    await proj.refresh();
+    const select = sql.calls[0]!.sql;
+    expect(select).toMatch(/LIMIT 50/);
+    // No semantic time window — entities are never dropped by age.
+    expect(select).not.toMatch(/interval/i);
+    expect(select).not.toMatch(/now\(\)/);
+  });
+
+  // #28-4: a non-identifier agentRunsTable must fall back, never reach the SQL.
+  it("rejects an unsafe agentRunsTable, falling back to the default", async () => {
+    const sql = fakeSql([]);
+    const proj = createPostgresIncidentProjection({
+      sql,
+      agentRunsTable: "agent_runs; DROP TABLE users; --",
+    });
+    await proj.refresh();
+    const select = sql.calls[0]!.sql;
+    expect(select).toContain("ibx_domain.agent_runs");
+    expect(select).not.toMatch(/DROP TABLE/i);
+  });
+});
+
+describe("#28-7 bounded init loaders", () => {
+  it("proposal init() bounds the scan: inner DESC+LIMIT, outer ASC re-sort", async () => {
+    const sql = fakeSql([]);
+    await createPostgresRemediationProposalStore({ sql, capacity: 200 }).init();
+    const select = sql.calls.find((c) => /^\s*SELECT/i.test(c.sql))!.sql;
+    expect(select).toMatch(/ORDER BY updated_at DESC LIMIT 200/);
+    expect(select).toMatch(/ORDER BY updated_at ASC/);
+  });
+
+  it("proposal init() rejects an unsafe table name (falls back to default)", async () => {
+    const sql = fakeSql([]);
+    await createPostgresRemediationProposalStore({
+      sql,
+      table: "remediation_proposals; DROP TABLE x; --",
+    }).init();
+    const select = sql.calls.find((c) => /^\s*SELECT/i.test(c.sql))!.sql;
+    expect(select).toContain("remediation_proposals");
+    expect(select).not.toMatch(/DROP TABLE/i);
+  });
 });

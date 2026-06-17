@@ -32,6 +32,12 @@ export {
   type LearningEvent,
   type LearningSink,
 } from "./learning.js";
+export {
+  LEARNING_EVENT_SCHEMA_VERSION,
+  LEARNING_EVENT_CHANNEL,
+  LEARNING_EVENT_SUBJECT,
+  type LearningEventV1,
+} from "./learning-contract.js";
 export { allOf, constant, firstMatch } from "./combinators.js";
 export {
   GuardMetadataSymbol,

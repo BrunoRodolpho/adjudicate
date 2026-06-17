@@ -123,5 +123,14 @@ export function createLazyRedisTokenUsageAdapter(): TokenUsageRedisClient {
       const result = await c.get(key);
       return result ?? null;
     },
+    // #28-8: batched read so refresh() issues ceil(N/500) MGETs, not N GETs.
+    // node-redis v4 exposes `mGet`; normalize undefined → null per-element to
+    // match the `get` adapter's `?? null` convention.
+    async mget(keys) {
+      if (keys.length === 0) return [];
+      const c = await getRedisClient();
+      const results = await c.mGet([...keys]);
+      return results.map((r) => r ?? null);
+    },
   };
 }

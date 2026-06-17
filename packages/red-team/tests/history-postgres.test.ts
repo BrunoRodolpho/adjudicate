@@ -68,6 +68,17 @@ describe("createPostgresRedTeamHistoryStore", () => {
     expect(ddlIdx).toBeLessThan(selIdx); // before the cache-loading SELECT
   });
 
+  // #28-7: the init scan is bounded PER pack by a row_number() window, then
+  // re-sorted ASC so the FIFO ring still receives oldest→newest.
+  it("init() bounds the scan with a per-pack row_number() window + outer ASC", async () => {
+    const sql = fakeSql();
+    await createPostgresRedTeamHistoryStore({ sql, capacity: 7 }).init();
+    const select = sql.calls.find((c) => /^\s*SELECT/i.test(c.sql))!.sql;
+    expect(select).toMatch(/row_number\(\) OVER \(PARTITION BY pack_id ORDER BY at DESC\)/);
+    expect(select).toMatch(/rn <= 7/);
+    expect(select).toMatch(/ORDER BY at ASC/);
+  });
+
   it("record → sync view + fire-and-forget upsert (ON CONFLICT DO NOTHING)", async () => {
     const sql = fakeSql();
     const store = createPostgresRedTeamHistoryStore({ sql });

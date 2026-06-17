@@ -109,17 +109,33 @@ let tokenCounter = 0;
 const generateToken = (): string => `tok-${tokenCounter++}`;
 
 // ── Stores + orchestrator ────────────────────────────────────────────────────
-// SHARED APPROVAL REGISTRY (ERDS-070): Redis-backed when REDIS_URL is set, using
-// the EXACT shared keyPrefix `adjudicate:approval`. The ibatexas runtime writes
-// agent approvals to `adjudicate:approval:req:*`, so the adjutant MUST read the
-// same prefix to surface real, agent-driven approvals in its queue (in-memory is
-// per-process and would never see them). Falls back to in-memory without Redis.
+// CHECKOUT APPROVAL REGISTRY (ERDS-070): Redis-backed when REDIS_URL is set,
+// using the shared keyPrefix `adjudicate:approval` (SCANs `adjudicate:approval:
+// req:*`). This is the adjutant's OWN checkout approvals — resolve drives the
+// kernel re-adjudication through this registry. Falls back to in-memory.
 const registry: ApprovalRegistry = process.env.REDIS_URL
   ? createRedisApprovalRegistry({
       redis: createLazyRedisApprovalAdapter(),
       keyPrefix: "adjudicate:approval",
     })
   : createInMemoryApprovalRegistry();
+
+// AGENT APPROVAL MIRROR (item D, consumer-first / READ-ONLY): the ibatexas
+// runtime mirrors agent approvals under the DISJOINT keyspace
+// `adjudicate:approval:agent:req:*` (the `:req:*` glob above cannot match
+// `:agent:req:*`, so no double-counting). A second registry reads that prefix so
+// the adjutant SURFACES agent approvals in its queue — tagged `source:"agent"` —
+// but never RESOLVES them: agent resolution stays authoritative in ibatexas
+// (POST /api/admin/agent-approvals/:token/resolve). Reading both prefixes also
+// makes the rollout order-tolerant: agent rows stay visible whether the (rolling)
+// ibatexas producer still writes the old `:req:*` prefix or the new `:agent`
+// one. Redis-only (in-memory is per-process and never sees the mirror).
+const agentRegistry: ApprovalRegistry | null = process.env.REDIS_URL
+  ? createRedisApprovalRegistry({
+      redis: createLazyRedisApprovalAdapter(),
+      keyPrefix: "adjudicate:approval:agent",
+    })
+  : null;
 
 // P4: when DATABASE_URL is set, PROJECT real managed-agent runs — the proposal
 // store reads the shared `remediation_proposals` table (the adopter's producer
@@ -296,16 +312,29 @@ const proposalsPort = {
   },
 };
 
-// approvalPort — list reads the registry; resolve DRIVES the kernel
-// confirmationReceipt re-adjudication via the orchestrator (approve/decline ->
-// full re-adjudication of the parked envelope).
+// approvalPort — list reads BOTH registries (checkout + agent mirror, item D);
+// resolve DRIVES the kernel confirmationReceipt re-adjudication via the
+// orchestrator (approve/decline -> full re-adjudication of the parked envelope).
+// Resolve targets the CHECKOUT registry only — agent rows are read-only display.
 const approvalPort = {
   async list(
     filter: { status?: string; sessionId?: string; limit?: number },
   ): Promise<ReadonlyArray<ApprovalRequestParsed>> {
-    return (await registry.list(
-      filter as never,
-    )) as ReadonlyArray<ApprovalRequestParsed>;
+    // Apply status/sessionId per-registry, but the limit AFTER the merge so
+    // neither source starves the other. Each registry already sorts newest-first;
+    // re-sort across the union, then slice.
+    const baseFilter = { status: filter.status, sessionId: filter.sessionId };
+    const [checkoutRows, agentRows] = await Promise.all([
+      registry.list(baseFilter as never),
+      agentRegistry ? agentRegistry.list(baseFilter as never) : Promise.resolve([]),
+    ]);
+    const merged: ApprovalRequestParsed[] = [
+      ...checkoutRows.map((r) => ({ ...r, source: "checkout" as const })),
+      ...agentRows.map((r) => ({ ...r, source: "agent" as const })),
+    ] as ApprovalRequestParsed[];
+    // Newest-first across the union (registry list() contract: requestedAt desc).
+    merged.sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
+    return filter.limit !== undefined ? merged.slice(0, filter.limit) : merged;
   },
   async resolve(
     input: ApprovalResolveInput,

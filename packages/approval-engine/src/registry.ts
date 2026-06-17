@@ -21,6 +21,12 @@ export interface ApprovalRequest {
   readonly requestedAt: string;
   readonly resolvedAt?: string;
   readonly resolvedBy?: { readonly id: string; readonly displayName?: string };
+  /**
+   * Optional provenance tag stamped by a multiplexing reader (e.g. the adjutant
+   * reading both checkout and agent keyspaces). Never persisted by `put` — it is
+   * a read-side display hint only, never a security boundary.
+   */
+  readonly source?: "checkout" | "agent";
 }
 
 export interface ApprovalRegistry {

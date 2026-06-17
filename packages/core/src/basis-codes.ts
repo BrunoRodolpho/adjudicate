@@ -27,6 +27,10 @@ export const BASIS_CODES = {
     TRANSITION_VALID: "transition_valid",
     TRANSITION_ILLEGAL: "transition_illegal",
     TERMINAL_STATE: "terminal_state",
+    // Access-grant expiry (ADR-142). Emitted by refuseExpiredGrant when
+    // grant.expiresAt <= envelope.createdAt (the replayable, audit-preserved
+    // clock). Lives under `state` per ADR-142 / decision L2 — no new BasisCategory.
+    GRANT_EXPIRED: "grant_expired",
   },
   auth: {
     SCOPE_SUFFICIENT: "scope_sufficient",
@@ -54,6 +58,11 @@ export const BASIS_CODES = {
     RULE_SATISFIED: "rule_satisfied",
     RULE_VIOLATED: "rule_violated",
     QUANTITY_CAPPED: "quantity_capped",
+    // Break-glass access (ADR-142). GRANTED accompanies a time-boxed emergency
+    // EXECUTE; TTL_INVALID accompanies a REFUSE when the mandatory ttlMs is
+    // missing/invalid. Additive keys under `business` per decision L2.
+    BREAKGLASS_GRANTED: "breakglass_granted",
+    BREAKGLASS_TTL_INVALID: "breakglass_ttl_invalid",
   },
   validation: {
     FORBIDDEN_PHRASE_ABSENT: "forbidden_phrase_absent",
@@ -71,6 +80,14 @@ export const BASIS_CODES = {
     COMMAND_FLAG_STRIPPED: "command_flag_stripped",
     COMMAND_SANITIZED: "command_sanitized",
     COMMAND_BLOCKED: "command_blocked",
+    // Session-risk / groundedness (ADR-138). Emitted by createSessionRiskGuard,
+    // which reads ACCUMULATED S.sessionRisk (folded post-turn, out of the
+    // decision path) — never by calling a scorer. GROUNDEDNESS_LOW on a
+    // REWRITE/REQUEST_CONFIRMATION; GROUNDEDNESS_DEGRADED on an ESCALATE;
+    // SESSION_RISK_ELEVATED on a REFUSE.
+    GROUNDEDNESS_LOW: "groundedness_low",
+    GROUNDEDNESS_DEGRADED: "groundedness_degraded",
+    SESSION_RISK_ELEVATED: "session_risk_elevated",
   },
   /**
    * Kill-switch — emitted when `setKillSwitch(true, ...)` is active. Blocks

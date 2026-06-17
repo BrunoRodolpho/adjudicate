@@ -22,6 +22,11 @@ export type DiagnosticSeverity = "error" | "warning" | "note";
  * AJD-101..AJD-110. Tier 2 (symbolic) reserves AJD-201..AJD-210
  * (post-M2). Tier 3 (fuzz) reserves AJD-301..AJD-310.
  *
+ * Multi-pack composition analysis (ADR-140) is metadata-driven and therefore
+ * Tier 1: it uses AJD-107..AJD-110 for the SOUND, gating checks (declarative
+ * surfaces only). The two reachability checks that genuinely need planner
+ * probes are Tier 3 (AJD-302..AJD-303), explicitly ADVISORY and never gating.
+ *
  * Per ADR-109 governance:
  * - Variants are immutable once released.
  * - Severity may change between minor versions (note → warning →
@@ -36,9 +41,15 @@ export type DiagnosticCode =
   | "AJD-104" // RewriteScopeAnalyzer (Tier 1 — declaration check)
   | "AJD-105" // TaintPolicyAnalyzer
   | "AJD-106" // DefaultPolarityAnalyzer
+  | "AJD-107" // CompositionRewriteOverlap (Tier 1 — multi-pack, declarative, gating)
+  | "AJD-108" // CompositionDeferSignalCollision (Tier 1 — multi-pack, declarative, gating)
+  | "AJD-109" // CompositionTaintContradiction (Tier 1 — multi-pack, declarative, gating)
+  | "AJD-110" // CompositionCapabilityOverlap (Tier 1 — multi-pack, declarative, gating)
   | "AJD-201" // RewriteScopeAstAnalyzer (Tier 2 — AST mutation check)
   | "AJD-202" // BasisCodeAstAnalyzer (Tier 2 — reserved)
   | "AJD-301" // PolicyCoherenceAnalyzer (Tier 3 — structural coherence)
+  | "AJD-302" // CompositionThresholdReachability (Tier 3 — advisory, probe-dependent)
+  | "AJD-303" // CompositionEscalationCycle (Tier 3 — advisory, probe-dependent)
   | string;  // Forward-compat: unknown codes pass through
 
 /**

@@ -66,9 +66,9 @@ const PACK_METADATA: ReadonlyArray<PackMetadata> = [
   },
   {
     id: "pack-access-governance",
-    version: "0.1.0-experimental",
+    version: "0.2.1",
     displayName: "Access Governance",
-    intents: ["access.request", "access.review.resolve", "access.revoke"],
+    intents: ["access.request", "access.review.resolve", "access.revoke", "access.breakglass"],
   },
 ];
 

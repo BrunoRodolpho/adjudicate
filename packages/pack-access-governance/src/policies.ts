@@ -5,6 +5,7 @@ import {
   decisionExecute,
   decisionRefuse,
   decisionRequestConfirmation,
+  refuse,
   type PolicyBundle,
 } from "@adjudicate/core";
 import { nameGuard, type Guard } from "@adjudicate/core/kernel";
@@ -21,6 +22,7 @@ import {
   KNOWN_RESOURCE_IDS,
   MAX_SELF_SERVICE_LEVEL,
   SENSITIVE_RESOURCE_IDS,
+  type AccessBreakglassPayload,
   type AccessIntentKind,
   type AccessRequestPayload,
   type AccessReview,
@@ -78,6 +80,29 @@ const requireActiveGrantForRevoke: AccessGuard = nameGuard("requireActiveGrantFo
   return null;
 });
 
+// Refuse operating on an EXPIRED grant (ADR-142). Pure + replay-safe: compares
+// grant.expiresAt against envelope.createdAt (the replayable, audit-preserved
+// clock — never Date.now()). Date.parse parses replayable strings only, no clock
+// read. Runs after requireActiveGrantForRevoke so a missing grant → no_active_grant
+// and a present-but-expired grant → grant_expired. Boundary createdAt==expiresAt
+// counts as expired (<=).
+const refuseExpiredGrant: AccessGuard = nameGuard("refuseExpiredGrant", (envelope, state) => {
+  if (envelope.kind !== "access.revoke") return null;
+  const p = rev(envelope.payload);
+  const grant = state.grants.get(accessKey(p.resourceId, p.principal));
+  if (grant?.expiresAt !== undefined && Date.parse(grant.expiresAt) <= Date.parse(envelope.createdAt)) {
+    return decisionRefuse(
+      refuse("STATE", "grant_expired", "That access grant has already expired.", `grant expired at ${grant.expiresAt}`),
+      [basis("state", BASIS_CODES.state.GRANT_EXPIRED, {
+        resourceId: p.resourceId,
+        principal: p.principal,
+        expiresAt: grant.expiresAt,
+      })],
+    );
+  }
+  return null;
+});
+
 // ── business guards ─────────────────────────────────────────────────────────
 
 const allowResolve: AccessGuard = nameGuard("allowResolve", (envelope) =>
@@ -85,6 +110,32 @@ const allowResolve: AccessGuard = nameGuard("allowResolve", (envelope) =>
     ? decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID, { source: "review" })])
     : null,
 );
+
+/** Emergency grants are capped at 1h regardless of the requested ttlMs. */
+const BREAKGLASS_MAX_TTL_MS = 60 * 60 * 1000;
+
+// Break-glass (ADR-142). Reaches here only when TRUSTED (the taint gate refuses
+// UNTRUSTED break-glass for free). ttlMs is mandatory: missing/invalid → REFUSE
+// (BREAKGLASS_TTL_INVALID); valid → EXECUTE (BREAKGLASS_GRANTED). The adopter then
+// mints the grant with expiresAt = createdAt + ttlMs post-turn (out of path).
+const executeBreakglass: AccessGuard = nameGuard("executeBreakglass", (envelope) => {
+  if (envelope.kind !== "access.breakglass") return null;
+  const p = envelope.payload as Partial<AccessBreakglassPayload>;
+  const ttlMs = p.ttlMs;
+  if (typeof ttlMs !== "number" || !Number.isInteger(ttlMs) || ttlMs <= 0 || ttlMs > BREAKGLASS_MAX_TTL_MS) {
+    return decisionRefuse(
+      refuse("BUSINESS_RULE", "breakglass_ttl_invalid", "Emergency access requires a valid time limit.", `ttlMs must be a positive integer ≤ ${BREAKGLASS_MAX_TTL_MS}`),
+      [basis("business", BASIS_CODES.business.BREAKGLASS_TTL_INVALID, { ttlMs: ttlMs ?? null })],
+    );
+  }
+  return decisionExecute([basis("business", BASIS_CODES.business.BREAKGLASS_GRANTED, {
+    resourceId: p.resourceId,
+    principal: p.principal,
+    privilegeLevel: p.privilegeLevel,
+    ttlMs,
+    grantedAt: envelope.createdAt,
+  })]);
+});
 
 /**
  * Redact PII from the free-text `justification` before the request is processed
@@ -194,12 +245,13 @@ const executeConfirmedRevoke: AccessGuard = nameGuard("executeConfirmedRevoke", 
 });
 
 export const accessPolicyBundle: PolicyBundle<AccessIntentKind, unknown, AccessState> = {
-  stateGuards: [validateResource, validatePrivilegeLevel, requireActiveGrantForRevoke],
+  stateGuards: [validateResource, validatePrivilegeLevel, requireActiveGrantForRevoke, refuseExpiredGrant],
   authGuards: [],
   taint: accessTaintPolicy,
   business: [
     redactJustificationPii,
     allowResolve,
+    executeBreakglass,
     escalateSensitiveResource,
     reduceToLeastPrivilege,
     refuseRejectedRequest,

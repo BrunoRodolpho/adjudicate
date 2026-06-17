@@ -96,7 +96,11 @@ export const MAX_SELF_SERVICE_LEVEL: AccessPrivilegeLevel = 0;
 export const ACCESS_REVIEW_RESOLVED_SIGNAL = "access.review.resolved";
 export const ACCESS_DEFAULT_DEFER_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
-/** review.resolve is system/operator-only (TRUSTED) — the LLM cannot self-approve. */
+/**
+ * review.resolve and break-glass are system/operator-only (TRUSTED): the LLM
+ * cannot self-approve, and cannot forge an UNTRUSTED emergency grant (the kernel
+ * taint gate refuses it for free before any business guard runs).
+ */
 export const accessTaintPolicy = createSystemTaintPolicy({
-  systemOnlyKinds: ["access.review.resolve"],
+  systemOnlyKinds: ["access.review.resolve", "access.breakglass"],
 });

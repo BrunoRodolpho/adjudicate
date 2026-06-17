@@ -62,7 +62,10 @@ export function GET(req: Request): Response {
         .subscribe((event: LearningEvent) => {
           try {
             const payload = JSON.stringify(event);
-            const id = `${event.agentId}:${event.sessionId}`;
+            // #28-5: strip CR/LF so a newline in agentId/sessionId can't inject
+            // extra SSE fields/events into the stream. (`data:` is JSON, already
+            // newline-escaped, so only the `id:` line needs the guard.)
+            const id = `${event.agentId}:${event.sessionId}`.replace(/[\r\n]/g, "");
             safeEnqueue(`id: ${id}\ndata: ${payload}\n\n`);
           } catch {
             // Skip an unserializable event rather than tearing down the stream.

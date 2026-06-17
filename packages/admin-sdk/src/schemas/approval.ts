@@ -19,6 +19,14 @@ export const ApprovalRequestSchema = z.object({
   requestedAt: z.string(),
   resolvedAt: z.string().optional(),
   resolvedBy: z.object({ id: z.string(), displayName: z.string().optional() }).optional(),
+  /**
+   * Provenance of the row (item D). `"agent"` rows come from the ibatexas
+   * agent-approval mirror (Redis keyspace `adjudicate:approval:agent:req:*`) and
+   * are READ-ONLY in the adjutant — resolution stays in ibatexas. Absent or
+   * `"checkout"` rows are the adjutant's own checkout approvals, resolvable here.
+   * Display-only; never a security boundary.
+   */
+  source: z.enum(["checkout", "agent"]).optional(),
 });
 
 export type ApprovalRequestParsed = z.infer<typeof ApprovalRequestSchema>;

@@ -69,30 +69,45 @@ export default function ApprovalsPage() {
                   <td className="px-3 py-1.5 text-muted">{r.intentKind}</td>
                   <td className="px-3 py-1.5 text-muted">{r.prompt}</td>
                   <td className="px-3 py-1.5">
-                    <div className="flex justify-end gap-1.5">
-                      <button
-                        type="button"
-                        data-testid={`approve-${r.token}`}
-                        disabled={resolve.isPending}
-                        onClick={() =>
-                          resolve.mutate({ token: r.token, accepted: true })
-                        }
-                        className="rounded-sm border border-emerald-400/40 bg-emerald-400/10 px-2 py-1 text-[10px] uppercase tracking-section text-emerald-200 hover:border-emerald-300/60 disabled:opacity-50 focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        data-testid={`decline-${r.token}`}
-                        disabled={resolve.isPending}
-                        onClick={() =>
-                          resolve.mutate({ token: r.token, accepted: false })
-                        }
-                        className="rounded-sm border border-red-400/40 bg-red-400/10 px-2 py-1 text-[10px] uppercase tracking-section text-red-200 hover:border-red-300/60 disabled:opacity-50 focus:outline-none focus-visible:ring-1 focus-visible:ring-red-300"
-                      >
-                        Decline
-                      </button>
-                    </div>
+                    {r.source === "agent" ? (
+                      // Item D: agent approvals are READ-ONLY here — resolution
+                      // stays in ibatexas (POST /api/admin/agent-approvals/:token/
+                      // resolve). Hide approve/decline; show a provenance chip.
+                      <div className="flex justify-end">
+                        <span
+                          data-testid={`agent-readonly-${r.token}`}
+                          title="Agent approval — resolve in ibatexas (POST /api/admin/agent-approvals/:token/resolve)"
+                          className="rounded-sm border border-sky-400/40 bg-sky-400/10 px-2 py-1 text-[10px] uppercase tracking-section text-sky-200"
+                        >
+                          Agent · resolve in ibatexas
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          data-testid={`approve-${r.token}`}
+                          disabled={resolve.isPending}
+                          onClick={() =>
+                            resolve.mutate({ token: r.token, accepted: true })
+                          }
+                          className="rounded-sm border border-emerald-400/40 bg-emerald-400/10 px-2 py-1 text-[10px] uppercase tracking-section text-emerald-200 hover:border-emerald-300/60 disabled:opacity-50 focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`decline-${r.token}`}
+                          disabled={resolve.isPending}
+                          onClick={() =>
+                            resolve.mutate({ token: r.token, accepted: false })
+                          }
+                          className="rounded-sm border border-red-400/40 bg-red-400/10 px-2 py-1 text-[10px] uppercase tracking-section text-red-200 hover:border-red-300/60 disabled:opacity-50 focus:outline-none focus-visible:ring-1 focus-visible:ring-red-300"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

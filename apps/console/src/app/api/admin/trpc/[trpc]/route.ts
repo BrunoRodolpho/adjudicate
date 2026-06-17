@@ -1033,18 +1033,28 @@ const catches = {
     if (process.env.DATABASE_URL) {
       try {
         const pool = getPgPool();
+        // #28-9: `intent_audit` is RANGE-partitioned by `recorded_at`, so a
+        // 90-day window predicate lets Postgres prune partitions instead of
+        // scanning every month. The literal interval carries no injection risk.
         const [totalRes, byReasonRes, byToolRes] = await Promise.all([
           pool.query<{ n: number }>(
-            `SELECT count(*)::int AS n FROM intent_audit WHERE decision_kind = 'REFUSE'`,
+            `SELECT count(*)::int AS n FROM intent_audit
+               WHERE decision_kind = 'REFUSE'
+                 AND recorded_at >= now() - interval '90 days'`,
           ),
           pool.query<{ reason: string; n: number }>(
             `SELECT COALESCE(refusal_kind, 'UNKNOWN') AS reason, count(*)::int AS n
-               FROM intent_audit WHERE decision_kind = 'REFUSE' GROUP BY refusal_kind`,
+               FROM intent_audit
+              WHERE decision_kind = 'REFUSE'
+                AND recorded_at >= now() - interval '90 days'
+              GROUP BY refusal_kind`,
           ),
           pool.query<{ tool: string; n: number }>(
             `SELECT kind AS tool, count(*)::int AS n
-               FROM intent_audit WHERE decision_kind = 'REFUSE'
-               GROUP BY kind ORDER BY n DESC, kind ASC LIMIT 50`,
+               FROM intent_audit
+              WHERE decision_kind = 'REFUSE'
+                AND recorded_at >= now() - interval '90 days'
+              GROUP BY kind ORDER BY n DESC, kind ASC LIMIT 50`,
           ),
         ]);
         return {

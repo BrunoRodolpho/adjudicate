@@ -90,10 +90,19 @@ function toIso(v: string | Date): string {
   return typeof v === "string" ? v : v.toISOString();
 }
 
+/** Default cap on the rows the init() scan loads into the cache (#28-7). */
+const DEFAULT_CAPACITY = 1000;
+
 export interface PostgresProposalStoreOptions {
   readonly sql: SqlExecutor;
   /** Table name (default `remediation_proposals`). */
   readonly table?: string;
+  /**
+   * Max proposals (newest-updated first) the init() scan loads. Default 1000.
+   * Bounds the load so a large table can't pull an unbounded result set into
+   * the in-memory cache; the newest `capacity` rows are kept.
+   */
+  readonly capacity?: number;
   /** Best-effort async-write failure hook (default: swallow). */
   readonly onWriteError?: (err: unknown) => void;
 }
@@ -111,7 +120,18 @@ export interface PostgresRemediationProposalStore extends RemediationProposalSto
 export function createPostgresRemediationProposalStore(
   opts: PostgresProposalStoreOptions,
 ): PostgresRemediationProposalStore {
-  const table = opts.table ?? "remediation_proposals";
+  // #28-4: `table` is interpolated into DDL/SELECT/INSERT/UPDATE and into the
+  // derived index names below, so guard it against identifier injection (mirrors
+  // the inline guard in red-team's history-postgres.ts; safeIdent in
+  // adapter-core is module-private and cross-package, not importable here).
+  const table = /^[A-Za-z_][A-Za-z0-9_.]*$/.test(opts.table ?? "remediation_proposals")
+    ? (opts.table ?? "remediation_proposals")
+    : "remediation_proposals";
+  const rawCapacity = opts.capacity ?? DEFAULT_CAPACITY;
+  const capacity =
+    Number.isFinite(rawCapacity) && rawCapacity >= 1
+      ? Math.floor(rawCapacity)
+      : DEFAULT_CAPACITY;
   const onWriteError = opts.onWriteError ?? (() => {});
   // Insertion-ordered cache; re-inserting on update moves a proposal to the end.
   const byId = new Map<string, RemediationProposal>();
@@ -125,8 +145,13 @@ export function createPostgresRemediationProposalStore(
       // Self-provision the read-model table (idempotent) so a fresh adopter DB
       // doesn't 500 the admin route on the first SELECT below.
       await opts.sql.query(remediationProposalsDDL(table));
+      // #28-7: bound the scan to the newest `capacity` rows, then re-sort ASC so
+      // the cache stays oldest→newest (list() does `.reverse()` for newest-first).
+      // The inner DESC+LIMIT picks the freshest rows; the outer ASC restores order.
       const { rows } = await opts.sql.query<ProposalRow>(
-        `SELECT * FROM ${table} ORDER BY updated_at ASC`,
+        `SELECT * FROM (
+           SELECT * FROM ${table} ORDER BY updated_at DESC LIMIT ${capacity}
+         ) sub ORDER BY updated_at ASC`,
       );
       byId.clear();
       for (const r of rows) {

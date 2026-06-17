@@ -74,6 +74,43 @@ export interface TokenUsageRedisClient {
   /** Prefix-scoped key enumeration (glob). SCAN-backed in production clients. */
   scan(pattern: string): Promise<readonly string[]>;
   get(key: string): Promise<string | null>;
+  /**
+   * Optional batched read (#28-8). When present, `refresh()` reads the scanned
+   * keyspace with chunked MGETs (ceil(N/500) round-trips) instead of N GETs.
+   * Omit it and the store transparently falls back to the per-key `get` path.
+   */
+  mget?(keys: readonly string[]): Promise<readonly (string | null)[]>;
+}
+
+/** Max keys per MGET batch (#28-8) — keeps each command's argv bounded. */
+const MGET_CHUNK_SIZE = 500;
+
+function chunk<T>(arr: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/**
+ * Read every key via chunked MGET, zipping each batch's keys with its values.
+ * A failed batch maps every key in it to `null` (fail-open per-batch) rather
+ * than aborting the whole refresh — mirrors the per-key GET fallback's posture.
+ */
+async function readViaMget(
+  mget: (keys: readonly string[]) => Promise<readonly (string | null)[]>,
+  keys: readonly string[],
+): Promise<Array<readonly [string, string | null]>> {
+  const out: Array<readonly [string, string | null]> = [];
+  for (const batch of chunk(keys, MGET_CHUNK_SIZE)) {
+    let vals: readonly (string | null)[];
+    try {
+      vals = await mget(batch);
+    } catch {
+      vals = batch.map(() => null);
+    }
+    batch.forEach((k, i) => out.push([k, vals[i] ?? null] as const));
+  }
+  return out;
 }
 
 export interface CreateRedisTokenUsageStoreOptions
@@ -193,17 +230,22 @@ export function createRedisTokenUsageStore(
       const keys = await opts.redis.scan(pattern);
       const next = createInMemoryTokenUsageStore(baseOpts);
       const at = nowIso();
-      // Read each key; fold its sample into the fresh snapshot. A per-key read
-      // failure skips that key rather than aborting the whole refresh.
-      const raws = await Promise.all(
-        keys.map(async (k) => {
-          try {
-            return [k, await opts.redis.get(k)] as const;
-          } catch {
-            return [k, null] as const;
-          }
-        }),
-      );
+      // Read each key; fold its sample into the fresh snapshot. Prefer chunked
+      // MGET (#28-8) when the client exposes it — ceil(N/500) round-trips instead
+      // of N — and fall back to per-key GET otherwise. A read failure maps the
+      // affected key(s) to null rather than aborting the whole refresh.
+      const mget = opts.redis.mget?.bind(opts.redis);
+      const raws: Array<readonly [string, string | null]> = mget
+        ? await readViaMget(mget, keys)
+        : await Promise.all(
+            keys.map(async (k) => {
+              try {
+                return [k, await opts.redis.get(k)] as const;
+              } catch {
+                return [k, null] as const;
+              }
+            }),
+          );
       // Stable order so the snapshot is deterministic given the same keyspace.
       for (const [k, raw] of [...raws].sort((a, b) => a[0].localeCompare(b[0]))) {
         if (raw === null) continue;

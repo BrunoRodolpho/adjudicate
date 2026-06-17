@@ -126,3 +126,57 @@ describe("createRedisTokenUsageStore — refresh + read", () => {
     expect(store.sessions()[0]?.sessionId).toBe("abc");
   });
 });
+
+// #28-8: when the client exposes mget, refresh() reads via chunked MGET instead
+// of N per-key GETs (falling back to GET when mget is absent — covered above).
+describe("createRedisTokenUsageStore — mget fast path (#28-8)", () => {
+  function fakeRedisWithMget(entries: Record<string, string>): TokenUsageRedisClient & {
+    getCalls: number;
+    mgetBatchSizes: number[];
+  } {
+    const store = new Map(Object.entries(entries));
+    const self = {
+      getCalls: 0,
+      mgetBatchSizes: [] as number[],
+      async scan(pattern: string) {
+        const prefix = pattern.endsWith("*") ? pattern.slice(0, -1) : pattern;
+        return [...store.keys()].filter((k) => k.startsWith(prefix));
+      },
+      async get(key: string) {
+        self.getCalls++;
+        return store.get(key) ?? null;
+      },
+      async mget(keys: readonly string[]) {
+        self.mgetBatchSizes.push(keys.length);
+        return keys.map((k) => store.get(k) ?? null);
+      },
+    };
+    return self;
+  }
+
+  it("uses mget (never per-key get) and folds the values", async () => {
+    const redis = fakeRedisWithMget({
+      "llm:tokens:a": "100",
+      "llm:tokens:b": "250",
+    });
+    const store = createRedisTokenUsageStore({ redis });
+    await store.refresh();
+    expect(redis.getCalls).toBe(0);
+    expect(redis.mgetBatchSizes).toEqual([2]);
+    expect(store.totalConsumed()).toBe(350);
+  });
+
+  it("chunks into batches of 500", async () => {
+    const entries: Record<string, string> = {};
+    for (let i = 0; i < 600; i++) entries[`llm:tokens:s${i}`] = "1";
+    const redis = fakeRedisWithMget(entries);
+    const store = createRedisTokenUsageStore({ redis });
+    await store.refresh();
+    expect(redis.getCalls).toBe(0);
+    // 600 keys → one full 500 batch + one 100 batch.
+    expect(redis.mgetBatchSizes).toHaveLength(2);
+    expect(redis.mgetBatchSizes[0]).toBe(500);
+    expect(redis.mgetBatchSizes[1]).toBe(100);
+    expect(store.totalConsumed()).toBe(600);
+  });
+});

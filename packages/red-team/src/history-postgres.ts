@@ -161,8 +161,16 @@ export function createPostgresRedTeamHistoryStore(
       // Self-provision the run-history table (idempotent) so a fresh adopter DB
       // doesn't 500 the console route on the first SELECT below.
       await opts.sql.query(redTeamRunsDDL(table));
+      // #28-7: bound the scan to the newest `capacity` runs PER pack (the ring's
+      // own bound), then re-sort ASC so appendRecord still receives oldest→newest
+      // (its FIFO ring depends on that order). Without the window the full table
+      // is scanned every init() and most rows are immediately discarded.
       const { rows } = await opts.sql.query<RunRow>(
-        `SELECT pack_id, digest, at, summary_jsonb FROM ${table} ORDER BY at ASC`,
+        `SELECT pack_id, digest, at, summary_jsonb FROM (
+           SELECT pack_id, digest, at, summary_jsonb,
+                  row_number() OVER (PARTITION BY pack_id ORDER BY at DESC) AS rn
+             FROM ${table}
+         ) sub WHERE rn <= ${capacity} ORDER BY at ASC`,
       );
       byPack = new Map();
       for (const r of rows) appendRecord(rowToRecord(r));

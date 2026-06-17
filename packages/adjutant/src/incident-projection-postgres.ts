@@ -68,10 +68,29 @@ interface AgentRunRow {
   at: string | Date;
 }
 
+/** Identifier safety: a configured table name must be a plain identifier. */
+function safeIdent(name: string, fallback: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : fallback;
+}
+
+/**
+ * Default cap on the number of incidents (latest-per-entity) the projection
+ * loads. Bounds the init/refresh scan so a large agent_runs table cannot pull
+ * an unbounded result set into the in-memory cache (#28-10). This is a COUNT
+ * bound on the freshest entities — it never drops an entity by age, so it
+ * carries no semantic window behaviour.
+ */
+const DEFAULT_INCIDENT_CAPACITY = 1000;
+
 export interface PostgresIncidentProjectionOptions {
   readonly sql: SqlExecutor;
   /** Fully-qualified agent_runs table (default `ibx_domain.agent_runs`). */
   readonly agentRunsTable?: string;
+  /**
+   * Max incidents (newest-run-first) to fold into the cache. Default 1000.
+   * Bounds the refresh scan; the N most-recently-active entities are kept.
+   */
+  readonly capacity?: number;
 }
 
 export interface PostgresIncidentProjection extends IncidentProjection {
@@ -87,22 +106,42 @@ export interface PostgresIncidentProjection extends IncidentProjection {
 export function createPostgresIncidentProjection(
   opts: PostgresIncidentProjectionOptions,
 ): PostgresIncidentProjection {
-  const agentRuns = opts.agentRunsTable ?? "ibx_domain.agent_runs";
+  // #28-4: the table name is interpolated into the SELECT below, so guard it
+  // against identifier injection (the default is schema-qualified, allowed).
+  const agentRuns = safeIdent(
+    opts.agentRunsTable ?? "ibx_domain.agent_runs",
+    "ibx_domain.agent_runs",
+  );
+  const rawCapacity = opts.capacity ?? DEFAULT_INCIDENT_CAPACITY;
+  const capacity =
+    Number.isFinite(rawCapacity) && rawCapacity >= 1
+      ? Math.floor(rawCapacity)
+      : DEFAULT_INCIDENT_CAPACITY;
   // Insertion-ordered (newest-updated last); list() reverses to newest-first.
   const byId = new Map<string, IncidentProjectionEntry>();
 
   return {
     async refresh() {
-      // One incident per entity = the LATEST agent run for that entity.
+      // One incident per entity = the LATEST agent run for that entity, bounded
+      // to the `capacity` most-recently-active entities (#28-10 scan bound — a
+      // COUNT cap, never a time window, so no entity is dropped by age). The
+      // inner DISTINCT ON picks latest-per-entity; the middle query keeps the N
+      // freshest; the outer ORDER BY at ASC delivers them oldest-first so the
+      // Map fold below needs no JS re-sort (list() reverses to newest-first).
       const { rows } = await opts.sql.query<AgentRunRow>(
-        `SELECT DISTINCT ON (entity) entity, decision_kind, at
-           FROM ${agentRuns}
-           ORDER BY entity, at DESC`,
+        `SELECT entity, decision_kind, at FROM (
+           SELECT entity, decision_kind, at FROM (
+             SELECT DISTINCT ON (entity) entity, decision_kind, at
+               FROM ${agentRuns}
+               ORDER BY entity, at DESC
+           ) latest
+           ORDER BY at DESC
+           LIMIT ${capacity}
+         ) top
+         ORDER BY at ASC`,
       );
-      // Re-fold deterministically, oldest-first so list()'s reverse is newest-first.
-      const sorted = [...rows].sort((a, b) => toIso(a.at).localeCompare(toIso(b.at)));
       byId.clear();
-      for (const r of sorted) {
+      for (const r of rows) {
         byId.set(r.entity, {
           incidentId: r.entity,
           lastDisposition: dispositionFromDecisionKind(r.decision_kind),

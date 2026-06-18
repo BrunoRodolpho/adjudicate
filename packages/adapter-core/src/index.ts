@@ -64,11 +64,13 @@ export type {
 } from "./decisions.js";
 
 export {
+  createInMemoryBurnStore,
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
   createInMemoryMemoryStore,
 } from "./persistence.js";
 export type {
+  BurnStore,
   ConfirmationStore,
   CreateInMemoryMemoryStoreOptions,
   DeferRedis,
@@ -86,6 +88,28 @@ export {
   type ConfirmationRedisClient,
   type CreateRedisConfirmationStoreOptions,
 } from "./persistence-redis.js";
+// 022 — single-use capability burn store + nonce reconciliation seam.
+// The Redis `burn` is an ATOMIC Lua EVAL get-and-delete (BURN_CLAIM_AND_BURN_LUA)
+// — no non-atomic GET+DEL double-spend race. `reconcileBurnedCapability`
+// re-derives the nonce-bound intentHash (untouched recipe) and compares it
+// constant-time before a redemption is honored (fail-closed, §D #6).
+export {
+  BURN_CLAIM_AND_BURN_LUA,
+  createRedisBurnStore,
+  reconcileBurnedCapability,
+  type BurnRedisClient,
+  type CreateRedisBurnStoreOptions,
+} from "./persistence-redis.js";
+// 022 — re-export the canonical hashing source of truth + nonce-reconciliation
+// primitive so the burn-store seam pins ONE hash path (@adjudicate/canonical via
+// core's hash.ts re-export, NOT the conformance fork). `reconcileNonceHash`
+// re-derives via the kernel's `intentHashInput` recipe (untouched) and compares
+// constant-time via `timingSafeHexEqual`.
+export {
+  reconcileNonceHash,
+  sha256Canonical,
+  timingSafeHexEqual,
+} from "@adjudicate/core";
 export {
   createPostgresMemoryStore,
   type CreatePostgresMemoryStoreOptions,

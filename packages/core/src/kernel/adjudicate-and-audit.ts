@@ -68,7 +68,43 @@ import {
   recordSinkFailure,
 } from "./metrics.js";
 import type { PolicyBundle } from "./policy.js";
-import type { RuntimeContext } from "./runtime-context.js";
+import type {
+  KillSwitchControl,
+  KillSwitchState,
+  RuntimeContext,
+} from "./runtime-context.js";
+
+/**
+ * 013/T3 — fail-closed read of a tenant kill-switch control.
+ *
+ * Returns the active `KillSwitchState` when the switch fires (so the caller
+ * REFUSEs), or `null` when it is provably inactive. §C (failure defaults to
+ * friction, never bypass): if the control is missing or throws while being read,
+ * we DO NOT silently skip the check — we synthesize an ACTIVE state so the
+ * decision becomes a REFUSE. A RuntimeContext supplied without a usable
+ * kill-switch can no longer bypass the emergency-halt gate (invariant #6).
+ */
+function readTenantKillState(
+  killSwitch: KillSwitchControl | undefined,
+): KillSwitchState | null {
+  if (!killSwitch || typeof killSwitch.isKilled !== "function") {
+    return {
+      active: true,
+      reason: "kill_switch_control_absent",
+      toggledAt: "1970-01-01T00:00:00.000Z",
+    };
+  }
+  try {
+    if (!killSwitch.isKilled()) return null;
+    return killSwitch.state();
+  } catch {
+    return {
+      active: true,
+      reason: "kill_switch_control_unreadable",
+      toggledAt: "1970-01-01T00:00:00.000Z",
+    };
+  }
+}
 
 export interface AdjudicateAndAuditClock {
   nowIso(): string;
@@ -283,8 +319,23 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   };
 
   // ── 0. Tenant kill switch (in addition to the process-wide one in adjudicate()) ──
-  if (ctx?.killSwitch.isKilled()) {
-    const killState = ctx.killSwitch.state();
+  //
+  // 013/T3 — FAIL-CLOSED tenant kill-switch wiring (§C: failure defaults to
+  // friction, never bypass). The prior optional-chained guard SKIPPED the check
+  // entirely when a RuntimeContext was supplied without a functioning kill-switch
+  // control — a fail-open seam (invariant #6). Now, when a context is present, its
+  // kill-switch MUST be consultable: a missing/non-functional control is treated
+  // as ACTIVE (REFUSE), never silently bypassed. The adapter seam
+  // (loop.ts / decisions.ts) always supplies a non-optional context (defaulting to
+  // the process-wide default, whose switch is non-killed unless engaged), so an
+  // omitted RuntimeContext at the adapter no longer skips this guard. Raw kernel
+  // callers that supply NO context (`deps.context === undefined`) still rely on the
+  // always-on process-wide switch in adjudicate() — the closed 6-outcome algebra is
+  // unchanged for them.
+  const killState: KillSwitchState | null = ctx
+    ? readTenantKillState(ctx.killSwitch)
+    : null;
+  if (killState !== null) {
     const decision = decisionRefuse(
       refuse(
         "SECURITY",
@@ -296,7 +347,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         basis("kill", BASIS_CODES.kill.ACTIVE, {
           reason: killState.reason,
           toggledAt: killState.toggledAt,
-          tenant: ctx.id,
+          tenant: ctx!.id,
         }),
       ],
     );

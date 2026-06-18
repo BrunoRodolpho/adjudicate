@@ -5,7 +5,7 @@
  * memory cannot change the decision or the envelope taint.
  */
 import { describe, expect, it, vi } from "vitest";
-import { type PackV0 } from "@adjudicate/core";
+import { noopAuditSink, type PackV0 } from "@adjudicate/core";
 import {
   createAdjudicatedAgent,
   createInMemoryConfirmationStore,
@@ -99,6 +99,9 @@ function makeAgent(opts: {
     deferStore: createInMemoryDeferStore(),
     confirmationStore: createInMemoryConfirmationStore<string[]>(),
     ledger: createMemoryLedger(),
+    // 013/T1: auditSink is required — pass an explicit no-op (this suite asserts
+    // on decisions/envelopes, not emission), never a silent default.
+    auditSink: noopAuditSink(),
     executor,
     ...(opts.memory
       ? {

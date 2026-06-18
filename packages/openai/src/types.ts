@@ -74,7 +74,12 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C>
   readonly renderer: PromptRenderer<S, C>;
   readonly deferStore: DeferRedis & ParkRedis;
   readonly confirmationStore: ConfirmationStore;
-  readonly auditSink?: AuditSink;
+  /**
+   * AuditSink — REQUIRED (013/T1): mirrors the now-required `adapter-core` dep;
+   * no fail-open `noopAuditSink()` default (invariant #6). Wire a durable sink,
+   * or an explicit `noopAuditSink()` to opt out visibly.
+   */
+  readonly auditSink: AuditSink;
   /** Execution Ledger — REQUIRED for replay suppression. */
   readonly ledger: Ledger;
   readonly runtimeContext?: RuntimeContext;

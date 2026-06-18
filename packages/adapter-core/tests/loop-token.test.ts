@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { type PackV0 } from "@adjudicate/core";
+import { noopAuditSink, type PackV0 } from "@adjudicate/core";
 import {
   createAdjudicatedAgent,
   createInMemoryConfirmationStore,
@@ -117,6 +117,9 @@ function makeAgent() {
     deferStore: createInMemoryDeferStore(),
     confirmationStore: createInMemoryConfirmationStore<string[]>(),
     ledger: createMemoryLedger(),
+    // 013/T1: auditSink is required — explicit no-op (suite asserts on token
+    // generation, not emission).
+    auditSink: noopAuditSink(),
     executor,
   });
 }

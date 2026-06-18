@@ -209,7 +209,15 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
   readonly deferStore: DeferRedis & ParkRedis;
   /** Persistence for REQUEST_CONFIRMATION pauses (generic over H). */
   readonly confirmationStore: ConfirmationStore<H>;
-  readonly auditSink?: AuditSink;
+  /**
+   * Required: durable governance AuditSink (013/T1). Mirrors the already-required
+   * kernel dep `AdjudicateAndAuditDeps.sink` and `ledger` — a missing sink is a
+   * construction-time type error, never a silent `noopAuditSink()` no-op (invariant
+   * #6: no fail-open defaults). Adopters compose `multiSink` / `bufferedSink` from
+   * `@adjudicate/audit` to control fail-open vs fail-closed semantics. For dev,
+   * `createQuickAgent` defaults this to a console receipt sink.
+   */
+  readonly auditSink: AuditSink;
   /** Required: Execution Ledger for replay suppression. */
   readonly ledger: Ledger;
   /** Optional tenant context. */

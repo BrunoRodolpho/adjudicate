@@ -3,16 +3,27 @@ import {
   buildEnvelope,
   decisionExecute,
   decisionRewrite,
+  noopAuditSink,
   type ExecutorContract,
   type IntentEnvelope,
   type TaintPolicy,
 } from "@adjudicate/core";
+import { createRuntimeContext } from "@adjudicate/core/kernel";
 import { routeReadThroughKernel, translateDecision } from "../src/decisions.js";
+import { createAdjudicatedAgent } from "../src/loop.js";
+import { createMemoryLedger } from "@adjudicate/audit";
 import {
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
 } from "../src/persistence.js";
-import type { AdopterExecutor, ToolClassification } from "../src/types.js";
+import type {
+  AdjudicatedAgentOptions,
+  AdopterExecutor,
+  AssistantTurn,
+  ProviderBridge,
+  ToolClassification,
+} from "../src/types.js";
+import type { PackV0 } from "@adjudicate/core";
 
 interface Payload {
   amountCentavos: number;
@@ -190,6 +201,9 @@ describe("executor contract: typed ToolClassification (012)", () => {
         State
       >,
       taint: permissiveTaint,
+      // 013/T1+T3: auditSink + runtimeContext are required on the READ path.
+      auditSink: noopAuditSink(),
+      runtimeContext: createRuntimeContext(),
       plan: () => ({ visibleReadTools: ["list_pix_charges"], allowedIntents: [] }),
       nonce: "tu-1",
       historySnapshot: [] as unknown,
@@ -212,6 +226,8 @@ describe("executor contract: typed ToolClassification (012)", () => {
       state: { marker: "S" } as unknown as State,
       executor: { invokeRead },
       taint: permissiveTaint,
+      auditSink: noopAuditSink(),
+      runtimeContext: createRuntimeContext(),
       plan: () => ({ visibleReadTools: ["get_pix_charge"], allowedIntents: [] }),
       nonce: "tu-2",
       historySnapshot: [] as unknown,
@@ -219,5 +235,155 @@ describe("executor contract: typed ToolClassification (012)", () => {
     expect(invokeRead).toHaveBeenCalledWith("get_pix_charge", { id: "x" }, {
       marker: "S",
     });
+  });
+});
+
+// ── 013/T1: agent construction REQUIRES a real auditSink (no fail-open default) ──
+//
+// The durable governance trail is no longer the adopter's optional step. A
+// missing `auditSink` is a construction-time TYPE error, and — proving the
+// `?? noopAuditSink()` fail-open default is genuinely gone — a sink-less agent
+// that reaches a kernel crossing FAILS (TypeError on the required write path)
+// rather than silently no-op'ing the audit emission (invariant #6, §C).
+describe("013/T1: construction requires a non-optional auditSink", () => {
+  type K = "noun.make_pet";
+  interface P {
+    readonly name: string;
+  }
+  interface S {
+    readonly count: number;
+  }
+  interface C {
+    readonly userId: string;
+  }
+
+  function buildExecutePack(): PackV0<K, P, S, C> {
+    return {
+      id: "exec-contract-013-pack",
+      version: "0.1.0",
+      contract: "v0",
+      intents: ["noun.make_pet"],
+      policy: {
+        stateGuards: [],
+        authGuards: [],
+        taint: { minimumFor: () => "UNTRUSTED" as const },
+        business: [
+          () => ({
+            kind: "EXECUTE",
+            basis: [{ category: "state", code: "transition_valid" }],
+          }),
+        ],
+        default: "REFUSE",
+      } as unknown as PackV0<K, P, S, C>["policy"],
+      planner: {
+        plan() {
+          return {
+            visibleReadTools: [] as const,
+            allowedIntents: ["noun.make_pet"] as const,
+          };
+        },
+      } as unknown as PackV0<K, P, S, C>["planner"],
+      basisCodes: ["state:transition_valid"],
+    };
+  }
+
+  function bridge(): ProviderBridge<string[]> {
+    let called = 0;
+    return {
+      emptyHistory: () => [],
+      appendUserMessage: (h, m) => [...h, `user:${m}`],
+      appendToolResults: (h, results) => [...h, `tool_results:${results.length}`],
+      async send(h) {
+        called++;
+        if (called === 1) {
+          return {
+            history: [...h, "assistant:turn-1"],
+            turn: {
+              textBlocks: [],
+              toolUses: [
+                { id: "tu-1", name: "noun.make_pet", input: { name: "rex" } },
+              ],
+            } satisfies AssistantTurn,
+          };
+        }
+        return {
+          history: [...h, "assistant:done"],
+          turn: { textBlocks: ["done"], toolUses: [] } satisfies AssistantTurn,
+        };
+      },
+    };
+  }
+
+  const renderer = {
+    render: () => ({ systemPrompt: "p", maxTokens: 100, toolSchemas: [] }),
+  };
+
+  function makeExecutor(): AdopterExecutor<K, P, S> {
+    return {
+      async invokeRead() {
+        return null;
+      },
+      async invokeIntent() {
+        return { ok: true };
+      },
+    };
+  }
+
+  const sendInput = {
+    sessionId: "s-013",
+    userMessage: "make a pet",
+    state: { count: 0 },
+    context: { userId: "u" },
+  };
+
+  it("a sink-less agent reaching a kernel crossing FAILS — there is no silent noopAuditSink() default", async () => {
+    // Omit `auditSink` (cast past the now-required type to model an adopter who
+    // skipped wiring it). The old code substituted `?? noopAuditSink()` and the
+    // turn would silently succeed with NO durable emission. With the fail-open
+    // default removed, the required write path (`deps.sink.emit`) is reached with
+    // an absent sink and the turn rejects — friction, never bypass.
+    const optsWithoutSink = {
+      pack: buildExecutePack(),
+      renderer,
+      bridge: bridge(),
+      deferStore: createInMemoryDeferStore(),
+      confirmationStore: createInMemoryConfirmationStore<string[]>(),
+      ledger: createMemoryLedger(),
+      executor: makeExecutor(),
+    } as unknown as AdjudicatedAgentOptions<K, P, S, C, string[]>;
+
+    const agent = createAdjudicatedAgent<K, P, S, C, string[]>(optsWithoutSink);
+    await expect(agent.send(sendInput)).rejects.toThrow();
+  });
+
+  it("the SAME agent WITH an explicit auditSink completes — the sink is the only difference", async () => {
+    const { noopAuditSink } = await import("@adjudicate/core");
+    const agent = createAdjudicatedAgent<K, P, S, C, string[]>({
+      pack: buildExecutePack(),
+      renderer,
+      bridge: bridge(),
+      deferStore: createInMemoryDeferStore(),
+      confirmationStore: createInMemoryConfirmationStore<string[]>(),
+      ledger: createMemoryLedger(),
+      executor: makeExecutor(),
+      auditSink: noopAuditSink(),
+    });
+    const result = await agent.send(sendInput);
+    expect(result.outcome.kind).toBe("completed");
+  });
+
+  it("auditSink is a REQUIRED key of AdjudicatedAgentOptions (type-level contract)", () => {
+    // If `auditSink` regressed to optional, `Extract<Req, "auditSink">` would be
+    // `never` and this object literal would fail to typecheck.
+    type Opts = AdjudicatedAgentOptions<K, P, S, C, string[]>;
+    type RequiredKeys<T> = {
+      [Key in keyof T]-?: object extends Pick<T, Key> ? never : Key;
+    }[keyof T];
+    type Req = RequiredKeys<Opts>;
+    const required: Record<Extract<Req, "auditSink" | "ledger">, true> = {
+      auditSink: true,
+      ledger: true,
+    };
+    expect(Object.keys(required).sort()).toEqual(["auditSink", "ledger"]);
   });
 });

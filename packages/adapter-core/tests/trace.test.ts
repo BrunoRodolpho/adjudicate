@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { type IntentEnvelope, type PackV0 } from "@adjudicate/core";
+import { noopAuditSink, type IntentEnvelope, type PackV0 } from "@adjudicate/core";
 import {
   createAdjudicatedAgent,
   createInMemoryConfirmationStore,
@@ -129,6 +129,9 @@ function makeAgent(toolUses: ToolUseRequest[], trace: ReturnType<typeof createIn
     deferStore: createInMemoryDeferStore(),
     confirmationStore: createInMemoryConfirmationStore<string[]>(),
     ledger: createMemoryLedger(),
+    // 013/T1: auditSink is required — explicit no-op (suite asserts on trace
+    // events, not audit emission).
+    auditSink: noopAuditSink(),
     executor,
     traceSink: trace,
   });
@@ -196,6 +199,8 @@ describe("adapter trace events", () => {
       deferStore: createInMemoryDeferStore(),
       confirmationStore: createInMemoryConfirmationStore<string[]>(),
       ledger: createMemoryLedger(),
+      // 013/T1: auditSink is required — explicit no-op.
+      auditSink: noopAuditSink(),
       executor,
     });
     const result = await agent.send({

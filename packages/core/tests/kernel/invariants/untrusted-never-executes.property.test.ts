@@ -22,6 +22,7 @@ import {
 } from "@adjudicate/core";
 import { adjudicate } from "../../../src/kernel/adjudicate.js";
 import { adjudicateAndAudit } from "../../../src/kernel/adjudicate-and-audit.js";
+import { createRuntimeContext } from "../../../src/kernel/runtime-context.js";
 import type { Guard, PolicyBundle } from "../../../src/kernel/policy.js";
 import { jsonSafePayloadArb } from "../../helpers/json-safe-arb.js";
 
@@ -303,5 +304,35 @@ describe("invariant: taint-only test, no other guards fire", () => {
       }),
       { numRuns: 1_000 },
     );
+  });
+});
+
+// ── 013/T3+T6: invariant #1 (only EXECUTE reaches the executor) is unaffected ──
+// by the non-optional sink / fail-closed kill-switch wiring. The kill-switch only
+// ADDS friction (§C): an active tenant kill switch turns a would-be EXECUTE into a
+// REFUSE, and the always-on process-wide path still EXECUTEs a clean SYSTEM intent.
+describe("invariant: 013 sink/kill wiring never produces a NEW EXECUTE path", () => {
+  it("an active tenant kill switch turns a clean SYSTEM EXECUTE into a REFUSE — never the reverse", async () => {
+    const context = createRuntimeContext();
+    context.killSwitch.set(true, "halt");
+    const { decision } = await adjudicateAndAudit(
+      env("order.submit", "SYSTEM", { x: 1 }),
+      {},
+      emptyBundle("EXECUTE"),
+      { sink: noopAuditSink(), context },
+    );
+    expect(decision.kind).not.toBe("EXECUTE");
+    expect(decision.kind).toBe("REFUSE");
+  });
+
+  it("a clean SYSTEM intent under a non-killed context still EXECUTEs (no over-restriction)", async () => {
+    const context = createRuntimeContext();
+    const { decision } = await adjudicateAndAudit(
+      env("order.submit", "SYSTEM", { x: 1 }),
+      {},
+      emptyBundle("EXECUTE"),
+      { sink: noopAuditSink(), context },
+    );
+    expect(decision.kind).toBe("EXECUTE");
   });
 });

@@ -72,11 +72,13 @@ export type QuickAgentOptions<K extends string, P, S, C, H> = Omit<
   /** Override the Execution Ledger. Defaults to `createMemoryLedger()`. */
   readonly ledger?: AdjudicatedAgentOptions<K, P, S, C, H>["ledger"];
   /**
-   * Override the audit sink. Defaults to a `createConsoleSink()` dev
-   * receipt sink. Pass `null` to disable the default sink entirely (the
-   * underlying loop treats an absent sink as "no audit emission").
+   * Override the audit sink. Defaults to a `createConsoleSink()` dev receipt
+   * sink. 013/T1: the underlying `AdjudicatedAgentOptions.auditSink` is REQUIRED
+   * — there is no longer a "disable the sink" path (that was a fail-open seam,
+   * invariant #6). To silence emission in a dev run, pass an explicit no-op sink
+   * (`noopAuditSink()`) so the choice is visible, never a silent default.
    */
-  readonly auditSink?: AdjudicatedAgentOptions<K, P, S, C, H>["auditSink"] | null;
+  readonly auditSink?: AdjudicatedAgentOptions<K, P, S, C, H>["auditSink"];
   /**
    * Options forwarded to the default `createConsoleSink` (e.g. a custom
    * `log` writer or `prefix`). Ignored when `auditSink` is supplied.
@@ -101,10 +103,9 @@ export function createQuickAgent<K extends string, P, S, C, H>(
     ...rest
   } = options;
 
-  const resolvedSink =
-    auditSink === null
-      ? undefined
-      : (auditSink ?? createConsoleSink(consoleSink));
+  // 013/T1: the AuditSink is required — always resolve to a real sink (the dev
+  // console receipt sink by default). No fail-open "no sink" branch.
+  const resolvedSink = auditSink ?? createConsoleSink(consoleSink);
 
   return createAdjudicatedAgent<K, P, S, C, H>({
     ...rest,
@@ -112,6 +113,6 @@ export function createQuickAgent<K extends string, P, S, C, H>(
     confirmationStore:
       confirmationStore ?? createInMemoryConfirmationStore<H>(),
     ledger: ledger ?? createMemoryLedger(),
-    ...(resolvedSink !== undefined ? { auditSink: resolvedSink } : {}),
+    auditSink: resolvedSink,
   });
 }

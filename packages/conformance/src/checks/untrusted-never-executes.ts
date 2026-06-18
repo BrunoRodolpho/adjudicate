@@ -30,6 +30,16 @@
  * names) an UNTRUSTED read tool name never auto-EXECUTEs — proving the READ
  * path is adjudicated and a user-origin read cannot escalate authority. The
  * same seeded LCG / `sampling` / `seed` cadence as the intent path is used.
+ *
+ * **013/T5 seam note.** Plan 013 makes the adapter's `auditSink` non-optional
+ * and fail-closes the tenant kill-switch. Those are ADAPTER/shell concerns
+ * (`adapter-core` construction + `adjudicateAndAudit`'s tenant guard); they do
+ * not touch the PURE-kernel `adjudicate()` taint/READ invariant this probe
+ * asserts. AC-001 therefore holds UNCHANGED under 013 — only EXECUTE reaches the
+ * executor (invariant #1), and the sink/kill seam can only ADD friction
+ * (REFUSE/abort) on top, never turn a non-EXECUTE into an EXECUTE (§C). This
+ * probe deliberately exercises `adjudicate()` directly so the property is proven
+ * independent of any sink/kill wiring.
  */
 
 import { buildEnvelope, canPropose } from "@adjudicate/core";

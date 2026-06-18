@@ -196,6 +196,9 @@ describe("createAdjudicatedAgent — send loop", () => {
       }),
       deferStore: createInMemoryDeferStore(),
       confirmationStore: createInMemoryConfirmationStore(),
+      // 013/T1: auditSink is required — explicit no-op (these cases assert on the
+      // loop outcome, not on emission).
+      auditSink: { emit: vi.fn(async () => {}) } satisfies AuditSink,
       executor,
     });
     const result = await agent.send({
@@ -229,6 +232,9 @@ describe("createAdjudicatedAgent — send loop", () => {
       }),
       deferStore: createInMemoryDeferStore(),
       confirmationStore: createInMemoryConfirmationStore(),
+      // 013/T1: auditSink is required — explicit no-op (these cases assert on the
+      // loop outcome, not on emission).
+      auditSink: { emit: vi.fn(async () => {}) } satisfies AuditSink,
       executor,
       maxIterations: 3,
     });
@@ -259,6 +265,9 @@ describe("createAdjudicatedAgent — send loop", () => {
       }),
       deferStore: createInMemoryDeferStore(),
       confirmationStore: createInMemoryConfirmationStore(),
+      // 013/T1: auditSink is required — explicit no-op (these cases assert on the
+      // loop outcome, not on emission).
+      auditSink: { emit: vi.fn(async () => {}) } satisfies AuditSink,
       executor,
     });
     const result = await agent.send({

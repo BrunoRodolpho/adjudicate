@@ -42,7 +42,10 @@
 
 import { basis, BASIS_CODES, isKnownBasisCode } from "./basis-codes.js";
 import { decisionRefuse, type Decision } from "./decision.js";
-import type { IntentEnvelope } from "./envelope.js";
+import type {
+  IntentEnvelope,
+  RecordedAuthoritySnapshot,
+} from "./envelope.js";
 import { recordSinkFailure } from "./kernel/metrics.js";
 import type { Guard, PolicyBundle } from "./kernel/policy.js";
 import type { PackV0 } from "./pack.js";
@@ -61,6 +64,24 @@ import { taintRank } from "./taint.js";
  * that flows into `intentHash`/`auditHash`.
  */
 const BASIS_AUDIT_WRAPPED = Symbol.for("@adjudicate/core/basis-audit-wrapped");
+
+/**
+ * 033 — idempotency/carry tag for `recordAuthoritySnapshotOnPack`. Mirrors
+ * `BASIS_AUDIT_WRAPPED`'s discipline: the RECORDED authority snapshot the kernel
+ * decision was injected with is STAMPED onto the wrapped pack object under this
+ * symbol (non-enumerable, never a hashed byte, never on a value that flows into
+ * `intentHash`/`auditHash`). The impure audit shell reads it back via
+ * `readRecordedAuthoritySnapshot(pack)` and records it onto each `AuditRecord`
+ * so the decision replays bit-identically (§D-5, invariant #5).
+ *
+ * `Symbol.for` (global registry) so the tag survives module reloads, exactly
+ * like the audit-wrap tag. Re-stamping is idempotent/non-blocking — it NEVER
+ * mutates a guard, the policy, or any Decision (the recording is observe-only,
+ * same posture as `withBasisAudit`).
+ */
+const RECORDED_AUTHORITY_SNAPSHOT = Symbol.for(
+  "@adjudicate/core/recorded-authority-snapshot",
+);
 
 export class PackConformanceError extends Error {
   constructor(
@@ -252,6 +273,60 @@ export function withBasisAudit<
     ...pack,
     policy: wrapBundle(pack.policy, declaredCodes, declaredSignals, pack.id),
   };
+}
+
+/**
+ * 033 — RECORD the injected authority snapshot onto a pack, reusing the
+ * `withBasisAudit`/`wrapBundle` discipline: produce a NEW pack object (don't
+ * mutate the input), STAMP the recorded snapshot under a symbol, and stay
+ * NON-BLOCKING (no guard, policy, or Decision is altered — recording is
+ * observe-only telemetry, like the audit wrap). The impure audit shell reads it
+ * back with `readRecordedAuthoritySnapshot` and records it onto each
+ * `AuditRecord` so the decision replays bit-identically (§D-5, invariant #5).
+ *
+ * Idempotent: re-stamping with an EQUAL snapshot (same `snapshotHash`) is a
+ * no-op carry; re-stamping with a DIFFERENT snapshot replaces the tag (the
+ * latest injected snapshot is the one recorded). The tag is non-enumerable, so
+ * it never serializes into a record or perturbs a hash. NO authority guard is
+ * wired here (that is 034) — `pack.policy.authGuards` is untouched.
+ */
+export function recordAuthoritySnapshotOnPack<
+  K extends string,
+  P,
+  S,
+  C,
+>(
+  pack: PackV0<K, P, S, C>,
+  snapshot: RecordedAuthoritySnapshot,
+): PackV0<K, P, S, C> {
+  const existing = readRecordedAuthoritySnapshot(pack);
+  if (existing !== undefined && existing.snapshotHash === snapshot.snapshotHash) {
+    // Idempotent carry: the same snapshot is already recorded on this pack.
+    return pack;
+  }
+  const recorded = { ...pack } as PackV0<K, P, S, C>;
+  Object.defineProperty(recorded, RECORDED_AUTHORITY_SNAPSHOT, {
+    value: snapshot,
+    enumerable: false,
+    configurable: true,
+    writable: false,
+  });
+  return recorded;
+}
+
+/**
+ * 033 — read the RECORDED authority snapshot stamped on a pack by
+ * `recordAuthoritySnapshotOnPack`, or `undefined` when none was injected.
+ * `undefined` is a permanent valid state — packs installed without an
+ * `authoritySnapshot` carry no tag, so their audit records omit the field and
+ * hash byte-identically to their pre-033 value.
+ */
+export function readRecordedAuthoritySnapshot(
+  pack: object,
+): RecordedAuthoritySnapshot | undefined {
+  return (pack as Record<symbol, unknown>)[RECORDED_AUTHORITY_SNAPSHOT] as
+    | RecordedAuthoritySnapshot
+    | undefined;
 }
 
 function wrapBundle<K extends string, P, S>(

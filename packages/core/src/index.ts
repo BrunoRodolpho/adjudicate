@@ -42,6 +42,10 @@ export {
   PackConformanceError,
   assertPackConformance,
   withBasisAudit,
+  // 033 — record/read the injected authority snapshot on a pack (idempotent,
+  // non-blocking; the audit shell records it onto the AuditRecord for replay).
+  recordAuthoritySnapshotOnPack,
+  readRecordedAuthoritySnapshot,
   type AssertPackConformanceOptions,
 } from "./pack-conformance.js";
 export {

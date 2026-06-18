@@ -22,9 +22,15 @@ import {
   hasLearningSink,
   setLearningSink,
 } from "./kernel/learning.js";
+import { recordAuthoritySnapshot } from "./decision.js";
+import type { AuthorityGraph, RecordedAuthoritySnapshot } from "./envelope.js";
 import { createConsoleMetricsSink, hasMetricsSink, setMetricsSink } from "./kernel/metrics.js";
 import { assertPlanSubsetOfPack } from "./llm/planner-conformance.js";
-import { assertPackConformance, withBasisAudit } from "./pack-conformance.js";
+import {
+  assertPackConformance,
+  recordAuthoritySnapshotOnPack,
+  withBasisAudit,
+} from "./pack-conformance.js";
 import type { PackV0 } from "./pack.js";
 
 export interface InstallPackOptions {
@@ -57,6 +63,20 @@ export interface InstallPackOptions {
    * the default `console.warn`.
    */
   readonly warn?: (message: string) => void;
+  /**
+   * 033 — the authority-graph SNAPSHOT to INJECT into this pack's decisions.
+   * `installPack` is the documented injection seam (no existing guard injection,
+   * no signature check). When supplied, `installPack` content-addresses the graph
+   * (`recordAuthoritySnapshot`) and exposes the RECORDED snapshot on the returned
+   * `InstalledPack.authoritySnapshot`, which the impure audit shell records onto
+   * the `AuditRecord` so the decision is REPLAYABLE (§D-5, invariant #5).
+   *
+   * **Injection seam only — 033 wires NO authority guard** (that is 034) and the
+   * graph rides as an INJECTED STATE/recorded input, NOT a hashed envelope field
+   * (invariant #4 untouched). The pack's `authGuards` are NOT modified here; the
+   * snapshot is recorded, not consulted by any guard.
+   */
+  readonly authoritySnapshot?: AuthorityGraph;
 }
 
 export type InstalledDefault = "metrics" | "learning";
@@ -69,6 +89,14 @@ export interface InstalledPack<
 > {
   readonly pack: PackV0<K, P, S, C>;
   readonly installedDefaults: ReadonlyArray<InstalledDefault>;
+  /**
+   * 033 — the RECORDED authority snapshot (graph + content-address) when an
+   * `authoritySnapshot` was injected at install. ABSENT (`undefined`) otherwise,
+   * so non-injecting adopters see no behavioral change. The audit shell records
+   * this onto each `AuditRecord` (via `buildAuditRecord({ authoritySnapshot })`)
+   * so the decision replays bit-identically over the recorded snapshot (§D-5).
+   */
+  readonly authoritySnapshot?: RecordedAuthoritySnapshot;
 }
 
 export function installPack<K extends string, P, S, C>(
@@ -138,5 +166,31 @@ export function installPack<K extends string, P, S, C>(
   }
 
   const wrapped = auditBasisDrift ? withBasisAudit(pack) : pack;
-  return { pack: wrapped, installedDefaults };
+
+  // 033 — INJECTION SEAM. When an authority-graph snapshot is injected, content-
+  // address it (recordAuthoritySnapshot) and STAMP the recorded snapshot onto
+  // the wrapped pack via the idempotent/non-blocking pack-conformance recording
+  // helper (same "wrap, don't mutate, mark with a symbol" discipline as
+  // withBasisAudit). The impure audit shell reads it back and records it onto
+  // each AuditRecord so the decision replays bit-identically (§D-5, invariant
+  // #5). NO authority guard is wired (034) and no signature check is added (none
+  // exists here today) — the snapshot rides as injected state, not a hashed
+  // envelope field (invariant #4 untouched). Omitting it is byte-identical to
+  // the pre-033 install (no recorded snapshot, no tag).
+  const recordedSnapshot: RecordedAuthoritySnapshot | undefined =
+    options.authoritySnapshot !== undefined
+      ? recordAuthoritySnapshot(options.authoritySnapshot)
+      : undefined;
+  const installedPack =
+    recordedSnapshot !== undefined
+      ? recordAuthoritySnapshotOnPack(wrapped, recordedSnapshot)
+      : wrapped;
+
+  return {
+    pack: installedPack,
+    installedDefaults,
+    ...(recordedSnapshot !== undefined
+      ? { authoritySnapshot: recordedSnapshot }
+      : {}),
+  };
 }

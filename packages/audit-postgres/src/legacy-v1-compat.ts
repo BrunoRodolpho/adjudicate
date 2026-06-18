@@ -30,6 +30,7 @@ import {
   buildEnvelope,
   type IntentActor,
   type IntentEnvelope,
+  type RecordedAuthoritySnapshot,
   type ResourceRefs,
   type Taint,
 } from "@adjudicate/core";
@@ -91,4 +92,58 @@ export function legacyV1ToV2(row: IntentAuditRow): IntentEnvelope {
     // byte-identical to the pre-031 reconstruction.
     resourceRefs: stored.resourceRefs,
   });
+}
+
+/**
+ * 033 — degrade-safe read of the RECORDED authority snapshot from a stored audit
+ * row, for the legacy/replay reader.
+ *
+ * The recorded authority snapshot (`{ graph, snapshotHash }`) is a record-level
+ * field 033 added to `AuditRecord` (recorded so the decision replays bit-
+ * identically — §D-5, invariant #5). OLDER audit rows predate it: they carry no
+ * snapshot at all. This helper makes that degradation EXPLICIT and SAFE — exactly
+ * the drop-safe posture `legacyV1ToV2` takes for `resourceRefs`:
+ *
+ *   - A row whose stored `envelope_jsonb` (or a future dedicated column) carries
+ *     a structurally-valid recorded snapshot returns it verbatim.
+ *   - A legacy row that lacks one returns `undefined` — the reconstructed
+ *     `AuditRecord` simply omits `authoritySnapshot` (no key), so it stays
+ *     byte-identical to its pre-033 shape and `verifyAuditRecord` re-derives the
+ *     same auditHash (no false-positive tampering).
+ *
+ * NEVER throws on a malformed/absent snapshot: a tolerant reader degrades to
+ * "no recorded snapshot" rather than failing a historical-row read (the snapshot
+ * INTEGRITY check belongs to `authorityGraphStoreFromRecorded` at replay time,
+ * not to a legacy read). Pure: no clock/RNG/IO.
+ */
+export function recordedAuthoritySnapshotFromRow(
+  row: IntentAuditRow,
+): RecordedAuthoritySnapshot | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.envelope_jsonb);
+  } catch {
+    return undefined; // unreadable legacy JSON → degrade safely.
+  }
+  if (parsed === null || typeof parsed !== "object") return undefined;
+  const candidate = (parsed as { authoritySnapshot?: unknown })
+    .authoritySnapshot;
+  return isRecordedAuthoritySnapshot(candidate) ? candidate : undefined;
+}
+
+/**
+ * Structural guard for a degrade-safe legacy read of a recorded authority
+ * snapshot: `{ graph: { edges: [...] }, snapshotHash: string }`. Deliberately
+ * permissive on edge internals (the replay-time integrity check re-content-
+ * addresses the graph), strict only on the load-bearing shape so a malformed
+ * legacy blob degrades to `undefined` rather than being mistaken for a snapshot.
+ */
+function isRecordedAuthoritySnapshot(
+  value: unknown,
+): value is RecordedAuthoritySnapshot {
+  if (value === null || typeof value !== "object") return false;
+  const v = value as { graph?: unknown; snapshotHash?: unknown };
+  if (typeof v.snapshotHash !== "string") return false;
+  if (v.graph === null || typeof v.graph !== "object") return false;
+  return Array.isArray((v.graph as { edges?: unknown }).edges);
 }

@@ -32,6 +32,7 @@ import type {
   AuthorityGraph,
   AuthorityRelationship,
   IntentEnvelope,
+  RecordedAuthoritySnapshot,
 } from "./envelope.js";
 import type { DecisionBasis } from "./basis-codes.js";
 import type { Refusal } from "./refusal.js";
@@ -323,6 +324,76 @@ export interface AuthorityGraphStore {
  */
 export function hashAuthorityGraph(graph: AuthorityGraph): string {
   return sha256SnapshotCanonical(graph);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 033 · Authority-snapshot injection + recording for replay (§D-5, inv. #5)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// 033 INJECTS the authority-graph snapshot into the one kernel decision (via
+// injected state/deps) and RECORDS it into the audit record so the decision is
+// REPLAYABLE: re-running the PURE kernel over the recorded snapshot reproduces
+// the decision bit-identically (index §D-5, invariant #5). These two helpers are
+// the inject/record + replay seam:
+//
+//   • `recordAuthoritySnapshot(graph)` — content-addresses the INJECTED graph
+//     (`hashAuthorityGraph`, RFC 8785 / JCS via `@adjudicate/canonical`) into a
+//     `RecordedAuthoritySnapshot` the audit record carries (033 T3/T4). Pure.
+//
+//   • `authorityGraphStoreFromRecorded(recorded)` — on REPLAY, re-derives the
+//     SAME read-only store from the RECORDED snapshot, so the pure resolver
+//     (`resolveOwnership`) sees byte-identical edges and computes the byte-
+//     identical `OwnershipFact` it did at decision time (033 T5). Fail-closed:
+//     a recorded snapshot whose `snapshotHash` no longer matches its `graph`
+//     (a tampered/drifted recorded snapshot) throws rather than replaying a
+//     different decision than the one the hash claims (§D-5, invariant #6).
+//
+// Neither touches the `Decision` algebra (no 7th outcome, no field — invariant
+// #2) and neither enters `intentHashInput` (the snapshot rides injected state,
+// not a hashed envelope field — invariant #4).
+
+/**
+ * Build the RECORDED authority snapshot (033 T3/T4) from the graph the kernel
+ * decision was INJECTED with: pairs the immutable `graph` with its
+ * content-address (`hashAuthorityGraph`). The audit shell records this onto the
+ * `AuditRecord` so the decision replays bit-identically (§D-5, invariant #5).
+ *
+ * Pure & synchronous (kernel-purity §D): no clock/RNG/IO. Re-running it over the
+ * same graph yields a byte-identical `snapshotHash`.
+ */
+export function recordAuthoritySnapshot(
+  graph: AuthorityGraph,
+): RecordedAuthoritySnapshot {
+  return { graph, snapshotHash: hashAuthorityGraph(graph) };
+}
+
+/**
+ * Replay primitive (033 T5): re-derive the read-only `AuthorityGraphStore` from
+ * a RECORDED snapshot so the pure resolver re-runs over the SAME injected edges
+ * and reproduces the byte-identical `OwnershipFact` — the §D-5 replayability
+ * proof that the recorded snapshot is sufficient to re-derive the decision.
+ *
+ * Fail-closed integrity (§D-5 / invariant #6): re-content-addresses the recorded
+ * `graph` and compares to the stored `snapshotHash`. A mismatch means the
+ * recorded snapshot was tampered with or drifted from its hash — replaying it
+ * would silently re-decide over a DIFFERENT graph than the hash claims, so we
+ * throw rather than produce a non-faithful replay. A faithful recorded snapshot
+ * always passes and yields a store identical to the one used at decision time.
+ *
+ * Pure & synchronous: no clock/RNG/IO.
+ */
+export function authorityGraphStoreFromRecorded(
+  recorded: RecordedAuthoritySnapshot,
+): AuthorityGraphStore {
+  const rederived = hashAuthorityGraph(recorded.graph);
+  if (rederived !== recorded.snapshotHash) {
+    throw new Error(
+      `authorityGraphStoreFromRecorded: recorded snapshot integrity failure — ` +
+        `re-derived snapshotHash ${rederived} does not match stored ` +
+        `${recorded.snapshotHash} (tampered or drifted recorded authority snapshot)`,
+    );
+  }
+  return createAuthorityGraphStore(recorded.graph);
 }
 
 export function createAuthorityGraphStore(graph: AuthorityGraph): AuthorityGraphStore {

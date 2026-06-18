@@ -3,6 +3,7 @@ import fc from "fast-check";
 import { canonicalJson, sha256Canonical } from "../src/hash.js";
 import { buildEnvelope, deriveIntentHash } from "../src/envelope.js";
 import { DEFAULT_ORIGIN, type Origin } from "../src/taint.js";
+import { capabilityPreimage } from "../src/capability.js";
 
 describe("canonicalJson", () => {
   it("produces identical output regardless of key order", () => {
@@ -127,6 +128,64 @@ describe("buildEnvelope — intentHash determinism", () => {
       nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     });
     expect(a.intentHash).not.toBe(b.intentHash);
+  });
+});
+
+describe("021 — capabilityPreimage binds the authorizing intentHash", () => {
+  const env = buildEnvelope({
+    kind: "pix.charge.create",
+    payload: { chargeId: "chg_1", amount: 100 },
+    actor: { principal: "llm", sessionId: "s-1" },
+    taint: "UNTRUSTED",
+    nonce: "n-cap",
+    createdAt: "2026-04-23T12:00:00.000Z",
+  });
+  const kernelId = "kernel://prod/us-east-1";
+
+  it("is deterministic for the same unsigned body (golden-vector-locked bytes)", () => {
+    expect(capabilityPreimage({ intentHash: env.intentHash, kernelId })).toBe(
+      capabilityPreimage({ intentHash: env.intentHash, kernelId }),
+    );
+  });
+
+  it("changing the bound intentHash CHANGES the pre-image (§D #4 binding)", () => {
+    const a = capabilityPreimage({ intentHash: env.intentHash, kernelId });
+    const other = buildEnvelope({
+      kind: "pix.charge.create",
+      payload: { chargeId: "chg_2", amount: 100 }, // different payload → different intentHash
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "UNTRUSTED",
+      nonce: "n-cap",
+      createdAt: "2026-04-23T12:00:00.000Z",
+    });
+    expect(other.intentHash).not.toBe(env.intentHash);
+    const b = capabilityPreimage({ intentHash: other.intentHash, kernelId });
+    expect(a).not.toBe(b);
+  });
+
+  it("changing the kernelId CHANGES the pre-image", () => {
+    expect(capabilityPreimage({ intentHash: env.intentHash, kernelId })).not.toBe(
+      capabilityPreimage({ intentHash: env.intentHash, kernelId: "kernel://other" }),
+    );
+  });
+
+  it("a descriptive field (the original envelope's createdAt) does NOT enter the pre-image", () => {
+    // The capability binds the intentHash, and intentHash already EXCLUDES
+    // createdAt. Rebuilding the authorizing envelope with a wildly different
+    // createdAt (same nonce/payload/etc.) yields the SAME intentHash → the SAME
+    // capability pre-image. createdAt-style metadata cannot drift cap bytes.
+    const sameIntentDifferentClock = buildEnvelope({
+      kind: "pix.charge.create",
+      payload: { chargeId: "chg_1", amount: 100 },
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "UNTRUSTED",
+      nonce: "n-cap",
+      createdAt: "2029-12-31T23:59:59.999Z",
+    });
+    expect(sameIntentDifferentClock.intentHash).toBe(env.intentHash);
+    expect(
+      capabilityPreimage({ intentHash: sameIntentDifferentClock.intentHash, kernelId }),
+    ).toBe(capabilityPreimage({ intentHash: env.intentHash, kernelId }));
   });
 });
 

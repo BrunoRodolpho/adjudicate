@@ -18,6 +18,18 @@ export { DEFAULT_ORIGIN } from "./taint.js";
 export * from "./side-effects.js";
 export * from "./pack-output-contract.js";
 export * from "./audit.js";
+// 021 — capability schema + pure-JS canonical pre-image + constant-time
+// hash-bind verify. The node-only ed25519 signer lives in
+// @adjudicate/approval-engine (signCapability / verifyCapabilitySignature).
+export {
+  CAPABILITY_PREIMAGE_VERSION,
+  bindCapability,
+  capabilityPreimage,
+  verifyCapability,
+  type Capability,
+  type CapabilitySignature,
+  type UnsignedCapability,
+} from "./capability.js";
 export * from "./hash.js";
 export * from "./timing-safe.js";
 export * from "./ledger.js";

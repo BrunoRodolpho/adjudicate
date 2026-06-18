@@ -52,6 +52,88 @@ export function createWebhookChannel(opts: {
   };
 }
 
+type WebhookFetch = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body: string },
+) => Promise<{ ok: boolean }>;
+
+function summarize(ctx: ApprovalChannelContext): string {
+  const links = [ctx.approveUrl ? `approve: ${ctx.approveUrl}` : "", ctx.declineUrl ? `decline: ${ctx.declineUrl}` : ""]
+    .filter(Boolean)
+    .join("  ");
+  return `Approval needed — ${ctx.intentKind} (${ctx.taint})\n${ctx.prompt}${links ? `\n${links}` : ""}`;
+}
+
+/** Slack incoming-webhook channel. POSTs a Slack message payload. `fetchImpl` injectable. */
+export function createSlackChannel(opts: {
+  readonly id?: string;
+  readonly webhookUrl: string;
+  readonly fetchImpl?: WebhookFetch;
+}): ApprovalChannel {
+  const id = opts.id ?? "slack";
+  return {
+    id,
+    async request(ctx) {
+      if (!opts.fetchImpl) return {};
+      const res = await opts.fetchImpl(opts.webhookUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: summarize(ctx) }),
+      });
+      if (!res.ok) throw new Error(`slack channel ${id}: non-ok response`);
+      return { channelRef: ctx.token };
+    },
+  };
+}
+
+/** Microsoft Teams incoming-webhook channel. POSTs a Teams MessageCard. `fetchImpl` injectable. */
+export function createTeamsChannel(opts: {
+  readonly id?: string;
+  readonly webhookUrl: string;
+  readonly fetchImpl?: WebhookFetch;
+}): ApprovalChannel {
+  const id = opts.id ?? "teams";
+  return {
+    id,
+    async request(ctx) {
+      if (!opts.fetchImpl) return {};
+      const res = await opts.fetchImpl(opts.webhookUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          "@type": "MessageCard",
+          "@context": "https://schema.org/extensions",
+          summary: `Approval: ${ctx.intentKind}`,
+          text: summarize(ctx),
+        }),
+      });
+      if (!res.ok) throw new Error(`teams channel ${id}: non-ok response`);
+      return { channelRef: ctx.token };
+    },
+  };
+}
+
+/** Email channel. Adopter injects a `send` transport (SMTP/SES/etc.) — pure I/O, outside the kernel. */
+export function createEmailChannel(opts: {
+  readonly id?: string;
+  readonly to: string | ((ctx: ApprovalChannelContext) => string);
+  readonly subject?: (ctx: ApprovalChannelContext) => string;
+  readonly send?: (msg: { to: string; subject: string; body: string }) => Promise<{ ok: boolean }>;
+}): ApprovalChannel {
+  const id = opts.id ?? "email";
+  return {
+    id,
+    async request(ctx) {
+      if (!opts.send) return {};
+      const to = typeof opts.to === "function" ? opts.to(ctx) : opts.to;
+      const subject = opts.subject ? opts.subject(ctx) : `Approval needed: ${ctx.intentKind}`;
+      const res = await opts.send({ to, subject, body: summarize(ctx) });
+      if (!res.ok) throw new Error(`email channel ${id}: send failed`);
+      return { channelRef: ctx.token };
+    },
+  };
+}
+
 /** Zero-dependency reference channel for quickstart/tests — records deliveries in memory. */
 export function createConsoleLogChannel(): ApprovalChannel & { readonly delivered: ApprovalChannelContext[] } {
   const delivered: ApprovalChannelContext[] = [];

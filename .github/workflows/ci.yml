@@ -38,6 +38,20 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # ADR-140: the shipped Pack catalog must stay free of cross-pack conflicts
+      # (REWRITE-field overlap, DEFER-signal collision, taint contradiction,
+      # duplicate intents). Offline/CI only — never runs inside adjudicate().
+      # Adopters wire this same command over THEIR declared merge set.
+      - name: Composition gate (shipped pack catalog stays conflict-free)
+        run: >
+          node packages/cli/dist/bin.js analyze-composition
+          --pack ./packages/pack-cli-agent/dist/index.js
+          --pack ./packages/pack-access-governance/dist/index.js
+          --pack ./packages/pack-incident-response/dist/index.js
+          --pack ./packages/pack-payments-pix/dist/index.js
+          --pack ./packages/pack-identity-kyc/dist/index.js
+          --pack ./packages/pack-deployments-approval/dist/index.js
+
       - name: Version consistency
         run: pnpm check:versions
 

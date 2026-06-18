@@ -51,6 +51,8 @@ export default function ApprovalsPage() {
                 <th scope="col" className="px-3 py-1.5 font-normal">Token</th>
                 <th scope="col" className="px-3 py-1.5 font-normal">Incident</th>
                 <th scope="col" className="px-3 py-1.5 font-normal">Intent</th>
+                <th scope="col" className="px-3 py-1.5 font-normal">Quorum</th>
+                <th scope="col" className="px-3 py-1.5 font-normal">Escalation</th>
                 <th scope="col" className="px-3 py-1.5 font-normal">Prompt</th>
                 <th scope="col" className="px-3 py-1.5 text-right font-normal">Decision</th>
               </tr>
@@ -67,6 +69,36 @@ export default function ApprovalsPage() {
                   </th>
                   <td className="px-3 py-1.5 font-mono text-muted">{r.sessionId}</td>
                   <td className="px-3 py-1.5 text-muted">{r.intentKind}</td>
+                  <td
+                    className="px-3 py-1.5 tabular-nums text-muted"
+                    data-testid={`quorum-${r.token}`}
+                  >
+                    {r.quorum
+                      ? `${
+                          r.quorum.distinctApprovers === false
+                            ? r.approvals?.length ?? 0
+                            : new Set((r.approvals ?? []).map((a) => a.id)).size
+                        }/${r.quorum.minApprovals}`
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-1.5 text-muted" data-testid={`escalation-${r.token}`}>
+                    {r.escalation ? (
+                      <span
+                        className={
+                          Date.now() - Date.parse(r.requestedAt) >= r.escalation.afterMs
+                            ? "text-red-300"
+                            : "text-faint"
+                        }
+                      >
+                        → {r.escalation.to}
+                        {Date.now() - Date.parse(r.requestedAt) >= r.escalation.afterMs
+                          ? " · due"
+                          : ""}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-3 py-1.5 text-muted">{r.prompt}</td>
                   <td className="px-3 py-1.5">
                     {r.source === "agent" ? (

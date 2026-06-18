@@ -150,6 +150,43 @@ describe("memory store loop integration (ADR-126)", () => {
     expect(await memory.get("s")).toEqual({ tag: "after" });
   });
 
+  it("writeback retries on a CAS version conflict, then commits", async () => {
+    const seen = { plannerContexts: [] as Context[], renderContexts: [] as Context[] };
+    let version = 0;
+    let putIfVersionCalls = 0;
+    let stored: unknown = null;
+    const store = {
+      async get() {
+        return stored;
+      },
+      async put(_s: string, m: unknown) {
+        stored = m;
+      },
+      async getVersioned() {
+        return { value: stored, version };
+      },
+      async putIfVersion(_s: string, m: unknown, expected: number) {
+        putIfVersionCalls += 1;
+        if (putIfVersionCalls === 1) {
+          version += 1; // a concurrent writer landed between our read and write
+          return null; // → conflict, loop must re-read and retry
+        }
+        if (expected !== version) return null;
+        version += 1;
+        stored = m;
+        return version;
+      },
+    };
+    const agent = makeAgent({
+      seen,
+      memory: store as unknown as ReturnType<typeof createInMemoryMemoryStore>,
+      writeback: true,
+    });
+    await agent.send(send);
+    expect(putIfVersionCalls).toBe(2); // first conflicted, second committed
+    expect(stored).toEqual({ tag: "after" });
+  });
+
   it("DETERMINISM: the decision + envelope are identical with vs without memory", async () => {
     const seenA = { plannerContexts: [] as Context[], renderContexts: [] as Context[] };
     const seenB = { plannerContexts: [] as Context[], renderContexts: [] as Context[] };

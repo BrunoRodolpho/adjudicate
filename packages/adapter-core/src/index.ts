@@ -70,10 +70,12 @@ export {
 } from "./persistence.js";
 export type {
   ConfirmationStore,
+  CreateInMemoryMemoryStoreOptions,
   DeferRedis,
   MemoryStore,
   ParkRedis,
   PendingConfirmation,
+  VersionedMemory,
 } from "./persistence.js";
 export {
   createRedisMemoryStore,
@@ -89,6 +91,13 @@ export {
   type CreatePostgresMemoryStoreOptions,
   type MemorySqlExecutor,
 } from "./persistence-postgres.js";
+
+export {
+  composeFolds,
+  composeMetadataProviders,
+  type Fold,
+  type MetadataProvider,
+} from "./fold-hooks.js";
 
 export {
   createInMemoryTokenUsageStore,

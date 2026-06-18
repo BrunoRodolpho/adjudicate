@@ -48,10 +48,21 @@ export {
   type FlagStripRule,
 } from "./command-classify.js";
 
+export { assertSafePattern, PII_PATTERNS_COMMON } from "./pii-patterns.js";
+export {
+  createSessionRiskGuard,
+  foldSessionRiskScore,
+  sessionRiskWindowMean,
+  type FoldSessionRiskOptions,
+  type SessionRisk,
+  type SessionRiskBucket,
+  type SessionRiskGuardOptions,
+} from "./session-risk.js";
 export {
   createCommandRiskGuard,
   createConfirmGuard,
   createDataClassificationGuard,
+  createDataClassificationShadowProvider,
   createEscalateGuard,
   createIdempotencyGuard,
   createRewriteGuard,

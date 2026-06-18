@@ -27,6 +27,29 @@ export const ApprovalRequestSchema = z.object({
    * Display-only; never a security boundary.
    */
   source: z.enum(["checkout", "agent"]).optional(),
+  /**
+   * Multi-approver quorum projection (ADR-143). Mirrors the engine's
+   * `ApprovalRequest.approvals` (registry.ts): each accepted vote appended.
+   * Optional — absent for single-approver flows. Display-only.
+   */
+  approvals: z
+    .array(z.object({ id: z.string(), at: z.string(), displayName: z.string().optional() }))
+    .optional(),
+  /**
+   * Escalation policy (ADR-143). Mirrors the engine's `ApprovalRequest.escalation`.
+   * An out-of-band scheduler / the UI computes "due" via `isEscalationDue`.
+   */
+  escalation: z
+    .object({ afterMs: z.number(), to: z.enum(["human", "supervisor"]) })
+    .optional(),
+  /**
+   * Quorum policy (ADR-143), stamped per-request by the engine so this
+   * projection is self-describing — the UI renders `approvals.length /
+   * quorum.minApprovals` without the engine's global config.
+   */
+  quorum: z
+    .object({ minApprovals: z.number().int().positive(), distinctApprovers: z.boolean().optional() })
+    .optional(),
 });
 
 export type ApprovalRequestParsed = z.infer<typeof ApprovalRequestSchema>;
@@ -37,10 +60,32 @@ export const ApprovalListQuerySchema = z.object({
   limit: z.number().int().positive().optional(),
 });
 
+/**
+ * Approver attestation (ADR-143). Re-declared here as a zod schema because
+ * admin-sdk MUST NOT depend on @adjudicate/approval-engine (which owns the
+ * `Attestation` TS type). The structural contract is pinned by
+ * `tests/approval-attestation-contract.test.ts` so the two never drift: a
+ * base64 `signature` over the canonical `attestationMessage(token, accepted,
+ * intentHash)` by `approverId`.
+ */
+export const AttestationSchema = z.object({
+  approverId: z.string(),
+  signature: z.string(),
+});
+
+export type Attestation = z.infer<typeof AttestationSchema>;
+
 export const ApprovalResolveInputSchema = z.object({
   token: z.string(),
   accepted: z.boolean(),
   reason: z.string().optional(),
+  /**
+   * Optional approver attestation. When the adopter's engine is configured with
+   * an `attestationVerifier`, resolve REQUIRES this; the verifier checks the
+   * signature before the vote counts (replaces the forgeable `resolvedBy`
+   * claim). Absent for engines without attestation enforcement.
+   */
+  attestation: AttestationSchema.optional(),
 });
 
 export type ApprovalResolveInput = z.infer<typeof ApprovalResolveInputSchema>;
@@ -80,6 +125,14 @@ export const ApprovalHistoryEntrySchema = z.object({
    */
   resolvedBy: z
     .object({ id: z.string(), displayName: z.string().optional() })
+    .optional(),
+  /**
+   * Accumulated approvers (ADR-143 quorum), carried through on resolved rows so
+   * the history view can show approver count. Optional — absent for
+   * single-approver flows or ports that don't project it. Display-only.
+   */
+  approvals: z
+    .array(z.object({ id: z.string(), at: z.string(), displayName: z.string().optional() }))
     .optional(),
 });
 

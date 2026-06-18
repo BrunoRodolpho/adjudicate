@@ -26,11 +26,16 @@ When changesets are merged to `main`, the **Release** workflow opens (or updates
 a "Version Packages" PR that bumps versions and updates changelogs. Merging that
 PR triggers `npm publish` for every changed package.
 
-## Pre-release convention (Phase 1 → Phase 3)
+## Pre-release convention
 
-The four kernel packages live at `0.1.0-experimental` until Phase 3 of the
-[platform roadmap](../README.md#status) validates the Pack contract. Until then,
-the `-experimental` suffix is preserved manually in any version bump — when the
-auto-generated Version PR drops the suffix, edit the version field back before
-merging. After Phase 3, the suffix drops on first stable release and changesets
-takes over without intervention.
+The kernel packages have graduated from `0.1.0-experimental` to stable semver —
+`@adjudicate/core` (1.x), `@adjudicate/conformance` (2.x), `@adjudicate/adapter-core`
+and the re-exporters `@adjudicate/anthropic` / `@adjudicate/openai` /
+`@adjudicate/vercel-ai` (0.3.x). Changesets now drives their versions with no manual
+intervention: let the auto-generated **Version Packages** PR set the bump.
+
+The only package still carrying the `-experimental` suffix is
+`@adjudicate/pack-cli-agent` (`0.1.0-experimental`), a reference Pack whose
+contract is intentionally not yet frozen. If a Version PR drops *its* suffix
+before that Pack stabilises, edit the version field back before merging. No other
+package needs suffix handling.

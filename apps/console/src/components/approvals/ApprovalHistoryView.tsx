@@ -62,6 +62,9 @@ export function ApprovalHistoryView({
                   Status
                 </th>
                 <th scope="col" className="py-1 pr-2 font-normal">
+                  Approvers
+                </th>
+                <th scope="col" className="py-1 pr-2 font-normal">
                   Resolved
                 </th>
                 <th scope="col" className="py-1 pr-2 font-normal">
@@ -93,6 +96,12 @@ export function ApprovalHistoryView({
                       >
                         {e.status}
                       </span>
+                    </td>
+                    <td
+                      className="py-1 pr-2 tabular-nums text-faint"
+                      data-testid="approver-count"
+                    >
+                      {e.approvals && e.approvals.length > 0 ? e.approvals.length : "—"}
                     </td>
                     <td className="py-1 pr-2 tabular-nums text-faint">
                       {e.resolvedAt ?? "—"}

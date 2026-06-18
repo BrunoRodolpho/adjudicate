@@ -30,11 +30,22 @@ export {
 export {
   DEFAULT_TIER3_ANALYZERS,
   policyCoherenceAnalyzer,
+  compositionReachabilityAnalyzer,
+  compositionEscalationCycleAnalyzer,
+  detectEscalationCycles,
   type PlannerProbe,
   type Tier3Analyzer,
 } from "./tier3.js";
 
 export { analyzePolicy, type AnalyzePolicyArgs } from "./analyze.js";
+
+export {
+  analyzeComposition,
+  type CompositionAnalyzeOptions,
+  type CompositionCheck,
+  type CompositionConflict,
+  type CompositionReport,
+} from "./composition.js";
 
 export { renderJson, renderSarif, renderText } from "./render.js";
 

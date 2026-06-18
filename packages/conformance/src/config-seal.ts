@@ -126,13 +126,13 @@ export interface ConfigSealReport {
   readonly errors: ReadonlyArray<string>;
 }
 
-export function verifyConfigSeal(
-  pack: SealablePackInput,
+/** Shared digest+signature verdict over an already-computed digest. */
+function buildConfigSealReport(
+  computedDigest: string,
   seal: ConfigSeal,
-  options: { readonly publicKeyPem?: string; readonly policy?: ConfigSealPolicy } = {},
+  options: { readonly publicKeyPem?: string; readonly policy?: ConfigSealPolicy },
 ): ConfigSealReport {
   const policy = options.policy ?? "require_digest";
-  const computedDigest = computeConfigDigest(extractSealableSurface(pack));
   const errors: string[] = [];
   const digestMatch: "match" | "mismatch" =
     computedDigest === seal.digest ? "match" : "mismatch";
@@ -164,4 +164,41 @@ export function verifyConfigSeal(
     signatureVerification,
     errors,
   };
+}
+
+/** Verify a seal by re-extracting + re-hashing the LIVE pack (catches drift). */
+export function verifyConfigSeal(
+  pack: SealablePackInput,
+  seal: ConfigSeal,
+  options: { readonly publicKeyPem?: string; readonly policy?: ConfigSealPolicy } = {},
+): ConfigSealReport {
+  return buildConfigSealReport(computeConfigDigest(extractSealableSurface(pack)), seal, options);
+}
+
+/**
+ * Deep-freeze a sealable surface so a captured reference cannot be mutated in
+ * place (ADR-137). Returns the same (now frozen) object.
+ */
+export function freezeSealableSurface(surface: SealableSurface): Readonly<SealableSurface> {
+  const deepFreeze = (o: unknown): void => {
+    if (o !== null && typeof o === "object" && !Object.isFrozen(o)) {
+      Object.freeze(o);
+      for (const v of Object.values(o as Record<string, unknown>)) deepFreeze(v);
+    }
+  };
+  deepFreeze(surface);
+  return surface;
+}
+
+/**
+ * Verify a seal against an ALREADY-EXTRACTED (typically frozen) surface — the
+ * 'frozen' re-verify cadence (ADR-137). Cheaper than re-extracting from the live
+ * pack each turn; pair with `freezeSealableSurface` captured at construction.
+ */
+export function verifyConfigSealFrozen(
+  frozen: Readonly<SealableSurface>,
+  seal: ConfigSeal,
+  options: { readonly publicKeyPem?: string; readonly policy?: ConfigSealPolicy } = {},
+): ConfigSealReport {
+  return buildConfigSealReport(computeConfigDigest(frozen), seal, options);
 }

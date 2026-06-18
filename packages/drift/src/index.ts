@@ -31,3 +31,15 @@ export {
   type DriftHistoryOptions,
   type DriftHistoryView,
 } from "./history.js";
+export {
+  createSessionRiskDriftBridge,
+  quantizeRisk,
+  type RiskBucket,
+  type RiskBucketThresholds,
+  type RiskDriftAlert,
+  type RiskDriftHistoryEntry,
+  type RiskDriftHistoryView,
+  type RiskDriftSnapshot,
+  type SessionRiskDriftBridge,
+  type SessionRiskDriftBridgeOptions,
+} from "./session-risk-bridge.js";

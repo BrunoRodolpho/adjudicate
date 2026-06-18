@@ -5,6 +5,7 @@ import {
   decisionExecute,
   decisionRefuse,
   decisionRequestConfirmation,
+  refuse,
   type PolicyBundle,
 } from "@adjudicate/core";
 import { nameGuard, type Guard } from "@adjudicate/core/kernel";
@@ -21,7 +22,9 @@ import {
   KNOWN_RESOURCE_IDS,
   MAX_SELF_SERVICE_LEVEL,
   SENSITIVE_RESOURCE_IDS,
+  type AccessBreakglassPayload,
   type AccessIntentKind,
+  type AccessPrivilegeLevel,
   type AccessRequestPayload,
   type AccessReview,
   type AccessRevokePayload,
@@ -38,6 +41,23 @@ type AccessGuard = Guard<AccessIntentKind, unknown, AccessState>;
 
 const req = (p: unknown): AccessRequestPayload => p as AccessRequestPayload;
 const rev = (p: unknown): AccessRevokePayload => p as AccessRevokePayload;
+
+/**
+ * Replay-safe instant parser. Returns ms-since-epoch, or NaN for any string that
+ * cannot be compared deterministically across hosts. ECMAScript parses a date-
+ * TIME string WITHOUT a timezone designator (e.g. `2026-05-01T12:00:00`) as host
+ * LOCAL time, so two replays on hosts in different time zones would derive
+ * different instants — and thus potentially different EXECUTE/REFUSE decisions.
+ * We therefore require an explicit `Z` or `±HH:MM` offset on any value carrying a
+ * time component; offset-less datetimes are rejected (NaN → callers fail closed).
+ * Pure: no `Date.now()`, no ambient clock — only the replayable input string.
+ */
+function parseInstant(s: string): number {
+  const hasTime = /[T ]\d/.test(s);
+  const hasTimezone = /(Z|[+-]\d{2}:?\d{2})$/i.test(s);
+  if (hasTime && !hasTimezone) return Number.NaN;
+  return Date.parse(s);
+}
 
 function reviewFor(state: AccessState, p: AccessRequestPayload): AccessReview | undefined {
   return state.reviews.get(accessKey(p.resourceId, p.principal));
@@ -78,6 +98,45 @@ const requireActiveGrantForRevoke: AccessGuard = nameGuard("requireActiveGrantFo
   return null;
 });
 
+// Refuse operating on an EXPIRED grant (ADR-142). Pure + replay-safe: compares
+// grant.expiresAt against envelope.createdAt (the replayable, audit-preserved
+// clock — never Date.now()). Date.parse parses replayable strings only, no clock
+// read. Runs after requireActiveGrantForRevoke so a missing grant → no_active_grant
+// and a present-but-expired grant → grant_expired. Boundary createdAt==expiresAt
+// counts as expired (<=).
+const refuseExpiredGrant: AccessGuard = nameGuard("refuseExpiredGrant", (envelope, state) => {
+  if (envelope.kind !== "access.revoke") return null;
+  const p = rev(envelope.payload);
+  const grant = state.grants.get(accessKey(p.resourceId, p.principal));
+  if (grant?.expiresAt === undefined) return null;
+  // Fail CLOSED. `parseInstant("garbage")` is NaN and `NaN <= x` is always false,
+  // so a bare `<=` check treated an unparseable expiresAt (or createdAt) as a
+  // LIVE grant and let the revoke EXECUTE against it — a fail-open. Rehydrated /
+  // adopter-minted grants carry unvalidated string fields, so this is reachable.
+  // parseInstant ALSO rejects timezone-less datetimes (which ECMAScript parses as
+  // host-LOCAL time → a replay-determinism break: same envelope+state, different
+  // decision per host TZ). Pure + replay-safe: parses the replayable strings only,
+  // never Date.now(). Boundary createdAt==expiresAt counts as expired (<=).
+  const expiresAt = parseInstant(grant.expiresAt);
+  const createdAt = parseInstant(envelope.createdAt);
+  const malformed = Number.isNaN(expiresAt) || Number.isNaN(createdAt);
+  if (malformed || expiresAt <= createdAt) {
+    const detail = malformed
+      ? `unparseable timestamp (expiresAt=${grant.expiresAt}, createdAt=${envelope.createdAt})`
+      : `grant expired at ${grant.expiresAt}`;
+    return decisionRefuse(
+      refuse("STATE", "grant_expired", "That access grant has already expired.", detail),
+      [basis("state", BASIS_CODES.state.GRANT_EXPIRED, {
+        resourceId: p.resourceId,
+        principal: p.principal,
+        expiresAt: grant.expiresAt,
+        ...(malformed ? { malformed: true } : {}),
+      })],
+    );
+  }
+  return null;
+});
+
 // ── business guards ─────────────────────────────────────────────────────────
 
 const allowResolve: AccessGuard = nameGuard("allowResolve", (envelope) =>
@@ -85,6 +144,32 @@ const allowResolve: AccessGuard = nameGuard("allowResolve", (envelope) =>
     ? decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID, { source: "review" })])
     : null,
 );
+
+/** Emergency grants are capped at 1h regardless of the requested ttlMs. */
+const BREAKGLASS_MAX_TTL_MS = 60 * 60 * 1000;
+
+// Break-glass (ADR-142). Reaches here only when TRUSTED (the taint gate refuses
+// UNTRUSTED break-glass for free). ttlMs is mandatory: missing/invalid → REFUSE
+// (BREAKGLASS_TTL_INVALID); valid → EXECUTE (BREAKGLASS_GRANTED). The adopter then
+// mints the grant with expiresAt = createdAt + ttlMs post-turn (out of path).
+const executeBreakglass: AccessGuard = nameGuard("executeBreakglass", (envelope) => {
+  if (envelope.kind !== "access.breakglass") return null;
+  const p = envelope.payload as Partial<AccessBreakglassPayload>;
+  const ttlMs = p.ttlMs;
+  if (typeof ttlMs !== "number" || !Number.isInteger(ttlMs) || ttlMs <= 0 || ttlMs > BREAKGLASS_MAX_TTL_MS) {
+    return decisionRefuse(
+      refuse("BUSINESS_RULE", "breakglass_ttl_invalid", "Emergency access requires a valid time limit.", `ttlMs must be a positive integer ≤ ${BREAKGLASS_MAX_TTL_MS}`),
+      [basis("business", BASIS_CODES.business.BREAKGLASS_TTL_INVALID, { ttlMs: ttlMs ?? null })],
+    );
+  }
+  return decisionExecute([basis("business", BASIS_CODES.business.BREAKGLASS_GRANTED, {
+    resourceId: p.resourceId,
+    principal: p.principal,
+    privilegeLevel: p.privilegeLevel,
+    ttlMs,
+    grantedAt: envelope.createdAt,
+  })]);
+});
 
 /**
  * Redact PII from the free-text `justification` before the request is processed
@@ -100,11 +185,19 @@ const redactJustificationPii: AccessGuard = nameGuard(
     matches: (envelope) => envelope.kind === "access.request",
     patterns: [
       { id: "ssn", pattern: /\b\d{3}[- ]?\d{2}[- ]?\d{4}\b/ },
-      { id: "email", pattern: /\b[\w.+-]+@[\w-]+\.[\w][\w.-]*\b/ },
+      // Linear: bounded local part + per-label domain (each label excludes `.`).
+      // The previous `[\w.+-]+@[\w-]+\.[\w][\w.-]*` backtracked O(n^2) on the
+      // attacker-controlled justification (e.g. "a."×100k → ~27s event-loop block).
+      { id: "email", pattern: /\b[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63})+\b/ },
     ],
     scannedFields: ["justification"],
     action: "REWRITE",
     sensitivityLevel: "medium",
+    // NOTE: deliberately NO maxInputLength here. The patterns above are linear,
+    // so there is no ReDoS to cap; and maxInputLength is fail-OPEN (oversized
+    // fields are skipped, which would let an attacker pad the justification to
+    // smuggle un-redacted PII into the audit trail). Input-size limits, if any,
+    // belong at the schema/validation layer where they can fail CLOSED.
     reason: "Redacted PII from the access-request justification.",
   }),
 );
@@ -193,18 +286,113 @@ const executeConfirmedRevoke: AccessGuard = nameGuard("executeConfirmedRevoke", 
     : null;
 });
 
+// ── access sub-gap guards (WS-F) ──────────────────────────────────────────────
+// Pure, additive guards. All three ESCALATE (never duplicate kernel/engine state)
+// and reuse business:rule_violated with a `detail.rule` discriminator — the same
+// pattern the existing guards use — so they add no new BASIS_CODES vocabulary and
+// no PackV0.basisCodes change (kept low-ripple per WS-F; distinct codes can be
+// added later if dashboards need them).
+
+/** A principal holding this many active grants triggers a role-explosion review. */
+const ROLE_EXPLOSION_THRESHOLD = 5;
+/** Admin (level 2) grants require peer review even after a single approval. */
+const PEER_REVIEW_LEVEL: AccessPrivilegeLevel = 2;
+
+function grantCountFor(state: AccessState, principal: string): number {
+  let n = 0;
+  for (const grant of state.grants.values()) if (grant.principal === principal) n += 1;
+  return n;
+}
+
+// role-explosion: a principal accumulating excess grants is reviewed before more
+// privilege is added. ESCALATE (a human/quorum prunes least-privilege). Fires only
+// at/above the threshold, so normal request flows are untouched.
+const reviewRoleExplosion: AccessGuard = nameGuard("reviewRoleExplosion", (envelope, state) => {
+  if (envelope.kind !== "access.request") return null;
+  const p = req(envelope.payload);
+  const count = grantCountFor(state, p.principal);
+  if (count >= ROLE_EXPLOSION_THRESHOLD) {
+    return decisionEscalate(
+      "human",
+      `Principal ${p.principal} already holds ${count} grants — review for role explosion before adding more.`,
+      [basis("business", BASIS_CODES.business.RULE_VIOLATED, {
+        rule: "role_explosion",
+        principal: p.principal,
+        grantCount: count,
+        threshold: ROLE_EXPLOSION_THRESHOLD,
+      })],
+    );
+  }
+  return null;
+});
+
+// redundancy: a request the principal already holds (equal-or-higher grant on the
+// same resource) mints no new privilege. ESCALATE so a reviewer confirms the
+// overlap is intended rather than silently re-granting. Fires only when a covering
+// grant already exists.
+const flagRedundantGrant: AccessGuard = nameGuard("flagRedundantGrant", (envelope, state) => {
+  if (envelope.kind !== "access.request") return null;
+  const p = req(envelope.payload);
+  const existing = state.grants.get(accessKey(p.resourceId, p.principal));
+  if (existing !== undefined && existing.privilegeLevel >= p.privilegeLevel) {
+    return decisionEscalate(
+      "human",
+      `Request for ${p.resourceId} is redundant: ${p.principal} already holds an equal-or-higher grant.`,
+      [basis("business", BASIS_CODES.business.RULE_VIOLATED, {
+        rule: "redundant_grant",
+        resourceId: p.resourceId,
+        principal: p.principal,
+        existingLevel: existing.privilegeLevel,
+        requestedLevel: p.privilegeLevel,
+      })],
+    );
+  }
+  return null;
+});
+
+// peer-review: an ADMIN-level (level 2) grant needs more than one approver. Even
+// with a single approved review, ESCALATE to route the request into the approval
+// engine's N-of-M quorum (WS-B). The pack does NOT track approver counts — that
+// state is the engine's; the guard only ESCALATEs (no shared quorum state).
+const requirePeerReviewForAdmin: AccessGuard = nameGuard("requirePeerReviewForAdmin", (envelope, state) => {
+  if (envelope.kind !== "access.request") return null;
+  const p = req(envelope.payload);
+  const review = reviewFor(state, p);
+  if (
+    p.privilegeLevel >= PEER_REVIEW_LEVEL &&
+    review?.decision === "approved" &&
+    (review.grantedLevel ?? 0) >= PEER_REVIEW_LEVEL
+  ) {
+    return decisionEscalate(
+      "human",
+      `Admin-level access to ${p.resourceId} requires peer review — a single approval is insufficient.`,
+      [basis("business", BASIS_CODES.business.RULE_VIOLATED, {
+        rule: "peer_review_required",
+        resourceId: p.resourceId,
+        principal: p.principal,
+        level: p.privilegeLevel,
+      })],
+    );
+  }
+  return null;
+});
+
 export const accessPolicyBundle: PolicyBundle<AccessIntentKind, unknown, AccessState> = {
-  stateGuards: [validateResource, validatePrivilegeLevel, requireActiveGrantForRevoke],
+  stateGuards: [validateResource, validatePrivilegeLevel, requireActiveGrantForRevoke, refuseExpiredGrant],
   authGuards: [],
   taint: accessTaintPolicy,
   business: [
     redactJustificationPii,
     allowResolve,
+    executeBreakglass,
     escalateSensitiveResource,
+    reviewRoleExplosion,
+    flagRedundantGrant,
     reduceToLeastPrivilege,
     refuseRejectedRequest,
     deferPendingReview,
     confirmRevoke,
+    requirePeerReviewForAdmin,
     executeApprovedRequest,
     executeConfirmedRevoke,
   ],

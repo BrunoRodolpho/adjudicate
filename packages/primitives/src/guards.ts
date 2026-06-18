@@ -40,6 +40,7 @@ import {
   taintRank,
 } from "@adjudicate/core";
 import type {
+  AuditRecord,
   Decision,
   DecisionBasis,
   IntentActor,
@@ -49,6 +50,7 @@ import type {
   Taint,
 } from "@adjudicate/core";
 import { withMetadata, type Guard } from "@adjudicate/core/kernel";
+import { assertSafePattern } from "./pii-patterns.js";
 import {
   classifyCommand,
   stripDangerousFlags,
@@ -584,10 +586,24 @@ export interface DataClassificationGuardOptions<K extends string, P, S> {
    * `GuardDescription.scannedFields` can declare scope (AJD-104 parity).
    */
   readonly scannedFields: ReadonlyArray<string>;
-  /** Disposition on detection. */
+  /**
+   * Disposition on detection. NOTE: observe-only "SHADOW" is intentionally NOT
+   * a value here — modelling shadow as a no-op REWRITE would force-execute the
+   * payload and skip later guards (ADR-141 §4.6). Use the out-of-path
+   * `createDataClassificationShadowProvider` for observe-only detection.
+   */
   readonly action: "REWRITE" | "REFUSE";
   /** Sensitivity tag surfaced in metadata AND `basis.detail`. */
   readonly sensitivityLevel: SensitivityLevel;
+  /**
+   * Skip scanning any field whose stringified value exceeds this length. A
+   * second line of defense against pathological/quadratic patterns scanning
+   * attacker-controlled free text — NOT a substitute for keeping the patterns
+   * linear (`assertSafePattern` is a best-effort heuristic, not a proof). Any
+   * guard that scans an UNTRUSTED free-text field SHOULD set this. Oversized
+   * fields are NOT scanned (fail-open on size). Default: unbounded.
+   */
+  readonly maxInputLength?: number;
   /** REWRITE reason text. Defaults to a fixed string. */
   readonly reason?: string;
   /** REFUSE user-facing text. Defaults to "I can't process that data." */
@@ -639,6 +655,8 @@ export function createDataClassificationGuard<K extends string, P, S>(
       "createDataClassificationGuard: scannedFields must be non-empty (declares the permitted scan/redact scope).",
     );
   }
+  // ReDoS guard: reject catastrophic-backtracking patterns at construction.
+  for (const p of options.patterns) assertSafePattern(p.pattern, p.id);
   const reason = options.reason ?? "Redacted classified data from payload.";
   const userFacing = options.userFacing ?? "I can't process that data.";
 
@@ -656,15 +674,19 @@ export function createDataClassificationGuard<K extends string, P, S>(
     for (const field of options.scannedFields) {
       const value = getPath(payload, field);
       if (typeof value !== "string") continue;
+      // Oversized field: skip scanning (fail-open on size).
+      if (options.maxInputLength !== undefined && value.length > options.maxInputLength) continue;
       let fieldMatched = false;
       let redacted = value;
       for (const p of options.patterns) {
         if (testPattern(p.pattern, value)) {
           fieldMatched = true;
           if (!detectedPatterns.includes(p.id)) detectedPatterns.push(p.id);
-        }
-        if (options.action === "REWRITE") {
-          redacted = redactWith(p.pattern, redacted, p.redact ?? (() => DEFAULT_REDACT_TOKEN));
+          // Redact only patterns that actually matched (§4.6 — was redacting
+          // with every pattern's regex regardless, a wasted pass).
+          if (options.action === "REWRITE") {
+            redacted = redactWith(p.pattern, redacted, p.redact ?? (() => DEFAULT_REDACT_TOKEN));
+          }
         }
       }
       if (fieldMatched) {
@@ -716,6 +738,60 @@ export function createDataClassificationGuard<K extends string, P, S>(
       scannedFields: [...options.scannedFields],
     },
   });
+}
+
+/**
+ * Out-of-path SHADOW detection (ADR-141 §4.6). Observe-only PII detection that
+ * NEVER changes the Decision: it rides the post-decision `metadataProvider` seam
+ * (hash-EXCLUDED, exactly like hallucination scoring), so it cannot force-execute
+ * a payload or skip later guards the way a "SHADOW REWRITE" would. Pair with
+ * `adjudicateAndAudit({ metadataProvider })`; it attaches
+ * `{ pii_shadow_detected, pii_shadow_fields, pii_shadow_sensitivity }` only when
+ * something matched, and `undefined` otherwise (so byte-identical audit hashes
+ * are preserved for clean records). Pure — same scan as the guard, no I/O.
+ */
+export function createDataClassificationShadowProvider(options: {
+  readonly patterns: ReadonlyArray<DataClassificationPattern>;
+  readonly scannedFields: ReadonlyArray<string>;
+  readonly sensitivityLevel: SensitivityLevel;
+  readonly maxInputLength?: number;
+  /** Restrict scanning to matching records (default: every record). */
+  readonly matches?: (record: AuditRecord) => boolean;
+}): {
+  readonly metadataProvider: (record: AuditRecord) => Readonly<Record<string, unknown>> | undefined;
+} {
+  if (options.scannedFields.length === 0) {
+    throw new Error("createDataClassificationShadowProvider: scannedFields must be non-empty.");
+  }
+  for (const p of options.patterns) assertSafePattern(p.pattern, p.id);
+  return {
+    metadataProvider(record) {
+      if (options.matches && !options.matches(record)) return undefined;
+      const payload = record.envelope?.payload;
+      if (payload === null || typeof payload !== "object") return undefined;
+      const detectedPatterns: string[] = [];
+      const fields: string[] = [];
+      for (const field of options.scannedFields) {
+        const value = getPath(payload, field);
+        if (typeof value !== "string") continue;
+        if (options.maxInputLength !== undefined && value.length > options.maxInputLength) continue;
+        let matched = false;
+        for (const p of options.patterns) {
+          if (testPattern(p.pattern, value)) {
+            matched = true;
+            if (!detectedPatterns.includes(p.id)) detectedPatterns.push(p.id);
+          }
+        }
+        if (matched) fields.push(field);
+      }
+      if (detectedPatterns.length === 0) return undefined;
+      return {
+        pii_shadow_detected: detectedPatterns,
+        pii_shadow_fields: fields,
+        pii_shadow_sensitivity: options.sensitivityLevel,
+      };
+    },
+  };
 }
 
 // ─── createTokenBudgetGuard (cost control, ADR-120) ─────────────────────────

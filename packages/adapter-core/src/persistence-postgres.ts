@@ -71,6 +71,14 @@ export interface CreatePostgresMemoryStoreOptions {
   readonly recordedAtColumn?: string;
   /** Best-effort read-error hook (default: swallow → fail-open to null). */
   readonly onReadError?: (err: unknown) => void;
+  /**
+   * Namespacing transform applied to `sessionId` before the `WHERE
+   * sessionColumn = $1` lookup — for symmetry with the in-memory/Redis stores'
+   * `keyFor`. Default: identity. NOTE: must match how session ids are actually
+   * stored in `auditTable`; if you namespace in-memory keys, namespace the
+   * stored audit session ids the same way or the join returns null (fail-open).
+   */
+  readonly keyFor?: (sessionId: string) => string;
 }
 
 /** Identifier safety: the configured table names must be plain identifiers. */
@@ -111,10 +119,12 @@ export function createPostgresMemoryStore<M = Record<string, unknown>>(
     "recorded_at",
   );
   const onReadError = opts.onReadError ?? (() => {});
+  const keyFor = opts.keyFor ?? ((s: string) => s);
 
   return {
     async get(sessionId: string): Promise<M | null> {
       try {
+        const lookupId = keyFor(sessionId);
         // 1) Resolve sessionId → customer_id via the most-recent audit row that
         //    carries both. LIMIT 1 — one session maps to at most one customer.
         const customerRes = await opts.sql.query<{ customer_id: string | null }>(
@@ -123,7 +133,7 @@ export function createPostgresMemoryStore<M = Record<string, unknown>>(
             WHERE ${sessionColumn} = $1 AND ${customerColumn} IS NOT NULL
             ORDER BY ${recordedAtColumn} DESC
             LIMIT 1`,
-          [sessionId],
+          [lookupId],
         );
         const customerId = customerRes.rows[0]?.customer_id ?? null;
         if (customerId === null) return null;

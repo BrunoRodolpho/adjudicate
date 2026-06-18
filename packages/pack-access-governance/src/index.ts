@@ -54,9 +54,9 @@ export {
 
 export const accessGovernancePack = {
   id: "pack-access-governance",
-  version: "0.1.0-experimental",
+  version: "0.2.1",
   contract: "v0",
-  intents: ["access.request", "access.review.resolve", "access.revoke"],
+  intents: ["access.request", "access.review.resolve", "access.revoke", "access.breakglass"],
   policy: accessPolicyBundle,
   planner: accessCapabilityPlanner,
   basisCodes: [
@@ -64,6 +64,9 @@ export const accessGovernancePack = {
     "access.privilege_level_invalid",
     "access.review_rejected",
     "access.no_active_grant",
+    "state:grant_expired",
+    "business:breakglass_granted",
+    "business:breakglass_ttl_invalid",
   ],
   signals: ["access.review.resolved"],
   rehydrateState: rehydrateAccessState,

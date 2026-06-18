@@ -22,7 +22,7 @@ import type {
 } from "@adjudicate/core";
 import type { PromptRenderer, ToolSchema } from "@adjudicate/core/llm";
 import type { RuntimeContext } from "@adjudicate/core/kernel";
-import type { ConfigSeal, ConfigSealPolicy } from "@adjudicate/conformance";
+import type { ConfigSeal, ConfigSealPolicy, ConfigSealReport } from "@adjudicate/conformance";
 import type {
   ConfirmationStore,
   DeferRedis,
@@ -226,17 +226,34 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
     readonly result: AgentTurnResult<H>;
   }) => { memory: unknown; ttlSeconds: number } | null;
   /**
-   * Optional configuration-integrity gate (ADR-121). When supplied, the loop
-   * verifies the Pack's sealable surface against `seal` ONCE per agent instance
-   * before the first adjudication. On mismatch the turn is REFUSED (no
-   * adjudication runs) and, if `engageKillSwitchOnMismatch`, the runtime
-   * context's kill switch is engaged.
+   * Optional configuration-integrity gate (ADR-121, hardened by ADR-137). When
+   * supplied, the loop verifies the Pack's sealable surface against `seal` at the
+   * start of every entry point (send/resume/confirm) per the `reverify` cadence
+   * (default `"every_turn"` — kills the old boot-only latch so a post-boot
+   * reference-swap is caught), then snapshots the verified policy and reuses it
+   * for every adjudication in the turn (so a mid-turn swap cannot affect the
+   * decision). On mismatch the turn is REFUSED (no adjudication runs), `onDrift`
+   * fires, and — if `engageKillSwitchOnMismatch` — the kill switch is engaged.
+   *
+   * Defaults are intentionally lax for one deprecation release (decision L1): the
+   * loop emits a one-time warning when `policy` isn't `require_signature` or when
+   * `engageKillSwitchOnMismatch` is unset; a future release flips both.
    */
   readonly configSeal?: {
     readonly seal: ConfigSeal;
     readonly publicKeyPem?: string;
     readonly policy?: ConfigSealPolicy;
     readonly engageKillSwitchOnMismatch?: boolean;
+    /**
+     * Re-verification cadence. `"every_turn"` (default) re-extracts + re-hashes
+     * the live pack each turn (catches reference-swap). `"frozen"` verifies a
+     * deep-frozen surface captured at construction (cheapest; catches seal
+     * tampering, not live drift). `{ ttlMs }` amortizes `every_turn` under load
+     * via a loop-layer clock (never the kernel).
+     */
+    readonly reverify?: "every_turn" | "frozen" | { readonly ttlMs: number };
+    /** Best-effort drift hook (tamper-evident telemetry). Fires on mismatch. */
+    readonly onDrift?: (report: ConfigSealReport) => void;
   };
   /**
    * Hash-verification policy for parked envelope blobs at resume.

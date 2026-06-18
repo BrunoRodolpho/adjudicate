@@ -128,6 +128,37 @@ export interface AuthorityGraph {
   readonly edges: readonly AuthorityEdge[];
 }
 
+/**
+ * The RECORDED authority-graph snapshot (033, index §B/§D-5): the immutable
+ * `AuthorityGraph` that was INJECTED into one kernel decision, paired with its
+ * content-address so the decision is REPLAYABLE (re-run the pure kernel over the
+ * recorded inputs → bit-identical decision, invariant #5).
+ *
+ * **Injected state, never a hashed envelope field (033 §3, invariant #4).** This
+ * is NOT part of the envelope and NOT in the `intentHashInput` pre-image — the
+ * graph rides into the decision as injected `state`/deps (because `Guard<K,P,S>`
+ * is `(envelope, state)` — `kernel/policy.ts`), so adding this type changes NO
+ * envelope hash (the `intentHashInput` pre-image and `EXPECTED_ENVELOPE_KEYS`
+ * stay byte-identical to their post-031 value). It is content-addressed
+ * SEPARATELY via the 032 snapshot serializer (`hashAuthorityGraph`, RFC 8785 /
+ * JCS through `@adjudicate/canonical`) and recorded onto the audit record so the
+ * recorded snapshot replays bit-identically (033 T4/T5).
+ *
+ *   - `graph`        — the exact injected `AuthorityGraph` snapshot (immutable).
+ *   - `snapshotHash` — `hashAuthorityGraph(graph)`: sha256 over the canonical
+ *                      snapshot. Lets a replay/audit reader detect a tampered or
+ *                      drifted recorded graph WITHOUT re-canonicalizing, and lets
+ *                      the audit record's tamper-evidence bind the snapshot
+ *                      identity.
+ *
+ * 033 only INJECTS + RECORDS this snapshot; the authority GUARD that consults it
+ * is plan 034 and AC-007 is 035 — no guard reads it here.
+ */
+export interface RecordedAuthoritySnapshot {
+  readonly graph: AuthorityGraph;
+  readonly snapshotHash: string;
+}
+
 export interface IntentActor {
   readonly principal: "llm" | "user" | "system";
   readonly sessionId: string;

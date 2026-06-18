@@ -219,4 +219,48 @@ describe("@adjudicate/canonical — 032 authority-graph snapshot serialization",
     const tampered = { edges: [{ ...graph.edges[0], principal: "attacker" }, graph.edges[1]] };
     expect(sha256SnapshotCanonical(tampered)).not.toBe(sha256SnapshotCanonical(graph));
   });
+
+  // ── 033 — the RECORDED authority-snapshot surface { graph, snapshotHash } ──
+  // 033 records the injected snapshot onto the AuditRecord as
+  // `{ graph, snapshotHash }` (snapshotHash = sha256SnapshotCanonical(graph)).
+  // For the recorded inputs to be replayable (§D-5, invariant #5) the recorded
+  // surface itself must canonicalize deterministically through the SAME encoder.
+  describe("033 — recorded authority-snapshot surface { graph, snapshotHash }", () => {
+    const recorded = {
+      graph,
+      snapshotHash: sha256SnapshotCanonical(graph),
+    };
+
+    it("canonicalizes deterministically and rides the single encoder (no fork)", () => {
+      expect(canonicalSnapshot(recorded)).toBe(canonicalJson(recorded));
+      expect(sha256SnapshotCanonical(recorded)).toBe(sha256Canonical(recorded));
+      // Stable across re-runs (replay byte-stability).
+      expect(sha256SnapshotCanonical(recorded)).toBe(
+        sha256SnapshotCanonical({ snapshotHash: recorded.snapshotHash, graph: recorded.graph }),
+      );
+    });
+
+    it("the recorded snapshotHash equals the standalone graph hash (the recorded fact is self-consistent)", () => {
+      expect(recorded.snapshotHash).toBe(sha256SnapshotCanonical(graph));
+    });
+
+    it("a tampered recorded graph no longer matches its recorded snapshotHash (replay-time integrity is detectable)", () => {
+      const tamperedGraph = { edges: [{ ...graph.edges[0], principal: "attacker" }, graph.edges[1]] };
+      // The recorded snapshotHash was bound to the ORIGINAL graph; re-hashing the
+      // tampered graph diverges — exactly what authorityGraphStoreFromRecorded
+      // detects fail-closed at replay.
+      expect(sha256SnapshotCanonical(tamperedGraph)).not.toBe(recorded.snapshotHash);
+    });
+
+    it("NFC-normalizes ids in the recorded surface (DataReviewer-008)", () => {
+      const nfc = { graph: { edges: [{ principal: "café", relationship: "owns", resource: "r", permits: { actions: [] } }] }, snapshotHash: "h" };
+      const nfd = { graph: { edges: [{ principal: "café", relationship: "owns", resource: "r", permits: { actions: [] } }] }, snapshotHash: "h" };
+      expect(sha256SnapshotCanonical(nfc)).toBe(sha256SnapshotCanonical(nfd));
+    });
+
+    it("throws on a non-finite limit inside the recorded graph (RFC 8785 §3.2.2.3)", () => {
+      const bad = { graph: { edges: [{ principal: "p", relationship: "owns", resource: "r", permits: { actions: [], limits: { x: Infinity } } }] }, snapshotHash: "h" };
+      expect(() => sha256SnapshotCanonical(bad)).toThrow();
+    });
+  });
 });

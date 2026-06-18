@@ -24,6 +24,7 @@ import {
   buildEnvelope,
   deriveIntentHash,
   type IntentEnvelope,
+  type RecordedAuthoritySnapshot,
 } from "./envelope.js";
 import type { Decision } from "./decision.js";
 import type { DecisionBasis } from "./basis-codes.js";
@@ -175,6 +176,25 @@ export interface AuditRecord {
     readonly value: string;
   };
   /**
+   * Optional (033). The RECORDED authority-graph snapshot the kernel decision
+   * was INJECTED with — the immutable graph plus its content-address
+   * (`hashAuthorityGraph`). Recorded here so the decision is REPLAYABLE: re-run
+   * the pure kernel (`resolveOwnership` over `authorityGraphStoreFromRecorded`)
+   * against this recorded snapshot and reproduce the byte-identical
+   * `OwnershipFact` and therefore the byte-identical decision (index §D-5,
+   * invariant #5).
+   *
+   * **IS in the `auditHash` pre-image** (unlike `signature`/`metadata`): the
+   * recorded snapshot is a decision-relevant injected input (like
+   * `policyVersion`/`kernelVersion`, 091), so binding it into the tamper-evident
+   * hash is what makes the recorded inputs trustworthy for replay. Conditionally
+   * spread by `buildAuditRecord` — ABSENT on records that injected no snapshot,
+   * so those records hash byte-identically to their pre-033 value (no key, no
+   * drift). NEVER read by `adjudicate()`; NEVER enters `intentHash` (the snapshot
+   * rides injected state, not a hashed envelope field — invariant #4).
+   */
+  readonly authoritySnapshot?: RecordedAuthoritySnapshot;
+  /**
    * Optional, v5+. Adopter-attached governance/observability metadata
    * (e.g. `hallucination_score`).
    *
@@ -225,6 +245,15 @@ export interface BuildAuditInput {
    * under `kernelIdentity`. Attestation bytes are reserved for v0.2.
    */
   readonly kernelIdentity?: { readonly id: string; readonly version: string };
+  /**
+   * Optional (033). The RECORDED authority-graph snapshot the decision was
+   * INJECTED with (graph + content-address). When supplied, the resulting
+   * AuditRecord carries it under `authoritySnapshot` and binds it into the
+   * `auditHash` pre-image so the recorded inputs are tamper-evident and the
+   * decision replays bit-identically (§D-5). Omitting it spreads the field OUT
+   * (no `undefined` key, hash-stable for non-injecting adopters).
+   */
+  readonly authoritySnapshot?: RecordedAuthoritySnapshot;
 }
 
 export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
@@ -259,6 +288,13 @@ export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
       : {}),
     ...(input.kernelVersion !== undefined
       ? { kernelVersion: input.kernelVersion }
+      : {}),
+    // 033: bind the RECORDED authority snapshot into the pre-image so the
+    // injected snapshot is tamper-evident and the decision replays bit-
+    // identically (§D-5). Conditional spread keeps the field (and the hash)
+    // byte-identical for records that injected no snapshot.
+    ...(input.authoritySnapshot !== undefined
+      ? { authoritySnapshot: input.authoritySnapshot }
       : {}),
   };
   // v4 auditHash: sha256 over canonical(record \ { auditHash, signature,

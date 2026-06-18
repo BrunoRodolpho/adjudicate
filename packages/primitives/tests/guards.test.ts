@@ -11,6 +11,8 @@ import { readGuardMetadata } from "@adjudicate/core/kernel";
 import {
   createAuthorityGraphStore,
   resolveOwnership,
+  type AuthorityGraphStore,
+  type Guard,
   type OwnershipFact,
 } from "@adjudicate/core";
 import {
@@ -334,5 +336,29 @@ describe("ownershipBindingPredicate — 032 authority-graph fact seam", () => {
     expect(unboundFact.bound).toBe(false);
     expect(ownershipBindingPredicate(() => boundFact)({ principal: "user", sessionId: "s" }, {})).toBe(true);
     expect(ownershipBindingPredicate(() => unboundFact)({ principal: "user", sessionId: "s" }, {})).toBe(false);
+  });
+
+  // ── 033 — the snapshot reaches a guard ONLY via injected state ─────────────
+  // 033 injects + records the authority snapshot. The guard signature MUST stay
+  // `(envelope, state)` — the kernel never passes identity/RuntimeContext to a
+  // guard (index §D / policy.ts), so the snapshot can only flow through `state`.
+  // No identity argument is added by 033; these tests pin that invariant.
+  it("033 — the guard is arity-2 `(envelope, state)`; no identity argument is added", () => {
+    const guard: Guard<string, unknown, AuthorityGraphStore> = requireTenantBinding<
+      string,
+      unknown,
+      AuthorityGraphStore
+    >((_actor, injectedStore) =>
+      // The injected snapshot rides through `state` — here `state` IS the store.
+      resolveOwnership(injectedStore, owningEnv).bound,
+    );
+    // The guard takes exactly TWO parameters: (envelope, state). A third
+    // identity argument would be a kernel-contract break (it is not present).
+    expect(guard.length).toBe(2);
+    // Injected via state ⇒ bound ⇒ passes; a DIFFERENT injected snapshot flips it.
+    expect(guard(owningEnv, store)).toBeNull();
+    expect(
+      guard(owningEnv, createAuthorityGraphStore({ edges: [] }))?.kind,
+    ).toBe("REFUSE");
   });
 });

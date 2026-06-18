@@ -1,8 +1,13 @@
 import { z } from "zod";
 import type {
+  AuthorityEdge,
+  AuthorityGraph,
+  AuthorityPermits,
+  AuthorityRelationship,
   IntentActor,
   IntentEnvelope,
   Origin,
+  RecordedAuthoritySnapshot,
   ResourceRefs,
   Taint,
 } from "@adjudicate/core";
@@ -79,6 +84,60 @@ export const IntentEnvelopeSchema = z.object({
   intentHash: IntentHashSchema,
 });
 
+/**
+ * 032/033 — authority-graph relationship edge label. Mirrors
+ * `AuthorityRelationship` in @adjudicate/core. Closed union.
+ */
+export const AuthorityRelationshipSchema = z.enum([
+  "owns",
+  "joint",
+  "advisor",
+  "custodian",
+]);
+
+/**
+ * 032/033 — what one authority edge PERMITS. Mirrors `AuthorityPermits`. The
+ * optional `limits` are finite snapshot numbers (the canonical encoder throws on
+ * non-finite). Descriptive snapshot DATA — never a decision.
+ */
+export const AuthorityPermitsSchema = z.object({
+  actions: z.array(z.string()).readonly(),
+  limits: z.record(z.string(), z.number()).optional(),
+});
+
+/**
+ * 032/033 — one directed authority edge
+ * (`principal —relationship→ resource —permits→ {actions, limits}`). Mirrors
+ * `AuthorityEdge`.
+ */
+export const AuthorityEdgeSchema = z.object({
+  principal: z.string(),
+  relationship: AuthorityRelationshipSchema,
+  resource: z.string(),
+  permits: AuthorityPermitsSchema,
+});
+
+/**
+ * 032/033 — the authority-graph SNAPSHOT (immutable set of edges). Mirrors
+ * `AuthorityGraph`. Injected into the kernel decision as state, recorded into
+ * audit for replay — NOT an envelope field, NOT part of intentHash.
+ */
+export const AuthorityGraphSchema = z.object({
+  edges: z.array(AuthorityEdgeSchema).readonly(),
+});
+
+/**
+ * 033 — the RECORDED authority snapshot surfaced on the audit record: the
+ * immutable injected `graph` plus its content-address (`hashAuthorityGraph`).
+ * Mirrors `RecordedAuthoritySnapshot` in @adjudicate/core. Recorded so the
+ * decision replays bit-identically (§D-5, invariant #5). OPTIONAL on the audit
+ * record — absent for decisions that injected no snapshot (hash-stable).
+ */
+export const RecordedAuthoritySnapshotSchema = z.object({
+  graph: AuthorityGraphSchema,
+  snapshotHash: z.string(),
+});
+
 // ─── Build-time drift guards ────────────────────────────────────────────────
 // If you see a compile error in either function body, the Zod schema and
 // the kernel type have drifted. Fix the schema; do not edit the kernel
@@ -107,6 +166,31 @@ const _envelopeSchemaToCore = (
   x: z.infer<typeof IntentEnvelopeSchema>,
 ): IntentEnvelope => x;
 
+// 032/033 — authority-graph + recorded-snapshot drift guards. Bidirectional:
+// every field is a primitive / closed enum / string→string|number map, so the
+// schema and the core type are structurally interchangeable.
+const _authorityRelationshipCoreToSchema = (
+  x: AuthorityRelationship,
+): z.infer<typeof AuthorityRelationshipSchema> => x;
+const _authorityRelationshipSchemaToCore = (
+  x: z.infer<typeof AuthorityRelationshipSchema>,
+): AuthorityRelationship => x;
+const _authorityPermitsCoreToSchema = (
+  x: AuthorityPermits,
+): z.infer<typeof AuthorityPermitsSchema> => x;
+const _authorityEdgeCoreToSchema = (
+  x: AuthorityEdge,
+): z.infer<typeof AuthorityEdgeSchema> => x;
+const _authorityGraphCoreToSchema = (
+  x: AuthorityGraph,
+): z.infer<typeof AuthorityGraphSchema> => x;
+const _recordedAuthoritySnapshotCoreToSchema = (
+  x: RecordedAuthoritySnapshot,
+): z.infer<typeof RecordedAuthoritySnapshotSchema> => x;
+const _recordedAuthoritySnapshotSchemaToCore = (
+  x: z.infer<typeof RecordedAuthoritySnapshotSchema>,
+): RecordedAuthoritySnapshot => x;
+
 void [
   _taintCoreToSchema,
   _taintSchemaToCore,
@@ -118,4 +202,11 @@ void [
   _actorSchemaToCore,
   _envelopeCoreToSchema,
   _envelopeSchemaToCore,
+  _authorityRelationshipCoreToSchema,
+  _authorityRelationshipSchemaToCore,
+  _authorityPermitsCoreToSchema,
+  _authorityEdgeCoreToSchema,
+  _authorityGraphCoreToSchema,
+  _recordedAuthoritySnapshotCoreToSchema,
+  _recordedAuthoritySnapshotSchemaToCore,
 ];

@@ -2,7 +2,10 @@ import { z } from "zod";
 import type { AuditPlanSnapshot, AuditRecord } from "@adjudicate/core";
 import { DecisionBasisSchema } from "./basis.js";
 import { DecisionSchema } from "./decision.js";
-import { IntentEnvelopeSchema } from "./envelope.js";
+import {
+  IntentEnvelopeSchema,
+  RecordedAuthoritySnapshotSchema,
+} from "./envelope.js";
 import { IntentHashSchema, IsoTimestampSchema } from "./common.js";
 
 /**
@@ -62,6 +65,11 @@ export const AuditRecordSchema = z.object({
       value: z.string(),
     })
     .optional(),
+  // 033 — the RECORDED authority snapshot the decision was injected with
+  // (graph + content-address). OPTIONAL + IN the auditHash pre-image; absent for
+  // decisions that injected no snapshot. Surfaced so recorded decisions expose
+  // it for replay/inspection (§D-5, invariant #5).
+  authoritySnapshot: RecordedAuthoritySnapshotSchema.optional(),
   // v5+ additive: governance/observability metadata (e.g. hallucination_score).
   metadata: z.record(z.string(), z.unknown()).optional(),
 });

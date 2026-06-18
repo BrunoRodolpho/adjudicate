@@ -51,8 +51,6 @@ export interface DeploymentRollbackExecutePayload {
   readonly environment: DeploymentEnvironment;
   /** Git SHA to roll back to. */
   readonly toGitSha: string;
-  /** Confirmation token from a prior REQUEST_CONFIRMATION on this exact intent. */
-  readonly confirmationToken?: string;
 }
 
 export interface DeploymentApprovalResolvePayload {

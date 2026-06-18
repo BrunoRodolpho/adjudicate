@@ -25,6 +25,8 @@
   },
   "devDependencies": {
     "@adjudicate/core": "workspace:*",
+    "@adjudicate/pack-access-governance": "workspace:*",
+    "@adjudicate/pack-deployments-approval": "workspace:*",
     "@adjudicate/pack-payments-pix": "workspace:*",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

@@ -27,7 +27,6 @@ export interface AccessReviewResolvePayload {
 export interface AccessRevokePayload {
   readonly principal: string;
   readonly resourceId: string;
-  readonly confirmationToken?: string;
 }
 
 /**

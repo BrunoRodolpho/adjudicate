@@ -128,6 +128,9 @@ describe("runConformance() check id stability", () => {
       "AC-004",
       "AC-005",
       "AC-006",
+      // AC-007 is reserved for plan 035 (authority/mutating-kind classification);
+      // the payload-self-confirmation check (plan 014) takes the next free id.
+      "AC-008",
     ]);
   });
 

@@ -7,15 +7,46 @@ import {
   createEd25519AttestationVerifier,
   createInMemoryApprovalRegistry,
   type ApprovalEngineOptions,
+  type ApprovalRegistry,
 } from "../src/index.js";
 import { baseRequest, fakeAgent } from "./helpers.js";
 
-function makeEngine(extra: Partial<ApprovalEngineOptions<unknown, unknown, string[]>> = {}) {
+/**
+ * Wrap a registry so `get`/`put`/`markResolved` yield to the event loop (a
+ * macrotask) before delegating — this opens the read-modify-write window inside
+ * resolve() that the synchronous in-memory registry never exposes, so the test
+ * actually fails without the per-token mutex (see the discriminating test below).
+ */
+function yieldingRegistry(inner: ApprovalRegistry): ApprovalRegistry {
+  const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+  return {
+    ...inner,
+    async get(t) {
+      await tick();
+      return inner.get(t);
+    },
+    async put(r, ttl) {
+      await tick();
+      return inner.put(r, ttl);
+    },
+    async markResolved(t, s, by) {
+      await tick();
+      return inner.markResolved(t, s, by);
+    },
+  };
+}
+
+function makeEngine(
+  extra: Partial<ApprovalEngineOptions<unknown, unknown, string[]>> = {},
+  wrapRegistry: (r: ApprovalRegistry) => ApprovalRegistry = (r) => r,
+) {
   const { agent, confirmCalls } = fakeAgent();
-  const registry = createInMemoryApprovalRegistry({
-    nowMs: () => 1_700_000_000_000,
-    nowIso: () => "2026-05-01T12:00:00.000Z",
-  });
+  const registry = wrapRegistry(
+    createInMemoryApprovalRegistry({
+      nowMs: () => 1_700_000_000_000,
+      nowIso: () => "2026-05-01T12:00:00.000Z",
+    }),
+  );
   const engine = createApprovalEngine<unknown, unknown, string[]>({
     agent,
     registry,
@@ -59,6 +90,65 @@ describe("approval engine — quorum (ADR-143)", () => {
     const r = await engine.resolve({ token: "tok-1", accepted: false, by: { id: "a" } });
     expect(r.request.status).toBe("declined");
     expect(confirmCalls.length).toBe(1);
+  });
+});
+
+describe("approval engine — quorum concurrency (#6)", () => {
+  it("serializes concurrent resolves: every distinct approver is recorded, confirm() fires once", async () => {
+    const { engine, confirmCalls } = makeEngine({ quorum: { minApprovals: 3 } });
+    await engine.request(baseRequest);
+    // Fire all three at once. Without per-token serialization each would read the
+    // same empty `approvals`, append its own voter, and the last write would win —
+    // losing two votes so quorum 3 is never reached (confirm() never fires).
+    const results = await Promise.all([
+      engine.resolve({ token: "tok-1", accepted: true, by: { id: "a" } }),
+      engine.resolve({ token: "tok-1", accepted: true, by: { id: "b" } }),
+      engine.resolve({ token: "tok-1", accepted: true, by: { id: "c" } }),
+    ]);
+    expect(confirmCalls.length).toBe(1);
+    const resolved = results.find((r) => r.turn !== null);
+    expect(resolved?.request.status).toBe("approved");
+    expect(resolved?.request.approvals?.map((x) => x.id).sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("DISCRIMINATING: holds even when the registry yields mid read-modify-write (fails without the mutex)", async () => {
+    // The stock in-memory registry resolves get/put synchronously, so it never
+    // interleaves the RMW window — this test forces a yield between get and put,
+    // so a no-mutex engine would lose 4 of 5 votes and never reach quorum. Run it
+    // a few times to shake out scheduling nondeterminism.
+    for (let iter = 0; iter < 20; iter += 1) {
+      const { engine, confirmCalls } = makeEngine({ quorum: { minApprovals: 5 } }, yieldingRegistry);
+      await engine.request(baseRequest);
+      const results = await Promise.all(
+        ["a", "b", "c", "d", "e"].map((id) => engine.resolve({ token: "tok-1", accepted: true, by: { id } })),
+      );
+      expect(confirmCalls.length, `iter ${iter}`).toBe(1);
+      const resolved = results.find((r) => r.turn !== null);
+      expect(resolved?.request.status).toBe("approved");
+      expect(resolved?.request.approvals?.map((x) => x.id).sort()).toEqual(["a", "b", "c", "d", "e"]);
+    }
+  });
+
+  it("concurrent resolves on different tokens are independent (no cross-token blocking)", async () => {
+    const { engine, confirmCalls } = makeEngine();
+    await engine.request(baseRequest);
+    await engine.request({ ...baseRequest, token: "tok-2" });
+    const [r1, r2] = await Promise.all([
+      engine.resolve({ token: "tok-1", accepted: true, by: { id: "a" } }),
+      engine.resolve({ token: "tok-2", accepted: true, by: { id: "b" } }),
+    ]);
+    expect(r1.request.status).toBe("approved");
+    expect(r2.request.status).toBe("approved");
+    expect(confirmCalls.length).toBe(2);
+  });
+
+  it("a rejected resolve does not wedge the per-token chain", async () => {
+    const { engine } = makeEngine();
+    await engine.request(baseRequest);
+    await engine.resolve({ token: "tok-1", accepted: true, by: { id: "a" } }); // resolves it
+    // A second resolve on the now-resolved token rejects; a later call must still run.
+    await expect(engine.resolve({ token: "tok-1", accepted: true, by: { id: "b" } })).rejects.toThrow(/already/i);
+    await expect(engine.resolve({ token: "tok-1", accepted: true, by: { id: "c" } })).rejects.toThrow(/already/i);
   });
 });
 

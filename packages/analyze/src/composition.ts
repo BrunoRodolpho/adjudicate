@@ -8,12 +8,21 @@
  * (asserted by the `composition_no_runtime_path` conformance test); running this
  * inside `adjudicate()` would break determinism and replay.
  *
- * The gating checks here are SOUND (declarative, no probe-coverage dependency):
+ * The gating checks here are sound WITH RESPECT TO DECLARED METADATA (declarative,
+ * no probe-coverage dependency):
  *   AJD-107 RewriteOverlap        — two packs REWRITE overlapping payload fields
  *   AJD-108 DeferSignalCollision  — two packs DEFER on the same (un-prefixed) signal
  *   AJD-109 TaintContradiction    — a shared intent has conflicting taint floors
  *   AJD-110 CapabilityOverlap     — two packs declare the same intent kind
  * Probe-dependent reachability checks (AJD-302/303) are advisory Tier-3, NOT here.
+ *
+ * SOUNDNESS CAVEAT (AJD-107): a guard may emit a REWRITE Decision at runtime while
+ * declaring `kind:"opaque"` or carrying NO `description` (guard metadata is optional
+ * — ADR-105 rule 7). `extractFacts` can only see DECLARED rewrite scope, so two packs
+ * that both rewrite the same field via undeclared/opaque guards are NOT caught here.
+ * AJD-107 is therefore sound only over guards that declare their rewrite scope; for a
+ * fully sound gate, require rewrite-scope declaration on every guard (a future
+ * AJD-111 UndeclaredRewriteScope check) or use Tier-2 static analysis.
  */
 import type { PackV0, Taint } from "@adjudicate/core";
 import { readGuardMetadata } from "@adjudicate/core/kernel";
@@ -90,6 +99,38 @@ function extractFacts(pack: PackV0): PackFacts {
 }
 
 /**
+ * Two dotted payload paths OVERLAP when one is a prefix (segment-wise) of the
+ * other: rewriting `items` collides with rewriting `items.0.qty` (the array
+ * rewrite clobbers the nested one) even though the strings differ. Compared
+ * segment-by-segment, NOT by substring, so `item` does not match `items`.
+ */
+function pathsOverlap(x: string, y: string): boolean {
+  if (x === y) return true;
+  const a = x.split(".");
+  const b = y.split(".");
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i += 1) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Deterministic, de-duplicated labels for every overlapping field pair between two sets. */
+function overlappingFields(a: ReadonlySet<string>, b: ReadonlySet<string>): string[] {
+  const labels = new Set<string>();
+  for (const fa of a) {
+    for (const fb of b) {
+      if (!pathsOverlap(fa, fb)) continue;
+      if (fa === fb) {
+        labels.add(fa);
+      } else {
+        const [parent, child] = fa.split(".").length <= fb.split(".").length ? [fa, fb] : [fb, fa];
+        labels.add(`${parent} ⊃ ${child}`);
+      }
+    }
+  }
+  return [...labels].sort();
+}
+
+/**
  * Analyze the composition of a declared set of Packs. Deterministic + pure.
  * `passed === false` (an error-severity conflict) is the CI merge-gate failure.
  */
@@ -131,12 +172,12 @@ export function analyzeComposition(
         }
       }
 
-      const sharedFields = [...a.mutatedFields].filter((f) => b.mutatedFields.has(f)).sort();
+      const sharedFields = overlappingFields(a.mutatedFields, b.mutatedFields);
       if (sharedFields.length > 0) {
         conflicts.push({
           code: "AJD-107",
           severity: sev("AJD-107"),
-          message: `Packs "${a.id}" and "${b.id}" both REWRITE payload field(s): ${sharedFields.join(", ")}.`,
+          message: `Packs "${a.id}" and "${b.id}" both REWRITE overlapping payload field(s): ${sharedFields.join(", ")}.`,
           packs: pair,
           detail: { fields: sharedFields },
         });

@@ -70,6 +70,29 @@ describe("analyzeComposition (ADR-140, Tier-1)", () => {
     expect(report.conflicts.map((c) => c.code).sort()).toEqual(["AJD-109", "AJD-110"]);
   });
 
+  it("AJD-107 flags parent/child path overlap (items vs items.0.qty), not just exact matches", () => {
+    const a = pack({ id: "pack-a", intents: ["a.do"], mutates: ["items"] });
+    const b = pack({ id: "pack-b", intents: ["b.do"], mutates: ["items.0.qty"] });
+    const report = analyzeComposition([a, b]);
+    const ajd107 = report.conflicts.find((c) => c.code === "AJD-107");
+    expect(ajd107, "items ⊃ items.0.qty must collide").toBeDefined();
+    expect(ajd107!.detail!.fields).toEqual(["items ⊃ items.0.qty"]);
+    expect(report.passed).toBe(false);
+  });
+
+  it("AJD-107 does NOT false-positive on sibling paths (items.0 vs items.1) or string prefixes (item vs items)", () => {
+    const siblings = analyzeComposition([
+      pack({ id: "pack-a", intents: ["a.do"], mutates: ["items.0.qty"] }),
+      pack({ id: "pack-b", intents: ["b.do"], mutates: ["items.1.qty"] }),
+    ]);
+    expect(siblings.conflicts.some((c) => c.code === "AJD-107")).toBe(false);
+    const substr = analyzeComposition([
+      pack({ id: "pack-a", intents: ["a.do"], mutates: ["item"] }),
+      pack({ id: "pack-b", intents: ["b.do"], mutates: ["items"] }),
+    ]);
+    expect(substr.conflicts.some((c) => c.code === "AJD-107")).toBe(false);
+  });
+
   it("severityOverrides can downgrade a gating check (and flip passed)", () => {
     const a = pack({ id: "pack-a", intents: ["x.do"] });
     const b = pack({ id: "pack-b", intents: ["x.do"] });

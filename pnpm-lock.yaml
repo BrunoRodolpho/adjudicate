@@ -802,6 +802,12 @@ importers:
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../core
+      '@adjudicate/pack-access-governance':
+        specifier: workspace:*
+        version: link:../pack-access-governance
+      '@adjudicate/pack-deployments-approval':
+        specifier: workspace:*
+        version: link:../pack-deployments-approval
       '@adjudicate/pack-payments-pix':
         specifier: workspace:*
         version: link:../pack-payments-pix

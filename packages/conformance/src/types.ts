@@ -101,6 +101,45 @@ export interface ConformanceOptions {
    * the framework defaults. Defaults to `DEFAULT_CHECKS`.
    */
   readonly checks?: ReadonlyArray<ConformanceCheck>;
+  /**
+   * Per-intent-kind DOMAIN-VALID base payloads, keyed by intent kind.
+   *
+   * Consumed by the AC-008 payload-self-confirmation check (plan 014). That
+   * check probes whether a model can mint its own confirmation by adding a
+   * self-confirmation field to the payload. Real Packs gate their mutating
+   * kinds behind STATE guards that REFUSE a payload missing required domain
+   * fields (e.g. `access.revoke` needs an active grant; a deployment rollback
+   * needs a `toGitSha`). A synthetic probe payload is REFUSED at the state
+   * stage and never reaches the business stage where a self-confirm guard
+   * would live — so without a domain-valid baseline the check would pass
+   * VACUOUSLY.
+   *
+   * Supply, per kind, a payload that PASSES the Pack's state guards and reaches
+   * the business stage. The check merges the probed self-confirmation field
+   * onto this sample. Kinds whose baseline cannot reach the business stage are
+   * reported as NOT-EXERCISED (a coverage gap, surfaced in `details`) rather
+   * than counted as a clean pass.
+   *
+   * Pure data — the harness never reads a clock or calls `Math.random()`. Same
+   * `(pack, options)` → byte-identical report.
+   */
+  readonly validPayloadSamples?: Readonly<Record<string, unknown>>;
+  /**
+   * Per-intent-kind serializable STATE samples, keyed by intent kind.
+   *
+   * Companion to `validPayloadSamples` for the AC-008 check. Some mutating
+   * kinds reach the business stage only against non-empty STATE rather than a
+   * payload field (e.g. `access.revoke` requires an active, non-expired grant
+   * in `state.grants`). Supply, per kind, a serializable state the Pack's
+   * `rehydrateState` accepts (passed through `pack.rehydrateState` when
+   * present, else used as-is) so the self-confirm probe can reach business for
+   * that kind. Kinds without an entry use the empty `{}` state (rehydrated when
+   * a `rehydrateState` is declared).
+   *
+   * Pure data — no clock, no `Math.random()`. Same `(pack, options)` →
+   * byte-identical report.
+   */
+  readonly validStateSamples?: Readonly<Record<string, unknown>>;
 }
 
 /**

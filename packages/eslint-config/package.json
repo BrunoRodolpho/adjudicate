@@ -5,7 +5,8 @@
   "type": "module",
   "main": "index.js",
   "exports": {
-    ".": "./index.js"
+    ".": "./index.js",
+    "./monotonic-ceiling-rule": "./monotonic-ceiling-rule.js"
   },
   "dependencies": {
     "@eslint/js": "^9.0.0",

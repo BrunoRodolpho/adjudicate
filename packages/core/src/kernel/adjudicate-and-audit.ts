@@ -507,11 +507,29 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     // an appended confirmation:received basis. State/taint/auth guards
     // already ran; only the threshold-style "ask first" step is
     // satisfied by the receipt. Other Decisions flow through unchanged.
+    //
+    // ── 061 monotonic-ceiling carve-out (index §C / invariant #7) ─────
+    // This is the ONE site in the kernel/shell that WEAKENS a Decision
+    // (REQUEST_CONFIRMATION → EXECUTE, friction-DECREASING on the §C
+    // restrictiveness lattice EXECUTE < REWRITE < REQUEST_CONFIRMATION <
+    // DEFER < ESCALATE < REFUSE). §C scopes the monotonicity law to
+    // NON-DETERMINISTIC components (risk/anomaly/compliance/ops). This
+    // substitution is a DETERMINISTIC kernel/shell receipt flow: the
+    // user's confirmation is a deterministic input (a content-addressed
+    // receipt bound to THIS `envelope.intentHash`), not a risk model
+    // lowering a ceiling, so §C does not govern it. It is therefore
+    // EXEMPT from `clampToCeiling`/the monotonic-ceiling lint, and is
+    // explicitly allowlisted there (@adjudicate/eslint-config, rule
+    // `monotonic-ceiling`). Ceiling composition for risk inputs is the
+    // pure `clampToCeiling(deterministic, ceiling)` primitive in
+    // `decision.ts` (`final = min(...)`, friction-only); it is NOT wired
+    // into the pure kernel here — 05x/10x/11x consume it downstream.
     if (
       decision.kind === "REQUEST_CONFIRMATION" &&
       deps.confirmationReceipt !== undefined &&
       deps.confirmationReceipt.intentHash === envelope.intentHash
     ) {
+      // eslint-disable-next-line @adjudicate/monotonic-ceiling -- deterministic confirmation-receipt flow, §C carve-out (see block comment above)
       decision = decisionExecute([
         ...decision.basis,
         basis("confirmation", BASIS_CODES.confirmation.RECEIVED, {

@@ -32,8 +32,10 @@ export {
   type DriftHistoryView,
 } from "./history.js";
 export {
+  clampRiskBucket,
   createSessionRiskDriftBridge,
   quantizeRisk,
+  riskBucketRank,
   type RiskBucket,
   type RiskBucketThresholds,
   type RiskDriftAlert,

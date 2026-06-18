@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import fc from "fast-check";
 import type { AuditRecord } from "@adjudicate/core";
-import { createSessionRiskDriftBridge, quantizeRisk } from "../src/index.js";
+import {
+  clampRiskBucket,
+  createSessionRiskDriftBridge,
+  quantizeRisk,
+  riskBucketRank,
+  type RiskBucket,
+} from "../src/index.js";
 
 /** Minimal AuditRecord carrying an optional metadata.hallucination_score. */
 function scored(score: number | undefined, kind = "x.kind"): AuditRecord {
@@ -140,5 +147,65 @@ describe("createSessionRiskDriftBridge", () => {
       return JSON.stringify({ snap: b.snapshot(), view: b.historyView() });
     };
     expect(run()).toBe(run());
+  });
+});
+
+// ── 061/T5: never-decrease bucket contract (index §C / invariant #7) ──
+// The risk-bucket scale is a non-deterministic, off-decision-path signal; §C's
+// monotonicity law says a risk signal may only RAISE friction, never lower it.
+// `clampRiskBucket` pins that on the local low→critical scale (no core→drift edge;
+// observer-purity.test.ts stays green).
+describe("061: RiskBucket never-decrease ceiling (clampRiskBucket)", () => {
+  const BUCKETS: readonly RiskBucket[] = ["low", "medium", "high", "critical"];
+
+  it("ranks the buckets low < medium < high < critical (contiguous 0..3, no gaps/ties)", () => {
+    expect(BUCKETS.map(riskBucketRank)).toEqual([0, 1, 2, 3]);
+    const byRank = [...BUCKETS].sort((a, b) => riskBucketRank(a) - riskBucketRank(b));
+    expect(byRank).toEqual(BUCKETS);
+  });
+
+  it("a risk ceiling may only RAISE the bucket, never lower it", () => {
+    expect(clampRiskBucket("low", "high")).toBe("high"); // raised
+    expect(clampRiskBucket("high", "low")).toBe("high"); // NOT lowered
+    expect(clampRiskBucket("medium", "critical")).toBe("critical"); // raised
+    expect(clampRiskBucket("critical", "low")).toBe("critical"); // NOT lowered
+    expect(clampRiskBucket("medium", "medium")).toBe("medium"); // idempotent
+  });
+
+  it("property: clampRiskBucket is a true never-decrease max over the bucket scale", () => {
+    const bucketArb = fc.constantFrom<RiskBucket>(...BUCKETS);
+    fc.assert(
+      fc.property(bucketArb, bucketArb, (current, ceiling) => {
+        const out = clampRiskBucket(current, ceiling);
+        // Result is at least as risky as the current bucket (never decreases).
+        expect(riskBucketRank(out)).toBeGreaterThanOrEqual(riskBucketRank(current));
+        // Result is the HIGHER of the two (a genuine max over the scale).
+        expect(riskBucketRank(out)).toBe(
+          Math.max(riskBucketRank(current), riskBucketRank(ceiling)),
+        );
+      }),
+      { numRuns: 1_000 },
+    );
+  });
+
+  it("a never-decreasing observed sequence yields a monotonically non-decreasing running ceiling", () => {
+    // Fold an arbitrary bucket sequence through the clamp: the running ceiling
+    // never steps down, regardless of dips in the raw sequence.
+    const seqArb = fc.array(fc.constantFrom<RiskBucket>(...BUCKETS), { minLength: 1, maxLength: 20 });
+    fc.assert(
+      fc.property(seqArb, (seq) => {
+        let ceiling: RiskBucket = "low";
+        let prevRank = -1;
+        for (const b of seq) {
+          ceiling = clampRiskBucket(ceiling, b);
+          expect(riskBucketRank(ceiling)).toBeGreaterThanOrEqual(prevRank);
+          prevRank = riskBucketRank(ceiling);
+        }
+        // Final ceiling equals the max bucket ever seen.
+        const maxSeen = Math.max(...seq.map(riskBucketRank));
+        expect(riskBucketRank(ceiling)).toBe(maxSeen);
+      }),
+      { numRuns: 500 },
+    );
   });
 });

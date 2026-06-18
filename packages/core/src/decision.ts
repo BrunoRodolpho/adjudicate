@@ -108,3 +108,104 @@ export function decisionRewrite(
 ): Decision {
   return { kind: "REWRITE", rewritten, reason, basis };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// 061 · Monotonic escalation: restrictiveness lattice + friction-only ceiling
+// ─────────────────────────────────────────────────────────────────────────
+//
+// The closed 6-outcome `Decision` algebra carries NO built-in restrictiveness
+// total order (no `rank`/`severity`/`ordinal`/`confidence`/`metadata` field — see
+// invariant #2). 061 adds that order as net-new COMPOSITION METADATA derived from
+// the `kind` alone — it does NOT add any field to the `Decision` union and does
+// NOT add a 7th outcome. The lattice exists solely so `clampToCeiling` can compute
+// index §C's `final = min(deterministic_decision, risk_ceiling)`.
+//
+// ── The ratified restrictiveness order (index §C, constitutional) ──
+//
+//   EXECUTE < REWRITE < REQUEST_CONFIRMATION < DEFER < ESCALATE < REFUSE
+//   (least friction → most friction)
+//
+// Index §C ratifies one ordering pair as a constitutional decision, not merely an
+// illustration: **REWRITE ranks BELOW REQUEST_CONFIRMATION** — a sanitizing rewrite
+// is less friction than asking a human. Do not reorder without amending §C.
+//
+// Rationale per rung (low→high friction):
+//   • EXECUTE              — no friction; the mutation proceeds.
+//   • REWRITE              — a mechanically sanitized/normalized/capped proposal
+//                            still proceeds (after a single re-adjudication pass);
+//                            cheaper than any human/threshold step.
+//   • REQUEST_CONFIRMATION — pauses for a human "are you sure?" before proceeding.
+//   • DEFER                — valid but blocked awaiting an external signal/webhook.
+//   • ESCALATE             — routed to a human/supervisor; blocks until resolved.
+//   • REFUSE               — terminally denied; maximum friction.
+//
+// The numbers are an internal lattice index only; never serialized, never on the
+// wire, never a `Decision` field. Higher index == more restrictive (more friction).
+const RESTRICTIVENESS_ORDER: readonly DecisionKind[] = [
+  "EXECUTE",
+  "REWRITE",
+  "REQUEST_CONFIRMATION",
+  "DEFER",
+  "ESCALATE",
+  "REFUSE",
+] as const;
+
+/**
+ * The restrictiveness rank of a `DecisionKind` on the §C lattice: 0 = least
+ * restrictive (EXECUTE) … 5 = most restrictive (REFUSE). Higher == more friction.
+ *
+ * Pure, total, and derived from `kind` alone — no `Decision` field is read or
+ * added. Used by `clampToCeiling`; exported so downstream ceiling consumers
+ * (05x/10x/11x) and tests can reason about the same total order.
+ */
+export function restrictivenessRank(kind: DecisionKind): number {
+  return RESTRICTIVENESS_ORDER.indexOf(kind);
+}
+
+/**
+ * Total restrictiveness order: `true` iff `a` is at least as restrictive as `b`
+ * (a's friction >= b's friction) on the §C lattice. Reflexive.
+ */
+export function isAtLeastAsRestrictive(a: DecisionKind, b: DecisionKind): boolean {
+  return restrictivenessRank(a) >= restrictivenessRank(b);
+}
+
+/**
+ * `clampToCeiling` — index §C's `final = min(deterministic, ceiling)` over the
+ * restrictiveness lattice. Returns whichever of the two Decisions carries the
+ * GREATER friction (the more-restrictive `kind`), so a ceiling may only RAISE
+ * friction, never lower it.
+ *
+ * Semantics (the monotonicity primitive 05x/10x/11x consume):
+ *   • If `ceiling` is strictly MORE restrictive than `deterministic`, the
+ *     ceiling Decision is returned verbatim (friction is raised).
+ *   • Otherwise (`ceiling` equal or LESS restrictive) the `deterministic`
+ *     Decision is returned UNCHANGED. A ceiling can never weaken below the
+ *     deterministic decision: `REFUSE`-ceiling over an `EXECUTE`-deterministic
+ *     raises to REFUSE; an `EXECUTE`-ceiling over a `REFUSE`-deterministic is a
+ *     no-op (the REFUSE stands). Only deterministic rules authorize EXECUTE —
+ *     the result is EXECUTE iff `deterministic.kind === "EXECUTE"` (invariant
+ *     #1/§C), because EXECUTE is the unique minimum of the lattice, so any
+ *     non-EXECUTE ceiling clamps an EXECUTE deterministic upward and an EXECUTE
+ *     ceiling never lowers a more-restrictive deterministic decision.
+ *
+ * This adds NO field and NO 7th outcome: it only SELECTS between two existing
+ * Decisions by their `kind`'s lattice rank, returning one of them as-is (so its
+ * `basis`/payload is preserved exactly — no synthesis, no mutation).
+ *
+ * Fail-closed (§C / invariant #6): the function is total over the closed algebra
+ * and is biased to friction on a tie (it keeps `deterministic` only when the
+ * ceiling is NOT strictly more restrictive, i.e. it never trades a more-
+ * restrictive ceiling for a less-restrictive deterministic decision).
+ *
+ * Pure & synchronous (kernel-purity §D): no clock, RNG, or IO.
+ */
+export function clampToCeiling(deterministic: Decision, ceiling: Decision): Decision {
+  // The ceiling wins iff it is STRICTLY more restrictive (higher friction rank);
+  // on equal or lower friction the deterministic decision is returned unchanged.
+  // This is a true `min` over the restrictiveness lattice (min == most friction)
+  // with ties biased to the deterministic decision (fail-closed §C / invariant #6).
+  return restrictivenessRank(ceiling.kind) > restrictivenessRank(deterministic.kind)
+    ? ceiling
+    : deterministic;
+}

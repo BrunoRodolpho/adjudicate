@@ -77,6 +77,37 @@ export interface ToolResultBlock {
   readonly isError?: boolean;
 }
 
+// ── Typed tool classification (012) ─────────────────────────────────────────
+
+/**
+ * 012 — typed `ToolClassification` discriminant.
+ *
+ * How a model-originated `tool_use` was classified by the bridge. This is a
+ * STRUCTURAL claim carried through the loop, NOT a string re-derived from a
+ * wire name at each decision point. A `{ kind: "read" }` value is a typed
+ * assertion that the executor may be invoked through its READ-ONLY surface
+ * (`invokeRead`) and never the mutating surface — the loop can check the
+ * discriminant rather than trust a `name in plan.visibleReadTools` lookup.
+ *
+ * This closes the documented `'a.b'` (intent) vs `'a_b'` (read) wire-name
+ * collision (`bridge.ts`): classification is anchored on this discriminant,
+ * not on the post-`intentKindToApiName` string. The bridge's
+ * `ToolUseClassification` is exactly this union; the alias keeps the typed
+ * claim visible on the adapter-facing contracts.
+ *
+ * Note: distinct from `@adjudicate/core/llm`'s `ToolClassification`, which is
+ * the Pack-level READ_ONLY/MUTATING name partition consumed by `safePlan` /
+ * `assertPlanReadOnly`. This one is the per-tool-use loop discriminant.
+ */
+export type ToolClassification =
+  | { readonly kind: "read"; readonly name: string; readonly input: unknown }
+  | {
+      readonly kind: "intent";
+      readonly intentKind: string;
+      readonly payload: unknown;
+    }
+  | { readonly kind: "out_of_plan"; readonly name: string };
+
 // ── Adopter-supplied executor (carried through to translateDecision) ────────
 
 /**
@@ -84,11 +115,30 @@ export interface ToolResultBlock {
  * returns EXECUTE (or REWRITE — the executor receives the rewritten
  * envelope, NOT the original).
  *
- * READ tools that the LLM proposes go through `invokeRead`; intent
- * executions that the kernel authorized go through `invokeIntent`.
+ * 012 — both surfaces are now reached ONLY on a kernel `EXECUTE`. A
+ * model-proposed READ no longer fast-paths to `invokeRead`: it builds an
+ * envelope and crosses `adjudicateAndAudit` like every other tool use, and
+ * `invokeRead` runs only when the kernel authorized the READ envelope with
+ * `EXECUTE` (taint gate + sink + ledger applied). `invokeRead` is the
+ * read-only surface; `invokeIntent` is the mutating surface. The typed
+ * `ToolClassification` (above) is what tells the loop which surface a given
+ * EXECUTE authorizes — read-only-ness is a structural claim, not a wire-name
+ * guess. Both signatures are documented against `ToolClassification` so the
+ * read-only/mutating split is part of the executor contract.
  */
 export interface AdopterExecutor<K extends string, P, S> {
+  /**
+   * READ-ONLY surface. Reached only when a `{ kind: "read" }`
+   * `ToolClassification` was authorized by the kernel (`EXECUTE`). MUST NOT
+   * mutate — the `safePlan` / `assertPlanReadOnly` contract guarantees only
+   * READ_ONLY tool names ever reach this surface.
+   */
   invokeRead(name: string, input: unknown, state: S): Promise<unknown>;
+  /**
+   * MUTATING surface. Reached only when a `{ kind: "intent" }`
+   * `ToolClassification` was authorized by the kernel (`EXECUTE`/validated
+   * `REWRITE`).
+   */
   invokeIntent(envelope: IntentEnvelope<K, P>, state: S): Promise<unknown>;
 }
 

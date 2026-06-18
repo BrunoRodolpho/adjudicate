@@ -5,13 +5,14 @@ import {
   decisionRewrite,
   type ExecutorContract,
   type IntentEnvelope,
+  type TaintPolicy,
 } from "@adjudicate/core";
-import { translateDecision } from "../src/decisions.js";
+import { routeReadThroughKernel, translateDecision } from "../src/decisions.js";
 import {
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
 } from "../src/persistence.js";
-import type { AdopterExecutor } from "../src/types.js";
+import type { AdopterExecutor, ToolClassification } from "../src/types.js";
 
 interface Payload {
   amountCentavos: number;
@@ -159,5 +160,64 @@ describe("executor output contract (item 1)", () => {
     const va = a.extraEvents.find((e) => e.kind === "executor_contract_violation");
     const vb = b.extraEvents.find((e) => e.kind === "executor_contract_violation");
     expect(va).toEqual(vb);
+  });
+});
+
+// ── 012: the executor contract honors the typed ToolClassification ──────────
+
+describe("executor contract: typed ToolClassification (012)", () => {
+  const permissiveTaint: TaintPolicy = { minimumFor: () => "UNTRUSTED" };
+
+  it("a { kind: 'read' } classification reaches ONLY invokeRead, never invokeIntent", async () => {
+    // Read-only-ness is a STRUCTURAL claim: the loop routes on the typed
+    // discriminant, so the mutating surface is provably never touched for a read.
+    const invokeRead = vi.fn(async () => ({ rows: [] }));
+    const invokeIntent = vi.fn(async () => ({ refundId: "r-1", refunded: 5000 }));
+    const cls: Extract<ToolClassification, { kind: "read" }> = {
+      kind: "read",
+      name: "list_pix_charges",
+      input: { limit: 10 },
+    };
+
+    const out = await routeReadThroughKernel({
+      classification: cls,
+      toolUseId: "tu-1",
+      sessionId: "s-1",
+      state: {} as State,
+      executor: { invokeRead, invokeIntent } as AdopterExecutor<
+        "pix.charge.refund",
+        Payload,
+        State
+      >,
+      taint: permissiveTaint,
+      plan: () => ({ visibleReadTools: ["list_pix_charges"], allowedIntents: [] }),
+      nonce: "tu-1",
+      historySnapshot: [] as unknown,
+    });
+
+    expect(invokeRead).toHaveBeenCalledOnce();
+    expect(invokeIntent).not.toHaveBeenCalled();
+    expect(out.toolResult.isError).toBeUndefined();
+  });
+
+  it("the read executor surface is reached with (name, input, state) — not an envelope", async () => {
+    // The READ surface contract is structurally distinct from the intent
+    // surface: invokeRead takes the raw (name, input, state), invokeIntent
+    // takes an envelope. The typed classification preserves that split.
+    const invokeRead = vi.fn(async () => ({ ok: 1 }));
+    await routeReadThroughKernel({
+      classification: { kind: "read", name: "get_pix_charge", input: { id: "x" } },
+      toolUseId: "tu-2",
+      sessionId: "s-1",
+      state: { marker: "S" } as unknown as State,
+      executor: { invokeRead },
+      taint: permissiveTaint,
+      plan: () => ({ visibleReadTools: ["get_pix_charge"], allowedIntents: [] }),
+      nonce: "tu-2",
+      historySnapshot: [] as unknown,
+    });
+    expect(invokeRead).toHaveBeenCalledWith("get_pix_charge", { id: "x" }, {
+      marker: "S",
+    });
   });
 });

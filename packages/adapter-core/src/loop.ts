@@ -44,6 +44,7 @@ import {
 } from "./bridge.js";
 import {
   makeOutOfPlanToolResult,
+  routeReadThroughKernel,
   translateDecision,
   type LoopAction,
 } from "./decisions.js";
@@ -381,40 +382,39 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         }
 
         if (cls.kind === "read") {
-          let readResult: unknown;
-          try {
-            readResult = await options.executor.invokeRead(
-              cls.name,
-              cls.input,
-              state,
-            );
-          } catch (err) {
-            const message =
-              err instanceof Error ? err.message : "executor read failed";
-            const errResult: ToolResultBlock = {
-              toolUseId: tu.id,
-              content: `Tool failed: ${message}`,
-              isError: true,
-            };
-            toolResults.push(errResult);
-            events.push({
-              kind: "tool_result",
-              toolUseId: tu.id,
-              payload: errResult,
-            });
-            continue;
-          }
-          const result: ToolResultBlock = {
+          // 012: the unadjudicated READ fast-path is GONE. A model-proposed
+          // READ no longer dispatches straight to `invokeRead` — it builds an
+          // envelope and crosses `adjudicateAndAudit` (taint gate + audit sink
+          // + ledger), and `invokeRead` runs ONLY on a kernel EXECUTE. Read-
+          // only-ness is the typed `ToolClassification` (`cls.kind === "read"`),
+          // a structural claim, not a re-derived wire-name guess.
+          const readRouted = await routeReadThroughKernel({
+            classification: cls,
             toolUseId: tu.id,
-            content: JSON.stringify({ ok: true, result: readResult }),
-          };
-          toolResults.push(result);
-          events.push({
-            kind: "handler_result",
-            toolUseId: tu.id,
-            result: readResult,
+            sessionId,
+            state,
+            executor: options.executor,
+            taint: sealedPolicy.taint,
+            ...(options.auditSink !== undefined
+              ? { auditSink: options.auditSink }
+              : {}),
+            ...(options.ledger !== undefined ? { ledger: options.ledger } : {}),
+            ...(options.runtimeContext !== undefined
+              ? { runtimeContext: options.runtimeContext }
+              : {}),
+            plan: () => ({
+              visibleReadTools: plan.visibleReadTools,
+              allowedIntents: plan.allowedIntents,
+            }),
+            nonce: deriveNonce({
+              sessionId,
+              toolUseId: tu.id,
+              payload: cls.input,
+            }),
+            historySnapshot: history,
           });
-          events.push({ kind: "tool_result", toolUseId: tu.id, payload: result });
+          toolResults.push(readRouted.toolResult);
+          events.push(...readRouted.extraEvents);
           continue;
         }
 

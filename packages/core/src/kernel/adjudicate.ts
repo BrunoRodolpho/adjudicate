@@ -112,6 +112,17 @@ export interface AdjudicationTraceResult {
  * authoritative decision yields a durable AuditRecord) plus the ledger
  * replay-suppression that stops side effects from double-firing. Wiring a raw
  * `adjudicate()` call into a mutation path silently bypasses governance.
+ *
+ * **READ-bearing envelopes (012).** This function makes NO distinction between
+ * a "read" and an "intent" envelope: the typed `ToolClassification` that the
+ * adapter loop uses to decide which executor surface an EXECUTE authorizes is a
+ * STRUCTURAL discriminant on the adapter-facing types — it is NOT a kernel
+ * input and introduces NO runtime IO or heuristic here. A READ proposed by the
+ * model is routed (by the adapter) into an ordinary envelope and adjudicated
+ * under the SAME guard order `state → taint → auth → business → default`, so
+ * the taint gate and fail-closed default apply to reads exactly as to
+ * mutations. The kernel stays pure and synchronous (§D); read-vs-write routing
+ * lives entirely in the impure adapter shell.
  */
 export function adjudicate<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,

@@ -36,15 +36,22 @@
 
 import {
   deriveIntentHash,
+  noopAuditSink,
   timingSafeHexEqual,
   validateOutputShape,
 } from "@adjudicate/core";
 import type {
+  AuditSink,
   Decision,
   ExecutorContract,
   IntentEnvelope,
+  Ledger,
+  TaintPolicy,
 } from "@adjudicate/core";
+import { adjudicateAndAudit, type RuntimeContext } from "@adjudicate/core/kernel";
+import type { PolicyBundle } from "@adjudicate/core/kernel";
 import { parkDeferredIntent } from "@adjudicate/runtime";
+import { buildEnvelopeFromToolUse } from "./bridge.js";
 import { AdapterError, AdapterErrorCode } from "./errors.js";
 import type {
   ConfirmationStore,
@@ -55,6 +62,7 @@ import type {
   AdopterExecutor,
   AgentEvent,
   AgentLogger,
+  ToolClassification,
   ToolResultBlock,
 } from "./types.js";
 
@@ -372,6 +380,166 @@ export function makeOutOfPlanToolResult(
     content: `Tool "${toolName}" is not available in the current plan.`,
     isError: true,
   };
+}
+
+// ── 012: READ through the kernel ────────────────────────────────────────────
+
+/**
+ * 012 — read-authorization PolicyBundle.
+ *
+ * A model-proposed READ is no longer dispatched straight to `invokeRead`. It
+ * builds an envelope and crosses `adjudicateAndAudit`, so the taint gate, the
+ * required audit sink, and the ledger apply uniformly — restoring the §B
+ * single-authority property (the kernel decides for READs too).
+ *
+ * The read envelope is adjudicated against THIS policy (derived per-call from
+ * the Pack's own `taint` policy), not the Pack's mutation policy:
+ *   - `taint` = the Pack's taint policy, so a taint-protected read tool (one
+ *     whose `minimumFor` demands TRUSTED/SYSTEM) is REFUSED for an UNTRUSTED
+ *     proposal exactly like a protected intent — no UNTRUSTED read EXECUTEs
+ *     when the policy forbids it.
+ *   - no state/auth/business guards, because read tool *names* are not intent
+ *     kinds the Pack's guards are written against; the plan's
+ *     `visibleReadTools` membership is already enforced upstream by
+ *     `classifyIncomingToolUse` (an out-of-plan read never reaches here).
+ *   - `default: "EXECUTE"` so a visible, taint-passing read is authorized and
+ *     served. This is NOT a fail-open mutation default: an `EXECUTE` here only
+ *     ever reaches `invokeRead` — the READ-ONLY executor surface the
+ *     `safePlan` / `assertPlanReadOnly` contract guarantees is non-mutating.
+ *     Only a kernel `EXECUTE` reaches the executor (§D #1); any REFUSE (taint,
+ *     kill-switch, replay-suppression) means the read is NOT served.
+ *
+ * The kernel stays pure: this is an ordinary `PolicyBundle`, no heuristic or
+ * IO is introduced inside `adjudicate()`.
+ */
+export function readAuthorizationPolicy(
+  taint: TaintPolicy,
+): PolicyBundle<string, unknown, unknown> {
+  return {
+    stateGuards: [],
+    authGuards: [],
+    taint,
+    business: [],
+    default: "EXECUTE",
+  };
+}
+
+export interface RouteReadContext<S, H> {
+  /** Typed READ classification produced by the bridge (`kind: "read"`). */
+  readonly classification: Extract<ToolClassification, { kind: "read" }>;
+  readonly toolUseId: string;
+  readonly sessionId: string;
+  readonly state: S;
+  /**
+   * READ-ONLY executor surface only — `invokeRead`. The mutating
+   * `invokeIntent` is intentionally not part of this contract: a READ may
+   * never reach it. K/P do not appear in `invokeRead`, so this is generic over
+   * state only (no cast needed at the call site).
+   */
+  readonly executor: Pick<AdopterExecutor<string, unknown, S>, "invokeRead">;
+  /** Pack taint policy — the read envelope is adjudicated against it. */
+  readonly taint: TaintPolicy;
+  readonly auditSink?: AuditSink;
+  readonly ledger?: Ledger;
+  readonly runtimeContext?: RuntimeContext;
+  /** Plan snapshot accessor for the audit row (observability). */
+  readonly plan: () => {
+    readonly visibleReadTools: ReadonlyArray<string>;
+    readonly allowedIntents: ReadonlyArray<string>;
+  };
+  /** Deterministic nonce derivation, mirroring the intent path. */
+  readonly nonce: string;
+  /** History snapshot is unused by READs but kept for shape symmetry. */
+  readonly historySnapshot: H;
+}
+
+/**
+ * 012 / T3 — route a classified READ through the audited kernel.
+ *
+ * Builds the read envelope (kind = read tool name, taint UNTRUSTED — reads are
+ * model-originated, so they inherit the same untrusted provenance as intents),
+ * crosses `adjudicateAndAudit`, and serves the read via `invokeRead` ONLY on a
+ * kernel `EXECUTE`. A non-EXECUTE Decision (REFUSE on taint/kill/replay)
+ * surfaces a tool result and never touches the executor — there is no direct,
+ * unadjudicated `invokeRead` dispatch anywhere on this path.
+ */
+export async function routeReadThroughKernel<S, H>(
+  ctx: RouteReadContext<S, H>,
+): Promise<{
+  readonly toolResult: ToolResultBlock;
+  readonly extraEvents: ReadonlyArray<AgentEvent>;
+}> {
+  const envelope = buildEnvelopeFromToolUse({
+    intentKind: ctx.classification.name,
+    payload: ctx.classification.input,
+    sessionId: ctx.sessionId,
+    taint: "UNTRUSTED",
+    nonce: ctx.nonce,
+  });
+
+  const events: AgentEvent[] = [{ kind: "intent_proposed", envelope }];
+
+  const { decision } = await adjudicateAndAudit(
+    envelope,
+    ctx.state,
+    readAuthorizationPolicy(ctx.taint),
+    {
+      sink: ctx.auditSink ?? noopAuditSink(),
+      ...(ctx.ledger !== undefined ? { ledger: ctx.ledger } : {}),
+      ...(ctx.runtimeContext !== undefined
+        ? { context: ctx.runtimeContext }
+        : {}),
+      plan: () => ctx.plan(),
+    },
+  );
+  events.push({ kind: "decision", decision, envelope });
+
+  if (decision.kind !== "EXECUTE") {
+    // Not authorized (taint / kill-switch / replay-suppression). The read is
+    // NOT served — only a kernel EXECUTE reaches the executor (§D #1).
+    const detail =
+      decision.kind === "REFUSE"
+        ? decision.refusal.userFacing
+        : `Read not authorized (${decision.kind}).`;
+    const result: ToolResultBlock = {
+      toolUseId: ctx.toolUseId,
+      content: detail,
+      isError: true,
+    };
+    events.push({ kind: "tool_result", toolUseId: ctx.toolUseId, payload: result });
+    return { toolResult: result, extraEvents: events };
+  }
+
+  // Authorized READ → serve via the READ-ONLY executor surface.
+  let readResult: unknown;
+  try {
+    readResult = await ctx.executor.invokeRead(
+      ctx.classification.name,
+      ctx.classification.input,
+      ctx.state,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "executor read failed";
+    const errResult: ToolResultBlock = {
+      toolUseId: ctx.toolUseId,
+      content: `Tool failed: ${message}`,
+      isError: true,
+    };
+    events.push({
+      kind: "tool_result",
+      toolUseId: ctx.toolUseId,
+      payload: errResult,
+    });
+    return { toolResult: errResult, extraEvents: events };
+  }
+
+  const result: ToolResultBlock = {
+    toolUseId: ctx.toolUseId,
+    content: JSON.stringify({ ok: true, result: readResult }),
+  };
+  events.push({ kind: "handler_result", toolUseId: ctx.toolUseId, result: readResult });
+  events.push({ kind: "tool_result", toolUseId: ctx.toolUseId, payload: result });
+  return { toolResult: result, extraEvents: events };
 }
 
 export { AdapterError, AdapterErrorCode };

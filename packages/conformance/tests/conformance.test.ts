@@ -140,6 +140,38 @@ describe("runConformance() check id stability", () => {
   });
 });
 
+describe("ConformanceOptions.authorityGraph — 032 surface (AC-007 fed in 035)", () => {
+  // 032 only EXTENDS the option surface: a later authority/ownership check
+  // (035 AC-007) can be fed the graph snapshot deterministically. No DEFAULT
+  // check reads it yet, and `run` MUST NOT throw on its presence/absence.
+  const graph = {
+    edges: [
+      {
+        principal: "user_42",
+        relationship: "owns" as const,
+        resource: "acct_7",
+        permits: { actions: ["pix.charge.refund"] },
+      },
+    ],
+  };
+
+  it("accepts an injected authorityGraph snapshot WITHOUT throwing or changing the report", () => {
+    const baseline = runConformance(paymentsPixPack);
+    // The same call, now WITH the snapshot, must still pass identically — the
+    // surface is inert until 035 wires AC-007 (no default check consults it).
+    const withGraph = runConformance(paymentsPixPack, { authorityGraph: graph });
+    expect(withGraph.passed).toBe(true);
+    expect(withGraph.summary).toEqual(baseline.summary);
+    expect(withGraph.results.map((r) => r.id)).toEqual(
+      baseline.results.map((r) => r.id),
+    );
+  });
+
+  it("DEFAULT_CHECKS is unchanged — AC-007 stays out of scope (035)", () => {
+    expect(DEFAULT_CHECKS.map((c) => c.id)).not.toContain("AC-007");
+  });
+});
+
 describe("runConformance() check isolation", () => {
   it("a check that throws is reported as a clean failure, others still run", () => {
     const throwingCheck = {

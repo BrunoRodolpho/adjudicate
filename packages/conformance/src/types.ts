@@ -26,7 +26,7 @@
  * separately at boot.
  */
 
-import type { PackV0 } from "@adjudicate/core";
+import type { AuthorityGraph, PackV0 } from "@adjudicate/core";
 
 /**
  * One conformance invariant. Authored once in
@@ -140,6 +140,24 @@ export interface ConformanceOptions {
    * byte-identical report.
    */
   readonly validStateSamples?: Readonly<Record<string, unknown>>;
+  /**
+   * An IMMUTABLE authority-graph snapshot (032), fed to a later ownership /
+   * authority conformance check (035 AC-007). The graph is
+   * `principal —relationship→ resource —permits→ {actions, limits}` (index §G),
+   * injected as a snapshot — never a decision layer (index §B/§D).
+   *
+   * **Surface only in 032 — no check reads it yet.** `DEFAULT_CHECKS`
+   * (AC-001..AC-006) are unchanged and AC-007 is out of scope (035). Extending
+   * the option here lets 035 feed the snapshot deterministically WITHOUT another
+   * `ConformanceOptions` change. STRUCTURAL data: a 035 authority check is
+   * seed-FREE (it evaluates the resolver over this snapshot, no PRNG), and `run`
+   * MUST NOT throw on its absence — a check that needs it but finds it `undefined`
+   * reports NOT-EXERCISED (a coverage gap), never an exception.
+   *
+   * Pure data — the harness never reads a clock or calls `Math.random()`. Same
+   * `(pack, options)` → byte-identical report.
+   */
+  readonly authorityGraph?: AuthorityGraph;
 }
 
 /**

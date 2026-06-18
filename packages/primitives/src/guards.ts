@@ -45,6 +45,7 @@ import type {
   DecisionBasis,
   IntentActor,
   IntentEnvelope,
+  OwnershipFact,
   RefusalKind,
   SideEffectClass,
   Taint,
@@ -542,6 +543,31 @@ export function requireTenantBinding<K extends string, P, S>(
           ),
           [basis("auth", BASIS_CODES.auth.SCOPE_INSUFFICIENT)],
         );
+}
+
+// ─── ownershipBindingPredicate (032 — authority-graph fact seam) ─────────────
+
+/**
+ * Align the 032 authority-graph FACT to the existing `requireTenantBinding`
+ * predicate seam — `(actor: IntentActor, state: S) => boolean` — so plan 034 can
+ * wire a constitutional authority guard onto a pack's `authGuards` WITHOUT
+ * reshaping the fact. **This is the seam only; 032 wires NO guard.**
+ *
+ * Given a `resolveFact` that produces an `OwnershipFact` from `(actor, state)`
+ * (a 034 adopter closes over its injected `AuthorityGraphStore`/envelope when it
+ * builds the guard), this returns the boolean predicate `requireTenantBinding`
+ * expects: `true` (actor is bound ⇒ guard PASSES, returns `null`) iff the fact's
+ * `bound` predicate holds. The mapping is deliberately the IDENTITY on `bound`
+ * — the resolver computes the predicate; this only adapts the shape. No
+ * authorization happens here (index §B): a `false` makes `requireTenantBinding`
+ * REFUSE (raise friction), never EXECUTE.
+ *
+ * Pure: a total function of the supplied fact resolver; no clock/RNG/IO.
+ */
+export function ownershipBindingPredicate<S>(
+  resolveFact: (actor: IntentActor, state: S) => OwnershipFact,
+): (actor: IntentActor, state: S) => boolean {
+  return (actor, state) => resolveFact(actor, state).bound;
 }
 
 // ─── createDataClassificationGuard (PII / data-classification, ADR-117) ──────

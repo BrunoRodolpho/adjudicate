@@ -14,4 +14,12 @@
  * re-export, so a drift in the shared package fails core's suite too.
  */
 
-export { canonicalJson, sha256Canonical } from "@adjudicate/canonical";
+export {
+  canonicalJson,
+  sha256Canonical,
+  // 032 — snapshot serialization aliases (authority-graph + future injected
+  // snapshots). Byte-identical to `canonicalJson`/`sha256Canonical`; the
+  // dedicated names pin snapshot hashing to this encoder for replay (§D #5).
+  canonicalSnapshot,
+  sha256SnapshotCanonical,
+} from "@adjudicate/canonical";

@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { canonicalJson, sha256Canonical } from "../src/index.js";
+import {
+  canonicalJson,
+  canonicalSnapshot,
+  sha256Canonical,
+  sha256SnapshotCanonical,
+} from "../src/index.js";
 
 interface GoldenVector {
   readonly name: string;
@@ -139,5 +144,79 @@ describe("@adjudicate/canonical — 031 v3 resource-refs drop-safety", () => {
     expect(sha256Canonical({ ...noRefs, resourceRefs: refs })).not.toBe(
       sha256Canonical({ ...noRefs, resourceRefs: { ...refs, owner: "user_99" } }),
     );
+  });
+});
+
+describe("@adjudicate/canonical — 032 authority-graph snapshot serialization", () => {
+  // The 032 snapshot serializer (`canonicalSnapshot`/`sha256SnapshotCanonical`)
+  // is a thin alias over `canonicalJson`/`sha256Canonical` — NOT a forked
+  // canonicalizer. These tests pin that the authority-graph snapshot
+  // (`principal —relationship→ resource —permits→ {actions, limits}`) rides the
+  // existing canonical behavior (NFC, RangeError on non-finite, key-sort,
+  // array-order) so a recorded snapshot replays bit-identically (invariant #5).
+  const graph = {
+    edges: [
+      {
+        principal: "user_42",
+        relationship: "owns",
+        resource: "acct_7",
+        permits: { actions: ["pix.charge.refund"], limits: { amountCentavos: 50000 } },
+      },
+      {
+        principal: "custodian_5",
+        relationship: "custodian",
+        resource: "acct_minor",
+        permits: { actions: ["pix.charge.create"] },
+      },
+    ],
+  };
+
+  it("the snapshot aliases are byte-identical to the base encoder (no fork)", () => {
+    expect(canonicalSnapshot(graph)).toBe(canonicalJson(graph));
+    expect(sha256SnapshotCanonical(graph)).toBe(sha256Canonical(graph));
+  });
+
+  it("is edge-object key-order insensitive (recursive key sort)", () => {
+    const reordered = {
+      edges: [
+        {
+          permits: { limits: { amountCentavos: 50000 }, actions: ["pix.charge.refund"] },
+          resource: "acct_7",
+          relationship: "owns",
+          principal: "user_42",
+        },
+        {
+          permits: { actions: ["pix.charge.create"] },
+          resource: "acct_minor",
+          relationship: "custodian",
+          principal: "custodian_5",
+        },
+      ],
+    };
+    expect(sha256SnapshotCanonical(reordered)).toBe(sha256SnapshotCanonical(graph));
+  });
+
+  it("preserves edge ARRAY order (distinct snapshots hash distinctly)", () => {
+    const swapped = { edges: [graph.edges[1], graph.edges[0]] };
+    expect(sha256SnapshotCanonical(swapped)).not.toBe(sha256SnapshotCanonical(graph));
+  });
+
+  it("NFC-normalizes principal/resource ids (NFD vs NFC) — DataReviewer-008", () => {
+    const composed = "caf\u00e9"; // NFC: precomposed e-acute U+00E9
+    const decomposed = "cafe\u0301"; // NFD: e + combining acute U+0301
+    expect(composed).not.toBe(decomposed); // distinct code points...
+    const nfc = { edges: [{ principal: composed, relationship: "owns", resource: "r", permits: { actions: [] } }] };
+    const nfd = { edges: [{ principal: decomposed, relationship: "owns", resource: "r", permits: { actions: [] } }] };
+    expect(sha256SnapshotCanonical(nfc)).toBe(sha256SnapshotCanonical(nfd)); // ...same hash
+  });
+
+  it("throws on a non-finite limit (RFC 8785 §3.2.2.3) — CryptoReviewer-002", () => {
+    const bad = { edges: [{ principal: "p", relationship: "owns", resource: "r", permits: { actions: [], limits: { x: Infinity } } }] };
+    expect(() => sha256SnapshotCanonical(bad)).toThrow();
+  });
+
+  it("a tampered principal/resource/relationship yields a different hash", () => {
+    const tampered = { edges: [{ ...graph.edges[0], principal: "attacker" }, graph.edges[1]] };
+    expect(sha256SnapshotCanonical(tampered)).not.toBe(sha256SnapshotCanonical(graph));
   });
 });

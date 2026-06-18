@@ -71,6 +71,7 @@ export {
   createStateDeferGuard,
   createThresholdGuard,
   createTokenBudgetGuard,
+  ownershipBindingPredicate,
   requireTenantBinding,
   type ConfirmGuardOptions,
   type DataClassificationGuardOptions,

@@ -16,7 +16,8 @@
  *       * REWRITE production ramp > MAX_PRODUCTION_RAMP_PERCENT down to
  *         the cap.
  *       * ESCALATE production deploys without a prior approval.
- *       * REQUEST_CONFIRMATION rollback when no confirmationToken.
+ *       * REQUEST_CONFIRMATION on every production rollback (the kernel's
+ *         intentHash-bound receipt path owns the EXECUTE transition).
  *       * EXECUTE every other valid request.
  *
  * Production-ready rollout patterns (canary, blue/green) are out of scope
@@ -216,12 +217,18 @@ const escalateProductionWithoutApproval: DeploymentGuard = nameGuard(
   },
 );
 
+// confirmDestructiveRollback is a REQUEST_CONFIRMATION-only producer. A production
+// rollback is destructive, so it always asks for confirmation. The
+// REQUEST_CONFIRMATION→EXECUTE transition is owned SOLELY by the kernel's
+// intentHash-bound `confirmationReceipt` path (adjudicate-and-audit.ts,
+// `receipt.intentHash === envelope.intentHash`) — never by a model-supplied
+// payload token. Without a bound receipt the rollback falls through to the
+// default REFUSE (the intended fail-closed posture, plan 014).
 const confirmDestructiveRollback: DeploymentGuard = nameGuard(
   "confirmDestructiveRollback",
   (envelope) => {
     if (envelope.kind !== "deployment.rollback.execute") return null;
     const p = envelope.payload as DeploymentRollbackExecutePayload;
-    if (p.confirmationToken && p.confirmationToken.length > 0) return null;
     if (p.environment !== "production") return null;
     return decisionRequestConfirmation(
       `Confirm rollback of production to ${p.toGitSha.slice(0, 8)}? This is destructive.`,
@@ -270,19 +277,6 @@ const allowApprovedProduction: DeploymentGuard = nameGuard(
       basis("business", BASIS_CODES.business.RULE_SATISFIED, {
         approver: approval.approver,
       }),
-    ]);
-  },
-);
-
-const allowConfirmedRollback: DeploymentGuard = nameGuard(
-  "allowConfirmedRollback",
-  (envelope) => {
-    if (envelope.kind !== "deployment.rollback.execute") return null;
-    const p = envelope.payload as DeploymentRollbackExecutePayload;
-    if (!p.confirmationToken) return null;
-    return decisionExecute([
-      basis("state", BASIS_CODES.state.TRANSITION_VALID),
-      basis("business", BASIS_CODES.business.RULE_SATISFIED),
     ]);
   },
 );
@@ -375,7 +369,6 @@ export const deploymentPolicyBundle: PolicyBundle<
     confirmDestructiveRollback,
     allowStagingNoRampOrLowRamp,
     allowApprovedProduction,
-    allowConfirmedRollback,
   ],
   default: "REFUSE",
 };

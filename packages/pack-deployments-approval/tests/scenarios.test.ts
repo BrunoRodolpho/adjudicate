@@ -46,7 +46,6 @@ function envRollback(
   service: string,
   environment: "staging" | "production",
   toGitSha: string,
-  confirmationToken?: string,
 ) {
   return buildEnvelope({
     kind: "deployment.rollback.execute",
@@ -54,7 +53,6 @@ function envRollback(
       service,
       environment,
       toGitSha,
-      ...(confirmationToken ? { confirmationToken } : {}),
     },
     actor: { principal: "user", sessionId: "s-1" },
     taint: "UNTRUSTED",
@@ -183,12 +181,26 @@ describe("pack-deployments-approval — Decision algebra coverage", () => {
     expect(decision.kind).toBe("REQUEST_CONFIRMATION");
   });
 
-  it("EXECUTE: rollback with confirmation token", () => {
-    const decision = adjudicate(
-      envRollback("api", "production", "deadbeefdeadbeef", "tok-confirmed"),
-      emptyState(),
-      deploymentPolicyBundle,
-    );
-    expect(decision.kind).toBe("EXECUTE");
+  // Plan 014: a model-supplied confirmation token can no longer self-confirm a
+  // rollback into EXECUTE. A production rollback always REQUEST_CONFIRMATIONs; the
+  // EXECUTE transition is owned solely by the kernel's intentHash-bound receipt
+  // path. Putting a stray `confirmationToken` on the payload has no effect.
+  it("REQUEST_CONFIRMATION: a model-supplied confirmation token never self-confirms a rollback", () => {
+    const env = buildEnvelope({
+      kind: "deployment.rollback.execute",
+      payload: {
+        service: "api",
+        environment: "production",
+        toGitSha: "deadbeefdeadbeef",
+        // A token the proposer minted itself — must NOT lower friction to EXECUTE.
+        confirmationToken: "tok-confirmed",
+      },
+      actor: { principal: "user", sessionId: "s-1" },
+      taint: "UNTRUSTED",
+      nonce: "n-rollback-self-confirm",
+      createdAt: "2026-05-13T12:00:00.000Z",
+    });
+    const decision = adjudicate(env, emptyState(), deploymentPolicyBundle);
+    expect(decision.kind).toBe("REQUEST_CONFIRMATION");
   });
 });

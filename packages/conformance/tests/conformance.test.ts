@@ -128,6 +128,7 @@ describe("runConformance() check id stability", () => {
       "AC-004",
       "AC-005",
       "AC-006",
+      "AC-007",
     ]);
   });
 

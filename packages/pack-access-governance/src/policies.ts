@@ -258,15 +258,19 @@ const deferPendingReview: AccessGuard = nameGuard(
   }),
 );
 
+// confirmRevoke is a REQUEST_CONFIRMATION-only producer. A valid revoke (it has
+// passed the state guards: known resource, an active, non-expired grant) always
+// asks for confirmation. The REQUEST_CONFIRMATION→EXECUTE transition is owned
+// SOLELY by the kernel's intentHash-bound `confirmationReceipt` path
+// (adjudicate-and-audit.ts, `receipt.intentHash === envelope.intentHash`) — never
+// by a model-supplied payload token. Without a bound receipt the revoke falls
+// through to the default REFUSE (the intended fail-closed posture, plan 014).
 const confirmRevoke: AccessGuard = nameGuard("confirmRevoke", (envelope) => {
   if (envelope.kind !== "access.revoke") return null;
   const p = rev(envelope.payload);
-  if (!p.confirmationToken) {
-    return decisionRequestConfirmation(`Revoke ${p.principal}'s access to ${p.resourceId}?`, [
-      basis("business", BASIS_CODES.business.RULE_VIOLATED, { rule: "revoke_confirm" }),
-    ]);
-  }
-  return null;
+  return decisionRequestConfirmation(`Revoke ${p.principal}'s access to ${p.resourceId}?`, [
+    basis("business", BASIS_CODES.business.RULE_VIOLATED, { rule: "revoke_confirm" }),
+  ]);
 });
 
 const executeApprovedRequest: AccessGuard = nameGuard("executeApprovedRequest", (envelope, state) => {
@@ -277,13 +281,6 @@ const executeApprovedRequest: AccessGuard = nameGuard("executeApprovedRequest", 
     return decisionExecute([basis("business", BASIS_CODES.business.RULE_SATISFIED, { rule: "approved_grant" })]);
   }
   return null;
-});
-
-const executeConfirmedRevoke: AccessGuard = nameGuard("executeConfirmedRevoke", (envelope) => {
-  if (envelope.kind !== "access.revoke") return null;
-  return rev(envelope.payload).confirmationToken
-    ? decisionExecute([basis("business", BASIS_CODES.business.RULE_SATISFIED, { rule: "confirmed_revoke" })])
-    : null;
 });
 
 // ── access sub-gap guards (WS-F) ──────────────────────────────────────────────
@@ -394,7 +391,6 @@ export const accessPolicyBundle: PolicyBundle<AccessIntentKind, unknown, AccessS
     confirmRevoke,
     requirePeerReviewForAdmin,
     executeApprovedRequest,
-    executeConfirmedRevoke,
   ],
   default: "REFUSE",
 };

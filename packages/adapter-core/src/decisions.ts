@@ -28,6 +28,18 @@
  * whose `intentHash` does not re-derive from its own content (a forged Decision
  * spliced in outside the kernel path).
  *
+ * **023 — resource-binding (executor honors the signed payload).** `runExecute`
+ * now enforces the resource binding for BOTH EXECUTE and REWRITE before the side
+ * effect: it re-derives the envelope's `intentHash` (`verifyResourceBinding`,
+ * the untouched `intentHashInput` recipe) and constant-time-compares it against
+ * the carried hash. This SUBSUMES the 011/T4 forged-rewrite check and EXTENDS the
+ * same fence to the EXECUTE payload, so a `payload` / `resourceRefs` swapped
+ * AFTER the kernel decision (anti-IDOR / anti-resource-swap) fail-closes and the
+ * executor is never invoked (invariants #1, #6). It coexists with 012's READ
+ * routing (reads serve via `invokeRead`, never `invokeIntent`, and never reach
+ * this binding gate) and 013's required `auditSink` (the kernel crossing that
+ * produced this Decision already emitted the durable record).
+ *
  * **First non-continue Decision wins**: if multiple tool_use blocks fire
  * in the same assistant turn, the loop processes them in order but
  * stops translating the moment a non-continue Decision arrives. The
@@ -35,9 +47,9 @@
  */
 
 import {
-  deriveIntentHash,
-  timingSafeHexEqual,
+  DEFAULT_RESOURCE_BINDING_POLICY,
   validateOutputShape,
+  verifyResourceBinding,
 } from "@adjudicate/core";
 import type {
   AuditSink,
@@ -45,6 +57,7 @@ import type {
   ExecutorContract,
   IntentEnvelope,
   Ledger,
+  ResourceBindingPolicy,
   TaintPolicy,
 } from "@adjudicate/core";
 import { adjudicateAndAudit, type RuntimeContext } from "@adjudicate/core/kernel";
@@ -90,6 +103,15 @@ export interface DecisionTranslationContext<K extends string, P, S, H> {
    * result or loop action.
    */
   readonly executorContract?: ExecutorContract;
+  /**
+   * 023 — resource-binding policy enforced at the executor seam before
+   * `invokeIntent`. `"strict"` (default) / `"warn"` fail-close the EXECUTE when
+   * the envelope's payload/resource-refs no longer re-derive its `intentHash`
+   * (anti-IDOR / anti-resource-swap); `"off"` is the rollback dial that restores
+   * the pre-023 seam. Mirrors `verifyParkedHash` on the parked-envelope path so
+   * the two binding checks share one staged-rollout vocabulary.
+   */
+  readonly resourceBindingPolicy?: ResourceBindingPolicy;
 }
 
 export type LoopAction =
@@ -256,32 +278,55 @@ export async function translateDecision<K extends string, P, S, H>(
  * Shared EXECUTE / REWRITE path. Runs the adopter's executor against the
  * envelope passed in (the original for EXECUTE, the rewritten one for
  * REWRITE), serializes the result, and returns a continue-loop translation.
+ *
+ * 023 — before invoking the executor it ENFORCES the resource binding
+ * (`verifyResourceBinding`) so `invokeIntent` only ever receives the exact
+ * kernel-bound payload; a post-decision resource-swap fail-closes here.
  */
 async function runExecute<K extends string, P, S, H>(
   ctx: DecisionTranslationContext<K, P, S, H>,
   effectiveEnvelope: IntentEnvelope<K, P>,
   rewriteReason: string | null,
 ): Promise<DecisionTranslation> {
-  // 011/T4: defend the REWRITE re-adjudication contract. The audited kernel path
-  // (adjudicateAndAudit) re-derives the rewritten intentHash fail-closed and only
-  // emits a REWRITE Decision for a rewritten envelope that passed a second-pass
-  // EXECUTE — but the executor must never run a rewritten envelope whose hash does
-  // not re-derive from its own content (a Decision forged outside the kernel path).
-  // Re-verify here, fail-closed, before the side effect. EXECUTE (rewriteReason ===
-  // null) skips this — its hash was verified by the kernel's step-1b gate and is
-  // not re-derived a second time on the hot path.
-  if (rewriteReason !== null) {
-    let derived: string;
-    try {
-      derived = deriveIntentHash(effectiveEnvelope as IntentEnvelope);
-    } catch {
-      derived = "";
-    }
-    if (derived === "" || !timingSafeHexEqual(derived, effectiveEnvelope.intentHash)) {
+  // 023 — resource-binding enforcement at the executor seam. Before the side
+  // effect, re-derive the envelope's `intentHash` from its OWN content (the same
+  // `intentHashInput` recipe `buildEnvelope` / the kernel's step-1b gate use,
+  // untouched — invariant #4) and constant-time-compare it against the carried
+  // `effectiveEnvelope.intentHash`. The executor must honor ONLY the kernel-bound
+  // (signed) payload: if the LLM swapped `payload` or `resourceRefs` (031, the
+  // per-kind authorization target) AFTER the kernel decided, the re-derived hash
+  // differs and the binding FAILS — `invokeIntent` is NOT reached (anti-IDOR /
+  // anti-resource-swap; preserves invariant #1, fail-closed per #6). This runs for
+  // BOTH EXECUTE and REWRITE: it SUBSUMES the 011/T4 forged-rewrite check
+  // (re-derive the rewritten hash fail-closed) AND extends the same fence to the
+  // EXECUTE payload, so a post-decision resource-swap can never reach the executor.
+  // `"off"` (rollback dial) restores the exact pre-023 seam.
+  const bindingPolicy =
+    ctx.resourceBindingPolicy ?? DEFAULT_RESOURCE_BINDING_POLICY;
+  if (bindingPolicy !== "off") {
+    const binding = verifyResourceBinding(effectiveEnvelope as IntentEnvelope);
+    if (!binding.bound) {
+      // The message differs by path so the operator sees the right cause: a
+      // forged REWRITE keeps the 011 wording; a swapped EXECUTE payload is an
+      // anti-IDOR binding failure. Either way: fail-closed, executor NOT invoked.
+      const content =
+        rewriteReason !== null
+          ? "Rewritten action could not be verified and was not executed."
+          : "Action could not be verified (resource binding mismatch) and was not executed.";
+      ctx.log?.warn?.(
+        {
+          toolUseId: ctx.toolUseId,
+          sessionId: ctx.sessionId,
+          intentKind: effectiveEnvelope.kind,
+          derived: binding.derived,
+          stored: binding.stored,
+          path: rewriteReason !== null ? "rewrite" : "execute",
+        },
+        "[adjudicate] resource-binding mismatch — refusing to execute (anti-IDOR)",
+      );
       const errResult: ToolResultBlock = {
         toolUseId: ctx.toolUseId,
-        content:
-          "Rewritten action could not be verified and was not executed.",
+        content,
         isError: true,
       };
       return {

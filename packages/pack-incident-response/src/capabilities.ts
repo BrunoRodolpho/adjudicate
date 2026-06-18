@@ -1,3 +1,14 @@
+/**
+ * @adjudicate/pack-incident-response — CapabilityPlanner.
+ *
+ * **023 — bound payload at the executor seam.** A remediation intent this
+ * planner exposes (`incident.remediation.execute` / `incident.escalate`) reaches
+ * the adopter's executor ONLY through a binding-enforced seam — the adapter-core
+ * loop (`runExecute` / `verifyResourceBinding`) or the Adjutant orchestrator's
+ * `assertResourceBound` fence. The executor honors ONLY the exact `payload`
+ * (e.g. the `incidentId` / `blastRadius`) the kernel adjudicated; a post-decision
+ * swap fail-closes before `invokeIntent` (anti-IDOR; invariants #1, #6).
+ */
 import {
   filterReadOnly,
   safePlan,

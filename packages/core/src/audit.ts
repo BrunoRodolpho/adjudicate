@@ -169,6 +169,17 @@ export interface AuditRecord {
    * AuditSigner injects KMS/HSM signing in production; OSS adopters
    * leave the field absent (auditHash alone gives tamper detection;
    * the signature adds non-repudiation).
+   *
+   * **023 — stays PASSIVE.** The resource-binding plan is a HASH fence only
+   * (re-derive `intentHash` + constant-time-compare at the executor seam); it
+   * introduces NO signature producer and does NOT populate this slot. The
+   * AuditSigner that ACTIVATES this field is plan 092
+   * (`@adjudicate/approval-engine`), which lands right after 023 and OWNS it —
+   * leaving the slot passive here is REQUIRED so 092 can activate it cleanly. The
+   * bound envelope inputs (`envelope` incl. `payload` / `resourceRefs` / the
+   * content-addressed `intentHash`) are already recorded on the AuditRecord, so
+   * the kernel decision REPLAYS over the recorded bound inputs (§D #5) without
+   * any signing.
    */
   readonly signature?: {
     readonly keyId: string;

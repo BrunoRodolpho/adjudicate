@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AdopterExecutor } from "@adjudicate/adapter-core";
+import { buildEnvelope, verifyResourceBinding, type IntentEnvelope } from "@adjudicate/core";
 import {
   AUTO_REMEDIATION_BLAST_CAP,
   type IncidentDependency,
@@ -8,7 +9,10 @@ import {
   type IncidentStatus,
   type RemediationExecutePayload,
 } from "@adjudicate/pack-incident-response";
-import { createRemediationOrchestrator } from "../src/index.js";
+import {
+  createInMemoryRemediationProposalStore,
+  createRemediationOrchestrator,
+} from "../src/index.js";
 
 function stateWith(
   overrides: { status?: IncidentStatus; deps?: IncidentDependency[] } = {},
@@ -192,5 +196,82 @@ describe("RemediationOrchestrator — zero independent authority", () => {
     // The side effect happened exactly once, and only via the adopter executor.
     expect(executor.invokeIntent).toHaveBeenCalledTimes(1);
     expect(executor.invokeRead).not.toHaveBeenCalled();
+  });
+});
+
+// ── 023: resource-binding fence at the Adjutant executor seam ────────────────
+describe("RemediationOrchestrator — 023 resource binding (anti-IDOR)", () => {
+  it("the env handed to invokeIntent is the kernel-bound one (re-derives its own intentHash)", async () => {
+    const { orch, executor } = setup();
+    const out = await orch.handle({
+      incidentId: "inc-1",
+      action: "rollback",
+      blastRadius: 3,
+      disposition: "SAFE",
+      nonce: "n-bound",
+    });
+    expect(out.executed).toBe(true);
+    // The executor received exactly the kernel-decided envelope, and that
+    // envelope is resource-bound (its intentHash re-derives from its content) —
+    // the fence (assertResourceBound) passed precisely because nothing swapped
+    // the payload between decision and execution.
+    const passed = (executor.invokeIntent as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[0] as { intentHash: string };
+    expect(verifyResourceBinding(passed as never).bound).toBe(true);
+    expect(passed.intentHash).toBe(out.executedEnvelope!.intentHash);
+  });
+
+  it("a forged/swapped proposal envelope is refused before invokeIntent (resolve path)", async () => {
+    // Drive the resolve() seam with a proposal whose stored envelope payload was
+    // swapped after it was minted (stale intentHash). The kernel would re-derive
+    // a mismatch, but even if a forged EXECUTE were spliced in, assertResourceBound
+    // fail-closes before the side effect. We assert the executor never fires.
+    const state = stateWith();
+    const executor: AdopterExecutor<IncidentIntentKind, unknown, IncidentState> = {
+      invokeRead: vi.fn(async () => ({})),
+      invokeIntent: vi.fn(async () => ({ ok: true })),
+    };
+    const bound = buildEnvelope<IncidentIntentKind, RemediationExecutePayload>({
+      kind: "incident.remediation.execute",
+      payload: { incidentId: "inc-1", action: "rollback", blastRadius: 3 },
+      actor: { principal: "user", sessionId: "inc-1" },
+      taint: "TRUSTED",
+      nonce: "n-forge",
+    });
+    const swapped = {
+      ...bound,
+      payload: { incidentId: "inc-VICTIM", action: "rollback", blastRadius: 3 },
+    } as IntentEnvelope<IncidentIntentKind>;
+    // Sanity: the swap genuinely breaks the binding.
+    expect(verifyResourceBinding(swapped as never).bound).toBe(false);
+
+    const proposalStore = createInMemoryRemediationProposalStore();
+    proposalStore.put({
+      proposalId: "p-forge",
+      incidentId: "inc-1",
+      action: "rollback",
+      blastRadius: 3,
+      disposition: "REVIEW",
+      status: "pending_review",
+      approvalToken: "tok-forge",
+      intentHash: bound.intentHash,
+      envelope: swapped,
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:00.000Z",
+    });
+    const orch = createRemediationOrchestrator({
+      executor,
+      getState: () => state,
+      proposalStore,
+    });
+    // Accepting re-adjudicates the swapped envelope. The kernel refuses on the
+    // intent-hash mismatch; the binding fence is the executor-seam backstop.
+    const res = await orch.resolve({
+      token: "tok-forge",
+      accepted: true,
+      at: "2026-06-18T01:00:00.000Z",
+    });
+    expect(executor.invokeIntent).not.toHaveBeenCalled();
+    expect(res.executed).toBe(false);
   });
 });

@@ -6,6 +6,14 @@
  * produces it, with TRUSTED taint. The other two intents are visible based
  * on whether refundable state exists.
  *
+ * **023 — bound payload at the executor seam.** A PIX intent this planner
+ * exposes (`pix.charge.create` / `pix.charge.refund`) reaches the adopter's
+ * executor ONLY through the adapter-core loop's binding gate (`runExecute` /
+ * `verifyResourceBinding`): the executor honors ONLY the exact `payload` /
+ * `resourceRefs` (e.g. the `account` the refund targets) the kernel adjudicated.
+ * An LLM that swaps the target account between decision and execution
+ * fail-closes upstream and never reaches the executor (anti-IDOR).
+ *
  *   - No confirmed charges          → only `create` is proposable.
  *   - At least one confirmed charge → `create` and `refund` are proposable.
  *

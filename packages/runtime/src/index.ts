@@ -39,3 +39,18 @@ export {
 } from "./defer-park.js"
 
 export { DEADLINE_HIT, deadlinePromise } from "./with-deadlines.js"
+
+// 023 — re-export the resource-binding verifier so the parked-envelope hash
+// verifier (`verifyParkedEnvelopeHash`, above) and the executor-seam resource
+// binding share ONE importable surface and ONE pre-image: both re-derive
+// `sha256Canonical({version,kind,payload,nonce,actor,taint,origin[,resourceRefs]})`
+// via the untouched `intentHashInput` recipe and compare constant-time via
+// `timingSafeHexEqual` — they cannot drift (023 §3/T4).
+export {
+  DEFAULT_RESOURCE_BINDING_POLICY,
+  verifyResourceBinding,
+} from "@adjudicate/core"
+export type {
+  ResourceBindingPolicy,
+  ResourceBindingResult,
+} from "@adjudicate/core"

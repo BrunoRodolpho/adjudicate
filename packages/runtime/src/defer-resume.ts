@@ -74,6 +74,16 @@ export type ParkVerificationResult =
   | { readonly verified: false; readonly reason: "tampered"; readonly derived: string; readonly stored: string }
   | { readonly verified: null; readonly reason: "missing_fields" }
 
+/**
+ * 023 cross-drift note (T4): the resource-binding pre-image
+ * (`verifyResourceBinding` / `deriveIntentHash` in `@adjudicate/core`) and the
+ * parked-envelope pre-image below are the SAME canonical recipe —
+ * `sha256Canonical({version, kind, payload, nonce, actor, taint, origin[,
+ * resourceRefs]})` — and the SAME `timingSafeHexEqual` comparator. They re-derive
+ * the SAME `intentHash` for the SAME envelope, so the executor-seam binding and
+ * the resume-time park check cannot disagree (no drift; invariant #4/#5). A
+ * golden-vector lock in `@adjudicate/canonical` pins the shared pre-image.
+ */
 export function verifyParkedEnvelopeHash(parked: ParkedEnvelope): ParkVerificationResult {
   const e = parked.envelope
   if (

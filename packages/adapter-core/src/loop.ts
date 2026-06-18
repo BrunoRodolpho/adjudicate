@@ -548,6 +548,13 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         // `kind` (the Decision contract; see core/decision.ts), so resolving by
         // the original envelope's kind is correct for both EXECUTE and REWRITE.
         executorContract: options.pack.executorContract?.[args.envelope.kind],
+        // 023 — thread the resource-binding policy so runExecute re-verifies the
+        // kernel-bound payload at the executor seam before `invokeIntent`
+        // (anti-IDOR; defaults to "strict" inside runExecute). The constant-time
+        // comparator the binding uses (`timingSafeHexEqual`) is wired at this seam.
+        ...(options.resourceBindingPolicy !== undefined
+          ? { resourceBindingPolicy: options.resourceBindingPolicy }
+          : {}),
         // SecurityReviewer-003: the confirmation token is a single-use
         // credential authorizing REQUEST_CONFIRMATION → EXECUTE substitution.
         // Never fall back to Math.random() (V8 xorshift-128+ is reversible) —

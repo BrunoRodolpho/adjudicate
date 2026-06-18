@@ -835,15 +835,29 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     }
     throw emitErr;
   } finally {
-    // 011/T2: a validated REWRITE executes the rewritten bytes (a side effect),
-    // so for rate-limit-rollback purposes it is "executing" just like EXECUTE —
-    // do NOT roll back the counter for it. Only genuinely non-executing
-    // decisions (REFUSE/ESCALATE/DEFER/REQUEST_CONFIRMATION, or a REWRITE that
-    // failed re-adjudication) roll back.
-    const decisionExecutes =
-      decision.kind === "EXECUTE" ||
-      (decision.kind === "REWRITE" && executedEnvelope !== (envelope as IntentEnvelope));
-    if (!decisionExecutes && deps.rateLimitRollback) {
+    // ── T5 #41 rollback seam (load-bearing, FAIL-CLOSED) ────────────────────
+    // 051/T2: roll the rate-limit counter back for every NON-EXECUTE decision.
+    // This `finally` runs even when `sink.emit` threw above (the success path
+    // returns normally; the throw path rethrows in `catch` AFTER this runs) —
+    // a transient audit-sink failure must NEVER leave a legitimate user's
+    // counter incremented for a request that was not authorized (invariant #6,
+    // §C: failure defaults to friction, never bypass). The pre-fix bug ran the
+    // rollback after a bare `await sink.emit`, so a throwing sink skipped it and
+    // poisoned the counter.
+    //
+    // 011/T2 carve-out: a validated REWRITE executes the rewritten bytes (a real
+    // side effect), so it is "executing" like EXECUTE — do NOT roll back for it.
+    // `rewriteExecuted` is true only on the REWRITE→EXECUTE path (the recorded
+    // subject swapped to the rewritten envelope); a REWRITE that FAILED
+    // re-adjudication collapsed to REFUSE above and rolls back like any other
+    // non-EXECUTE.
+    const rewriteExecuted =
+      decision.kind === "REWRITE" &&
+      executedEnvelope !== (envelope as IntentEnvelope);
+    if (
+      decision.kind !== 'EXECUTE' && deps.rateLimitRollback &&
+      !rewriteExecuted
+    ) {
       try {
         await deps.rateLimitRollback();
       } catch (err) {

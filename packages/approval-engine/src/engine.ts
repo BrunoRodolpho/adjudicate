@@ -167,6 +167,7 @@ export function createApprovalEngine<S, C, H>(
         status: "pending",
         requestedAt: now(),
         ...(input.escalation ? { escalation: input.escalation } : {}),
+        ...(opts.quorum ? { quorum: opts.quorum } : {}),
       };
       await opts.registry.put(req, ttl);
       return req;

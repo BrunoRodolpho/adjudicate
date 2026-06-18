@@ -33,6 +33,13 @@ export interface ApprovalRequest {
    */
   readonly escalation?: { readonly afterMs: number; readonly to: "human" | "supervisor" };
   /**
+   * Quorum policy stamped from the engine's config at request() so the
+   * projection is self-describing — operator UIs can render N/`minApprovals`
+   * progress without knowing the engine's global config. Mirrors `escalation`;
+   * never read by the kernel.
+   */
+  readonly quorum?: { readonly minApprovals: number; readonly distinctApprovers?: boolean };
+  /**
    * Optional provenance tag stamped by a multiplexing reader (e.g. the adjutant
    * reading both checkout and agent keyspaces). Never persisted by `put` — it is
    * a read-side display hint only, never a security boundary.

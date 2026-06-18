@@ -89,6 +89,7 @@ export {
   type ConfigSeal,
   type ConfigSealPolicy,
   type ConfigSealReport,
+  type GuardCodeDigest,
   type SealableSurface,
   type SealablePackInput,
 } from "./config-seal.js";

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import { withMetadata, type Guard } from "@adjudicate/core/kernel";
+import { createRewriteGuard } from "@adjudicate/primitives";
 import {
   computeConfigDigest,
   extractSealableSurface,
@@ -102,6 +103,81 @@ describe("config-seal — tamper detection (adversarial)", () => {
     const report = verifyConfigSeal(makePack(), seal, { policy: "require_signature" });
     expect(report.verified).toBe(false);
     expect(report.errors.length).toBeGreaterThan(0);
+  });
+});
+
+// ── 081: guard CODE bodies are sealed, not just metadata (Critique #27) ──────
+
+/**
+ * The escape this regression closes: a `createRewriteGuard` clamp captures its
+ * cap (here named `AUTO_REMEDIATION_BLAST_CAP`) in the guard CLOSURE and records
+ * only `{ kind: "rewrite", mutatesPayloadFields }` in metadata. Pre-081, editing
+ * the cap 5 → 5000 changed guard behavior but left a byte-identical sealable
+ * surface that verified clean. 081 pins the cap into the per-guard code artifact
+ * digest, so the edit now moves `computeConfigDigest`.
+ */
+function makeRewritePack(cap: number): SealablePackInput {
+  const clampGuard = createRewriteGuard<string, Record<string, unknown>, unknown>({
+    matches: (env) => env.kind === "remediation.apply",
+    extract: (env) => (env.payload as { blast?: number }).blast,
+    cap,
+    mutateField: "blast",
+    reason: "clamped blast radius to the auto-remediation cap",
+  });
+  return {
+    id: "pack-rewrite-cap",
+    version: "1.0.0",
+    contract: "v0",
+    intents: ["remediation.apply"],
+    signals: [],
+    basisCodes: ["business:quantity_capped"],
+    policy: {
+      stateGuards: [],
+      authGuards: [],
+      taint: { minimumFor: () => "UNTRUSTED" },
+      business: [clampGuard as Guard<string, unknown, unknown>],
+      default: "REFUSE",
+    },
+  };
+}
+
+describe("config-seal — guard CODE is sealed (081, Critique #27)", () => {
+  const AUTO_REMEDIATION_BLAST_CAP = 5;
+  const TAMPERED_BLAST_CAP = 5000;
+
+  it("a createRewriteGuard closure cap is surfaced into the sealable surface", () => {
+    const surface = extractSealableSurface(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP));
+    // The cap must be captured as a per-guard code digest — proving the
+    // executable surface (not just metadata) is part of what gets hashed.
+    expect(surface.guardCodeDigests.length).toBeGreaterThan(0);
+    expect(surface.guardCodeDigests[0]!.codeDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("editing AUTO_REMEDIATION_BLAST_CAP 5→5000 CHANGES computeConfigDigest", () => {
+    const baseDigest = computeConfigDigest(
+      extractSealableSurface(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP)),
+    );
+    const tamperedDigest = computeConfigDigest(
+      extractSealableSurface(makeRewritePack(TAMPERED_BLAST_CAP)),
+    );
+    // Pre-081 these were byte-identical (metadata-only seal). They must differ now.
+    expect(tamperedDigest).not.toBe(baseDigest);
+  });
+
+  it("verifyConfigSeal reports a mismatch when the cap is tampered (fail-closed)", () => {
+    const seal = sealPackConfig(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP));
+    const report = verifyConfigSeal(makeRewritePack(TAMPERED_BLAST_CAP), seal);
+    expect(report.digestMatch).toBe("mismatch");
+    expect(report.verified).toBe(false);
+  });
+
+  it("presence-only is NOT sufficient — the SAME cap still verifies clean", () => {
+    // Non-vacuity guard: the mismatch above is caused by the CAP, not by guard
+    // identity/order. Re-sealing the identical cap must still verify.
+    const seal = sealPackConfig(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP));
+    const report = verifyConfigSeal(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP), seal);
+    expect(report.digestMatch).toBe("match");
+    expect(report.verified).toBe(true);
   });
 });
 

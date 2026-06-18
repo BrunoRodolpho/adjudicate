@@ -1,12 +1,20 @@
 /**
- * Configuration Integrity Seal (ADR-121).
+ * Configuration Integrity Seal (ADR-121, hardened by 081).
  *
  * `computePackFingerprint` (ADR-115) pins only the declarative subset and
  * cannot hash policy/planner *function bodies*. The seal pins a *richer*
  * introspectable surface — declarative subset + guard metadata descriptions
- * (via `describePolicyBundle`) + the probed taint minimums for each declared
+ * (via `describePolicyBundle`) + per-guard CODE-artifact digests (081:
+ * closure-captured caps + predicate bodies surfaced via
+ * `attachGuardCodeArtifact`) + the probed taint minimums for each declared
  * intent + basis codes — under an ed25519/RSA-PSS signature, and lets the
  * adapter verify at runtime that the installed config has not drifted.
+ *
+ * 081 closes Critique #27: previously a behavior-changing edit to a
+ * closure-captured cap (e.g. `createRewriteGuard`'s
+ * `AUTO_REMEDIATION_BLAST_CAP` 5 → 5000) left a byte-identical sealable
+ * surface that verified clean, because the seal saw guard METADATA only. The
+ * surface now binds guard CODE, so such an edit drives a digest mismatch.
  *
  * Pure functions: no I/O, clock, or RNG. Callers own PEM/key loading.
  */
@@ -23,6 +31,19 @@ import {
   type PackSignatureAlgorithm,
 } from "./pack-trust.js";
 
+/**
+ * One per-guard code-artifact digest, addressed by its position in the policy
+ * structure (081). `phase` + `index` make the address order-stable and
+ * collision-free across phases; `codeDigest` is `describePolicyBundle`'s
+ * `sha256Canonical` over the guard's `GuardCodeArtifact`. Guards with no
+ * artifact to pin are omitted (the list is sparse, not padded).
+ */
+export interface GuardCodeDigest {
+  readonly phase: string;
+  readonly index: number;
+  readonly codeDigest: string;
+}
+
 /** The introspectable configuration surface a seal pins (superset of the fingerprint). */
 export interface SealableSurface {
   readonly id: string;
@@ -33,6 +54,16 @@ export interface SealableSurface {
   readonly basisCodes: ReadonlyArray<string>;
   /** Per-phase guard metadata from describePolicyBundle (anonymous guards pinned too). */
   readonly policyStructure: PolicyBundleDescriptor;
+  /**
+   * Per-guard CODE-artifact digests (081). Binds the *executable* surface —
+   * closure-captured caps + predicate bodies — that guard METADATA alone is
+   * blind to. Threaded as a dedicated field (not left implicit inside
+   * `policyStructure.codeDigest`) so the body-integrity coverage is a named,
+   * first-class part of the digest and survives any descriptor-rendering layer
+   * that might strip nested optional fields. Order-stable: phase order then
+   * guard index.
+   */
+  readonly guardCodeDigests: ReadonlyArray<GuardCodeDigest>;
   /** Probed `taint.minimumFor(kind)` for each declared intent — captures system-only config. */
   readonly taintMinimums: ReadonlyArray<{ readonly kind: string; readonly minimum: Taint }>;
 }
@@ -48,11 +79,33 @@ export interface SealablePackInput {
   readonly policy: PolicyBundle<string, unknown, unknown>;
 }
 
+/**
+ * Flatten the per-guard code digests out of a describe-bundle descriptor into
+ * an order-stable list (081). Phase order is the descriptor's own (state →
+ * taint → auth → business); guard index is positional within the phase. Guards
+ * with no `codeDigest` are skipped, so the list is sparse — only guards that
+ * exposed a `GuardCodeArtifact` (e.g. `createRewriteGuard`'s cap) contribute.
+ */
+function collectGuardCodeDigests(
+  structure: PolicyBundleDescriptor,
+): ReadonlyArray<GuardCodeDigest> {
+  const out: GuardCodeDigest[] = [];
+  for (const phase of structure.phases) {
+    phase.guards.forEach((guard, index) => {
+      if (guard.codeDigest !== undefined) {
+        out.push({ phase: phase.phase, index, codeDigest: guard.codeDigest });
+      }
+    });
+  }
+  return out;
+}
+
 /** Pure: extract the order-stable sealable surface from a Pack. */
 export function extractSealableSurface(pack: SealablePackInput): SealableSurface {
   const taintMinimums = [...pack.intents]
     .sort()
     .map((kind) => ({ kind, minimum: pack.policy.taint.minimumFor(kind) }));
+  const policyStructure = describePolicyBundle(pack.policy);
   return {
     id: pack.id,
     version: pack.version,
@@ -60,7 +113,8 @@ export function extractSealableSurface(pack: SealablePackInput): SealableSurface
     intents: [...pack.intents].sort(),
     signals: pack.signals ? [...pack.signals].sort() : [],
     basisCodes: pack.basisCodes ? [...pack.basisCodes].sort() : [],
-    policyStructure: describePolicyBundle(pack.policy),
+    policyStructure,
+    guardCodeDigests: collectGuardCodeDigests(policyStructure),
     taintMinimums,
   };
 }

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { createRewriteGuard } from "@adjudicate/primitives";
+import type { Guard } from "@adjudicate/core/kernel";
 import {
   extractSealableSurface,
   freezeSealableSurface,
@@ -52,4 +54,44 @@ describe("freezeSealableSurface + verifyConfigSealFrozen (ADR-137)", () => {
     const seal = sealPackConfig(pack);
     expect(verifyConfigSealFrozen(frozen, seal).computedDigest).toBe(seal.digest);
   });
+
+  // ── 081: the frozen cadence also covers the guard CODE-artifact surface ──
+  it("frozen verify covers per-guard code artifacts (deep-freezes guardCodeDigests)", () => {
+    const capPack = rewritePack(5);
+    const frozen = freezeSealableSurface(extractSealableSurface(capPack));
+    expect(Object.isFrozen(frozen.guardCodeDigests)).toBe(true);
+    expect(frozen.guardCodeDigests.length).toBeGreaterThan(0);
+    // A frozen surface captured over cap=5 must NOT verify a seal minted over
+    // cap=5000 — the frozen path binds guard code, not just metadata (081).
+    const tamperedSeal = sealPackConfig(rewritePack(5000));
+    const r = verifyConfigSealFrozen(frozen, tamperedSeal);
+    expect(r.digestMatch).toBe("mismatch");
+    expect(r.verified).toBe(false);
+  });
 });
+
+/** A pack whose business phase clamps via a createRewriteGuard closure cap. */
+function rewritePack(cap: number): SealablePackInput {
+  const clamp = createRewriteGuard<string, Record<string, unknown>, unknown>({
+    matches: (env) => env.kind === "x.do",
+    extract: (env) => (env.payload as { n?: number }).n,
+    cap,
+    mutateField: "n",
+    reason: "clamp",
+  });
+  return {
+    id: "frozen-rewrite-pack",
+    version: "1.0.0",
+    contract: "v0",
+    intents: ["x.do"],
+    signals: [],
+    basisCodes: ["business:quantity_capped"],
+    policy: {
+      stateGuards: [],
+      authGuards: [],
+      taint: { minimumFor: () => "UNTRUSTED" },
+      business: [clamp as Guard<string, unknown, unknown>],
+      default: "REFUSE",
+    },
+  };
+}

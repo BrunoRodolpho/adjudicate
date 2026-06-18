@@ -239,6 +239,10 @@ pack
     "--expect <hex>",
     "Expected SHA-256 fingerprint. Mismatch is a hard failure.",
   )
+  .option(
+    "--expect-seal <hex>",
+    "Expected SHA-256 of the ConfigSeal surface (081: pins guard code bodies). Mismatch is a hard failure.",
+  )
   .option("--public-key <pem-path>", "Path to a PEM-encoded public key")
   .option(
     "--signature <json-path>",
@@ -255,6 +259,7 @@ pack
       packPath: string | undefined,
       options: {
         expect?: string;
+        expectSeal?: string;
         publicKey?: string;
         signature?: string;
         policy?: string;
@@ -276,6 +281,7 @@ pack
       }
       await runPackVerify(packPath, {
         ...(options.expect !== undefined ? { expect: options.expect } : {}),
+        ...(options.expectSeal !== undefined ? { expectSeal: options.expectSeal } : {}),
         ...(options.publicKey !== undefined
           ? { publicKey: options.publicKey }
           : {}),

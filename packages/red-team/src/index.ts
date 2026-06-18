@@ -31,9 +31,11 @@ export { generateToolScopeViolationEnvelopes } from "./vectors/tool-scope-violat
 
 export {
   computeRedTeamExitCode,
+  runConfigSealCapEditRegression,
   runRedTeam,
   taintEscalationCausality,
   TAINT_GATE_BASIS,
+  type CapEditRegressionResult,
   type RedTeamReport,
   type RedTeamResult,
   type RedTeamStatus,

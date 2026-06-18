@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  attachGuardCodeArtifact,
   describePolicyBundle,
   withMetadata,
   type Guard,
@@ -111,5 +112,65 @@ describe("describePolicyBundle", () => {
       threshold: 1000,
       comparator: ">=",
     });
+  });
+
+  // ── 081: per-guard code-artifact digest (closure caps + predicate bodies) ──
+  it("guards WITHOUT a code artifact carry NO codeDigest (shape unchanged)", () => {
+    const out = describePolicyBundle(bundleFixture());
+    const businessPhase = out.phases.find((p) => p.phase === "business")!;
+    // No artifact attached → the descriptor key is absent, not undefined.
+    expect("codeDigest" in businessPhase.guards[0]!).toBe(false);
+  });
+
+  it("a guard WITH a code artifact gets a deterministic sha256 codeDigest", () => {
+    const cappedGuard = attachGuardCodeArtifact(
+      (() => null) as Guard<string, unknown, unknown>,
+      { caps: { blast: 5 }, source: "() => null" },
+    );
+    const bundle: PolicyBundle<string, unknown, unknown> = {
+      stateGuards: [],
+      authGuards: [],
+      taint: permissiveTaint,
+      business: [cappedGuard],
+      default: "REFUSE",
+    };
+    const a = describePolicyBundle(bundle).phases.find((p) => p.phase === "business")!;
+    const g = a.guards[0]!;
+    expect(g.codeDigest).toMatch(/^[a-f0-9]{64}$/);
+    // Deterministic — re-describing the same guard yields the same digest.
+    const b = describePolicyBundle(bundle).phases.find((p) => p.phase === "business")!;
+    expect(b.guards[0]!.codeDigest).toBe(g.codeDigest);
+  });
+
+  it("changing the captured cap CHANGES the codeDigest (Critique #27 mechanism)", () => {
+    const mk = (cap: number) => {
+      const guard = attachGuardCodeArtifact(
+        (() => null) as Guard<string, unknown, unknown>,
+        { caps: { blast: cap }, source: "() => null" },
+      );
+      return describePolicyBundle({
+        stateGuards: [],
+        authGuards: [],
+        taint: permissiveTaint,
+        business: [guard],
+        default: "REFUSE",
+      }).phases.find((p) => p.phase === "business")!.guards[0]!.codeDigest;
+    };
+    expect(mk(5)).not.toBe(mk(5000));
+  });
+
+  it("the codeDigest survives JSON round-trip (no function/symbol leakage)", () => {
+    const guard = attachGuardCodeArtifact(
+      (() => null) as Guard<string, unknown, unknown>,
+      { caps: { blast: 5 } },
+    );
+    const out = describePolicyBundle({
+      stateGuards: [],
+      authGuards: [],
+      taint: permissiveTaint,
+      business: [guard],
+      default: "REFUSE",
+    });
+    expect(JSON.parse(JSON.stringify(out))).toEqual(out);
   });
 });

@@ -160,6 +160,70 @@ export interface RecordedAuthoritySnapshot {
   readonly snapshotHash: string;
 }
 
+/**
+ * The aggregate/limit SNAPSHOT (052, index §B/§D/§G): an IMMUTABLE view of the
+ * cumulative/velocity counters the multi-horizon limit guards decide against —
+ * "how much of this resource has already been committed in this window?". Like
+ * the authority graph (032/033), it is an INJECTED snapshot, never a decision
+ * layer: the impure shell computes it (by reading the durable counting
+ * substrate — `GuardFireStats` + the additive Postgres upsert), then passes it
+ * READ-ONLY to the one kernel decision. The kernel NEVER refetches, mutates, or
+ * timestamps it (index §D, constitutional inv. 5: clock/ledger from `deps`).
+ *
+ * **NOT part of `intentHashInput`.** The aggregate snapshot rides as injected
+ * state, not as an envelope field — adding this type changes NO envelope hash
+ * (the `intentHashInput` pre-image and `EXPECTED_ENVELOPE_KEYS` stay
+ * byte-identical, exactly like 032/033). Co-located here only so the
+ * multi-horizon limit axis sits next to the other injected snapshots; it is
+ * content-addressed SEPARATELY via the 052 snapshot serializer
+ * (`hashAggregateSnapshot`, RFC 8785 / JCS via `@adjudicate/canonical`).
+ *
+ *   - `windows` — the per-(resource, horizon) counter view the kernel reads. The
+ *     key is an opaque adopter string (e.g. `"acct_7|daily"`); the value is the
+ *     already-committed aggregate for that window. Computed in the shell from the
+ *     coalesced counting substrate (delta-write + additive upsert), so it is
+ *     bit-stable for a given substrate state.
+ *   - `at`      — the ISO-8601 wall-clock the shell sampled the counters at,
+ *     supplied by the shell's `clock` (NOT read by the kernel). Recorded for
+ *     replay provenance; never enters a guard's arithmetic.
+ */
+export interface AggregateSnapshot {
+  readonly windows: Readonly<Record<string, number>>;
+  readonly at: string;
+}
+
+/**
+ * The RECORDED aggregate snapshot (052, index §B/§D-5): the immutable
+ * `AggregateSnapshot` that was INJECTED into one kernel decision, paired with its
+ * content-address so the decision is REPLAYABLE (re-run the pure kernel over the
+ * recorded inputs → bit-identical decision, invariant #5). Mirrors
+ * `RecordedAuthoritySnapshot` (033) exactly.
+ *
+ * **Injected state, never a hashed envelope field (052 §3, invariant #4).** This
+ * is NOT part of the envelope and NOT in the `intentHashInput` pre-image — the
+ * snapshot rides into the decision as injected `state`/deps, so adding this type
+ * changes NO envelope hash. It is content-addressed SEPARATELY via the 052
+ * snapshot serializer (`hashAggregateSnapshot`, RFC 8785 / JCS through
+ * `@adjudicate/canonical`) and recorded onto the audit record so the recorded
+ * snapshot replays bit-identically (052 T2/T6).
+ *
+ *   - `snapshot`     — the exact injected `AggregateSnapshot` (immutable).
+ *   - `snapshotHash` — `hashAggregateSnapshot(snapshot)`: sha256 over the
+ *                      canonical snapshot. Lets a replay/audit reader detect a
+ *                      tampered/drifted recorded snapshot WITHOUT
+ *                      re-canonicalizing, and binds the snapshot identity into
+ *                      the audit record's tamper-evidence.
+ *
+ * 052 only INJECTS + RECORDS this snapshot and OWNS the counting substrate it is
+ * computed from; the velocity/limit GUARDS that consult it are 051 (which
+ * CONSUMES the substrate read-only) — no guard reads it here (§C monotonicity:
+ * an aggregate/limit signal may only RAISE friction, never authorize EXECUTE).
+ */
+export interface RecordedAggregateSnapshot {
+  readonly snapshot: AggregateSnapshot;
+  readonly snapshotHash: string;
+}
+
 export interface IntentActor {
   readonly principal: "llm" | "user" | "system";
   readonly sessionId: string;

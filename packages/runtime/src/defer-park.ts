@@ -170,6 +170,22 @@ export type ParkDeferredIntentResult =
  * Counter TTL: set via EXPIRE NX so the lifetime equals the grace window
  * regardless of how many envelopes are parked. Once all parked envelopes
  * for a session expire, the counter expires naturally.
+ *
+ * ── 052/T7 — over-commit race: EPHEMERAL park counter vs DURABLE aggregate ──
+ * This per-session park quota is an EPHEMERAL Redis counter. Its default
+ * `INCR → EXPIRE → check → DECR` sequence has a documented TOCTOU over-commit
+ * race (two concurrent parks at `quota − 1` can both pass before either rolls
+ * back); the optional `evalIncrCheck` Lua seam closes it race-free for the
+ * ephemeral store. This is a DIFFERENT atomicity mechanism from the DURABLE
+ * aggregate-counting substrate plan 052 OWNS: the additive Postgres upsert
+ * (`audit-postgres` `UPSERT_GUARD_STAT_SQL`: `ON CONFLICT (...) DO UPDATE SET
+ * count = count + EXCLUDED.count`, arbitrated by the migration-006 PK) is
+ * inherently atomic/coalescing in a SINGLE statement — no read-modify-write, no
+ * `INCR→check→DECR` window. Plan 053's transactional reservation store MUST
+ * extend that DURABLE additive template (a row-locked / `ON CONFLICT` reservation
+ * decrement against the aggregate), NOT this ephemeral `INCR→EXPIRE→check→DECR`
+ * counter — copying the park sequence into the durable reservation would
+ * re-introduce the over-commit race against the authoritative limit.
  */
 export async function parkDeferredIntent(
   args: ParkDeferredIntentArgs,

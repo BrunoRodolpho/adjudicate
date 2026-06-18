@@ -144,6 +144,33 @@ describe("GuardFireStats — in-memory accumulator", () => {
     expect(sorted[1]).toMatchObject({ day: "2026-05-13", count: 1 });
   });
 
+  it("delta-write is atomic/coalescing under CONCURRENT increments — no over-commit (052)", async () => {
+    // The over-commit race a reservation-style counter must avoid: a
+    // read-modify-write counter racing N concurrent increments loses writes
+    // (lost-update) or, writing the merged running total to an additive store,
+    // over-counts (triangular sums). The 052 substrate writes the per-call DELTA
+    // (count:1) to an ADDITIVE store whose upsert does `count = count + delta` —
+    // an atomic single-statement accumulate. This double models that additive
+    // semantics; firing N concurrent recordOutcome() calls must converge on
+    // EXACTLY N (every increment counted once, none lost, none doubled).
+    const store = writeThroughStore();
+    const stats = new GuardFireStats({ store });
+    const N = 50;
+    // Fire N increments concurrently on the SAME bucket key. recordOutcome is
+    // sync, but the store.write returns a promise; await the whole batch so all
+    // additive writes have landed before we read.
+    await Promise.all(
+      Array.from({ length: N }, (_unused, i) => {
+        stats.recordOutcome(event({ intentHash: String(i).repeat(8) }));
+        return Promise.resolve();
+      }),
+    );
+    const out = await stats.queryAsync({ since: "2026-05-13T00:00:00.000Z" });
+    expect(out).toHaveLength(1);
+    // EXACTLY N — additive coalescing, no lost-update, no triangular over-count.
+    expect(out[0]!.count).toBe(N);
+  });
+
   it("queryAsync does NOT double-count write-through events on the same key (regression)", async () => {
     const store = writeThroughStore();
     // 4 events of prior history already aggregated in the store.

@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import {
+  aggregateSnapshotFromRecorded,
   basis,
   BASIS_CODES,
   buildAuditRecord,
@@ -22,7 +23,9 @@ import {
   classify,
   decisionExecute,
   decisionRefuse,
+  recordAggregateSnapshot,
   refuse,
+  type AggregateSnapshot,
   type Decision,
   type DecisionBasis,
   type IntentEnvelope,
@@ -188,6 +191,73 @@ describe("invariant: replay matches the stored Decision when policy is unchanged
           // Replay through the same policy.
           const replayed = adjudicate(stored.envelope, {}, policy);
           expect(decisionsMatch(decision, replayed)).toBe(true);
+        },
+      ),
+      { numRuns: 1_000 },
+    );
+  });
+});
+
+// ── 052: replay over the RECORDED aggregate snapshot is bit-identical (§D-5) ──
+// The aggregate/limit snapshot is an INJECTED, recorded immutable input. A pure
+// business guard that decides over the injected snapshot (over-limit → REFUSE,
+// else EXECUTE) must reproduce a byte-identical Decision when re-run over the
+// snapshot RE-DERIVED from its recorded content-address — for any window value,
+// limit, and window-key. Non-vacuous: the property also pins that the decision
+// FLIPS at the limit boundary, so the snapshot value genuinely drives the
+// outcome (a guard ignoring the snapshot would fail the boundary assertion).
+describe("invariant: 052 replay over the recorded aggregate snapshot is bit-identical", () => {
+  const limitBundle = (
+    windowKey: string,
+    limit: number,
+  ): PolicyBundle<string, unknown, { aggregate: AggregateSnapshot }> => ({
+    stateGuards: [],
+    authGuards: [],
+    taint: permissiveTaint,
+    business: [
+      (_e, state) =>
+        (state.aggregate.windows[windowKey] ?? 0) >= limit
+          ? decisionRefuse(
+              refuse("BUSINESS_RULE", "aggregate.limit.exceeded", "over limit"),
+              [basis("business", BASIS_CODES.business.RULE_VIOLATED)],
+            )
+          : decisionExecute([
+              basis("business", BASIS_CODES.business.RULE_SATISFIED),
+            ]),
+    ],
+    default: "REFUSE",
+  });
+
+  it("decisionsMatch(stored, replay-over-recorded-snapshot) for any (committed × limit × key)", () => {
+    fc.assert(
+      fc.property(
+        fc.nat({ max: 1_000_000 }),
+        fc.integer({ min: 1, max: 1_000_000 }),
+        fc.string({ minLength: 1, maxLength: 12 }),
+        (committed, limit, windowKey) => {
+          const policy = limitBundle(windowKey, limit);
+          const snapshot: AggregateSnapshot = {
+            windows: { [windowKey]: committed },
+            at: "2026-04-23T11:59:00.000Z",
+          };
+          const envelope = env("UNTRUSTED", { p: 1 });
+          const decision = adjudicate(envelope, { aggregate: snapshot }, policy);
+
+          // Record the snapshot into the audit-bound shape, then re-derive it from
+          // the recorded content-address (fail-closed integrity) and re-run the
+          // PURE kernel over it — the §D-5 replay round-trip.
+          const recorded = recordAggregateSnapshot(snapshot);
+          const replayedSnapshot = aggregateSnapshotFromRecorded(recorded);
+          const replayed = adjudicate(
+            envelope,
+            { aggregate: replayedSnapshot },
+            policy,
+          );
+          expect(decisionsMatch(decision, replayed)).toBe(true);
+
+          // Non-vacuity: the decision is exactly the limit predicate, so the
+          // snapshot value drives the outcome (flips at the boundary).
+          expect(decision.kind).toBe(committed >= limit ? "REFUSE" : "EXECUTE");
         },
       ),
       { numRuns: 1_000 },

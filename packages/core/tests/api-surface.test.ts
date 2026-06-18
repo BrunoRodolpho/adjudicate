@@ -179,4 +179,28 @@ describe("@adjudicate/core public API surface — v1 freeze matrix", () => {
   it("AUDIT_RECORD_VERSION is 5", () => {
     expect(root.AUDIT_RECORD_VERSION).toBe(5);
   });
+
+  // 052: lock the aggregate-snapshot inject/record/replay surface so a removal
+  // is a release-blocker. These ride the root barrel via decision.ts/envelope.ts.
+  it("052 aggregate-snapshot inject/record/replay helpers are exported", () => {
+    const exported = new Set(exportedNames(root));
+    for (const s of [
+      "recordAggregateSnapshot",
+      "hashAggregateSnapshot",
+      "aggregateSnapshotFromRecorded",
+    ]) {
+      expect(exported.has(s), `missing 052 export: ${s}`).toBe(true);
+    }
+    // The record/replay round-trip is callable off the public barrel.
+    const recorded = root.recordAggregateSnapshot({
+      windows: { "k|daily": 7 },
+      at: "2026-04-23T00:00:00.000Z",
+    });
+    expect(recorded.snapshotHash).toBe(
+      root.hashAggregateSnapshot(recorded.snapshot),
+    );
+    expect(root.aggregateSnapshotFromRecorded(recorded)).toEqual(
+      recorded.snapshot,
+    );
+  });
 });

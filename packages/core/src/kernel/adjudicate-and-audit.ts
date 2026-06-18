@@ -42,7 +42,10 @@ import {
   decisionRefuse,
   type Decision,
 } from "../decision.js";
-import { type IntentEnvelope } from "../envelope.js";
+import {
+  type IntentEnvelope,
+  type RecordedAggregateSnapshot,
+} from "../envelope.js";
 import { sha256Canonical } from "../hash.js";
 import {
   type Ledger,
@@ -190,6 +193,25 @@ export interface AdjudicateAndAuditDeps {
    * `undefined` key, hash-stable for non-injecting adopters).
    */
   readonly kernelVersion?: string;
+  /**
+   * Optional (052) RECORDED aggregate/limit snapshot. An immutable,
+   * impure-shell-supplied snapshot of the cumulative/velocity counters the
+   * decision was made against (the per-window committed aggregates + the sample
+   * `at`), paired with its content-address (`recordAggregateSnapshot`). The pure
+   * kernel does NOT compute or refetch it; the shell injects it READ-ONLY (per
+   * §D: the kernel decides, the shell supplies recorded inputs) by reading the
+   * durable counting substrate this plan OWNS (`GuardFireStats` + the additive
+   * Postgres upsert). When supplied, BOTH the kill-switch and main
+   * `buildAuditRecord` call sites thread it onto the emitted record's
+   * `aggregateSnapshot`, binding it into the tamper-evident, REPLAYABLE auditHash
+   * pre-image so re-running the pure kernel over the recorded snapshot reproduces
+   * the SAME decision (§D-5, invariant #5). When omitted, the field is
+   * conditionally spread OUT — no `undefined` key, so adopters that do not inject
+   * it keep byte-identical, hash-stable records. NEVER read by `adjudicate()`;
+   * NEVER enters `intentHash` (invariant #4) — the shell never mutates/refetches/
+   * timestamps it, exactly like the read-only `state` discipline at `:412,:468`.
+   */
+  readonly aggregateSnapshot?: RecordedAggregateSnapshot;
   /**
    * T5 (#41 / top-priority E): rate-limit rollback handle. When the
    * kernel returns a non-EXECUTE Decision (REFUSE/ESCALATE/DEFER/
@@ -426,6 +448,10 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         // keeps the field omitted (no `undefined` key) when the shell injects nothing.
         ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
         ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
+        // 052: bind the injected aggregate snapshot so a kill-switch REFUSE row
+        // carries the aggregate/limit inputs it was decided against, replayable.
+        // Conditional spread keeps the field omitted (hash-stable) when absent.
+        ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
       }),
     );
     try {
@@ -755,6 +781,13 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       // Conditional spread keeps the field omitted (hash-stable) when absent.
       ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
       ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
+      // 052: bind the injected aggregate snapshot onto the main (and 011 REWRITE-
+      // executed) audit row. It records the cumulative/velocity inputs the
+      // decision ran against — part of the auditHash pre-image and the replayable
+      // record. The snapshot was injected READ-ONLY (the shell never mutates/
+      // refetches/timestamps it); conditional spread keeps the field omitted
+      // (hash-stable) when the shell injects nothing.
+      ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
     }),
   );
 

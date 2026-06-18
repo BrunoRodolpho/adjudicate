@@ -24,6 +24,7 @@ import {
   SENSITIVE_RESOURCE_IDS,
   type AccessBreakglassPayload,
   type AccessIntentKind,
+  type AccessPrivilegeLevel,
   type AccessRequestPayload,
   type AccessReview,
   type AccessRevokePayload,
@@ -285,6 +286,97 @@ const executeConfirmedRevoke: AccessGuard = nameGuard("executeConfirmedRevoke", 
     : null;
 });
 
+// ── access sub-gap guards (WS-F) ──────────────────────────────────────────────
+// Pure, additive guards. All three ESCALATE (never duplicate kernel/engine state)
+// and reuse business:rule_violated with a `detail.rule` discriminator — the same
+// pattern the existing guards use — so they add no new BASIS_CODES vocabulary and
+// no PackV0.basisCodes change (kept low-ripple per WS-F; distinct codes can be
+// added later if dashboards need them).
+
+/** A principal holding this many active grants triggers a role-explosion review. */
+const ROLE_EXPLOSION_THRESHOLD = 5;
+/** Admin (level 2) grants require peer review even after a single approval. */
+const PEER_REVIEW_LEVEL: AccessPrivilegeLevel = 2;
+
+function grantCountFor(state: AccessState, principal: string): number {
+  let n = 0;
+  for (const grant of state.grants.values()) if (grant.principal === principal) n += 1;
+  return n;
+}
+
+// role-explosion: a principal accumulating excess grants is reviewed before more
+// privilege is added. ESCALATE (a human/quorum prunes least-privilege). Fires only
+// at/above the threshold, so normal request flows are untouched.
+const reviewRoleExplosion: AccessGuard = nameGuard("reviewRoleExplosion", (envelope, state) => {
+  if (envelope.kind !== "access.request") return null;
+  const p = req(envelope.payload);
+  const count = grantCountFor(state, p.principal);
+  if (count >= ROLE_EXPLOSION_THRESHOLD) {
+    return decisionEscalate(
+      "human",
+      `Principal ${p.principal} already holds ${count} grants — review for role explosion before adding more.`,
+      [basis("business", BASIS_CODES.business.RULE_VIOLATED, {
+        rule: "role_explosion",
+        principal: p.principal,
+        grantCount: count,
+        threshold: ROLE_EXPLOSION_THRESHOLD,
+      })],
+    );
+  }
+  return null;
+});
+
+// redundancy: a request the principal already holds (equal-or-higher grant on the
+// same resource) mints no new privilege. ESCALATE so a reviewer confirms the
+// overlap is intended rather than silently re-granting. Fires only when a covering
+// grant already exists.
+const flagRedundantGrant: AccessGuard = nameGuard("flagRedundantGrant", (envelope, state) => {
+  if (envelope.kind !== "access.request") return null;
+  const p = req(envelope.payload);
+  const existing = state.grants.get(accessKey(p.resourceId, p.principal));
+  if (existing !== undefined && existing.privilegeLevel >= p.privilegeLevel) {
+    return decisionEscalate(
+      "human",
+      `Request for ${p.resourceId} is redundant: ${p.principal} already holds an equal-or-higher grant.`,
+      [basis("business", BASIS_CODES.business.RULE_VIOLATED, {
+        rule: "redundant_grant",
+        resourceId: p.resourceId,
+        principal: p.principal,
+        existingLevel: existing.privilegeLevel,
+        requestedLevel: p.privilegeLevel,
+      })],
+    );
+  }
+  return null;
+});
+
+// peer-review: an ADMIN-level (level 2) grant needs more than one approver. Even
+// with a single approved review, ESCALATE to route the request into the approval
+// engine's N-of-M quorum (WS-B). The pack does NOT track approver counts — that
+// state is the engine's; the guard only ESCALATEs (no shared quorum state).
+const requirePeerReviewForAdmin: AccessGuard = nameGuard("requirePeerReviewForAdmin", (envelope, state) => {
+  if (envelope.kind !== "access.request") return null;
+  const p = req(envelope.payload);
+  const review = reviewFor(state, p);
+  if (
+    p.privilegeLevel >= PEER_REVIEW_LEVEL &&
+    review?.decision === "approved" &&
+    (review.grantedLevel ?? 0) >= PEER_REVIEW_LEVEL
+  ) {
+    return decisionEscalate(
+      "human",
+      `Admin-level access to ${p.resourceId} requires peer review — a single approval is insufficient.`,
+      [basis("business", BASIS_CODES.business.RULE_VIOLATED, {
+        rule: "peer_review_required",
+        resourceId: p.resourceId,
+        principal: p.principal,
+        level: p.privilegeLevel,
+      })],
+    );
+  }
+  return null;
+});
+
 export const accessPolicyBundle: PolicyBundle<AccessIntentKind, unknown, AccessState> = {
   stateGuards: [validateResource, validatePrivilegeLevel, requireActiveGrantForRevoke, refuseExpiredGrant],
   authGuards: [],
@@ -294,10 +386,13 @@ export const accessPolicyBundle: PolicyBundle<AccessIntentKind, unknown, AccessS
     allowResolve,
     executeBreakglass,
     escalateSensitiveResource,
+    reviewRoleExplosion,
+    flagRedundantGrant,
     reduceToLeastPrivilege,
     refuseRejectedRequest,
     deferPendingReview,
     confirmRevoke,
+    requirePeerReviewForAdmin,
     executeApprovedRequest,
     executeConfirmedRevoke,
   ],

@@ -92,5 +92,6 @@ export {
 
 export {
   createSystemTaintPolicy,
+  type Origin,
   type SystemTaintPolicyOptions,
 } from "./taint.js";

@@ -12,7 +12,7 @@
 // On successful resume, defer-resume.ts DECRs the counter back; the TTL
 // guarantees zero-counter cleanup even if a resume was missed.
 
-import type { IntentActor, Taint } from "@adjudicate/core"
+import type { IntentActor, Origin, Taint } from "@adjudicate/core"
 import { recordResourceLimit } from "@adjudicate/core"
 import { DEFER_PENDING_TTL_GRACE_SECONDS } from "./defer-resume.js"
 
@@ -104,9 +104,9 @@ export interface ParkDeferredIntentArgs {
      *
      * When supplied, the parked blob carries enough envelope fields for
      * `resumeDeferredIntent` to re-derive the `intentHash` via
-     * `sha256Canonical({version, kind, payload, nonce, actor, taint})` and
-     * assert byte-equality with the stored `intentHash` — detecting blob
-     * tampering at resume time.
+     * `sha256Canonical({version, kind, payload, nonce, actor, taint, origin})`
+     * (041 added `origin` to the recipe) and assert byte-equality with the
+     * stored `intentHash` — detecting blob tampering at resume time.
      *
      * Optional for back-compat with v0.1-shaped park calls. v0.5 promotes
      * this to required for first-party adapters; legacy blobs without the
@@ -117,6 +117,8 @@ export interface ParkDeferredIntentArgs {
     readonly nonce?: string
     readonly taint?: Taint
     readonly actorPrincipal?: IntentActor["principal"]
+    /** 041 — provenance source axis; part of the intentHash recipe. */
+    readonly origin?: Origin
   }
   readonly signal: string
   /** TTL for the parked envelope blob — typically `signal.timeoutMs / 1000 + grace`. */

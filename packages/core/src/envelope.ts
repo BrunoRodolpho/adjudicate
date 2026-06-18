@@ -29,7 +29,7 @@
  */
 
 import { sha256Canonical } from "./hash.js";
-import type { Taint } from "./taint.js";
+import { DEFAULT_ORIGIN, type Origin, type Taint } from "./taint.js";
 
 export const INTENT_ENVELOPE_VERSION = 2 as const;
 export type IntentEnvelopeVersion = typeof INTENT_ENVELOPE_VERSION;
@@ -66,6 +66,15 @@ export interface IntentEnvelope<K extends string = string, P = unknown> {
   readonly nonce: string;
   readonly actor: IntentActor;
   readonly taint: Taint;
+  /**
+   * Harness-stamped provenance *source* axis (041). Orthogonal to `taint`:
+   * `taint` is how trusted the content is, `origin` is where the proposal
+   * came from (Human / Retrieved / ExternalAPI / LLM / System). Part of the
+   * `intentHash` pre-image so the LLM cannot post-hoc flip the declared
+   * origin (§D #4). Stamped, hashed, but consulted by NO guard in 041 — the
+   * contaminating propagation gate that reads it is plan 042.
+   */
+  readonly origin: Origin;
   /** sha256 of canonical(envelope minus intentHash). Computed once at construction. */
   readonly intentHash: string;
 }
@@ -93,15 +102,33 @@ export interface BuildEnvelopeInput<K extends string, P> {
    * `createdAt` freely on retry without affecting dedup.
    */
   readonly createdAt?: string;
+  /**
+   * Harness-stamped provenance source axis (041). Optional at the call
+   * site — defaults to `DEFAULT_ORIGIN` (`"LLM"`) so callers that pre-date
+   * the origin axis still build a fully-formed v2 envelope. Always present
+   * in the constructed envelope and always part of the `intentHash`
+   * pre-image. The harness loop stamps a concrete literal at the single
+   * LLM-bytes site.
+   */
+  readonly origin?: Origin;
 }
 
 /**
- * The content-addressed fields that feed `intentHash` (v2 recipe):
- * `(version, kind, payload, nonce, actor, taint)`. `createdAt` is descriptive
- * metadata and is deliberately excluded. Single source of truth so
- * `buildEnvelope` (construction) and `deriveIntentHash` (kernel verification)
- * can never drift — a divergence between the two would silently break ledger
- * dedup and let forged hashes through.
+ * The content-addressed fields that feed `intentHash` (v2 recipe, 041):
+ * `(version, kind, payload, nonce, actor, taint, origin)`. `createdAt` is
+ * descriptive metadata and is deliberately excluded. Single source of truth
+ * so `buildEnvelope` (construction) and `deriveIntentHash` (kernel
+ * verification) can never drift — a divergence between the two would
+ * silently break ledger dedup and let forged hashes through.
+ *
+ * **041 — `origin` is ALWAYS-PRESENT in the pre-image.** It is not
+ * canonical-drop-conditional: every envelope hashes its `origin` (defaulting
+ * to `DEFAULT_ORIGIN` at construction), so an LLM cannot post-hoc flip the
+ * declared source (§D #4) and replay stays byte-identical over recorded
+ * inputs (§D #5). This DOES change every post-041 envelope hash relative to
+ * the pre-041 6-field recipe — authorized by plan 041 §7 ("adding `origin`
+ * to the `intentHash` pre-image changes every envelope hash; … no
+ * cross-version persistence of pre-041 hashes is in scope").
  */
 function intentHashInput<K extends string, P>(e: {
   readonly version: IntentEnvelopeVersion;
@@ -110,6 +137,7 @@ function intentHashInput<K extends string, P>(e: {
   readonly nonce: string;
   readonly actor: IntentActor;
   readonly taint: Taint;
+  readonly origin: Origin;
 }): Record<string, unknown> {
   return {
     version: e.version,
@@ -118,19 +146,22 @@ function intentHashInput<K extends string, P>(e: {
     nonce: e.nonce,
     actor: e.actor,
     taint: e.taint,
+    origin: e.origin,
   };
 }
 
 /**
  * Construct a fully-formed IntentEnvelope with a computed intentHash.
- * Hash is derived from `(version, kind, payload, nonce, actor, taint)` —
- * NOT `createdAt`. Reconstructing an envelope from its fields with the
- * same `nonce` produces the same hash regardless of `createdAt`.
+ * Hash is derived from `(version, kind, payload, nonce, actor, taint,
+ * origin)` — NOT `createdAt`. Reconstructing an envelope from its fields
+ * with the same `nonce` and `origin` produces the same hash regardless of
+ * `createdAt`. `origin` defaults to `DEFAULT_ORIGIN` (`"LLM"`) when omitted.
  */
 export function buildEnvelope<K extends string, P>(
   input: BuildEnvelopeInput<K, P>,
 ): IntentEnvelope<K, P> {
   const createdAt = input.createdAt ?? new Date().toISOString();
+  const origin = input.origin ?? DEFAULT_ORIGIN;
   const intentHash = sha256Canonical(
     intentHashInput({
       version: INTENT_ENVELOPE_VERSION,
@@ -139,6 +170,7 @@ export function buildEnvelope<K extends string, P>(
       nonce: input.nonce,
       actor: input.actor,
       taint: input.taint,
+      origin,
     }),
   );
   return {
@@ -149,6 +181,7 @@ export function buildEnvelope<K extends string, P>(
     nonce: input.nonce,
     actor: input.actor,
     taint: input.taint,
+    origin,
     intentHash,
   };
 }
@@ -167,10 +200,11 @@ export function deriveIntentHash(envelope: IntentEnvelope): string {
 }
 
 /**
- * The exactly-eight documented top-level envelope fields. `isIntentEnvelope`
- * rejects any object whose key set is not precisely this set, mirroring
- * `additionalProperties: false` in `docs/specs/intent-envelope-v2.schema.json`.
- * Module-level so the guard does not reallocate the Set on every call.
+ * The exactly-nine documented top-level envelope fields (041 added `origin`).
+ * `isIntentEnvelope` rejects any object whose key set is not precisely this
+ * set, mirroring `additionalProperties: false` in
+ * `docs/specs/intent-envelope-v2.schema.json`. Module-level so the guard
+ * does not reallocate the Set on every call.
  */
 const EXPECTED_ENVELOPE_KEYS = new Set([
   "version",
@@ -180,6 +214,7 @@ const EXPECTED_ENVELOPE_KEYS = new Set([
   "nonce",
   "actor",
   "taint",
+  "origin",
   "intentHash",
 ]);
 
@@ -213,7 +248,12 @@ export function isIntentEnvelope(value: unknown): value is IntentEnvelope {
       v.actor.principal === "user" ||
       v.actor.principal === "system") &&
     typeof v.actor.sessionId === "string" &&
-    (v.taint === "SYSTEM" || v.taint === "TRUSTED" || v.taint === "UNTRUSTED")
+    (v.taint === "SYSTEM" || v.taint === "TRUSTED" || v.taint === "UNTRUSTED") &&
+    (v.origin === "Human" ||
+      v.origin === "Retrieved" ||
+      v.origin === "ExternalAPI" ||
+      v.origin === "LLM" ||
+      v.origin === "System")
   );
 }
 

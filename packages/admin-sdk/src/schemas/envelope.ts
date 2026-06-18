@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { IntentActor, IntentEnvelope, Taint } from "@adjudicate/core";
+import type { IntentActor, IntentEnvelope, Origin, Taint } from "@adjudicate/core";
 import { IntentHashSchema } from "./common.js";
 
 /**
@@ -14,6 +14,18 @@ import { IntentHashSchema } from "./common.js";
  */
 
 export const TaintSchema = z.enum(["SYSTEM", "TRUSTED", "UNTRUSTED"]);
+
+/**
+ * 041 — provenance SOURCE axis. Mirrors `Origin` in @adjudicate/core; part of
+ * the intentHash recipe. Closed, contaminating enum.
+ */
+export const OriginSchema = z.enum([
+  "Human",
+  "Retrieved",
+  "ExternalAPI",
+  "LLM",
+  "System",
+]);
 
 export const IntentActorSchema = z.object({
   principal: z.enum(["llm", "user", "system"]),
@@ -41,6 +53,8 @@ export const IntentEnvelopeSchema = z.object({
   nonce: z.string().min(1),
   actor: IntentActorSchema,
   taint: TaintSchema,
+  /** 041 — harness-stamped provenance source axis; part of intentHash. */
+  origin: OriginSchema,
   /** sha256(canonical(envelope minus intentHash)). Computed by buildEnvelope. */
   intentHash: IntentHashSchema,
 });
@@ -52,6 +66,9 @@ export const IntentEnvelopeSchema = z.object({
 
 const _taintCoreToSchema = (x: Taint): z.infer<typeof TaintSchema> => x;
 const _taintSchemaToCore = (x: z.infer<typeof TaintSchema>): Taint => x;
+
+const _originCoreToSchema = (x: Origin): z.infer<typeof OriginSchema> => x;
+const _originSchemaToCore = (x: z.infer<typeof OriginSchema>): Origin => x;
 
 const _actorCoreToSchema = (x: IntentActor): z.infer<typeof IntentActorSchema> => x;
 const _actorSchemaToCore = (x: z.infer<typeof IntentActorSchema>): IntentActor => x;
@@ -66,6 +83,8 @@ const _envelopeSchemaToCore = (
 void [
   _taintCoreToSchema,
   _taintSchemaToCore,
+  _originCoreToSchema,
+  _originSchemaToCore,
   _actorCoreToSchema,
   _actorSchemaToCore,
   _envelopeCoreToSchema,

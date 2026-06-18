@@ -34,4 +34,20 @@ describe("createSystemTaintPolicy", () => {
     });
     expect(policy.minimumFor("sys.event")).toBe("UNTRUSTED");
   });
+
+  it("041: does NOT branch on origin — origin is carried metadata, never consulted", () => {
+    // The factory is a pure function of `kind`. Threading any `origin` through
+    // the options MUST NOT change the minimum for any kind (metadata-opaque,
+    // ADR-105 rule 7). The 042 propagation gate consumes origin, not this.
+    const base = { systemOnlyKinds: ["sys.event"] } as const;
+    const baseline = createSystemTaintPolicy(base);
+    const origins = ["Human", "Retrieved", "ExternalAPI", "LLM", "System"] as const;
+    const kinds = ["sys.event", "user.event", "any.unknown.kind"];
+    for (const origin of origins) {
+      const withOrigin = createSystemTaintPolicy({ ...base, origin });
+      for (const kind of kinds) {
+        expect(withOrigin.minimumFor(kind)).toBe(baseline.minimumFor(kind));
+      }
+    }
+  });
 });

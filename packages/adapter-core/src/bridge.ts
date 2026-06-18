@@ -14,7 +14,12 @@
  * TRUSTED intents (e.g. webhook confirmations) come from elsewhere.
  */
 
-import { buildEnvelope, type IntentEnvelope, type Taint } from "@adjudicate/core";
+import {
+  buildEnvelope,
+  type IntentEnvelope,
+  type Origin,
+  type Taint,
+} from "@adjudicate/core";
 import type { Plan } from "@adjudicate/core/llm";
 import type { ToolClassification } from "./types.js";
 
@@ -107,6 +112,13 @@ export interface BuildEnvelopeFromToolUseArgs {
    * `buildEnvelope` and to keep the boundary explicit.
    */
   readonly taint: Taint;
+  /**
+   * 041 — harness-stamped provenance SOURCE axis. The loop stamps a concrete
+   * literal next to `taint:"UNTRUSTED"` at the single LLM-bytes site. Carried
+   * here so the source is explicit at the harness boundary; bound into the
+   * `intentHash` by `buildEnvelope`, but consulted by no kernel guard in 041.
+   */
+  readonly origin: Origin;
   readonly nonce: string;
 }
 
@@ -114,7 +126,8 @@ export interface BuildEnvelopeFromToolUseArgs {
  * Construct an IntentEnvelope from a provider-neutral tool_use. Wraps
  * `buildEnvelope` from @adjudicate/core with adapter-specific defaults:
  * principal = `"llm"`, taint as supplied (always `"UNTRUSTED"` from the
- * loop).
+ * loop), and `origin` as supplied (the loop stamps `"LLM"` — the model
+ * proposed the bytes). `origin` joins the `intentHash` pre-image.
  */
 export function buildEnvelopeFromToolUse(
   args: BuildEnvelopeFromToolUseArgs,
@@ -124,6 +137,7 @@ export function buildEnvelopeFromToolUse(
     payload: args.payload,
     actor: { principal: "llm", sessionId: args.sessionId },
     taint: args.taint,
+    origin: args.origin,
     nonce: args.nonce,
   });
 }

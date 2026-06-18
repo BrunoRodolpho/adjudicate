@@ -22,6 +22,25 @@ describe("runRedTeam", () => {
     expect(computeRedTeamExitCode(report.summary)).toBe(0);
   });
 
+  it("041: escapesByVector is exhaustive over the extended AttackVector union (incl. provenance_injection)", () => {
+    // The exhaustive emptyByVector() Record must carry every key of the closed
+    // union — a missing arm fails the type-checker; here we assert at runtime
+    // that the new 041 `provenance_injection` key is present and initialized.
+    const pack = strictStubPack();
+    const report = runRedTeam(pack, generateAllVectors(pack));
+    const keys = Object.keys(report.summary.escapesByVector).sort();
+    expect(keys).toEqual(
+      [
+        "prompt_injection",
+        "provenance_injection",
+        "taint_escalation",
+        "tool_scope_violation",
+      ].sort(),
+    );
+    // No generator ships for provenance_injection yet (042/043), so it stays 0.
+    expect(report.summary.escapesByVector.provenance_injection).toBe(0);
+  });
+
   it("a fail-open pack leaks → escapes recorded, exit 2", () => {
     const pack = leakyStubPack();
     const report = runRedTeam(pack, generateAllVectors(pack));

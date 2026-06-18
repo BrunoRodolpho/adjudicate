@@ -11,6 +11,41 @@
 
 export type Taint = "SYSTEM" | "TRUSTED" | "UNTRUSTED";
 
+/**
+ * Origin — the harness-stamped provenance *source* axis (041).
+ *
+ * A SECOND provenance axis, orthogonal to `Taint`. `Taint` answers "how
+ * trusted is this payload's content?"; `Origin` answers "where did the
+ * proposal *come from*?" — distinguishing "the user asked for this" from
+ * "retrieved/external data instructed this," a distinction the single
+ * `taint` axis cannot make.
+ *
+ * Closed union mirroring the glossary's contaminating source axis
+ * (000_index.md §G):
+ *   - `"Human"`        — a person directly authored the proposal.
+ *   - `"Retrieved"`    — content pulled from a store/RAG/document fed back in.
+ *   - `"ExternalAPI"`  — a third-party API/tool result fed back in.
+ *   - `"LLM"`          — the model itself proposed the bytes (default for
+ *                        LLM-derived envelopes at the harness boundary).
+ *   - `"System"`       — a first-party system event (webhook, scheduled job).
+ *
+ * Additive like `Taint` — new sources land MINOR.
+ *
+ * **Contaminating (per 000_index.md §G):** once untrusted-origin data enters
+ * context, subsequent LLM intents inherit it. NOTE: 041 only *stamps and
+ * hashes* this axis — it is consulted by NO guard. The contaminating
+ * propagation GATE that consumes `origin` is plan 042; do not gate on it here.
+ */
+export type Origin = "Human" | "Retrieved" | "ExternalAPI" | "LLM" | "System";
+
+/**
+ * The default `Origin` for an LLM-derived envelope. The single harness site
+ * where LLM-proposed `tool_use` bytes become an envelope stamps `"LLM"`;
+ * `buildEnvelope` defaults to this so existing call sites that pre-date the
+ * origin axis hash with a stable, explicit source rather than `undefined`.
+ */
+export const DEFAULT_ORIGIN: Origin = "LLM";
+
 /** Internal rank — higher number = more trust. */
 const RANK: Readonly<Record<Taint, number>> = {
   SYSTEM: 3,

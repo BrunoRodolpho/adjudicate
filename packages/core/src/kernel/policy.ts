@@ -292,3 +292,106 @@ export function readGuardMetadata(
   ];
   return slot as GuardMetadata | undefined;
 }
+
+// ─── GuardCodeArtifact — the executable surface the ConfigSeal pins (081) ────
+
+/**
+ * Symbol-keyed slot where `attachGuardCodeArtifact` records the executable
+ * surface of a guard — the parts that `GuardMetadata` does NOT capture:
+ * closure-captured numeric caps and the guard's predicate/body source.
+ *
+ * Distinct from `GuardMetadataSymbol`: metadata is the *declared semantic
+ * shape* (analyzer interop, ADR-105); the code artifact is the *executable
+ * fact* the ConfigSeal must bind (081). Two L2 factories (`createRewriteGuard`,
+ * `createThresholdGuard`) can produce byte-identical `GuardMetadata` while
+ * differing in a behavior-changing closure-captured cap — Critique #27. The
+ * artifact closes that hole: `describePolicyBundle` digests it into the
+ * descriptor so `computeConfigDigest` is no longer blind to the cap.
+ *
+ * Like the metadata slot it is non-enumerable + symbol-keyed, so it never
+ * leaks through `JSON.stringify`; the kernel decision never reads it (purity
+ * preserved — it is a derivation input for the *seal*, not the decision).
+ */
+export const GuardCodeArtifactSymbol = Symbol.for(
+  "@adjudicate/core/guard-code-artifact",
+);
+
+/**
+ * The executable surface of a guard the ConfigSeal binds (081).
+ *
+ * - `caps`: closure-captured numeric caps keyed by the field/role they govern
+ *   (e.g. `{ amountCentavos: 5 }` for a rewrite clamp). A behavior-changing
+ *   edit (5 → 5000) changes this object → changes the per-guard code digest →
+ *   changes the sealable surface. This is the field that closes Critique #27.
+ * - `source`: the guard's predicate/body source (`Function.toString()` of the
+ *   inner closure). Pins the *logic* so a rewritten predicate is also caught.
+ *   Optional because not every factory can cheaply surface its body.
+ *
+ * Every field optional + additive (ADR-105 spirit): guards without an artifact
+ * stay first-class; their descriptor simply carries no `codeDigest`.
+ */
+export interface GuardCodeArtifact {
+  readonly caps?: Readonly<Record<string, number>>;
+  readonly source?: string;
+}
+
+/**
+ * Attach a `GuardCodeArtifact` to a guard. Identity-preserving (returns the
+ * same function object, exactly like `withMetadata`) so referential equality,
+ * registry semantics, and `withMetadata` composition all still hold.
+ *
+ * The slot is attached once (non-configurable, non-writable, non-enumerable).
+ * Re-attaching a structurally-identical artifact is an idempotent no-op;
+ * re-attaching a *different* artifact throws (mirrors `withMetadata`'s
+ * strict-overwrite posture — a guard's executable surface must not be
+ * silently rewritten after the fact).
+ */
+export function attachGuardCodeArtifact<G extends (...args: never[]) => unknown>(
+  guard: G,
+  artifact: GuardCodeArtifact,
+): G {
+  const existing = (guard as unknown as Record<symbol, unknown>)[
+    GuardCodeArtifactSymbol
+  ] as GuardCodeArtifact | undefined;
+  if (existing !== undefined) {
+    // Idempotent on identical re-attachment; throw on a conflicting one.
+    if (
+      JSON.stringify(existing.caps ?? null) ===
+        JSON.stringify(artifact.caps ?? null) &&
+      (existing.source ?? null) === (artifact.source ?? null)
+    ) {
+      return guard;
+    }
+    throw new TypeError(
+      "attachGuardCodeArtifact: refusing to overwrite an existing, differing code artifact on guard.",
+    );
+  }
+  // Freeze the artifact (and its caps) so a captured reference cannot be
+  // mutated in place after the seal is computed.
+  const frozen: GuardCodeArtifact = {
+    ...(artifact.caps !== undefined ? { caps: Object.freeze({ ...artifact.caps }) } : {}),
+    ...(artifact.source !== undefined ? { source: artifact.source } : {}),
+  };
+  Object.freeze(frozen);
+  Object.defineProperty(guard, GuardCodeArtifactSymbol, {
+    value: frozen,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  return guard;
+}
+
+/**
+ * Read the `GuardCodeArtifact` attached to a guard, or `undefined` if none.
+ * `undefined` is a permanent valid state — guards without an executable
+ * surface to pin (e.g. user inline closures) simply have no artifact.
+ */
+export function readGuardCodeArtifact(
+  guard: (...args: never[]) => unknown,
+): GuardCodeArtifact | undefined {
+  const slot = (guard as unknown as Record<symbol, unknown>)[
+    GuardCodeArtifactSymbol
+  ];
+  return slot as GuardCodeArtifact | undefined;
+}

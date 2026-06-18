@@ -4,6 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  describePolicyBundle,
   hasLearningSink,
   hasMetricsSink,
   installPack,
@@ -199,5 +200,28 @@ describe("installPack", () => {
         allowDefaultExecute: true,
       }),
     ).not.toThrow();
+  });
+
+  // 081: the extended describePolicyBundle output keeps the install/conformance
+  // shape intact — metadata-only guards still describe as before (no surprise
+  // codeDigest key), so nothing downstream of installPack regresses.
+  it("describePolicyBundle over an installed pack keeps the canonical shape (no codeDigest on artifact-free guards)", () => {
+    const warn = vi.fn();
+    const result = installPack(makePack(), {
+      installDefaultMetrics: false,
+      installDefaultLearning: false,
+      warn,
+    });
+    const desc = describePolicyBundle(result.pack.policy);
+    expect(desc.phases.map((p) => p.phase)).toEqual([
+      "state",
+      "taint",
+      "auth",
+      "business",
+    ]);
+    // The fixture's business guard is a bare `() => null` (no artifact), so its
+    // descriptor must NOT carry a codeDigest key (shape unchanged).
+    const business = desc.phases.find((p) => p.phase === "business")!;
+    expect("codeDigest" in business.guards[0]!).toBe(false);
   });
 });

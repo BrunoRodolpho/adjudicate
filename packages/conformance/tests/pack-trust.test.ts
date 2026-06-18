@@ -110,6 +110,18 @@ describe("computePackFingerprint", () => {
       computePackFingerprint(minimal),
     );
   });
+
+  // 081 non-regression: the fingerprint covers ONLY the declarative subset.
+  // `PackFingerprintInput` carries no `policy`, so adding per-guard code-artifact
+  // coverage to the ConfigSeal surface cannot leak into the fingerprint — the two
+  // surfaces stay decoupled (fingerprint = declarative; seal = richer + code).
+  it("081: fingerprint is unaffected by guard-code coverage (no policy in the input)", () => {
+    const before = computePackFingerprint(PACK);
+    // Whatever the seal now binds about guard bodies, the fingerprint over the
+    // same declarative subset is byte-identical.
+    expect(computePackFingerprint({ ...PACK })).toBe(before);
+    expect("policy" in (PACK as Record<string, unknown>)).toBe(false);
+  });
 });
 
 describe("signPackFingerprint + verifyPackSignature (ed25519)", () => {

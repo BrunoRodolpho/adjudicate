@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { createRewriteGuard } from "@adjudicate/primitives";
+import type { Guard, PolicyBundle } from "@adjudicate/core";
 import {
   computeRedTeamExitCode,
   generateAllVectors,
   generateTaintEscalationEnvelopes,
   renderRedTeamJson,
   renderRedTeamText,
+  runConfigSealCapEditRegression,
   runRedTeam,
   taintEscalationCausality,
   TAINT_GATE_BASIS,
@@ -83,6 +86,51 @@ describe("runRedTeam", () => {
     expect(text).toContain("escaped");
     expect(text).toContain("escapes by vector");
     expect(() => JSON.parse(renderRedTeamJson(report))).not.toThrow();
+  });
+});
+
+// ── 081: cap-edit config-integrity regression (Critique #27) ──────────────────
+
+/** A business-phase bundle whose only knob is a createRewriteGuard clamp cap. */
+function rewriteBundle(cap: number): PolicyBundle<string, unknown, unknown> {
+  const clamp = createRewriteGuard<string, Record<string, unknown>, unknown>({
+    matches: (env) => env.kind === "remediation.apply",
+    extract: (env) => (env.payload as { blast?: number }).blast,
+    cap,
+    mutateField: "blast",
+    reason: "clamp blast radius",
+  });
+  return {
+    stateGuards: [],
+    authGuards: [],
+    taint: { minimumFor: () => "UNTRUSTED" },
+    business: [clamp as Guard<string, unknown, unknown>],
+    default: "REFUSE",
+  };
+}
+
+describe("runConfigSealCapEditRegression — the cap-edit escape is defended (081)", () => {
+  it("DETECTS a closure-cap edit (5 → 5000) as a config-integrity regression", () => {
+    const r = runConfigSealCapEditRegression({
+      baseline: rewriteBundle(5),
+      tampered: rewriteBundle(5000),
+    });
+    expect(r.detected).toBe(true);
+    expect(r.status).toBe("defended");
+    expect(r.vector).toBe("config_integrity");
+    expect(r.baselineDigest).not.toBe(r.tamperedDigest);
+  });
+
+  it("is non-vacuous: an IDENTICAL cap is NOT flagged (digests agree)", () => {
+    const r = runConfigSealCapEditRegression({
+      baseline: rewriteBundle(5),
+      tampered: rewriteBundle(5),
+    });
+    // No edit → no detection → not an escape: proves detection tracks the CAP,
+    // not guard identity/order. A cap-blind seal would (wrongly) also produce
+    // detected:false on the 5→5000 case above — that test guards against it.
+    expect(r.detected).toBe(false);
+    expect(r.baselineDigest).toBe(r.tamperedDigest);
   });
 });
 

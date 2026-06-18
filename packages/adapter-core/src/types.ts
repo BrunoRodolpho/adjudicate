@@ -284,14 +284,22 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
     readonly result: AgentTurnResult<H>;
   }) => { memory: unknown; ttlSeconds: number } | null;
   /**
-   * Optional configuration-integrity gate (ADR-121, hardened by ADR-137). When
-   * supplied, the loop verifies the Pack's sealable surface against `seal` at the
-   * start of every entry point (send/resume/confirm) per the `reverify` cadence
-   * (default `"every_turn"` — kills the old boot-only latch so a post-boot
-   * reference-swap is caught), then snapshots the verified policy and reuses it
-   * for every adjudication in the turn (so a mid-turn swap cannot affect the
-   * decision). On mismatch the turn is REFUSED (no adjudication runs), `onDrift`
-   * fires, and — if `engageKillSwitchOnMismatch` — the kill switch is engaged.
+   * Optional configuration-integrity gate (ADR-121, hardened by ADR-137 and
+   * 081). When supplied, the loop verifies the Pack's sealable surface against
+   * `seal` at the start of every entry point (send/resume/confirm) per the
+   * `reverify` cadence (default `"every_turn"` — kills the old boot-only latch
+   * so a post-boot reference-swap is caught), then snapshots the verified
+   * policy and reuses it for every adjudication in the turn (so a mid-turn swap
+   * cannot affect the decision). On mismatch the turn is REFUSED (no
+   * adjudication runs), `onDrift` fires, and — if `engageKillSwitchOnMismatch`
+   * — the kill switch is engaged.
+   *
+   * 081: the sealable surface now binds per-guard CODE artifacts (closure-
+   * captured caps + predicate bodies), not just declared guard metadata, so a
+   * behavior-changing edit to a closure-captured cap (e.g. a rewrite-guard
+   * clamp 5 → 5000) drives a mismatch here instead of verifying clean. The
+   * `seal` / `publicKeyPem` / `policy` shapes are unchanged — the strengthening
+   * is in what the digest covers.
    *
    * Defaults are intentionally lax for one deprecation release (decision L1): the
    * loop emits a one-time warning when `policy` isn't `require_signature` or when

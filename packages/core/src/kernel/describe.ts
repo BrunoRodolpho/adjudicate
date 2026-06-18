@@ -17,18 +17,38 @@
  * `{ kind: "anonymous" }` and `{ kind: "named" }` without metadata.description.
  */
 
+import { sha256Canonical } from "@adjudicate/canonical";
 import {
+  readGuardCodeArtifact,
   readGuardMetadata,
   type Guard,
+  type GuardCodeArtifact,
   type GuardMetadata,
   type PolicyBundle,
 } from "./policy.js";
 
 export type PolicyPhase = "state" | "taint" | "auth" | "business";
 
+/**
+ * Optional per-guard code-artifact digest (081). When a guard exposed a
+ * `GuardCodeArtifact` (closure-captured caps + predicate source) via
+ * `attachGuardCodeArtifact`, this is `sha256Canonical(codeArtifact)` so the
+ * ConfigSeal binds the *executable* surface, not just the declared metadata.
+ * Absent for guards with no artifact to pin (back-compatible: the descriptor
+ * shape for metadata-only guards is otherwise unchanged).
+ *
+ * Pure: sha256-over-canonical-JSON via `@adjudicate/canonical` (the single
+ * invariant-#4-compatible encoder), no clock / RNG / IO. Deterministic — the
+ * same artifact always yields the same digest, so re-extraction is
+ * byte-identical (§D-inv-5).
+ */
 export type GuardDescriptor =
-  | { readonly kind: "named"; readonly metadata: GuardMetadata }
-  | { readonly kind: "anonymous" };
+  | {
+      readonly kind: "named";
+      readonly metadata: GuardMetadata;
+      readonly codeDigest?: string;
+    }
+  | { readonly kind: "anonymous"; readonly codeDigest?: string };
 
 export interface PolicyPhaseDescriptor {
   readonly phase: PolicyPhase;
@@ -40,14 +60,30 @@ export interface PolicyBundleDescriptor {
   readonly phases: ReadonlyArray<PolicyPhaseDescriptor>;
 }
 
+/**
+ * Digest a guard's executable surface (081). `sha256Canonical` over the
+ * attached `GuardCodeArtifact`, or `undefined` when the guard exposed none.
+ * Canonicalization makes the digest key-order-independent and deterministic.
+ */
+function digestGuardCode(artifact: GuardCodeArtifact | undefined): string | undefined {
+  if (artifact === undefined) return undefined;
+  return sha256Canonical(artifact);
+}
+
 function describeGuard<K extends string, P, S>(
   guard: Guard<K, P, S>,
 ): GuardDescriptor {
-  const metadata = readGuardMetadata(
-    guard as unknown as (...args: never[]) => unknown,
-  );
-  if (metadata === undefined) return { kind: "anonymous" };
-  return { kind: "named", metadata };
+  const fn = guard as unknown as (...args: never[]) => unknown;
+  const metadata = readGuardMetadata(fn);
+  const codeDigest = digestGuardCode(readGuardCodeArtifact(fn));
+  if (metadata === undefined) {
+    return codeDigest === undefined
+      ? { kind: "anonymous" }
+      : { kind: "anonymous", codeDigest };
+  }
+  return codeDigest === undefined
+    ? { kind: "named", metadata }
+    : { kind: "named", metadata, codeDigest };
 }
 
 function describeGuards<K extends string, P, S>(

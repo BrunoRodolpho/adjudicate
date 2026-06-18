@@ -49,7 +49,7 @@ import type {
   SideEffectClass,
   Taint,
 } from "@adjudicate/core";
-import { withMetadata, type Guard } from "@adjudicate/core/kernel";
+import { attachGuardCodeArtifact, withMetadata, type Guard } from "@adjudicate/core/kernel";
 import { assertSafePattern } from "./pii-patterns.js";
 import {
   classifyCommand,
@@ -281,6 +281,20 @@ export function createRewriteGuard<K extends string, P, S>(
         ];
     return decisionRewrite(rewritten, options.reason, basisList);
   };
+  // 081: expose the closure-captured cap (and the clamp body) to the
+  // descriptor so the ConfigSeal binds guard CODE, not just metadata. The
+  // `rewrite` GuardMetadata variant records only `mutatesPayloadFields` (its
+  // released shape is immutable, ADR-105 rule 3), so editing
+  // AUTO_REMEDIATION_BLAST_CAP 5→5000 produced a byte-identical sealable
+  // surface (Critique #27). The code artifact closes that: a static numeric
+  // cap is pinned under the mutated field's name; a state-derived cap function
+  // is pinned by its source (a body edit is caught even though the runtime
+  // value is not statically knowable).
+  const codeArtifact =
+    typeof options.cap === "number"
+      ? { caps: { [options.mutateField]: options.cap }, source: guard.toString() }
+      : { source: `${options.cap.toString()}|${guard.toString()}` };
+  attachGuardCodeArtifact(guard, codeArtifact);
   return withMetadata(guard, {
     description: {
       kind: "rewrite",

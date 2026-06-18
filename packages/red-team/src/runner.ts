@@ -1,4 +1,11 @@
-import { adjudicateWithTrace, buildEnvelope, type DecisionKind } from "@adjudicate/core";
+import {
+  adjudicateWithTrace,
+  buildEnvelope,
+  describePolicyBundle,
+  type DecisionKind,
+  type PolicyBundle,
+} from "@adjudicate/core";
+import { sha256Canonical } from "@adjudicate/canonical";
 import type { AttackVector, RedTeamPack, RedTeamScenario } from "./scenario.js";
 
 export type RedTeamStatus = "defended" | "escaped" | "error";
@@ -154,5 +161,69 @@ export function taintEscalationCausality(report: RedTeamReport): TaintEscalation
     byTaintGate,
     byOtherGuard: defended.length - byTaintGate,
     escaped: taint.filter((r) => r.status === "escaped").length,
+  };
+}
+
+// ─── 081: cap-edit config-integrity regression ──────────────────────────────
+
+/**
+ * Verdict for the 081 cap-edit escape (Critique #27).
+ *
+ * The classic escape: editing a `createRewriteGuard` closure-captured cap
+ * (e.g. `AUTO_REMEDIATION_BLAST_CAP` 5 → 5000) changes guard BEHAVIOR but, pre-
+ * 081, left a byte-identical sealable surface — the ConfigSeal saw guard
+ * METADATA only, never the closure cap, so a tampered pack verified clean.
+ *
+ * This regression closes that as a red-team axis. It compares the structural
+ * digest the ConfigSeal binds — `sha256Canonical(describePolicyBundle(bundle))`,
+ * which now includes the per-guard CODE-artifact digests (081) — between the
+ * sealed baseline and a tampered bundle whose only change is the cap.
+ *
+ *   `detected: true`  → the digests differ → the seal WOULD catch it → DEFENDED.
+ *   `detected: false` → byte-identical surface → cap edit ESCAPED → REGRESSION.
+ *
+ * Pure: `describePolicyBundle` + `sha256Canonical` (browser-safe `@noble/hashes`),
+ * no clock / RNG / IO — same posture as the kernel runner above.
+ */
+export interface CapEditRegressionResult {
+  readonly name: string;
+  readonly vector: "config_integrity";
+  /** True when the cap edit changed the sealed surface digest (seal catches it). */
+  readonly detected: boolean;
+  readonly status: RedTeamStatus;
+  readonly baselineDigest: string;
+  readonly tamperedDigest: string;
+}
+
+/** Structural digest of the surface the ConfigSeal binds (081 — includes guard code). */
+function policyStructureDigest(bundle: PolicyBundle<string, unknown, unknown>): string {
+  return sha256Canonical(describePolicyBundle(bundle));
+}
+
+/**
+ * Run the 081 cap-edit regression: assert that swapping a guard's
+ * closure-captured cap is DETECTED by the ConfigSeal's code-artifact coverage.
+ *
+ * `baseline` is the sealed-as-trusted policy; `tampered` is the same policy
+ * with a behavior-changing cap edit (and otherwise identical guard metadata).
+ * A `detected: false` result is an ESCAPE — the seal is once again blind to the
+ * cap (a regression of 081). `defended` means the surface digest moved, so a
+ * `verifyConfigSeal` over the tampered pack would report a mismatch.
+ */
+export function runConfigSealCapEditRegression(args: {
+  readonly name?: string;
+  readonly baseline: PolicyBundle<string, unknown, unknown>;
+  readonly tampered: PolicyBundle<string, unknown, unknown>;
+}): CapEditRegressionResult {
+  const baselineDigest = policyStructureDigest(args.baseline);
+  const tamperedDigest = policyStructureDigest(args.tampered);
+  const detected = baselineDigest !== tamperedDigest;
+  return {
+    name: args.name ?? "cap-edit (createRewriteGuard closure cap)",
+    vector: "config_integrity",
+    detected,
+    status: detected ? "defended" : "escaped",
+    baselineDigest,
+    tamperedDigest,
   };
 }

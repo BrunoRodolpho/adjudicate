@@ -40,10 +40,14 @@ export {
 } from "./learning-contract.js";
 export { allOf, constant, firstMatch } from "./combinators.js";
 export {
+  attachGuardCodeArtifact,
+  GuardCodeArtifactSymbol,
   GuardMetadataSymbol,
+  readGuardCodeArtifact,
   readGuardMetadata,
   withMetadata,
   type Guard,
+  type GuardCodeArtifact,
   type GuardDescription,
   type GuardMetadata,
   type PolicyBundle,

@@ -24,6 +24,7 @@ import {
   createInMemoryDeferStore,
 } from "../src/persistence.js";
 import { createMemoryLedger } from "../src/index.js";
+import { createRuntimeContext } from "@adjudicate/core/kernel";
 import type { AdopterExecutor, ToolClassification } from "../src/types.js";
 
 interface Payload {
@@ -275,6 +276,9 @@ describe("routeReadThroughKernel (012 — READ crosses the kernel)", () => {
       taint: permissiveTaint,
       auditSink: sink,
       ledger: createMemoryLedger(),
+      // 013/T3: runtimeContext is required — the kill-switch is always consulted
+      // on the READ path. A fresh non-killed context isolates this test.
+      runtimeContext: createRuntimeContext(),
       plan: () => ({ visibleReadTools: ["list_charges"], allowedIntents: [] }),
       nonce: "tu-read-1",
       historySnapshot: [] as unknown,
@@ -312,6 +316,7 @@ describe("routeReadThroughKernel (012 — READ crosses the kernel)", () => {
       executor: { invokeRead },
       taint: protectedReadTaint,
       auditSink: sink,
+      runtimeContext: createRuntimeContext(),
       plan: () => ({
         visibleReadTools: ["list_secret_charges"],
         allowedIntents: [],
@@ -343,6 +348,8 @@ describe("routeReadThroughKernel (012 — READ crosses the kernel)", () => {
       state: {} as State,
       executor: { invokeRead },
       taint: permissiveTaint,
+      auditSink: capturingSink(),
+      runtimeContext: createRuntimeContext(),
       plan: () => ({ visibleReadTools: ["get_charge"], allowedIntents: [] }),
       nonce: "tu-read-3",
       historySnapshot: [] as unknown,
@@ -360,5 +367,56 @@ describe("routeReadThroughKernel (012 — READ crosses the kernel)", () => {
     expect(policy.business).toEqual([]);
     expect(policy.default).toBe("EXECUTE");
     expect(policy.taint).toBe(permissiveTaint);
+  });
+
+  // ── 013/T1+T6: the REQUIRED auditSink is threaded verbatim — no noop sub ──
+  //
+  // The 012 read path used to fall back to `ctx.auditSink ?? noopAuditSink()`.
+  // With the fail-open default removed, the EXACT supplied sink must receive the
+  // AuditRecord on BOTH an EXECUTE (served read) and a non-EXECUTE (REFUSE). A
+  // silent `noopAuditSink()` substitution would leave the supplied sink empty.
+  it("013: the supplied (required) auditSink — not a noop substitute — receives the record on EXECUTE", async () => {
+    const sink = capturingSink();
+    const invokeRead = vi.fn(async () => ({ ok: true }));
+    const out = await routeReadThroughKernel({
+      classification: readClassification("list_charges", { limit: 1 }),
+      toolUseId: "tu-013-exec",
+      sessionId: "s-013",
+      state: {} as State,
+      executor: { invokeRead },
+      taint: permissiveTaint,
+      auditSink: sink,
+      runtimeContext: createRuntimeContext(),
+      plan: () => ({ visibleReadTools: ["list_charges"], allowedIntents: [] }),
+      nonce: "tu-013-exec",
+      historySnapshot: [] as unknown,
+    });
+    // The EXACT supplied sink instance captured the EXECUTE record (no noop sub).
+    expect(sink.records).toHaveLength(1);
+    expect(sink.records[0]?.decision.kind).toBe("EXECUTE");
+    expect(out.toolResult.isError).toBeUndefined();
+    expect(invokeRead).toHaveBeenCalledOnce();
+  });
+
+  it("013: a fresh non-killed runtimeContext does NOT refuse — fail-closed wiring still authorizes a clean read", async () => {
+    // T3 fail-closes only when the kill-switch control is absent/active; a real,
+    // non-killed context still authorizes (no over-restriction of clean traffic).
+    const sink = capturingSink();
+    const invokeRead = vi.fn(async () => ({ ok: true }));
+    const out = await routeReadThroughKernel({
+      classification: readClassification("list_charges", {}),
+      toolUseId: "tu-013-ctx",
+      sessionId: "s-013",
+      state: {} as State,
+      executor: { invokeRead },
+      taint: permissiveTaint,
+      auditSink: sink,
+      runtimeContext: createRuntimeContext(),
+      plan: () => ({ visibleReadTools: ["list_charges"], allowedIntents: [] }),
+      nonce: "tu-013-ctx",
+      historySnapshot: [] as unknown,
+    });
+    expect(sink.records[0]?.decision.kind).toBe("EXECUTE");
+    expect(out.toolResult.isError).toBeUndefined();
   });
 });

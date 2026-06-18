@@ -43,7 +43,14 @@ export interface AuditSink {
 /**
  * Built-in no-op sink. Useful when an entry point's signature requires a
  * sink but the caller has not wired one — e.g., `adjudicateAndLearn`
- * delegating to `adjudicateAndAudit({ sink: noopAuditSink() })`.
+ * delegating to `adjudicateAndAudit({ sink: noopAuditSink() })`, or tests that
+ * exercise the decision algebra without asserting on emission.
+ *
+ * 013/T1+T4: this is NO LONGER an adapter default. `AdjudicatedAgentOptions`
+ * (and `RouteReadContext`) now REQUIRE a real `auditSink`; the adapter never
+ * silently substitutes `noopAuditSink()` (the old `?? noopAuditSink()` fail-open
+ * seam is removed — invariant #6). Wiring this in production is an EXPLICIT,
+ * visible choice, never a default — emission would be silent.
  *
  * Adopters in production should NOT wire this — emission would be silent.
  */

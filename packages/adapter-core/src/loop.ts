@@ -21,7 +21,6 @@
 
 import {
   buildEnvelope,
-  noopAuditSink,
   sha256Canonical,
   timingSafeHexEqual,
   type Decision,
@@ -73,6 +72,17 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
     options.deriveNonce ?? ((args) => args.toolUseId);
   const bridge = options.bridge;
   const traceSink = options.traceSink ?? noopTraceSink;
+
+  // 013/T1+T2: the AuditSink is REQUIRED — the prior fail-open no-op default is
+  // removed. Thread the supplied sink verbatim to every kernel crossing.
+  const auditSink = options.auditSink;
+  // 013/T3 (adapter seam): the tenant kill-switch must be NON-OPTIONAL — an
+  // omitted RuntimeContext no longer skips the kernel kill-switch check. Resolve
+  // to the process-wide default context (whose killSwitch is non-killed unless an
+  // operator engages it) so the guard is ALWAYS consulted, never bypassed (§C:
+  // failure defaults to friction, never bypass). The config-seal path already
+  // uses this same default to ENGAGE the switch (line ~150).
+  const runtimeContext = options.runtimeContext ?? getDefaultRuntimeContext();
 
   // Configuration-integrity seal gate (ADR-121, hardened by ADR-137). Verified at
   // the START of every public entry point (send/resume/confirm) per the `reverify`
@@ -144,8 +154,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
       /* best-effort telemetry */
     }
     if (cfg.engageKillSwitchOnMismatch) {
-      const ctx = options.runtimeContext ?? getDefaultRuntimeContext();
-      ctx.killSwitch.set(true, "config_seal_mismatch");
+      runtimeContext.killSwitch.set(true, "config_seal_mismatch");
     }
     traceSink.onTrace({ phase: "config_seal_violation", sessionId, iteration: 0 });
     options.log?.warn?.({ msg: "config seal mismatch — refusing turn", detail: report.errors.join("; ") });
@@ -395,13 +404,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
             state,
             executor: options.executor,
             taint: sealedPolicy.taint,
-            ...(options.auditSink !== undefined
-              ? { auditSink: options.auditSink }
-              : {}),
+            auditSink,
             ...(options.ledger !== undefined ? { ledger: options.ledger } : {}),
-            ...(options.runtimeContext !== undefined
-              ? { runtimeContext: options.runtimeContext }
-              : {}),
+            runtimeContext,
             plan: () => ({
               visibleReadTools: plan.visibleReadTools,
               allowedIntents: plan.allowedIntents,
@@ -437,9 +442,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
           state,
           sealedPolicy,
           {
-            sink: options.auditSink ?? noopAuditSink(),
+            sink: auditSink,
             ledger: options.ledger,
-            context: options.runtimeContext,
+            context: runtimeContext,
             plan: () => ({
               visibleReadTools: plan.visibleReadTools,
               allowedIntents: plan.allowedIntents,
@@ -630,9 +635,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         args.state,
         sealedPolicy,
         {
-          sink: options.auditSink ?? noopAuditSink(),
+          sink: auditSink,
           ledger: options.ledger,
-          context: options.runtimeContext,
+          context: runtimeContext,
           plan: () => ({
             visibleReadTools: resumePlan.visibleReadTools,
             allowedIntents: resumePlan.allowedIntents,
@@ -747,9 +752,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         args.state,
         sealedPolicy,
         {
-          sink: options.auditSink ?? noopAuditSink(),
+          sink: auditSink,
           ledger: options.ledger,
-          context: options.runtimeContext,
+          context: runtimeContext,
           plan: () => ({
             visibleReadTools: confirmPlan.visibleReadTools,
             allowedIntents: confirmPlan.allowedIntents,

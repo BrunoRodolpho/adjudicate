@@ -36,7 +36,6 @@
 
 import {
   deriveIntentHash,
-  noopAuditSink,
   timingSafeHexEqual,
   validateOutputShape,
 } from "@adjudicate/core";
@@ -439,9 +438,20 @@ export interface RouteReadContext<S, H> {
   readonly executor: Pick<AdopterExecutor<string, unknown, S>, "invokeRead">;
   /** Pack taint policy — the read envelope is adjudicated against it. */
   readonly taint: TaintPolicy;
-  readonly auditSink?: AuditSink;
+  /**
+   * Required durable AuditSink (013/T1). The READ path crosses the same audited
+   * kernel as intents — a missing sink is a construction-time type error, never a
+   * silent `noopAuditSink()` no-op (invariant #6).
+   */
+  readonly auditSink: AuditSink;
   readonly ledger?: Ledger;
-  readonly runtimeContext?: RuntimeContext;
+  /**
+   * Required tenant RuntimeContext (013/T3). Non-optional so the kernel
+   * kill-switch is ALWAYS consulted on the READ path — an omitted control no
+   * longer skips the check (§C: friction, never bypass). The adapter resolves it
+   * to the process-wide default context when no tenant context is supplied.
+   */
+  readonly runtimeContext: RuntimeContext;
   /** Plan snapshot accessor for the audit row (observability). */
   readonly plan: () => {
     readonly visibleReadTools: ReadonlyArray<string>;
@@ -484,11 +494,9 @@ export async function routeReadThroughKernel<S, H>(
     ctx.state,
     readAuthorizationPolicy(ctx.taint),
     {
-      sink: ctx.auditSink ?? noopAuditSink(),
+      sink: ctx.auditSink,
       ...(ctx.ledger !== undefined ? { ledger: ctx.ledger } : {}),
-      ...(ctx.runtimeContext !== undefined
-        ? { context: ctx.runtimeContext }
-        : {}),
+      context: ctx.runtimeContext,
       plan: () => ctx.plan(),
     },
   );

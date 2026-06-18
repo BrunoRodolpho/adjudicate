@@ -23,6 +23,7 @@ import {
   setLearningSink,
 } from "./kernel/learning.js";
 import { createConsoleMetricsSink, hasMetricsSink, setMetricsSink } from "./kernel/metrics.js";
+import { assertPlanSubsetOfPack } from "./llm/planner-conformance.js";
 import { assertPackConformance, withBasisAudit } from "./pack-conformance.js";
 import type { PackV0 } from "./pack.js";
 
@@ -82,6 +83,43 @@ export function installPack<K extends string, P, S, C>(
   assertPackConformance(pack, {
     allowDefaultExecute: options.allowDefaultExecute,
   });
+
+  // 012 / T4: gate the plan at install — not opt-in at Pack construction.
+  // Now that every model-proposed READ crosses the kernel, the plan's
+  // `allowedIntents` are the surface the LLM may propose THROUGH the kernel;
+  // a planner that advertises an intent the Pack never declared is a leak the
+  // kernel's guards probably do not cover. Probe the planner with an empty
+  // state and assert `assertPlanSubsetOfPack` so the misconfiguration fails
+  // loud at install. A planner that legitimately throws on the empty probe
+  // state (it needs real domain state) is exempt — same trust-the-contract
+  // posture the conformance harness takes; the planner's own `safePlan`
+  // wrapper (Pack-author convention) still gates it per real `plan()` call.
+  try {
+    const probeState =
+      typeof pack.rehydrateState === "function"
+        ? pack.rehydrateState({})
+        : ({} as S);
+    let plan: ReturnType<typeof pack.planner.plan> | undefined;
+    try {
+      plan = pack.planner.plan(probeState, {} as C);
+    } catch {
+      plan = undefined; // planner needs real state — skip the install probe.
+    }
+    if (plan !== undefined) {
+      // Throws PlanConformanceError when an advertised intent is absent from
+      // pack.intents — a fail-loud install gate (was opt-in via safePlan).
+      // assertPlanSubsetOfPack reads only `pack.intents`, so the P/S/C widening
+      // cast is sound.
+      assertPlanSubsetOfPack(
+        plan,
+        pack as unknown as PackV0<K, unknown, unknown, unknown>,
+      );
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name === "PlanConformanceError") throw err;
+    // Any other unexpected error from the probe is non-fatal — the install
+    // gate is best-effort plan validation, not a new failure surface.
+  }
 
   const installedDefaults: InstalledDefault[] = [];
   if (installDefaultMetrics && !hasMetricsSink()) {

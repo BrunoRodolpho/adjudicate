@@ -56,6 +56,33 @@ describe("classifyIncomingToolUse", () => {
     );
     expect(result.kind).toBe("out_of_plan");
   });
+
+  it("012: fail-closed on the wire-name collision ('a.b' intent vs 'a_b' read)", () => {
+    // intentKindToApiName('a.b') === 'a_b' === the read tool name. The incoming
+    // 'a_b' matches BOTH a visible read tool and an allowed intent. The typed
+    // discriminant is the authority — scan order must NOT silently pick the read
+    // arm. The collision is ambiguous → out_of_plan (fail-closed).
+    const collidingPlan: Plan = {
+      visibleReadTools: ["a_b"],
+      allowedIntents: ["a.b"],
+    };
+    const result = classifyIncomingToolUse(
+      { name: "a_b", input: { x: 1 } },
+      collidingPlan,
+    );
+    expect(result.kind).toBe("out_of_plan");
+  });
+
+  it("012: no collision → the read tool still classifies as read", () => {
+    // Sanity: the collision guard only fires when BOTH match. A read tool with
+    // no colliding intent classifies as read as before.
+    const plan2: Plan = {
+      visibleReadTools: ["a_b"],
+      allowedIntents: ["c.d"],
+    };
+    const result = classifyIncomingToolUse({ name: "a_b", input: {} }, plan2);
+    expect(result.kind).toBe("read");
+  });
 });
 
 describe("buildEnvelopeFromToolUse", () => {

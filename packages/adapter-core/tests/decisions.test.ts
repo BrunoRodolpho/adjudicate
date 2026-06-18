@@ -7,15 +7,24 @@ import {
   decisionRefuse,
   decisionRequestConfirmation,
   decisionRewrite,
+  deriveIntentHash,
   refuse,
+  type AuditRecord,
+  type AuditSink,
   type IntentEnvelope,
+  type TaintPolicy,
 } from "@adjudicate/core";
-import { translateDecision } from "../src/decisions.js";
+import {
+  readAuthorizationPolicy,
+  routeReadThroughKernel,
+  translateDecision,
+} from "../src/decisions.js";
 import {
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
 } from "../src/persistence.js";
-import type { AdopterExecutor } from "../src/types.js";
+import { createMemoryLedger } from "../src/index.js";
+import type { AdopterExecutor, ToolClassification } from "../src/types.js";
 
 interface Payload {
   amountCentavos: number;
@@ -221,5 +230,135 @@ describe("translateDecision (adapter-core)", () => {
     expect(t.loopAction).toEqual({ kind: "continue" });
     expect(t.toolResult?.isError).toBe(true);
     expect(t.toolResult?.content).toContain("provider down");
+  });
+});
+
+// ── 012: READ through the kernel ────────────────────────────────────────────
+
+const permissiveTaint: TaintPolicy = { minimumFor: () => "UNTRUSTED" };
+// A taint policy that marks one READ tool name as TRUSTED-only — an UNTRUSTED
+// read of it must NOT be served (taint gate fires).
+const protectedReadTaint: TaintPolicy = {
+  minimumFor: (kind) => (kind === "list_secret_charges" ? "TRUSTED" : "UNTRUSTED"),
+};
+
+function readClassification(
+  name: string,
+  input: unknown,
+): Extract<ToolClassification, { kind: "read" }> {
+  return { kind: "read", name, input };
+}
+
+/** Capturing sink so tests can assert the READ produced a durable AuditRecord. */
+function capturingSink(): AuditSink & { records: AuditRecord[] } {
+  const records: AuditRecord[] = [];
+  return {
+    records,
+    async emit(r: AuditRecord) {
+      records.push(r);
+    },
+  };
+}
+
+describe("routeReadThroughKernel (012 — READ crosses the kernel)", () => {
+  it("builds a real content-addressed read envelope and emits an AuditRecord", async () => {
+    const sink = capturingSink();
+    const invokeRead = vi.fn(async () => ({ charges: [{ id: "c-1" }] }));
+    const decisionEvents: unknown[] = [];
+
+    const out = await routeReadThroughKernel({
+      classification: readClassification("list_charges", { limit: 5 }),
+      toolUseId: "tu-read-1",
+      sessionId: "s-1",
+      state: {} as State,
+      executor: { invokeRead },
+      taint: permissiveTaint,
+      auditSink: sink,
+      ledger: createMemoryLedger(),
+      plan: () => ({ visibleReadTools: ["list_charges"], allowedIntents: [] }),
+      nonce: "tu-read-1",
+      historySnapshot: [] as unknown,
+    });
+
+    // The READ crossed adjudicateAndAudit: a durable AuditRecord exists and the
+    // intent_proposed/decision events were emitted (the kernel decided).
+    expect(sink.records).toHaveLength(1);
+    expect(sink.records[0]?.envelope.kind).toBe("list_charges");
+    const proposed = out.extraEvents.find((e) => e.kind === "intent_proposed");
+    if (proposed?.kind !== "intent_proposed") throw new Error("no intent_proposed");
+    // The envelope hash re-derives from its own content (no fake fast-path hash).
+    expect(deriveIntentHash(proposed.envelope)).toBe(proposed.envelope.intentHash);
+    expect(proposed.envelope.taint).toBe("UNTRUSTED");
+    const decision = out.extraEvents.find((e) => e.kind === "decision");
+    if (decision?.kind === "decision") decisionEvents.push(decision.decision.kind);
+    expect(decisionEvents).toEqual(["EXECUTE"]);
+
+    // Served only AFTER the kernel authorized it.
+    expect(invokeRead).toHaveBeenCalledWith("list_charges", { limit: 5 }, {});
+    const body = JSON.parse(out.toolResult.content);
+    expect(body).toEqual({ ok: true, result: { charges: [{ id: "c-1" }] } });
+    expect(out.toolResult.isError).toBeUndefined();
+  });
+
+  it("a taint-protected READ under UNTRUSTED is REFUSED — invokeRead NEVER runs", async () => {
+    const sink = capturingSink();
+    const invokeRead = vi.fn(async () => ({ secret: true }));
+
+    const out = await routeReadThroughKernel({
+      classification: readClassification("list_secret_charges", {}),
+      toolUseId: "tu-read-2",
+      sessionId: "s-1",
+      state: {} as State,
+      executor: { invokeRead },
+      taint: protectedReadTaint,
+      auditSink: sink,
+      plan: () => ({
+        visibleReadTools: ["list_secret_charges"],
+        allowedIntents: [],
+      }),
+      nonce: "tu-read-2",
+      historySnapshot: [] as unknown,
+    });
+
+    // No direct unadjudicated dispatch: the kernel REFUSED on taint, so the
+    // read-only executor surface was never touched.
+    expect(invokeRead).not.toHaveBeenCalled();
+    expect(out.toolResult.isError).toBe(true);
+    // The refusal was still audited (sink applies uniformly to reads).
+    expect(sink.records).toHaveLength(1);
+    expect(sink.records[0]?.decision.kind).toBe("REFUSE");
+    const decision = out.extraEvents.find((e) => e.kind === "decision");
+    if (decision?.kind !== "decision") throw new Error("no decision event");
+    expect(decision.decision.kind).toBe("REFUSE");
+  });
+
+  it("a throwing read executor surfaces an isError result AFTER kernel EXECUTE", async () => {
+    const invokeRead = vi.fn(async () => {
+      throw new Error("read backend down");
+    });
+    const out = await routeReadThroughKernel({
+      classification: readClassification("get_charge", { id: "c-9" }),
+      toolUseId: "tu-read-3",
+      sessionId: "s-1",
+      state: {} as State,
+      executor: { invokeRead },
+      taint: permissiveTaint,
+      plan: () => ({ visibleReadTools: ["get_charge"], allowedIntents: [] }),
+      nonce: "tu-read-3",
+      historySnapshot: [] as unknown,
+    });
+    expect(invokeRead).toHaveBeenCalledOnce();
+    expect(out.toolResult.isError).toBe(true);
+    expect(out.toolResult.content).toContain("read backend down");
+  });
+
+  it("readAuthorizationPolicy runs taint and defaults EXECUTE for reads only", () => {
+    const policy = readAuthorizationPolicy(permissiveTaint);
+    // No mutation guards leak in — reads are authorized via taint + default.
+    expect(policy.stateGuards).toEqual([]);
+    expect(policy.authGuards).toEqual([]);
+    expect(policy.business).toEqual([]);
+    expect(policy.default).toBe("EXECUTE");
+    expect(policy.taint).toBe(permissiveTaint);
   });
 });

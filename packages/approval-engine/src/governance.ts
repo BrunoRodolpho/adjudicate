@@ -2,7 +2,17 @@
  * Approval governance primitives (ADR-143): quorum, escalation timing, and
  * approver attestation. All pure / dependency-light; the engine wires them in.
  */
-import { createPublicKey, verify as cryptoVerify } from "node:crypto";
+import {
+  createPublicKey,
+  sign as cryptoSign,
+  verify as cryptoVerify,
+} from "node:crypto";
+import {
+  capabilityPreimage,
+  type Capability,
+  type CapabilitySignature,
+  type UnsignedCapability,
+} from "@adjudicate/core";
 import type { ApprovalRequest } from "./registry.js";
 
 // ── Quorum ───────────────────────────────────────────────────────────────────
@@ -95,4 +105,83 @@ export function createEd25519AttestationVerifier(
       return false;
     }
   };
+}
+
+// ── Capability signer (021) ────────────────────────────────────────────────
+
+/**
+ * NODE-RESIDENT ed25519 capability signer (021 / §D shell-signs boundary).
+ *
+ * The §B topology arrow "on EXECUTE → mint signed CAPABILITY" runs in the
+ * IMPURE shell, AFTER the pure decision — the kernel never signs (its
+ * `KernelIdentity.attest` stub stays a throwing v0.2 seam; this plan does not
+ * unstub it). `@adjudicate/core` holds only the pure-JS canonical
+ * `capabilityPreimage` + constant-time hash-bind `verifyCapability`; the actual
+ * asymmetric cryptography lives HERE because it needs `node:crypto`, exactly
+ * mirroring `createEd25519AttestationVerifier`'s node-only boundary
+ * (`governance.ts:5`). Importing this into a browser/client bundle would break
+ * the build (`UnhandledSchemeError: node:crypto`) — keep it node-side.
+ *
+ * `signCapability` signs the SAME versioned canonical pre-image string that
+ * `core.capabilityPreimage` produces (so an external verifier re-derives it
+ * identically), producing a detached ed25519 signature, base64-encoded, in the
+ * shared `{ keyId; alg; value }` slot (`alg: "ed25519"`).
+ */
+export function signCapability(input: {
+  readonly body: UnsignedCapability;
+  /** PEM-encoded ed25519 private key (pkcs8). */
+  readonly privateKeyPem: string;
+  /** Identifier of the signing key, recorded in the signature slot. */
+  readonly keyId: string;
+}): Capability {
+  const message = Buffer.from(capabilityPreimage(input.body), "utf-8");
+  const value = cryptoSign(null, message, input.privateKeyPem).toString(
+    "base64",
+  );
+  const signature: CapabilitySignature = {
+    keyId: input.keyId,
+    alg: "ed25519",
+    value,
+  };
+  return { ...input.body, signature };
+}
+
+/**
+ * Verify a capability's ASYMMETRIC ed25519 signature over its canonical
+ * pre-image against a registered public key. The complement to
+ * `core.verifyCapability` (which checks the pure-JS hash-bind leg): this is the
+ * non-repudiation leg that needs the issuer's public key and `node:crypto`.
+ *
+ * Re-derives `capabilityPreimage(cap)` from the capability's OWN unsigned body
+ * — so a signature minted for one `intentHash`/`kernelId` cannot be replayed on
+ * another (the pre-image differs, §D #4) — and ed25519-verifies the carried
+ * base64 `signature.value`. Fails CLOSED (returns false, never throws) on any
+ * unknown key id / malformed key / non-ed25519 alg / bad or cross-intent
+ * signature, mirroring `createEd25519AttestationVerifier`.
+ */
+export function verifyCapabilitySignature(
+  cap: Capability,
+  publicKeyPemByKeyId: Readonly<Record<string, string>>,
+): boolean {
+  if (cap.signature.alg !== "ed25519") return false;
+  const pem = publicKeyPemByKeyId[cap.signature.keyId];
+  if (!pem) return false;
+  try {
+    const key = createPublicKey(pem);
+    const message = Buffer.from(
+      capabilityPreimage({
+        intentHash: cap.intentHash,
+        kernelId: cap.kernelId,
+      }),
+      "utf-8",
+    );
+    return cryptoVerify(
+      null,
+      message,
+      key,
+      Buffer.from(cap.signature.value, "base64"),
+    );
+  } catch {
+    return false;
+  }
 }

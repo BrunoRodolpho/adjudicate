@@ -26,6 +26,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { sha256Canonical } from "../src/hash.js";
+import {
+  CAPABILITY_PREIMAGE_VERSION,
+  capabilityPreimage,
+} from "../src/capability.js";
 
 interface VectorsFile {
   readonly algorithmVersion: string;
@@ -76,5 +80,36 @@ describe("cross-runtime golden hash vectors (docs/specs/canonical-hash-vectors.j
     for (const v of vectorsFile.vectors) {
       expect(v.expectedHash).toMatch(pattern);
     }
+  });
+});
+
+describe("021 — capability pre-image reproduces identically (cross-runtime regime)", () => {
+  // The capability pre-image composes the SAME shared @adjudicate/canonical
+  // encoder that produces intentHash, so it reproduces byte-identically across
+  // Node and the browser bundle (and any conforming external runtime). These
+  // are the GENUINELY-derived literals pinned in @adjudicate/canonical's
+  // golden-vectors.test.ts (021 capability pre-image lock).
+  const body = {
+    intentHash:
+      "cd017dd347b4a8c4c748f7a064788f82eb30fd240d6667873b16cefeb4ed4bc0",
+    kernelId: "kernel://prod/us-east-1",
+  };
+  const EXPECTED_PREIMAGE =
+    "adjudicate-capability-v1\n3d99814d8a4f9be65fa840116d21e786180c9a72927e18ef2f9cf1724a03bf04";
+  const EXPECTED_PREIMAGE_HASH =
+    "a46e1275c0be33f5287fadfb9c21537892c3542b9c6080e93a722be91da280df";
+
+  it("the version tag is the v1 literal", () => {
+    expect(CAPABILITY_PREIMAGE_VERSION).toBe("adjudicate-capability-v1");
+  });
+
+  it("capabilityPreimage reproduces the frozen pre-image string", () => {
+    expect(capabilityPreimage(body)).toBe(EXPECTED_PREIMAGE);
+  });
+
+  it("sha256Canonical over the pre-image reproduces the frozen hash", () => {
+    expect(sha256Canonical(capabilityPreimage(body))).toBe(
+      EXPECTED_PREIMAGE_HASH,
+    );
   });
 });

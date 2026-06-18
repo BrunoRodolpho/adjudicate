@@ -57,6 +57,42 @@ describe("@adjudicate/canonical — canonical rules", () => {
   });
 });
 
+describe("@adjudicate/canonical — 021 capability pre-image lock", () => {
+  // The capability pre-image (021) is `"adjudicate-capability-v1\n" +
+  // sha256Canonical({ intentHash, kernelId })`. The inner body hash is pinned
+  // as the `capability-preimage-body` golden vector above; here we lock the
+  // FULL versioned pre-image string and its hash so capability signature bytes
+  // can never drift (golden-vector-locked, like intentHash, §D #5). These
+  // literals are GENUINELY derived from this canonicalizer — recompute below.
+  const VERSION = "adjudicate-capability-v1";
+  const body = {
+    intentHash:
+      "cd017dd347b4a8c4c748f7a064788f82eb30fd240d6667873b16cefeb4ed4bc0",
+    kernelId: "kernel://prod/us-east-1",
+  };
+  const BODY_HASH =
+    "3d99814d8a4f9be65fa840116d21e786180c9a72927e18ef2f9cf1724a03bf04";
+  const PREIMAGE = `${VERSION}\n${BODY_HASH}`;
+  const PREIMAGE_HASH =
+    "a46e1275c0be33f5287fadfb9c21537892c3542b9c6080e93a722be91da280df";
+
+  it("locks the canonical body hash (the inner pre-image component)", () => {
+    expect(sha256Canonical(body)).toBe(BODY_HASH);
+  });
+
+  it("locks the full versioned pre-image STRING and its hash", () => {
+    const preimage = `${VERSION}\n${sha256Canonical(body)}`;
+    expect(preimage).toBe(PREIMAGE);
+    expect(sha256Canonical(preimage)).toBe(PREIMAGE_HASH);
+  });
+
+  it("a different intentHash drives a different pre-image hash (binding)", () => {
+    const other = `${VERSION}\n${sha256Canonical({ ...body, intentHash: "00".repeat(32) })}`;
+    expect(other).not.toBe(PREIMAGE);
+    expect(sha256Canonical(other)).not.toBe(PREIMAGE_HASH);
+  });
+});
+
 describe("@adjudicate/canonical — 031 v3 resource-refs drop-safety", () => {
   // The envelope-hash recipe MINUS resourceRefs (the existing
   // `envelope-hash-recipe` golden vector). The v3 `envelope-with-resource-refs`

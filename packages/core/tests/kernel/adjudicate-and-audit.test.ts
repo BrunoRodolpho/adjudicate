@@ -34,6 +34,7 @@ import {
 import {
   adjudicate,
   adjudicateAndAudit,
+  createCumulativeVelocityGuard,
   createRuntimeContext,
   setLearningSink,
   setMetricsSink,
@@ -853,5 +854,186 @@ describe("adjudicateAndAudit — 052 inject + record aggregate snapshot", () => 
     expect(withSnap.intentHash).toBe(baseEnv.intentHash);
     expect(withoutSnap.intentHash).toBe(baseEnv.intentHash);
     expect(withSnap.envelope.intentHash).toBe(withoutSnap.envelope.intentHash);
+  });
+});
+
+// ── 051: the cumulative/velocity guard family wired through the full pipeline ──
+// These exercise the REAL exported `createCumulativeVelocityGuard` (not an ad-hoc
+// inline bundle) end-to-end through `adjudicateAndAudit`: an over-limit horizon
+// deterministically RAISES friction (REFUSE) and triggers the rate-limit rollback;
+// an under-limit horizon EXECUTEs and does NOT roll back; the boundary is exact;
+// and on the over-limit (non-EXECUTE) decision the rollback FAILS CLOSED — it fires
+// even when the audit sink throws (T2/#41, invariant #6: a transient sink failure
+// must never leave a legitimate user's counter incremented for an unauthorized
+// request). Replay over the recorded snapshot reproduces the same decision (§D-5).
+describe("adjudicateAndAudit — 051 cumulative/velocity guard family", () => {
+  type S051 = { aggregate?: AggregateSnapshot };
+
+  const WINDOW = "acct_7|daily";
+  const MAX = 5;
+
+  // A policy whose ONLY business guard is the real 051 cumulative/velocity guard,
+  // reading the injected snapshot off state. default REFUSE so an under-limit
+  // path falls through to EXECUTE only via an explicit pass guard.
+  const velocityBundle: PolicyBundle<string, unknown, S051> = {
+    stateGuards: [],
+    authGuards: [],
+    taint: taintPolicy,
+    business: [
+      createCumulativeVelocityGuard<string, unknown, S051>({
+        resolveSnapshot: (_e, s) => s.aggregate,
+        horizons: [{ windowKey: WINDOW, max: MAX }],
+      }),
+      // Pass guard: when the velocity guard returns null (under limit) this
+      // affirmatively EXECUTEs so the under-limit path is a clean EXECUTE.
+      () => decisionExecute([basis("business", BASIS_CODES.business.RULE_SATISFIED)]),
+    ],
+    default: "REFUSE",
+  };
+
+  function snapAt(committed: number): AggregateSnapshot {
+    return { windows: { [WINDOW]: committed }, at: "2026-04-23T11:59:00.000Z" };
+  }
+
+  it("over-limit horizon ⇒ deterministic REFUSE (friction raised, never bypass)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    // committed 5 + increment 1 = 6 > 5 → REFUSE.
+    const over = snapAt(5);
+    const result = await adjudicateAndAudit(
+      envFixture(),
+      { aggregate: over },
+      velocityBundle,
+      { sink, aggregateSnapshot: recordAggregateSnapshot(over) },
+    );
+    expect(result.decision.kind).toBe("REFUSE");
+    if (result.decision.kind !== "REFUSE") return;
+    expect(result.decision.refusal.code).toBe("cumulative_limit_exceeded");
+  });
+
+  it("under-limit horizon ⇒ EXECUTE (the guard does not block legitimate traffic)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    // committed 3 + 1 = 4 <= 5 → guard returns null → pass guard EXECUTEs.
+    const under = snapAt(3);
+    const result = await adjudicateAndAudit(
+      envFixture(),
+      { aggregate: under },
+      velocityBundle,
+      { sink, aggregateSnapshot: recordAggregateSnapshot(under) },
+    );
+    expect(result.decision.kind).toBe("EXECUTE");
+  });
+
+  it("boundary: projected exactly AT the cap EXECUTEs; one over REFUSEs", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    // committed 4 + 1 = 5 == max → allowed → EXECUTE.
+    const atCap = await adjudicateAndAudit(
+      envFixture(),
+      { aggregate: snapAt(4) },
+      velocityBundle,
+      { sink },
+    );
+    expect(atCap.decision.kind).toBe("EXECUTE");
+    // committed 5 + 1 = 6 > 5 → REFUSE.
+    const overCap = await adjudicateAndAudit(
+      envFixture(),
+      { aggregate: snapAt(5) },
+      velocityBundle,
+      { sink },
+    );
+    expect(overCap.decision.kind).toBe("REFUSE");
+  });
+
+  it("over-limit (non-EXECUTE) decision rolls the rate-limit counter back", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const rollback = vi.fn(async () => {});
+    await adjudicateAndAudit(envFixture(), { aggregate: snapAt(5) }, velocityBundle, {
+      sink,
+      rateLimitRollback: rollback,
+    });
+    expect(rollback).toHaveBeenCalledOnce();
+  });
+
+  it("under-limit EXECUTE does NOT roll the counter back (the request was authorized)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const rollback = vi.fn(async () => {});
+    const result = await adjudicateAndAudit(
+      envFixture(),
+      { aggregate: snapAt(3) },
+      velocityBundle,
+      { sink, rateLimitRollback: rollback },
+    );
+    expect(result.decision.kind).toBe("EXECUTE");
+    expect(rollback).not.toHaveBeenCalled();
+  });
+
+  it("FAIL-CLOSED: a write-path (sink) error on an over-limit decision still rolls back, then rethrows", async () => {
+    // The over-limit REFUSE is correct; the audit sink then throws. The rollback
+    // MUST still fire (try/finally) — a transient sink failure must not leave a
+    // legitimate user's counter incremented for an unauthorized request — and the
+    // error must propagate (the caller never receives a clean result that hides a
+    // failed audit write). This is the §C/#6 fail-closed contract on the write path.
+    const throwingSink: AuditSink = {
+      async emit() {
+        throw new Error("audit store down");
+      },
+    };
+    const rollback = vi.fn(async () => {});
+    await expect(
+      adjudicateAndAudit(envFixture(), { aggregate: snapAt(5) }, velocityBundle, {
+        sink: throwingSink,
+        rateLimitRollback: rollback,
+      }),
+    ).rejects.toThrow("audit store down");
+    expect(rollback).toHaveBeenCalledOnce();
+  });
+
+  it("FAIL-CLOSED: a write-path (sink) error on an under-limit EXECUTE aborts — error propagates, no clean result", async () => {
+    // Under-limit the decision is EXECUTE, but the durable audit write fails. The
+    // wrapper MUST NOT swallow it and hand back a clean EXECUTE result (that would
+    // be fail-OPEN — an EXECUTE with no durable audit row). The error propagates
+    // (#6: a store/IO error on the write path aborts the EXECUTE path).
+    const throwingSink: AuditSink = {
+      async emit() {
+        throw new Error("audit store down");
+      },
+    };
+    await expect(
+      adjudicateAndAudit(envFixture(), { aggregate: snapAt(3) }, velocityBundle, {
+        sink: throwingSink,
+      }),
+    ).rejects.toThrow("audit store down");
+  });
+
+  it("replay over the RECORDED snapshot reproduces the same decision (§D-5, non-vacuous)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const over = snapAt(5);
+    const result = await adjudicateAndAudit(
+      envFixture(),
+      { aggregate: over },
+      velocityBundle,
+      { sink, aggregateSnapshot: recordAggregateSnapshot(over) },
+    );
+    expect(result.decision.kind).toBe("REFUSE");
+    // Re-derive the snapshot from the recorded content-address (fail-closed
+    // integrity), then re-run the PURE kernel over it through the SAME 051 guard.
+    const replayedSnapshot = aggregateSnapshotFromRecorded(
+      result.record.aggregateSnapshot!,
+    );
+    const replayed = adjudicate(
+      envFixture(),
+      { aggregate: replayedSnapshot },
+      velocityBundle,
+    );
+    expect(replayed.kind).toBe(result.decision.kind);
+    expect(replayed.basis).toEqual(result.decision.basis);
+
+    // Counter-proof: an under-limit recorded snapshot replays to EXECUTE.
+    const under = recordAggregateSnapshot(snapAt(3));
+    const replayedUnder = adjudicate(
+      envFixture(),
+      { aggregate: aggregateSnapshotFromRecorded(under) },
+      velocityBundle,
+    );
+    expect(replayedUnder.kind).toBe("EXECUTE");
   });
 });

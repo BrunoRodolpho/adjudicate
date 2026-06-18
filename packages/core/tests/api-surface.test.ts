@@ -110,6 +110,8 @@ const KERNEL_FROZEN: ReadonlyArray<string> = [
   "checkRateLimit",
   "createInMemoryRateLimitStore",
   "createRateLimitGuard",
+  // 051: deterministic multi-horizon cumulative/velocity guard family.
+  "createCumulativeVelocityGuard",
 ];
 
 const LLM_FROZEN: ReadonlyArray<string> = [
@@ -202,5 +204,26 @@ describe("@adjudicate/core public API surface — v1 freeze matrix", () => {
     expect(root.aggregateSnapshotFromRecorded(recorded)).toEqual(
       recorded.snapshot,
     );
+  });
+
+  // 051: lock the cumulative/velocity guard surface so a removal/rename is a
+  // release-blocker. The factory rides both the root barrel and the /kernel
+  // subpath (re-exported from kernel/rate-limit.ts).
+  it("051 cumulative/velocity guard factory is exported on root and /kernel", () => {
+    const rootExports = new Set(exportedNames(root));
+    const kernelExports = new Set(exportedNames(kernel));
+    expect(rootExports.has("createCumulativeVelocityGuard")).toBe(true);
+    expect(kernelExports.has("createCumulativeVelocityGuard")).toBe(true);
+    expect(typeof root.createCumulativeVelocityGuard).toBe("function");
+    // The factory builds a usable Guard (a function) — a smoke check that the
+    // public surface is callable, not just present.
+    const guard = root.createCumulativeVelocityGuard({
+      resolveSnapshot: () => ({
+        windows: { "acct|daily": 0 },
+        at: "2026-04-23T00:00:00.000Z",
+      }),
+      horizons: [{ windowKey: "acct|daily", max: 5 }],
+    });
+    expect(typeof guard).toBe("function");
   });
 });

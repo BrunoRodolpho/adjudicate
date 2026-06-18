@@ -104,10 +104,14 @@ export {
 } from "./runtime-context.js";
 export {
   checkRateLimit,
+  createCumulativeVelocityGuard,
   createInMemoryRateLimitStore,
   createRateLimitGuard,
   type CheckRateLimitArgs,
+  type CumulativeVelocityGuardOptions,
   type RateLimitGuardOptions,
   type RateLimitResult,
   type RateLimitStore,
+  type VelocityBreach,
+  type VelocityHorizon,
 } from "./rate-limit.js";

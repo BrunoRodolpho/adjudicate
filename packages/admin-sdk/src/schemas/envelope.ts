@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { IntentActor, IntentEnvelope, Origin, Taint } from "@adjudicate/core";
+import type {
+  IntentActor,
+  IntentEnvelope,
+  Origin,
+  ResourceRefs,
+  Taint,
+} from "@adjudicate/core";
 import { IntentHashSchema } from "./common.js";
 
 /**
@@ -26,6 +32,15 @@ export const OriginSchema = z.enum([
   "LLM",
   "System",
 ]);
+
+/**
+ * 031 — per-kind resource references (the envelope's authorization slot).
+ * Mirrors `ResourceRefs` in @adjudicate/core: a string→string map. OPTIONAL on
+ * the envelope and canonical-drop-safe — bound into intentHash only when
+ * present. Tolerated by the wire schema so old (no-refs) and new (with-refs)
+ * envelopes both round-trip without a schema break.
+ */
+export const ResourceRefsSchema = z.record(z.string(), z.string());
 
 export const IntentActorSchema = z.object({
   principal: z.enum(["llm", "user", "system"]),
@@ -55,6 +70,11 @@ export const IntentEnvelopeSchema = z.object({
   taint: TaintSchema,
   /** 041 — harness-stamped provenance source axis; part of intentHash. */
   origin: OriginSchema,
+  /**
+   * 031 — per-kind resource references. Optional + canonical-drop-safe; bound
+   * into intentHash only when present.
+   */
+  resourceRefs: ResourceRefsSchema.optional(),
   /** sha256(canonical(envelope minus intentHash)). Computed by buildEnvelope. */
   intentHash: IntentHashSchema,
 });
@@ -69,6 +89,13 @@ const _taintSchemaToCore = (x: z.infer<typeof TaintSchema>): Taint => x;
 
 const _originCoreToSchema = (x: Origin): z.infer<typeof OriginSchema> => x;
 const _originSchemaToCore = (x: z.infer<typeof OriginSchema>): Origin => x;
+
+const _resourceRefsCoreToSchema = (
+  x: ResourceRefs,
+): z.infer<typeof ResourceRefsSchema> => x;
+const _resourceRefsSchemaToCore = (
+  x: z.infer<typeof ResourceRefsSchema>,
+): ResourceRefs => x;
 
 const _actorCoreToSchema = (x: IntentActor): z.infer<typeof IntentActorSchema> => x;
 const _actorSchemaToCore = (x: z.infer<typeof IntentActorSchema>): IntentActor => x;
@@ -85,6 +112,8 @@ void [
   _taintSchemaToCore,
   _originCoreToSchema,
   _originSchemaToCore,
+  _resourceRefsCoreToSchema,
+  _resourceRefsSchemaToCore,
   _actorCoreToSchema,
   _actorSchemaToCore,
   _envelopeCoreToSchema,

@@ -56,3 +56,52 @@ describe("@adjudicate/canonical — canonical rules", () => {
     expect(() => sha256Canonical([1, NaN, 3])).toThrow();
   });
 });
+
+describe("@adjudicate/canonical — 031 v3 resource-refs drop-safety", () => {
+  // The envelope-hash recipe MINUS resourceRefs (the existing
+  // `envelope-hash-recipe` golden vector). The v3 `envelope-with-resource-refs`
+  // golden vector is this same object PLUS a resourceRefs map.
+  const noRefs = {
+    version: 2,
+    kind: "order.submit",
+    payload: { sku: "X", qty: 2 },
+    nonce: "n-1",
+    actor: { principal: "llm", sessionId: "s-1" },
+    taint: "UNTRUSTED",
+  };
+  const refs = { account: "acct_7", owner: "user_42" };
+
+  it("undefined resourceRefs canonical-DROPS — hashes identically to no-refs", () => {
+    // The load-bearing drop-safety property (031 §3/§7): an envelope with
+    // resourceRefs explicitly `undefined` MUST hash like one without the key,
+    // so post-041 envelopes never drift. Mirrors `attestation` elision.
+    expect(sha256Canonical({ ...noRefs, resourceRefs: undefined })).toBe(
+      sha256Canonical(noRefs),
+    );
+    // And byte-stable against the pinned no-refs golden vector.
+    expect(sha256Canonical(noRefs)).toBe(
+      "cd017dd347b4a8c4c748f7a064788f82eb30fd240d6667873b16cefeb4ed4bc0",
+    );
+  });
+
+  it("PRESENT resourceRefs change the hash (refs are bound, not ignored)", () => {
+    const withRefs = sha256Canonical({ ...noRefs, resourceRefs: refs });
+    expect(withRefs).not.toBe(sha256Canonical(noRefs));
+    // Matches the pinned v3 golden vector.
+    expect(withRefs).toBe(
+      "8368d0df30f07c8624f36eb26d2edbbd19364b0293f595e958e99e44135add40",
+    );
+  });
+
+  it("resourceRefs key order is canonicalized (recursive key sort)", () => {
+    expect(sha256Canonical({ ...noRefs, resourceRefs: { account: "acct_7", owner: "user_42" } })).toBe(
+      sha256Canonical({ ...noRefs, resourceRefs: { owner: "user_42", account: "acct_7" } }),
+    );
+  });
+
+  it("a different owner ref yields a different hash (tamper-evident, §D #4)", () => {
+    expect(sha256Canonical({ ...noRefs, resourceRefs: refs })).not.toBe(
+      sha256Canonical({ ...noRefs, resourceRefs: { ...refs, owner: "user_99" } }),
+    );
+  });
+});

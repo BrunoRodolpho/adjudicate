@@ -191,3 +191,73 @@ describe("041 — origin is bound into the intentHash pre-image", () => {
     expect(env.intentHash).toBe(recomputed);
   });
 });
+
+describe("031 — resourceRefs is canonical-drop-safe in the intentHash pre-image", () => {
+  const base = {
+    kind: "pix.charge.refund" as const,
+    payload: { chargeId: "chg_1", amount: 100 },
+    actor: { principal: "llm" as const, sessionId: "s-1" },
+    taint: "UNTRUSTED" as const,
+    nonce: "n-refs",
+    createdAt: "2026-04-23T12:00:00.000Z",
+    origin: "LLM" as const,
+  };
+
+  it("a no-resource-refs envelope omits the key and hashes as the post-041 recipe (DROP-SAFETY)", () => {
+    const env = buildEnvelope(base);
+    expect("resourceRefs" in env).toBe(false);
+    expect(Object.keys(env)).toHaveLength(9);
+    // Byte-identical to the explicit post-041 7-field recipe (no resourceRefs key).
+    const post041 = sha256Canonical({
+      version: env.version,
+      kind: env.kind,
+      payload: env.payload,
+      nonce: env.nonce,
+      actor: env.actor,
+      taint: env.taint,
+      origin: env.origin,
+    });
+    expect(env.intentHash).toBe(post041);
+  });
+
+  it("explicit `resourceRefs: undefined` hashes identically and carries no key", () => {
+    const withUndef = buildEnvelope({ ...base, resourceRefs: undefined });
+    const without = buildEnvelope(base);
+    expect("resourceRefs" in withUndef).toBe(false);
+    expect(withUndef.intentHash).toBe(without.intentHash);
+  });
+
+  it("present resourceRefs change the hash and are attached to the envelope", () => {
+    const env = buildEnvelope({ ...base, resourceRefs: { owner: "user_42", account: "acct_7" } });
+    expect(env.resourceRefs).toEqual({ owner: "user_42", account: "acct_7" });
+    expect(env.intentHash).not.toBe(buildEnvelope(base).intentHash);
+  });
+
+  it("resourceRefs key order does not affect the hash (recursive canonical sort)", () => {
+    const a = buildEnvelope({ ...base, resourceRefs: { owner: "user_42", account: "acct_7" } });
+    const b = buildEnvelope({ ...base, resourceRefs: { account: "acct_7", owner: "user_42" } });
+    expect(a.intentHash).toBe(b.intentHash);
+  });
+
+  it("deriveIntentHash binds resourceRefs — a flipped owner no longer re-derives (§D #4)", () => {
+    const env = buildEnvelope({ ...base, resourceRefs: { owner: "user_42", account: "acct_7" } });
+    expect(deriveIntentHash(env)).toBe(env.intentHash);
+    const forged = { ...env, resourceRefs: { owner: "user_99", account: "acct_7" } };
+    expect(deriveIntentHash(forged)).not.toBe(env.intentHash);
+  });
+
+  it("the v3-with-refs recipe is exactly {version,…,origin,resourceRefs}", () => {
+    const env = buildEnvelope({ ...base, resourceRefs: { owner: "user_42" } });
+    const recomputed = sha256Canonical({
+      version: env.version,
+      kind: env.kind,
+      payload: env.payload,
+      nonce: env.nonce,
+      actor: env.actor,
+      taint: env.taint,
+      origin: env.origin,
+      resourceRefs: env.resourceRefs,
+    });
+    expect(env.intentHash).toBe(recomputed);
+  });
+});

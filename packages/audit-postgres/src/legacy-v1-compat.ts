@@ -30,6 +30,7 @@ import {
   buildEnvelope,
   type IntentActor,
   type IntentEnvelope,
+  type ResourceRefs,
   type Taint,
 } from "@adjudicate/core";
 import type { IntentAuditRow } from "./postgres-sink.js";
@@ -50,6 +51,10 @@ export function legacyV1ToV2(row: IntentAuditRow): IntentEnvelope {
     readonly taint: Taint;
     readonly createdAt: string;
     readonly nonce?: string;
+    // 031 — v3 envelopes carry a per-kind resource-refs authorization slot.
+    // Drop-safe: a v1/v2 row that never had it leaves this undefined, so the
+    // reconstructed envelope omits the key and hashes exactly as before.
+    readonly resourceRefs?: ResourceRefs;
   };
   const rowNonce =
     typeof row.nonce === "string" && row.nonce.length > 0 ? row.nonce : null;
@@ -81,5 +86,9 @@ export function legacyV1ToV2(row: IntentAuditRow): IntentEnvelope {
     taint: stored.taint,
     nonce,
     createdAt: stored.createdAt,
+    // 031: thread resourceRefs through so a v3 row reconstructs faithfully.
+    // Drop-safe — undefined for any v1/v2 row, leaving the recomputed hash
+    // byte-identical to the pre-031 reconstruction.
+    resourceRefs: stored.resourceRefs,
   });
 }

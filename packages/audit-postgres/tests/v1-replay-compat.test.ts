@@ -103,6 +103,50 @@ describe("legacyV1ToV2", () => {
     const env2 = legacyV1ToV2(row);
     expect(env2.intentHash).toBe(env.intentHash);
   });
+
+  // 031 — v3 resource-refs threading.
+  it("reconstructs a no-resource-refs row with NO resourceRefs key (drop-safe)", () => {
+    const env = legacyV1ToV2(v1Row());
+    expect("resourceRefs" in env).toBe(false);
+  });
+
+  it("threads stored resourceRefs through faithfully for a v3 row", () => {
+    const row = v1Row({
+      record_version: 4,
+      nonce: "real-nonce",
+      envelope_jsonb: JSON.stringify({
+        version: 2,
+        kind: "pix.charge.refund",
+        payload: { chargeId: "chg_1" },
+        actor: { principal: "llm", sessionId: "s-1" },
+        taint: "TRUSTED",
+        createdAt: "2026-04-01T10:00:00.000Z",
+        nonce: "real-nonce",
+        origin: "LLM",
+        resourceRefs: { account: "acct_7", owner: "user_42" },
+        intentHash: "h",
+      }),
+    });
+    const env = legacyV1ToV2(row);
+    expect(env.resourceRefs).toEqual({ account: "acct_7", owner: "user_42" });
+    // The refs are bound into the recomputed hash: dropping them changes it.
+    const noRefsRow = v1Row({
+      record_version: 4,
+      nonce: "real-nonce",
+      envelope_jsonb: JSON.stringify({
+        version: 2,
+        kind: "pix.charge.refund",
+        payload: { chargeId: "chg_1" },
+        actor: { principal: "llm", sessionId: "s-1" },
+        taint: "TRUSTED",
+        createdAt: "2026-04-01T10:00:00.000Z",
+        nonce: "real-nonce",
+        origin: "LLM",
+        intentHash: "h",
+      }),
+    });
+    expect(legacyV1ToV2(noRefsRow).intentHash).not.toBe(env.intentHash);
+  });
 });
 
 describe("legacyV1ToV2 — v2+ nonce integrity guard (DataReviewer-010)", () => {

@@ -9,8 +9,14 @@ import {
 } from "@adjudicate/core";
 import { readGuardMetadata } from "@adjudicate/core/kernel";
 import {
+  createAuthorityGraphStore,
+  resolveOwnership,
+  type OwnershipFact,
+} from "@adjudicate/core";
+import {
   createStateDeferGuard,
   createThresholdGuard,
+  ownershipBindingPredicate,
   requireTenantBinding,
 } from "../src/index.js";
 
@@ -262,5 +268,71 @@ describe("requireTenantBinding (AuthReviewer-009 / D-12)", () => {
   it("trivially-true predicate is a no-op scaffold (single-tenant)", () => {
     const guard = requireTenantBinding<string, unknown, unknown>(() => true);
     expect(guard(env, {})).toBeNull();
+  });
+});
+
+describe("ownershipBindingPredicate — 032 authority-graph fact seam", () => {
+  // The 032 fact seam: an `OwnershipFact` adapts to the EXISTING
+  // `requireTenantBinding` predicate shape `(actor, state) => boolean` WITHOUT
+  // reshaping the fact — so 034 can wire an authority guard later. This plan
+  // wires NO guard; these tests only pin the seam shape + scaffold-unwired.
+  const graph = {
+    edges: [
+      {
+        principal: "user_42",
+        relationship: "owns" as const,
+        resource: "acct_7",
+        permits: { actions: ["pix.charge.refund"] },
+      },
+    ],
+  };
+  const store = createAuthorityGraphStore(graph);
+  const owningEnv = buildEnvelope({
+    kind: "pix.charge.refund",
+    payload: {},
+    actor: { principal: "user", sessionId: "s" },
+    taint: "UNTRUSTED",
+    nonce: "n-own",
+    createdAt: at,
+    resourceRefs: { owner: "user_42", resource: "acct_7" },
+  });
+  const foreignEnv = buildEnvelope({
+    kind: "pix.charge.refund",
+    payload: {},
+    actor: { principal: "user", sessionId: "s" },
+    taint: "UNTRUSTED",
+    nonce: "n-foreign",
+    createdAt: at,
+    resourceRefs: { owner: "attacker", resource: "acct_7" },
+  });
+
+  it("maps a bound OwnershipFact to a `true` predicate (guard PASSES)", () => {
+    // A 034 adopter closes over the store + envelope when building the guard.
+    const predicate = ownershipBindingPredicate<unknown>(() =>
+      resolveOwnership(store, owningEnv),
+    );
+    // The seam type IS exactly requireTenantBinding's predicate shape — proven by
+    // feeding the predicate straight into requireTenantBinding (compiles + runs).
+    const guard = requireTenantBinding<string, unknown, unknown>(predicate);
+    expect(guard(owningEnv, {})).toBeNull(); // bound ⇒ guard has no opinion (passes)
+  });
+
+  it("maps an UNbound OwnershipFact to a `false` predicate (guard REFUSEs)", () => {
+    const predicate = ownershipBindingPredicate<unknown>(() =>
+      resolveOwnership(store, foreignEnv),
+    );
+    const guard = requireTenantBinding<string, unknown, unknown>(predicate);
+    const decision = guard(foreignEnv, {});
+    // The fact never authorizes — at most it lets the guard RAISE friction (REFUSE).
+    expect(decision?.kind).toBe("REFUSE");
+  });
+
+  it("the predicate is the identity on `OwnershipFact.bound` (no authorization)", () => {
+    const boundFact: OwnershipFact = resolveOwnership(store, owningEnv);
+    const unboundFact: OwnershipFact = resolveOwnership(store, foreignEnv);
+    expect(boundFact.bound).toBe(true);
+    expect(unboundFact.bound).toBe(false);
+    expect(ownershipBindingPredicate(() => boundFact)({ principal: "user", sessionId: "s" }, {})).toBe(true);
+    expect(ownershipBindingPredicate(() => unboundFact)({ principal: "user", sessionId: "s" }, {})).toBe(false);
   });
 });

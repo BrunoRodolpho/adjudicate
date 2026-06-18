@@ -59,6 +59,75 @@ export type IntentEnvelopeVersion = typeof INTENT_ENVELOPE_VERSION;
  */
 export type ResourceRefs = Readonly<Record<string, string>>;
 
+/**
+ * Authority-graph relationship kinds (032, index §G):
+ * `owns` / `joint` / `advisor` / `custodian`. Closed union — a new
+ * relationship lands MINOR (additive). This is the EDGE LABEL between a
+ * principal and a resource, NOT the envelope's provenance `IntentActor.principal`
+ * (`"llm" | "user" | "system"`); those are orthogonal axes.
+ *
+ *   - `owns`      — the principal is the sole owner of the resource (full authority).
+ *   - `joint`     — shared ownership (one of several owners; each authoritative).
+ *   - `advisor`   — read/recommend authority only; cannot authorize a mutation.
+ *   - `custodian` — manages the resource on an owner's behalf within limits.
+ */
+export type AuthorityRelationship = "owns" | "joint" | "advisor" | "custodian";
+
+/**
+ * What a single authority edge PERMITS: a closed set of action names plus
+ * optional deterministic per-action limits (e.g. an amount ceiling). The limits
+ * map is purely descriptive snapshot DATA the resolver returns as a FACT — it
+ * is NOT a decision and NOT a threshold the resolver enforces; a later limit
+ * guard (05x) or authority guard (034) consumes it. All values are
+ * canonical-JSON-safe finite numbers so the snapshot hashes via
+ * `@adjudicate/canonical` (032 T3) and replays bit-identically (invariant #5).
+ */
+export interface AuthorityPermits {
+  /** Action names this edge authorizes (e.g. `"pix.charge.refund"`). */
+  readonly actions: readonly string[];
+  /**
+   * Optional deterministic per-limit ceilings (e.g. `{ amountCentavos: 50000 }`).
+   * Finite numbers only — non-finite values throw at canonicalization
+   * (RFC 8785 §3.2.2.3) exactly like any other hashed field. Absent ⇒ no limit
+   * is declared by this edge (the FACT carries "unlimited-by-this-edge", which a
+   * downstream guard interprets — the resolver never authorizes).
+   */
+  readonly limits?: Readonly<Record<string, number>>;
+}
+
+/**
+ * One directed edge of the authority graph:
+ * `principal —relationship→ resource —permits→ {actions, limits}` (index §G).
+ *
+ * `principal` and `resource` are stable identity STRINGS (e.g. `"user_42"`,
+ * `"acct_7"`) — the same identifiers a kind's `resourceRefs` carries — so the
+ * resolver can bind the envelope's declared owner/resource to an edge. This is
+ * the binding `IntentActor` cannot express today (provenance-only).
+ */
+export interface AuthorityEdge {
+  readonly principal: string;
+  readonly relationship: AuthorityRelationship;
+  readonly resource: string;
+  readonly permits: AuthorityPermits;
+}
+
+/**
+ * The authority-graph SNAPSHOT (032, index §B/§D/§G): an IMMUTABLE set of
+ * edges injected into the kernel decision as state/deps — never a decision
+ * layer. It is recorded into audit for replay (invariant #5) and the resolver
+ * NEVER mutates it.
+ *
+ * **NOT part of `intentHashInput`.** The graph rides as injected state, not as
+ * an envelope field — adding it here changes NO envelope hash (the
+ * `intentHashInput` pre-image and `EXPECTED_ENVELOPE_KEYS` are byte-identical to
+ * their post-031 value). Co-located in `envelope.ts` only so the resource-binding
+ * axis sits next to `IntentActor`/`ResourceRefs`; it is content-addressed
+ * SEPARATELY via the 032 T3 snapshot serializer.
+ */
+export interface AuthorityGraph {
+  readonly edges: readonly AuthorityEdge[];
+}
+
 export interface IntentActor {
   readonly principal: "llm" | "user" | "system";
   readonly sessionId: string;

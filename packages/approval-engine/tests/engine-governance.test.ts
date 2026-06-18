@@ -1,7 +1,10 @@
+import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  attestationMessage,
   createApprovalEngine,
   createConsoleLogChannel,
+  createEd25519AttestationVerifier,
   createInMemoryApprovalRegistry,
   type ApprovalEngineOptions,
 } from "../src/index.js";
@@ -80,6 +83,45 @@ describe("approval engine — attestation (ADR-143)", () => {
     expect(r.request.status).toBe("approved");
     expect(r.request.resolvedBy?.id).toBe("alice");
     expect(confirmCalls.length).toBe(1);
+  });
+});
+
+describe("approval engine — attestation binding (ADR-143 hardening)", () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const pem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const verifier = createEd25519AttestationVerifier({ alice: pem });
+  // baseRequest.token === "tok-1", baseRequest.intentHash === "0xabc".
+  const sig = (accepted: boolean, intentHash = "0xabc") =>
+    cryptoSign(null, Buffer.from(attestationMessage({ token: "tok-1", accepted, intentHash }), "utf-8"), privateKey).toString("base64");
+
+  it("rejects an outcome-flip: a decline-signature submitted as accept=true (H7)", async () => {
+    const { engine, confirmCalls } = makeEngine({ attestationVerifier: verifier });
+    await engine.request(baseRequest);
+    await expect(
+      engine.resolve({ token: "tok-1", accepted: true, attestation: { approverId: "alice", signature: sig(false) } }),
+    ).rejects.toThrow(/attestation/i);
+    expect(confirmCalls.length).toBe(0);
+  });
+
+  it("accepts a correctly-bound approve signature", async () => {
+    const { engine, confirmCalls } = makeEngine({ attestationVerifier: verifier });
+    await engine.request(baseRequest);
+    const r = await engine.resolve({ token: "tok-1", accepted: true, attestation: { approverId: "alice", signature: sig(true) } });
+    expect(r.request.status).toBe("approved");
+    expect(confirmCalls.length).toBe(1);
+  });
+
+  it("records the verified approver id, never a forged input.by.id (H8)", async () => {
+    const { engine } = makeEngine({ attestationVerifier: verifier });
+    await engine.request(baseRequest);
+    const r = await engine.resolve({
+      token: "tok-1",
+      accepted: true,
+      by: { id: "ceo", displayName: "The Boss" }, // forged id + a display name
+      attestation: { approverId: "alice", signature: sig(true) },
+    });
+    expect(r.request.resolvedBy?.id).toBe("alice"); // verified id wins over input.by.id
+    expect(r.request.resolvedBy?.displayName).toBe("The Boss"); // only the name may come from input.by
   });
 });
 

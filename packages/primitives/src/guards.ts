@@ -596,10 +596,12 @@ export interface DataClassificationGuardOptions<K extends string, P, S> {
   /** Sensitivity tag surfaced in metadata AND `basis.detail`. */
   readonly sensitivityLevel: SensitivityLevel;
   /**
-   * Skip scanning any field whose stringified value exceeds this length. Belt-
-   * and-suspenders against pathological inputs (patterns are already linear via
-   * `assertSafePattern`). Oversized fields are NOT scanned (fail-open on size).
-   * Default: unbounded.
+   * Skip scanning any field whose stringified value exceeds this length. A
+   * second line of defense against pathological/quadratic patterns scanning
+   * attacker-controlled free text — NOT a substitute for keeping the patterns
+   * linear (`assertSafePattern` is a best-effort heuristic, not a proof). Any
+   * guard that scans an UNTRUSTED free-text field SHOULD set this. Oversized
+   * fields are NOT scanned (fail-open on size). Default: unbounded.
    */
   readonly maxInputLength?: number;
   /** REWRITE reason text. Defaults to a fixed string. */

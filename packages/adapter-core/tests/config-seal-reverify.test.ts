@@ -4,7 +4,7 @@
  * while defaults stay lax (L1). All upstream of adjudicate().
  */
 import { describe, expect, it, vi } from "vitest";
-import { type PackV0 } from "@adjudicate/core";
+import { buildEnvelope, type PackV0 } from "@adjudicate/core";
 import { sealPackConfig, type ConfigSealReport, type SealablePackInput } from "@adjudicate/conformance";
 import {
   createAdjudicatedAgent,
@@ -123,5 +123,50 @@ describe("config-seal reverify cadence (ADR-137)", () => {
     await agent.send(send);
     const deprecation = warn.mock.calls.filter((c) => String((c[0] as { msg?: string })?.msg ?? "").includes("deprecation"));
     expect(deprecation.length).toBe(1); // once per instance, not per turn
+  });
+});
+
+// The seal gate previously ran only inside runLoop, so resume()/confirm()
+// adjudicated (and committed audit/ledger records) against a never-verified
+// policy. These cover the gate now running on those entry points too.
+describe("config-seal gate covers resume() and confirm() (ADR-137 hardening)", () => {
+  const tamperedSeal = () => ({ ...sealPackConfig(sealable()), digest: "0".repeat(64) });
+
+  it("resume() refuses on a tampered seal — before doing any work", async () => {
+    const { agent } = agentWith({ seal: tamperedSeal(), reverify: "every_turn" });
+    // No parked envelope exists; pre-fix resume() would have thrown RESUME_NO_PARKED.
+    // Post-fix the seal check runs first and refuses cleanly.
+    const res = await agent.resume({ sessionId: "s", signal: "sig", state: { count: 0 }, context: { userId: "u" } });
+    expect(res.outcome.kind).toBe("refused");
+    if (res.outcome.kind === "refused") expect(res.outcome.reason).toBe("config_seal_mismatch");
+  });
+
+  it("confirm() refuses on a tampered seal — before adjudicating the pending intent", async () => {
+    const store = createInMemoryConfirmationStore<string[]>();
+    const envelope = buildEnvelope({
+      kind: "noun.make_pet",
+      payload: { name: "rex" },
+      actor: { principal: "llm", sessionId: "s" },
+      taint: "UNTRUSTED",
+      nonce: "n-confirm",
+    });
+    await store.put(
+      "tok-1",
+      { envelope, sessionId: "s", assistantHistorySnapshot: [], toolUseId: "tu-1", prompt: "ok?" },
+      3600,
+    );
+    const agent = createAdjudicatedAgent<"noun.make_pet", Payload, State, Context, string[]>({
+      pack: buildPack(),
+      renderer,
+      bridge: bridge(),
+      deferStore: createInMemoryDeferStore(),
+      confirmationStore: store,
+      ledger: createMemoryLedger(),
+      executor,
+      configSeal: { seal: tamperedSeal(), reverify: "every_turn" },
+    });
+    const res = await agent.confirm({ confirmationToken: "tok-1", accepted: true, state: { count: 0 }, context: { userId: "u" } });
+    expect(res.outcome.kind).toBe("refused");
+    if (res.outcome.kind === "refused") expect(res.outcome.reason).toBe("config_seal_mismatch");
   });
 });

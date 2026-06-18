@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createEd25519AttestationVerifier, isEscalationDue, quorumMet } from "../src/index.js";
+import { attestationMessage, createEd25519AttestationVerifier, isEscalationDue, quorumMet } from "../src/index.js";
 
 describe("quorumMet", () => {
   it("counts distinct approvers by default", () => {
@@ -35,14 +35,26 @@ describe("createEd25519AttestationVerifier", () => {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const pem = publicKey.export({ type: "spki", format: "pem" }).toString();
   const verifier = createEd25519AttestationVerifier({ alice: pem });
-  const sigFor = (token: string) => cryptoSign(null, Buffer.from(token, "utf-8"), privateKey).toString("base64");
+  const sigFor = (token: string, accepted: boolean, intentHash: string) =>
+    cryptoSign(null, Buffer.from(attestationMessage({ token, accepted, intentHash }), "utf-8"), privateKey).toString("base64");
+  const v = (over: Partial<{ approverId: string; token: string; accepted: boolean; intentHash: string; signature: string }>) =>
+    verifier({ approverId: "alice", token: "tok-1", accepted: true, intentHash: "h1", signature: sigFor("tok-1", true, "h1"), ...over });
 
-  it("verifies a valid signature over the token", () => {
-    expect(verifier({ approverId: "alice", token: "tok-1", signature: sigFor("tok-1") })).toBe(true);
+  it("verifies a valid signature over the canonical message", () => {
+    expect(v({})).toBe(true);
   });
   it("rejects wrong token, unknown approver, and garbage signature (fail-closed)", () => {
-    expect(verifier({ approverId: "alice", token: "tok-2", signature: sigFor("tok-1") })).toBe(false);
-    expect(verifier({ approverId: "bob", token: "tok-1", signature: sigFor("tok-1") })).toBe(false);
-    expect(verifier({ approverId: "alice", token: "tok-1", signature: "not-a-sig" })).toBe(false);
+    expect(v({ token: "tok-2" })).toBe(false);
+    expect(v({ approverId: "bob" })).toBe(false);
+    expect(v({ signature: "not-a-sig" })).toBe(false);
+  });
+  it("binds the outcome: a decline-signature cannot be presented as an approve", () => {
+    // approver signed for decline; relay flips `accepted` to true.
+    expect(v({ accepted: true, signature: sigFor("tok-1", false, "h1") })).toBe(false);
+    // and the matching (honest) decline still verifies.
+    expect(v({ accepted: false, signature: sigFor("tok-1", false, "h1") })).toBe(true);
+  });
+  it("binds the intent: a signature for one request cannot be forwarded to another", () => {
+    expect(v({ intentHash: "h2", signature: sigFor("tok-1", true, "h1") })).toBe(false);
   });
 });

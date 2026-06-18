@@ -39,6 +39,7 @@ export {
 } from "./engine.js";
 
 export {
+  attestationMessage,
   createEd25519AttestationVerifier,
   isEscalationDue,
   quorumMet,

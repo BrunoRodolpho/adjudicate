@@ -43,31 +43,54 @@ export function isEscalationDue(
 
 export interface Attestation {
   readonly approverId: string;
-  /** base64 signature over the approval token. */
+  /** base64 signature over the canonical attestation message (see `attestationMessage`). */
   readonly signature: string;
 }
 
 export type AttestationVerifier = (input: {
   readonly approverId: string;
   readonly token: string;
+  /** The outcome the approver is attesting to — bound into the signed message. */
+  readonly accepted: boolean;
+  /** The intent being approved — bound so a signature can't be moved to another request. */
+  readonly intentHash: string;
   readonly signature: string;
 }) => boolean;
 
 /**
- * ed25519 attestation verifier: verifies the signature over the UTF-8 approval
- * token against the approver's registered public key. Replaces the forgeable
- * `resolvedBy` claim with cryptographic non-repudiation. Returns false on any
+ * Canonical attestation pre-image. An approver signs THIS exact string. Binding
+ * the outcome (`accept`/`decline`) AND the `intentHash` — not just the token —
+ * is what makes the attestation authorize the actual decision: a signature an
+ * approver produced intending to DECLINE cannot be replayed as an APPROVE (the
+ * outcome differs), and a valid attestation for one request cannot be forwarded
+ * to another (the intentHash differs). The token still scopes it to a single
+ * single-use approval. Versioned so the format can evolve without ambiguity.
+ */
+export function attestationMessage(input: {
+  readonly token: string;
+  readonly accepted: boolean;
+  readonly intentHash: string;
+}): string {
+  return `adjudicate-approval-attestation-v1\n${input.token}\n${input.accepted ? "approve" : "decline"}\n${input.intentHash}`;
+}
+
+/**
+ * ed25519 attestation verifier: verifies the signature over the canonical
+ * `attestationMessage` (token + outcome + intentHash) against the approver's
+ * registered public key. Replaces the forgeable `resolvedBy` claim with
+ * cryptographic non-repudiation of the actual decision. Returns false on any
  * unknown approver / malformed key / bad signature (fail-closed).
  */
 export function createEd25519AttestationVerifier(
   publicKeyPemByApprover: Readonly<Record<string, string>>,
 ): AttestationVerifier {
-  return ({ approverId, token, signature }) => {
+  return ({ approverId, token, accepted, intentHash, signature }) => {
     const pem = publicKeyPemByApprover[approverId];
     if (!pem) return false;
     try {
       const key = createPublicKey(pem);
-      return cryptoVerify(null, Buffer.from(token, "utf-8"), key, Buffer.from(signature, "base64"));
+      const message = Buffer.from(attestationMessage({ token, accepted, intentHash }), "utf-8");
+      return cryptoVerify(null, message, key, Buffer.from(signature, "base64"));
     } catch {
       return false;
     }

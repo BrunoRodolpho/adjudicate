@@ -120,4 +120,51 @@ describe("pack-access-governance — grant expiry (ADR-142)", () => {
     );
     expect(d.kind).toBe("EXECUTE");
   });
+
+  it("fail-closed: a malformed expiresAt REFUSES (never falls through as a live grant)", () => {
+    for (const bad of ["", "garbage", "2026-13-45", "not-a-date"]) {
+      const d = run(
+        "access.revoke",
+        { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+        "TRUSTED",
+        { grants: grant(bad), createdAt: at },
+      );
+      expect(d.kind, `expiresAt=${JSON.stringify(bad)}`).toBe("REFUSE");
+      expect(d.basis.some((b) => b.category === "state" && b.code === "grant_expired")).toBe(true);
+    }
+  });
+
+  it("fail-closed: a malformed envelope.createdAt REFUSES the revoke", () => {
+    const d = run(
+      "access.revoke",
+      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      "TRUSTED",
+      { grants: grant("2026-05-01T13:00:00.000Z"), createdAt: "garbage" },
+    );
+    expect(d.kind).toBe("REFUSE");
+    expect(d.basis.some((b) => b.code === "grant_expired")).toBe(true);
+  });
+
+  it("replay-safe: a timezone-LESS expiresAt is rejected (would otherwise parse as host-local)", () => {
+    // 2026-05-01T13:00:00 with no Z/offset parses as LOCAL time per ECMAScript, so
+    // the EXECUTE/REFUSE decision would differ by host TZ. Treated as malformed → REFUSE.
+    const d = run(
+      "access.revoke",
+      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      "TRUSTED",
+      { grants: grant("2026-05-01T13:00:00"), createdAt: at },
+    );
+    expect(d.kind).toBe("REFUSE");
+    expect(d.basis.some((b) => b.code === "grant_expired")).toBe(true);
+  });
+
+  it("an offset-bearing (non-Z) future expiry is honored deterministically", () => {
+    const d = run(
+      "access.revoke",
+      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      "TRUSTED",
+      { grants: grant("2026-05-01T13:00:00+00:00"), createdAt: at },
+    );
+    expect(d.kind).toBe("EXECUTE"); // 13:00Z is after the 12:00Z createdAt → not expired
+  });
 });

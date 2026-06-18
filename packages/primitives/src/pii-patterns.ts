@@ -9,7 +9,11 @@
  * unsafe patterns fail at guard construction, never at request time.
  *
  * COMPLIANCE NOTE: PII detection is jurisdiction-sensitive. These patterns are
- * conservative, anchored/bounded, and linear-time, but are NOT a legal artifact.
+ * conservative and anchored/bounded — every quantifier is length-bounded and no
+ * character class overlaps a following required literal, so matching is linear
+ * (this is the pattern AUTHOR's responsibility, only spot-checked by the
+ * best-effort `assertSafePattern` heuristic and enforced by a ReDoS regression
+ * test, NOT proven by construction). They are NOT a legal artifact.
  * @needs-legal-review before relying on them for regulated data.
  */
 
@@ -23,9 +27,13 @@ import type { DataClassificationPattern } from "./guards.js";
  * neutralized first so literals like `\(` and `\d` are not mistaken for groups.
  *
  * This is a HEURISTIC, not a proof: it targets nested unbounded quantifiers and
- * does not detect every ReDoS (e.g. overlapping alternations `(a|a)*`, or
- * multi-level nesting `((a+))+`). Patterns SHOULD also be anchored/bounded;
- * that is recommended but not enforced here. Throws on rejection.
+ * does NOT detect every ReDoS. In particular it does not catch the single
+ * greedy quantifier whose character class overlaps a following required literal
+ * (e.g. `[a-z.]+\.[a-z]+` or an unbounded local part before `@`), which is
+ * quadratic even with no nested groups. The real defenses are therefore: keep
+ * every quantifier length-bounded, do not let a class overlap the next required
+ * token, and cover shipped patterns with a ReDoS wall-clock regression test
+ * (see pii-patterns.redos.test.ts). Throws on rejection of the nested shape.
  */
 export function assertSafePattern(pattern: RegExp, label?: string): void {
   // Replace every escaped char (`\(`, `\)`, `\d`, `\b`, …) with a neutral,
@@ -48,8 +56,12 @@ export function assertSafePattern(pattern: RegExp, label?: string): void {
  * compose with locale patterns: `[...PII_PATTERNS_COMMON, cpfPattern]`.
  */
 export const PII_PATTERNS_COMMON: ReadonlyArray<DataClassificationPattern> = [
-  // RFC-5322-ish email — bounded local/domain parts, no nested quantifiers.
-  { id: "email", pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/ },
+  // RFC-5322-ish email. Linear: the local part is length-bounded ({1,64}) and the
+  // domain is matched per-label (each `[A-Za-z0-9-]{1,63}` excludes `.`), so the
+  // greedy runs never overlap the `@`/`.`/TLD they precede. The previous
+  // `[A-Za-z0-9.-]+\.[A-Za-z]{2,}` + unbounded local part backtracked O(n^2) on
+  // adversarial input (e.g. "a."×100k) — a synchronous decision-path DoS.
+  { id: "email", pattern: /\b[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,24}\b/ },
   // Payment-card-like: 13–19 digits with optional space/dash separators.
   { id: "pan", pattern: /\b\d(?:[ -]?\d){12,18}\b/ },
   // E.164-ish phone: optional country code + bounded groups.

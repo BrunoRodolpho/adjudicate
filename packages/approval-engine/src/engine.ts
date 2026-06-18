@@ -130,12 +130,20 @@ export function createApprovalEngine<S, C, H>(
       }
 
       // Attestation gate (ADR-143): when configured, require a verified approver
-      // signature over the token — replaces the forgeable resolvedBy claim.
+      // signature over the canonical message (token + the actual accept/decline
+      // outcome + intentHash) — replaces the forgeable resolvedBy claim AND binds
+      // the decision so a captured signature can't be flipped or forwarded.
       if (opts.attestationVerifier) {
         const att = input.attestation;
         const ok =
           att !== undefined &&
-          opts.attestationVerifier({ approverId: att.approverId, token: input.token, signature: att.signature });
+          opts.attestationVerifier({
+            approverId: att.approverId,
+            token: input.token,
+            accepted: input.accepted,
+            intentHash: existing.intentHash,
+            signature: att.signature,
+          });
         if (!ok) {
           throw new ApprovalError("ATTESTATION_INVALID", `approval ${input.token}: missing or invalid attestation`);
         }
@@ -183,7 +191,15 @@ export function createApprovalEngine<S, C, H>(
         throw new ApprovalError("CONFIRM_REJECTED", err instanceof Error ? err.message : String(err));
       }
       const status = input.accepted ? "approved" : "declined";
-      const effectiveBy = input.by ?? (input.attestation ? { id: input.attestation.approverId } : undefined);
+      // When attestation is enforced, the recorded approver id MUST be the
+      // cryptographically-verified `attestation.approverId` — never the
+      // unauthenticated `input.by.id` (which would re-introduce the forgeable
+      // claim attestation exists to remove). Only the display name may come from
+      // the unauthenticated field. Mirrors the quorum path above.
+      const effectiveBy =
+        opts.attestationVerifier && input.attestation
+          ? { id: input.attestation.approverId, ...(input.by?.displayName ? { displayName: input.by.displayName } : {}) }
+          : input.by ?? (input.attestation ? { id: input.attestation.approverId } : undefined);
       const request = (await opts.registry.markResolved(input.token, status, effectiveBy))!;
       const channel = channelsById.get(existing.channel);
       if (channel?.notifyResolved) {

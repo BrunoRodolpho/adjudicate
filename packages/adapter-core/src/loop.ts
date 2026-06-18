@@ -73,10 +73,14 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
   const bridge = options.bridge;
   const traceSink = options.traceSink ?? noopTraceSink;
 
-  // Configuration-integrity seal gate (ADR-121, hardened by ADR-137). Re-verified
-  // per the `reverify` cadence (default every_turn) BEFORE each adjudication —
-  // upstream of adjudicate(), never a kernel input. Kills the old boot-only latch
-  // so a post-boot reference-swap is caught. On mismatch the turn is refused.
+  // Configuration-integrity seal gate (ADR-121, hardened by ADR-137). Verified at
+  // the START of every public entry point (send/resume/confirm) per the `reverify`
+  // cadence (default every_turn), upstream of adjudicate() and never a kernel
+  // input. Kills the old boot-only latch so a post-boot reference-swap is caught.
+  // The verified `options.pack.policy` reference is then SNAPSHOTTED and reused for
+  // every adjudication in the turn, so a mid-turn reference-swap (between the check
+  // and a kernel read, or between loop iterations) cannot affect the decision —
+  // closing the verify→read TOCTOU. On mismatch the turn is refused.
   let frozenSurface: Readonly<SealableSurface> | null = null;
   let sealCachedReport: { report: ConfigSealReport; atMs: number } | null = null;
   let sealWarned = false;
@@ -224,6 +228,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
     // when the installed Pack config has drifted from its signed seal.
     const sealResult = checkConfigSeal(sessionId);
     if (sealResult !== null) return sealResult;
+    // Snapshot the verified policy reference so every adjudication this turn uses
+    // exactly what was sealed — a mid-turn `options.pack.policy` swap is ignored.
+    const sealedPolicy = options.pack.policy;
 
     const events: AgentEvent[] = [...seedEvents];
     let history = initialHistory;
@@ -428,7 +435,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         const { decision } = await adjudicateAndAudit(
           envelope as IntentEnvelope<K, P>,
           state,
-          options.pack.policy,
+          sealedPolicy,
           {
             sink: options.auditSink ?? noopAuditSink(),
             ledger: options.ledger,
@@ -575,6 +582,13 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
     },
 
     async resume(args: ResumeArgs<S, C, H>) {
+      // Config-seal gate BEFORE the resume adjudication (the elevated system/
+      // TRUSTED envelope below). Without this, resume() adjudicated + committed an
+      // audit/ledger record against a never-seal-verified policy. runLoop re-checks
+      // for its own iterations.
+      const resumeSeal = checkConfigSeal(args.sessionId);
+      if (resumeSeal !== null) return resumeSeal;
+      const sealedPolicy = options.pack.policy;
       const result = await resumeDeferredIntent({
         sessionId: args.sessionId,
         signal: args.signal,
@@ -614,7 +628,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
       const { decision } = await adjudicateAndAudit(
         envelope,
         args.state,
-        options.pack.policy,
+        sealedPolicy,
         {
           sink: options.auditSink ?? noopAuditSink(),
           ledger: options.ledger,
@@ -666,6 +680,14 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
           { confirmationToken: args.confirmationToken },
         );
       }
+
+      // Config-seal gate BEFORE the confirm adjudication (sessionId comes from the
+      // taken envelope). Without this, confirm() adjudicated + committed an audit/
+      // ledger record against a never-seal-verified policy. runLoop re-checks for
+      // its own iterations; the verified policy is snapshotted for this turn.
+      const confirmSeal = checkConfigSeal(pending.sessionId);
+      if (confirmSeal !== null) return confirmSeal;
+      const sealedPolicy = options.pack.policy;
 
       // SecurityReviewer-010: default strict (here warn/strict are equivalent —
       // this confirmation path has no missing-fields branch, only off-vs-verify).
@@ -723,7 +745,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
       const { decision } = await adjudicateAndAudit(
         envelope,
         args.state,
-        options.pack.policy,
+        sealedPolicy,
         {
           sink: options.auditSink ?? noopAuditSink(),
           ledger: options.ledger,

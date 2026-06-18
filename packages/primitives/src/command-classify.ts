@@ -32,7 +32,11 @@ export interface FlagStripRule {
 
 // Case-insensitive (defense-in-depth: catch `RM`/`DD` on case-insensitive
 // filesystems and obfuscation attempts, not just lowercase canonical names).
-const isRm = (c: string) => /(^|\s|;|&&|\|)\s*rm(\s|$)/i.test(c);
+// The left-boundary class includes path + shell-substitution characters so a
+// path-qualified (`/bin/rm`) or substitution-embedded (`` `rm -rf /` ``,
+// `$(rm ...)`) invocation still classifies as destructive — a bare `\s`/`;`/`|`
+// boundary missed those and let them fall through to "safe".
+const isRm = (c: string) => /(^|[\s;&|/$(){}`])\s*rm(\s|$)/i.test(c);
 
 /**
  * Irrecoverable `rm` targets: the filesystem root (`/`, `/*`), the entire home
@@ -50,6 +54,14 @@ export const DEFAULT_COMMAND_RULES: ReadonlyArray<CommandRule> = Object.freeze([
   { id: "fork_bomb", category: "destructive", severity: "refuse", test: (c) => /:\(\)\s*\{\s*:\|:&\s*\}\s*;:/.test(c) },
   { id: "dd_to_device", category: "destructive", severity: "refuse", test: (c) => /\bdd\b[^\n]*of=\/dev\//i.test(c) },
   { id: "mkfs", category: "destructive", severity: "refuse", test: (c) => /\bmkfs(\.\w+)?\b/i.test(c) },
+  // Irrecoverable disk wipe / writing to a raw block device (covers `of=/dev/sdX`
+  // and both `>/dev/sdX` and `> /dev/sdX` redirect forms).
+  { id: "shred", category: "destructive", severity: "refuse", test: (c) => /(^|[\s;&|/$(){}`])shred(\s|$)/i.test(c) },
+  { id: "write_block_device", category: "destructive", severity: "refuse", test: (c) => /(\bof\s*=\s*|>\s*)\/dev\/(sd|nvme|hd|vd|disk|mmcblk)/i.test(c) },
+  // Raw-device partition / filesystem tools — destructive intent on a block device.
+  { id: "disk_partition_tool", category: "destructive", severity: "refuse", test: (c) => /(^|[\s;&|/$(){}`])(wipefs|sgdisk|parted|fdisk|cfdisk|sfdisk|mkswap)(\s|$)/i.test(c) },
+  // Recursive / world-writable chmod against the filesystem root or home.
+  { id: "chmod_catastrophic", category: "destructive", severity: "refuse", test: (c) => /(^|[\s;&|/$(){}`])chmod\b/i.test(c) && /(\s-[^\s]*[Rr]\b|\s0?777\b)/.test(c) && CATASTROPHIC_RM_TARGET.test(c) },
   // Recoverable-ish destruction → CONFIRM (or REWRITE if a flag is strippable).
   { id: "rm_recursive", category: "destructive", severity: "confirm", test: (c) => isRm(c) && /-[^\s]*r/i.test(c) },
   // Network exfil/execution.

@@ -227,11 +227,13 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
   }) => { memory: unknown; ttlSeconds: number } | null;
   /**
    * Optional configuration-integrity gate (ADR-121, hardened by ADR-137). When
-   * supplied, the loop verifies the Pack's sealable surface against `seal` before
-   * each adjudication per the `reverify` cadence (default `"every_turn"` — kills
-   * the old boot-only latch so a post-boot reference-swap is caught). On mismatch
-   * the turn is REFUSED (no adjudication runs), `onDrift` fires, and — if
-   * `engageKillSwitchOnMismatch` — the runtime context's kill switch is engaged.
+   * supplied, the loop verifies the Pack's sealable surface against `seal` at the
+   * start of every entry point (send/resume/confirm) per the `reverify` cadence
+   * (default `"every_turn"` — kills the old boot-only latch so a post-boot
+   * reference-swap is caught), then snapshots the verified policy and reuses it
+   * for every adjudication in the turn (so a mid-turn swap cannot affect the
+   * decision). On mismatch the turn is REFUSED (no adjudication runs), `onDrift`
+   * fires, and — if `engageKillSwitchOnMismatch` — the kill switch is engaged.
    *
    * Defaults are intentionally lax for one deprecation release (decision L1): the
    * loop emits a one-time warning when `policy` isn't `require_signature` or when

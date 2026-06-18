@@ -41,6 +41,23 @@ type AccessGuard = Guard<AccessIntentKind, unknown, AccessState>;
 const req = (p: unknown): AccessRequestPayload => p as AccessRequestPayload;
 const rev = (p: unknown): AccessRevokePayload => p as AccessRevokePayload;
 
+/**
+ * Replay-safe instant parser. Returns ms-since-epoch, or NaN for any string that
+ * cannot be compared deterministically across hosts. ECMAScript parses a date-
+ * TIME string WITHOUT a timezone designator (e.g. `2026-05-01T12:00:00`) as host
+ * LOCAL time, so two replays on hosts in different time zones would derive
+ * different instants — and thus potentially different EXECUTE/REFUSE decisions.
+ * We therefore require an explicit `Z` or `±HH:MM` offset on any value carrying a
+ * time component; offset-less datetimes are rejected (NaN → callers fail closed).
+ * Pure: no `Date.now()`, no ambient clock — only the replayable input string.
+ */
+function parseInstant(s: string): number {
+  const hasTime = /[T ]\d/.test(s);
+  const hasTimezone = /(Z|[+-]\d{2}:?\d{2})$/i.test(s);
+  if (hasTime && !hasTimezone) return Number.NaN;
+  return Date.parse(s);
+}
+
 function reviewFor(state: AccessState, p: AccessRequestPayload): AccessReview | undefined {
   return state.reviews.get(accessKey(p.resourceId, p.principal));
 }
@@ -90,13 +107,29 @@ const refuseExpiredGrant: AccessGuard = nameGuard("refuseExpiredGrant", (envelop
   if (envelope.kind !== "access.revoke") return null;
   const p = rev(envelope.payload);
   const grant = state.grants.get(accessKey(p.resourceId, p.principal));
-  if (grant?.expiresAt !== undefined && Date.parse(grant.expiresAt) <= Date.parse(envelope.createdAt)) {
+  if (grant?.expiresAt === undefined) return null;
+  // Fail CLOSED. `parseInstant("garbage")` is NaN and `NaN <= x` is always false,
+  // so a bare `<=` check treated an unparseable expiresAt (or createdAt) as a
+  // LIVE grant and let the revoke EXECUTE against it — a fail-open. Rehydrated /
+  // adopter-minted grants carry unvalidated string fields, so this is reachable.
+  // parseInstant ALSO rejects timezone-less datetimes (which ECMAScript parses as
+  // host-LOCAL time → a replay-determinism break: same envelope+state, different
+  // decision per host TZ). Pure + replay-safe: parses the replayable strings only,
+  // never Date.now(). Boundary createdAt==expiresAt counts as expired (<=).
+  const expiresAt = parseInstant(grant.expiresAt);
+  const createdAt = parseInstant(envelope.createdAt);
+  const malformed = Number.isNaN(expiresAt) || Number.isNaN(createdAt);
+  if (malformed || expiresAt <= createdAt) {
+    const detail = malformed
+      ? `unparseable timestamp (expiresAt=${grant.expiresAt}, createdAt=${envelope.createdAt})`
+      : `grant expired at ${grant.expiresAt}`;
     return decisionRefuse(
-      refuse("STATE", "grant_expired", "That access grant has already expired.", `grant expired at ${grant.expiresAt}`),
+      refuse("STATE", "grant_expired", "That access grant has already expired.", detail),
       [basis("state", BASIS_CODES.state.GRANT_EXPIRED, {
         resourceId: p.resourceId,
         principal: p.principal,
         expiresAt: grant.expiresAt,
+        ...(malformed ? { malformed: true } : {}),
       })],
     );
   }
@@ -151,11 +184,19 @@ const redactJustificationPii: AccessGuard = nameGuard(
     matches: (envelope) => envelope.kind === "access.request",
     patterns: [
       { id: "ssn", pattern: /\b\d{3}[- ]?\d{2}[- ]?\d{4}\b/ },
-      { id: "email", pattern: /\b[\w.+-]+@[\w-]+\.[\w][\w.-]*\b/ },
+      // Linear: bounded local part + per-label domain (each label excludes `.`).
+      // The previous `[\w.+-]+@[\w-]+\.[\w][\w.-]*` backtracked O(n^2) on the
+      // attacker-controlled justification (e.g. "a."×100k → ~27s event-loop block).
+      { id: "email", pattern: /\b[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63})+\b/ },
     ],
     scannedFields: ["justification"],
     action: "REWRITE",
     sensitivityLevel: "medium",
+    // NOTE: deliberately NO maxInputLength here. The patterns above are linear,
+    // so there is no ReDoS to cap; and maxInputLength is fail-OPEN (oversized
+    // fields are skipped, which would let an attacker pad the justification to
+    // smuggle un-redacted PII into the audit trail). Input-size limits, if any,
+    // belong at the schema/validation layer where they can fail CLOSED.
     reason: "Redacted PII from the access-request justification.",
   }),
 );

@@ -14,7 +14,9 @@ import {
   buildEnvelope,
   decisionExecute,
   decisionRefuse,
+  decisionRewrite,
   refuse,
+  verifyAuditRecord,
   type AuditRecord,
   type AuditSink,
   type Ledger,
@@ -27,6 +29,7 @@ import {
 } from "../../src/index.js";
 import {
   adjudicateAndAudit,
+  createRuntimeContext,
   setLearningSink,
   setMetricsSink,
   _resetLearningSink,
@@ -502,5 +505,144 @@ describe("adjudicateAndAudit — LedgerOpEvent includes intentHash (SecurityRevi
     const recordOp = ledgerOpEvents.find((e) => e.op === "record");
     expect(recordOp).toBeDefined();
     expect(recordOp!.intentHash).toBe(env.intentHash);
+  });
+});
+
+// ── 091: bind policyVersion + kernelVersion into the AuditRecord ──────────────
+// The kernel decides; the impure shell supplies the policy/kernel version
+// snapshots via deps. These tests assert BOTH buildAuditRecord call sites — the
+// main/REWRITE-executed path AND the kill-switch early-return path — thread the
+// injected versions onto the emitted record, that the versions are part of the
+// tamper-evident auditHash pre-image (verifyAuditRecord round-trips true), and
+// that absence of the deps leaves the fields OMITTED (not `undefined` keys) so
+// non-injecting adopters keep byte-identical, hash-stable records.
+describe("adjudicateAndAudit — 091 bind policyVersion/kernelVersion", () => {
+  async function emitOne(
+    bundle: PolicyBundle<string, unknown, unknown>,
+    deps: Parameters<typeof adjudicateAndAudit>[3],
+    env = envFixture(),
+  ): Promise<AuditRecord> {
+    const result = await adjudicateAndAudit(env, {}, bundle, deps);
+    return result.record;
+  }
+
+  it("threads policyVersion + kernelVersion onto the MAIN path record", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const record = await emitOne(passBundle, {
+      sink,
+      policyVersion: "pol-1.2.3",
+      kernelVersion: "ker-0.4.0",
+    });
+    expect(record.policyVersion).toBe("pol-1.2.3");
+    expect(record.kernelVersion).toBe("ker-0.4.0");
+    // The bound versions are in the auditHash pre-image, so the record verifies.
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("the bound versions ARE part of the auditHash pre-image (tamper → tampered)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const record = await emitOne(passBundle, {
+      sink,
+      policyVersion: "pol-1.2.3",
+      kernelVersion: "ker-0.4.0",
+    });
+    const tamperedPolicy = { ...record, policyVersion: "pol-9.9.9" };
+    const vp = verifyAuditRecord(tamperedPolicy);
+    expect(vp.verified).toBe(false);
+    if (vp.verified === false) expect(vp.reason).toBe("tampered");
+    const tamperedKernel = { ...record, kernelVersion: "ker-9.9.9" };
+    const vk = verifyAuditRecord(tamperedKernel);
+    expect(vk.verified).toBe(false);
+    if (vk.verified === false) expect(vk.reason).toBe("tampered");
+  });
+
+  it("OMITS both fields on the main path when the deps are absent (no undefined keys, hash-stable)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const record = await emitOne(passBundle, { sink });
+    expect("policyVersion" in record).toBe(false);
+    expect("kernelVersion" in record).toBe(false);
+    // The omitting record must still verify (the absent fields were never in
+    // the pre-image), proving the conditional spread is hash-stable.
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("threads both versions onto the KILL-SWITCH path record", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const context = createRuntimeContext({ id: "tenant-091" });
+    // Force the tenant kill switch ACTIVE so the early-return kill-switch
+    // buildAuditRecord call site is exercised (a SECURITY kill_switch_active
+    // REFUSE, before guard evaluation).
+    context.killSwitch.set(true, "test-091-maintenance");
+    const record = await emitOne(passBundle, {
+      sink,
+      context,
+      policyVersion: "pol-kill-1.0.0",
+      kernelVersion: "ker-kill-0.1.0",
+    });
+    // Sanity: this is the kill-switch path, not the main path.
+    expect(record.decision.kind).toBe("REFUSE");
+    expect(record.policyVersion).toBe("pol-kill-1.0.0");
+    expect(record.kernelVersion).toBe("ker-kill-0.1.0");
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("OMITS both fields on the kill-switch path when deps are absent", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const context = createRuntimeContext({ id: "tenant-091-omit" });
+    context.killSwitch.set(true, "test-091-maintenance");
+    const record = await emitOne(passBundle, { sink, context });
+    expect(record.decision.kind).toBe("REFUSE");
+    expect("policyVersion" in record).toBe(false);
+    expect("kernelVersion" in record).toBe(false);
+  });
+
+  it("threads both versions onto a REWRITE-executed (011) record, keyed by the rewritten envelope", async () => {
+    // First-pass business guard REWRITEs the original payload to a sanitized
+    // marker; the re-adjudication (011/T2) of the rewritten envelope then
+    // EXECUTEs, so the durable row is the EXECUTED (rewritten) envelope and must
+    // STILL carry the bound versions.
+    const sanitizedNonce = "n-091-rewritten";
+    const rewriteBundle: PolicyBundle<string, unknown, unknown> = {
+      stateGuards: [],
+      authGuards: [],
+      taint: taintPolicy,
+      business: [
+        (env) => {
+          // Re-adjudication pass sees the rewritten envelope (nonce marker) →
+          // EXECUTE; the original (any other nonce) → REWRITE.
+          if (env.nonce === sanitizedNonce) {
+            return decisionExecute([
+              basis("business", BASIS_CODES.business.RULE_SATISFIED),
+            ]);
+          }
+          const rewritten = buildEnvelope({
+            kind: env.kind,
+            payload: { x: 1, sanitized: true },
+            actor: env.actor,
+            taint: env.taint,
+            nonce: sanitizedNonce,
+            createdAt: env.createdAt,
+          });
+          return decisionRewrite(rewritten, "payload_sanitized", [
+            basis("business", BASIS_CODES.business.RULE_SATISFIED),
+          ]);
+        },
+      ],
+      default: "REFUSE",
+    };
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const record = await emitOne(rewriteBundle, {
+      sink,
+      policyVersion: "pol-rw-2.0.0",
+      kernelVersion: "ker-rw-0.5.0",
+    });
+    // The REWRITE was validated + executed: the row is the rewritten envelope.
+    expect(record.decision.kind).toBe("REWRITE");
+    expect(record.envelope.nonce).toBe(sanitizedNonce);
+    expect(record.supersedes?.reason).toBe("rewrite_executed");
+    // ...and it carries the bound versions, verifying intact.
+    expect(record.policyVersion).toBe("pol-rw-2.0.0");
+    expect(record.kernelVersion).toBe("ker-rw-0.5.0");
+    expect(verifyAuditRecord(record).verified).toBe(true);
   });
 });

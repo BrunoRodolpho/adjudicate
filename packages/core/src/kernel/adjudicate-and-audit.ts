@@ -170,6 +170,27 @@ export interface AdjudicateAndAuditDeps {
    */
   readonly context?: RuntimeContext;
   /**
+   * Optional (091) policy version snapshot. An immutable, impure-shell-supplied
+   * snapshot of the signed policy/Pack version the kernel decided under. The
+   * pure decision does NOT derive it; the shell injects it (per §D: the kernel
+   * decides, the shell supplies recorded inputs). When supplied, BOTH the
+   * kill-switch and main `buildAuditRecord` call sites thread it onto the
+   * emitted record's `policyVersion`, making the policy identity part of the
+   * tamper-evident, replayable audit record (it IS in the auditHash pre-image).
+   * When omitted, the field is conditionally spread OUT — no `undefined` key,
+   * so adopters that do not inject it keep byte-identical, hash-stable records.
+   */
+  readonly policyVersion?: string;
+  /**
+   * Optional (091) kernel version snapshot. An immutable, impure-shell-supplied
+   * snapshot of the @adjudicate/core kernel version that produced the decision
+   * (distinct from `context.kernelIdentity.version`, which identifies the kernel
+   * BUILD). Threaded into BOTH `buildAuditRecord` call sites and bound into the
+   * auditHash pre-image like `policyVersion`; omission spreads it out (no
+   * `undefined` key, hash-stable for non-injecting adopters).
+   */
+  readonly kernelVersion?: string;
+  /**
    * T5 (#41 / top-priority E): rate-limit rollback handle. When the
    * kernel returns a non-EXECUTE Decision (REFUSE/ESCALATE/DEFER/
    * REQUEST_CONFIRMATION/REWRITE-equivalent), the rollback fires so the
@@ -266,8 +287,8 @@ export interface AdjudicateAndAuditResult {
  * the AuditRecord, and routes metrics/learning to the module-level defaults.
  * `ledger` adds dedup/REPLAY_SUPPRESSED; `context` (RuntimeContext) routes
  * metrics/learning/kill-switch per tenant; `rateLimitRollback`,
- * `resolveResourceVersion`, `plan`, `supersedes`, `kernelIdentity`, and `clock`
- * are all opt-in.
+ * `resolveResourceVersion`, `plan`, `supersedes`, `kernelIdentity`, `clock`,
+ * and the `policyVersion`/`kernelVersion` snapshots (091) are all opt-in.
  */
 export async function adjudicateAndAudit<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,
@@ -400,6 +421,11 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         durationMs,
         at: clock.nowIso(),
         ...(deps.supersedes !== undefined ? { supersedes: deps.supersedes } : {}),
+        // 091: bind the injected policy/kernel version snapshots so a kill-switch
+        // REFUSE row carries the identity it was decided under. Conditional spread
+        // keeps the field omitted (no `undefined` key) when the shell injects nothing.
+        ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
+        ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
       }),
     );
     try {
@@ -704,6 +730,13 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       ...(planSnapshot ? { plan: planSnapshot } : {}),
       ...(supersedes !== undefined ? { supersedes } : {}),
       ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
+      // 091: bind the injected policy/kernel version snapshots onto the main
+      // (and 011 REWRITE-executed) audit row. `executedEnvelope` is the bytes
+      // that ran, and these versions record the policy/kernel identity they ran
+      // under — part of the auditHash pre-image and the replayable record.
+      // Conditional spread keeps the field omitted (hash-stable) when absent.
+      ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
+      ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
     }),
   );
 

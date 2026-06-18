@@ -7,6 +7,18 @@
  * broke ledger dedup. v2 separates the idempotency key (`nonce`) from
  * descriptive metadata (`createdAt`). The load-bearing property: same
  * `nonce`, different `createdAt` → same `intentHash`.
+ *
+ * **041 — recipe note.** The current recipe is `(version, kind, payload,
+ * nonce, actor, taint, origin)`; plan 041 added `origin` to the pre-image
+ * (always-present, defaulting to `DEFAULT_ORIGIN`). This invariant is about
+ * `createdAt` EXCLUSION, which is orthogonal to `origin` and unchanged by
+ * 041: these envelopes are built without an explicit `origin` so both sides
+ * of every pair share the same default origin, and the property — same
+ * nonce + different createdAt → same hash — holds exactly as before. The
+ * assertions here pin RELATIONS (createdAt-invariance, nonce-sensitivity,
+ * determinism), not any literal hash, so the 041 pre-image change keeps this
+ * suite green without re-pinning. (The "origin is INSIDE the pre-image"
+ * property is asserted separately in hash-determinism.test.ts.)
  */
 
 import { describe, expect, it } from "vitest";

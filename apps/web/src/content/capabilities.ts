@@ -158,12 +158,12 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
       // groundedness signal rode alongside the audited decision without moving
       // it — exactly the upstream-only contract this capability documents.
       recordHash:
-        "026a452517d96354928234a31db860bcb465a2f62eed446b0afd5b979fb38916",
+        "5bfaf7611accdb32e770edbcb6760832f87fa7a237447171edd5ad5d8c317472",
     },
     consoleAppearance: {
       surface: "Observability hallucination metric (console telemetry panels)",
       replicaRoute:
-        "/console/decision/026a452517d96354928234a31db860bcb465a2f62eed446b0afd5b979fb38916",
+        "/console/decision/5bfaf7611accdb32e770edbcb6760832f87fa7a237447171edd5ad5d8c317472",
     },
     interactivity: "fixture-illustrative",
   },

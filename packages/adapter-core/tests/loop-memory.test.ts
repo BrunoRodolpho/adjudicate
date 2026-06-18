@@ -220,4 +220,24 @@ describe("memory store loop integration (ADR-126)", () => {
     const dec = res.events.find((e: AgentEvent) => e.kind === "decision");
     if (dec?.kind === "decision") expect(dec.envelope.taint).toBe("UNTRUSTED");
   });
+
+  it("041: the loop stamps origin='LLM' alongside taint='UNTRUSTED' at the LLM-bytes site", async () => {
+    // The model proposed the tool_use bytes, so the harness stamps origin=LLM
+    // next to the load-bearing taint:"UNTRUSTED". Observed on both the
+    // intent_proposed envelope and the adjudicated decision's envelope.
+    const seen = { plannerContexts: [] as Context[], renderContexts: [] as Context[] };
+    const agent = makeAgent({ seen });
+    const res = await agent.send(send);
+    const proposed = res.events.find(
+      (e: AgentEvent) => e.kind === "intent_proposed",
+    );
+    if (proposed?.kind === "intent_proposed") {
+      expect(proposed.envelope.taint).toBe("UNTRUSTED");
+      expect(proposed.envelope.origin).toBe("LLM");
+    } else {
+      throw new Error("expected an intent_proposed event from the loop");
+    }
+    const dec = res.events.find((e: AgentEvent) => e.kind === "decision");
+    if (dec?.kind === "decision") expect(dec.envelope.origin).toBe("LLM");
+  });
 });

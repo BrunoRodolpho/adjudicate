@@ -19,7 +19,15 @@
  *     this intent?" a one-line audit at Pack-installation time.
  */
 
-import type { Taint, TaintPolicy } from "@adjudicate/core";
+import type { Origin, Taint, TaintPolicy } from "@adjudicate/core";
+
+/**
+ * 041 — mirror the core `Origin` provenance source axis into the primitives
+ * surface (alongside the existing `Taint` re-export pattern) so Pack authors
+ * can reference the type without a second core import. Additive; structurally
+ * identical to `@adjudicate/core`'s `Origin`.
+ */
+export type { Origin } from "@adjudicate/core";
 
 export interface SystemTaintPolicyOptions {
   /**
@@ -42,6 +50,16 @@ export interface SystemTaintPolicyOptions {
    * option exists for completeness, not encouragement.
    */
   readonly systemMinimum?: Taint;
+  /**
+   * 041 — provenance SOURCE axis carried for symmetry with the envelope's
+   * new `origin` field. **Metadata-opaque (ADR-105 rule 7): NOT consulted.**
+   * The factory does NOT branch on `origin` — the kernel's taint gate is a
+   * fixed-position step keyed on `kind`, and an origin-based decision belongs
+   * to the contaminating propagation gate (plan 042), never here. Present so
+   * Pack authors can thread the source through their config without a schema
+   * break; carried, not gated.
+   */
+  readonly origin?: Origin;
 }
 
 /**
@@ -84,6 +102,9 @@ export function createSystemTaintPolicy(
   const systemOnly = new Set(options.systemOnlyKinds);
   const systemMinimum = options.systemMinimum ?? "TRUSTED";
   const userMinimum = options.userMinimum ?? "UNTRUSTED";
+  // 041 — `options.origin` is deliberately NOT read here. The minimum is a
+  // pure function of `kind`; origin is carried metadata, consulted by the
+  // 042 propagation gate, never by this factory (ADR-105 rule 7).
   return {
     minimumFor(kind) {
       return systemOnly.has(kind) ? systemMinimum : userMinimum;

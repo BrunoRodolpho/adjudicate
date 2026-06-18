@@ -424,11 +424,18 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         }
 
         // cls.kind === "intent"
+        // 041 — stamp the provenance SOURCE axis at the single site where
+        // LLM-proposed `tool_use` bytes become an envelope. These bytes were
+        // proposed by the model, so origin = "LLM" (the harness default),
+        // stamped explicitly next to taint:"UNTRUSTED". origin is bound into
+        // the intentHash but gated by no guard in 041 (the contaminating
+        // propagation gate that reads it is plan 042).
         const envelope = buildEnvelopeFromToolUse({
           intentKind: cls.intentKind,
           payload: cls.payload,
           sessionId,
           taint: "UNTRUSTED",
+          origin: "LLM",
           nonce: deriveNonce({
             sessionId,
             toolUseId: tu.id,
@@ -705,6 +712,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
           nonce: pending.envelope.nonce,
           actor: pending.envelope.actor,
           taint: pending.envelope.taint,
+          // 041 — origin joined the intentHash recipe; include it so a clean
+          // (untampered) confirmation blob re-derives byte-identically.
+          origin: pending.envelope.origin,
         });
         // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare
         // leaks via timing how many leading hex chars of a tampered intentHash

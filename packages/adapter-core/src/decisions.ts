@@ -205,11 +205,13 @@ export async function translateDecision<K extends string, P, S, H>(
           payload: ctx.envelope.payload,
           // Hash-verification fields. The resume path re-derives intentHash
           // via sha256Canonical and asserts byte-equality with the stored
-          // value — detects blob tampering between park and resume.
+          // value — detects blob tampering between park and resume. 041 added
+          // `origin` to the recipe, so it MUST be stored for re-derivation.
           version: ctx.envelope.version,
           nonce: ctx.envelope.nonce,
           taint: ctx.envelope.taint,
           actorPrincipal: ctx.envelope.actor.principal,
+          origin: ctx.envelope.origin,
         },
         signal: ctx.decision.signal,
         ttlSeconds,
@@ -484,6 +486,10 @@ export async function routeReadThroughKernel<S, H>(
     payload: ctx.classification.input,
     sessionId: ctx.sessionId,
     taint: "UNTRUSTED",
+    // 041 — READ bytes are also model-originated (012), so they carry the
+    // same provenance source as intents: origin="LLM", stamped next to the
+    // UNTRUSTED taint. Bound into the intentHash; gated by no guard in 041.
+    origin: "LLM",
     nonce: ctx.nonce,
   });
 

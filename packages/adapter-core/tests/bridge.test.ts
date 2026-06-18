@@ -92,6 +92,7 @@ describe("buildEnvelopeFromToolUse", () => {
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-abc-123",
     });
     expect(envelope.kind).toBe("pix.charge.create");
@@ -101,12 +102,43 @@ describe("buildEnvelopeFromToolUse", () => {
     expect(envelope.intentHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("041: stamps the supplied origin onto the constructed envelope", () => {
+    const envelope = buildEnvelopeFromToolUse({
+      intentKind: "pix.charge.create",
+      payload: { amountCentavos: 5000 },
+      sessionId: "s-1",
+      taint: "UNTRUSTED",
+      origin: "LLM",
+      nonce: "tu-abc-123",
+    });
+    expect(envelope.origin).toBe("LLM");
+  });
+
+  it("041: origin is bound into the intentHash (different origin → different hash)", () => {
+    const common = {
+      intentKind: "pix.charge.create",
+      payload: { amountCentavos: 5000 },
+      sessionId: "s-1",
+      taint: "UNTRUSTED" as const,
+      nonce: "tu-origin",
+    };
+    const fromLlm = buildEnvelopeFromToolUse({ ...common, origin: "LLM" });
+    const fromRetrieved = buildEnvelopeFromToolUse({
+      ...common,
+      origin: "Retrieved",
+    });
+    expect(fromLlm.origin).toBe("LLM");
+    expect(fromRetrieved.origin).toBe("Retrieved");
+    expect(fromLlm.intentHash).not.toBe(fromRetrieved.intentHash);
+  });
+
   it("produces a stable intentHash across retries with the same nonce", () => {
     const a = buildEnvelopeFromToolUse({
       intentKind: "pix.charge.create",
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-stable",
     });
     const b = buildEnvelopeFromToolUse({
@@ -114,6 +146,7 @@ describe("buildEnvelopeFromToolUse", () => {
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-stable",
     });
     expect(a.intentHash).toBe(b.intentHash);
@@ -125,6 +158,7 @@ describe("buildEnvelopeFromToolUse", () => {
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-nonce-a",
     });
     const b = buildEnvelopeFromToolUse({
@@ -132,6 +166,7 @@ describe("buildEnvelopeFromToolUse", () => {
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-nonce-b",
     });
     expect(a.intentHash).not.toBe(b.intentHash);

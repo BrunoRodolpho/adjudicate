@@ -10,7 +10,11 @@ export * from "./decision.js";
 export * from "./basis-codes.js";
 export * from "./refusal.js";
 export * from "./refusal-messages.js";
+// `./taint.js` exports both provenance axes: the `Taint` trust lattice and
+// the 041 harness-stamped `Origin` source axis (plus `DEFAULT_ORIGIN`).
 export * from "./taint.js";
+export type { Origin } from "./taint.js";
+export { DEFAULT_ORIGIN } from "./taint.js";
 export * from "./side-effects.js";
 export * from "./pack-output-contract.js";
 export * from "./audit.js";

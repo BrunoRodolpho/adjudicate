@@ -219,6 +219,9 @@ describe("replayWithIntegrity", () => {
       nonce: env.nonce,
       actor: env.actor,
       taint: env.taint,
+      // 041 — origin joined the intentHash recipe; the shadow re-derivation
+      // must include it or it drifts from the kernel's derived hash.
+      origin: env.origin,
     });
     const report = replayWithIntegrity([stale], () => executeDecision());
     const intentFailure = report.integrityFailures.find(

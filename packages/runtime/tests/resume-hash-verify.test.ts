@@ -7,7 +7,8 @@
  * tamper and refuse to resume.
  *
  * The verification works by re-deriving `sha256Canonical({version, kind,
- * payload, nonce, actor, taint})` and comparing to the stored `intentHash`.
+ * payload, nonce, actor, taint, origin})` (041 added `origin` to the recipe)
+ * and comparing to the stored `intentHash`.
  */
 import { describe, expect, it } from "vitest"
 import { buildEnvelope, sha256Canonical } from "@adjudicate/core"
@@ -81,6 +82,7 @@ describe("T-008: park + resume with hash verification", () => {
         nonce: ENVELOPE.nonce,
         taint: ENVELOPE.taint,
         actorPrincipal: ENVELOPE.actor.principal,
+        origin: ENVELOPE.origin,
       },
       signal: "pix.confirmed",
       ttlSeconds: 600,
@@ -112,6 +114,7 @@ describe("T-008: park + resume with hash verification", () => {
         nonce: ENVELOPE.nonce,
         taint: ENVELOPE.taint,
         actorPrincipal: ENVELOPE.actor.principal,
+        origin: ENVELOPE.origin,
       },
       signal: "pix.confirmed",
       ttlSeconds: 600,
@@ -217,6 +220,7 @@ describe("T-008: park + resume with hash verification", () => {
         nonce: ENVELOPE.nonce,
         taint: ENVELOPE.taint,
         actorPrincipal: ENVELOPE.actor.principal,
+        origin: ENVELOPE.origin,
       },
       signal: "pix.confirmed",
       parkedAt: new Date().toISOString(),
@@ -281,12 +285,37 @@ describe("verifyParkedEnvelopeHash unit tests", () => {
         nonce: ENVELOPE.nonce,
         taint: ENVELOPE.taint,
         actorPrincipal: ENVELOPE.actor.principal,
+        origin: ENVELOPE.origin,
       },
       signal: "any",
       parkedAt: "2024-01-01T00:00:00.000Z",
     }
     const v = verifyParkedEnvelopeHash(parked)
     expect(v.verified).toBe(true)
+  })
+
+  it("041: a blob missing only `origin` is treated as missing_fields (post-041 recipe)", () => {
+    // origin is part of the intentHash recipe since 041; a blob carrying the
+    // other verification fields but no origin cannot re-derive its stored
+    // hash, so it falls on the legacy missing_fields path (fail-closed).
+    const parked: ParkedEnvelope = {
+      envelope: {
+        intentHash: ENVELOPE.intentHash,
+        kind: ENVELOPE.kind,
+        actor: { sessionId: ENVELOPE.actor.sessionId },
+        payload: ENVELOPE.payload,
+        version: ENVELOPE.version,
+        nonce: ENVELOPE.nonce,
+        taint: ENVELOPE.taint,
+        actorPrincipal: ENVELOPE.actor.principal,
+        // origin intentionally absent
+      },
+      signal: "any",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    const v = verifyParkedEnvelopeHash(parked)
+    expect(v.verified).toBeNull()
+    expect(v.reason).toBe("missing_fields")
   })
 
   it("returns verified=null when fields missing", () => {
@@ -316,6 +345,7 @@ describe("verifyParkedEnvelopeHash unit tests", () => {
         nonce: ENVELOPE.nonce,
         taint: ENVELOPE.taint,
         actorPrincipal: ENVELOPE.actor.principal,
+        origin: ENVELOPE.origin,
       },
       signal: "any",
       parkedAt: "2024-01-01T00:00:00.000Z",
@@ -330,6 +360,8 @@ describe("verifyParkedEnvelopeHash unit tests", () => {
 
   it("derivation reproduces buildEnvelope hash exactly", () => {
     // Belt + braces: the verification math matches buildEnvelope's math.
+    // 041 added `origin` to the recipe, so the shadow re-derivation includes
+    // it too — otherwise it drifts from buildEnvelope and the check is vacuous.
     const derived = sha256Canonical({
       version: ENVELOPE.version,
       kind: ENVELOPE.kind,
@@ -337,6 +369,7 @@ describe("verifyParkedEnvelopeHash unit tests", () => {
       nonce: ENVELOPE.nonce,
       actor: ENVELOPE.actor,
       taint: ENVELOPE.taint,
+      origin: ENVELOPE.origin,
     })
     expect(derived).toBe(ENVELOPE.intentHash)
   })

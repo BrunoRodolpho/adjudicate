@@ -29,7 +29,14 @@ export interface RedTeamReport {
 }
 
 function emptyByVector(): Record<AttackVector, number> {
-  return { prompt_injection: 0, taint_escalation: 0, tool_scope_violation: 0 };
+  // Exhaustive over the closed AttackVector union — a missing arm fails the
+  // type-checker (Record requires every key). 041 added `provenance_injection`.
+  return {
+    prompt_injection: 0,
+    taint_escalation: 0,
+    tool_scope_violation: 0,
+    provenance_injection: 0,
+  };
 }
 
 /**

@@ -1,10 +1,20 @@
 import type { DecisionKind, PolicyBundle, Taint } from "@adjudicate/core";
 
-/** The three adversarial vectors v0 ships. Additive — new vectors land MINOR. */
+/**
+ * The adversarial vectors red-team ships. Additive — new vectors land MINOR.
+ *
+ * 041 adds the closed seam for the PROVENANCE vector: a proposal whose
+ * contaminating `origin` (e.g. `"Retrieved"` / `"ExternalAPI"`) should be
+ * caught once the origin axis is gated. NOTE: 041 only opens the union seam
+ * (so 042/043 can land scenarios); the kernel gate still calls envelope-level
+ * `canPropose` only, so a provenance scenario is NOT yet defended — the
+ * generators + the consuming gate arrive with plan 042/043.
+ */
 export type AttackVector =
   | "prompt_injection"
   | "taint_escalation"
-  | "tool_scope_violation";
+  | "tool_scope_violation"
+  | "provenance_injection";
 
 /** Intent shape (structurally identical to the CLI `Scenario.intent`). */
 export interface ScenarioIntent {

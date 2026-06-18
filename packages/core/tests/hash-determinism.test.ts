@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { canonicalJson, sha256Canonical } from "../src/hash.js";
-import { buildEnvelope } from "../src/envelope.js";
+import { buildEnvelope, deriveIntentHash } from "../src/envelope.js";
+import { DEFAULT_ORIGIN, type Origin } from "../src/taint.js";
 
 describe("canonicalJson", () => {
   it("produces identical output regardless of key order", () => {
@@ -126,5 +127,67 @@ describe("buildEnvelope — intentHash determinism", () => {
       nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     });
     expect(a.intentHash).not.toBe(b.intentHash);
+  });
+});
+
+describe("041 — origin is bound into the intentHash pre-image", () => {
+  const base = {
+    kind: "order.tool.propose" as const,
+    payload: { toolName: "add_item", input: { sku: "XYZ" } },
+    actor: { principal: "llm" as const, sessionId: "s-1" },
+    taint: "UNTRUSTED" as const,
+    nonce: "n-origin",
+    createdAt: "2026-04-23T12:00:00.000Z",
+  };
+
+  it("stamps the supplied origin onto the envelope", () => {
+    const env = buildEnvelope({ ...base, origin: "Retrieved" });
+    expect(env.origin).toBe("Retrieved");
+  });
+
+  it("defaults origin to DEFAULT_ORIGIN ('LLM') when omitted", () => {
+    const env = buildEnvelope(base);
+    expect(env.origin).toBe(DEFAULT_ORIGIN);
+    expect(env.origin).toBe("LLM");
+  });
+
+  it("changing origin changes the intentHash (origin is INSIDE the pre-image)", () => {
+    const origins: Origin[] = ["Human", "Retrieved", "ExternalAPI", "LLM", "System"];
+    const hashes = origins.map(
+      (origin) => buildEnvelope({ ...base, origin }).intentHash,
+    );
+    // Every distinct origin produces a distinct hash — none collide.
+    expect(new Set(hashes).size).toBe(origins.length);
+  });
+
+  it("createdAt stays EXCLUDED even with origin in the recipe", () => {
+    const a = buildEnvelope({ ...base, origin: "Human", createdAt: "2026-01-01T00:00:00.000Z" });
+    const b = buildEnvelope({ ...base, origin: "Human", createdAt: "2029-12-31T23:59:59.999Z" });
+    expect(a.createdAt).not.toBe(b.createdAt);
+    expect(a.intentHash).toBe(b.intentHash);
+  });
+
+  it("deriveIntentHash re-derives the SAME hash (binds origin, fail-closed on a flipped origin)", () => {
+    const env = buildEnvelope({ ...base, origin: "System" });
+    // Faithful re-derivation matches.
+    expect(deriveIntentHash(env)).toBe(env.intentHash);
+    // An LLM that post-hoc flips the declared origin no longer re-derives the
+    // stored hash — §D #4 binding holds for the origin axis.
+    const forged = { ...env, origin: "Human" as const };
+    expect(deriveIntentHash(forged)).not.toBe(env.intentHash);
+  });
+
+  it("the intentHash recipe is exactly {version,kind,payload,nonce,actor,taint,origin} — createdAt + intentHash excluded", () => {
+    const env = buildEnvelope({ ...base, origin: "ExternalAPI" });
+    const recomputed = sha256Canonical({
+      version: env.version,
+      kind: env.kind,
+      payload: env.payload,
+      nonce: env.nonce,
+      actor: env.actor,
+      taint: env.taint,
+      origin: env.origin,
+    });
+    expect(env.intentHash).toBe(recomputed);
   });
 });

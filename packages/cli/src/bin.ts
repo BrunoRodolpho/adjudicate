@@ -357,7 +357,7 @@ program
   .option("--per-intent <n>", "Attack variants per eligible intent kind. Defaults to 3")
   .option(
     "--vectors <csv>",
-    "Comma list of vectors: prompt_injection,taint_escalation,tool_scope_violation. Defaults to all",
+    "Comma list of vectors: prompt_injection,taint_escalation,tool_scope_violation,provenance_injection. Defaults to all",
   )
   .option("--format <text|json>", "Output format. Defaults to text", "text")
   .action(
@@ -373,7 +373,14 @@ program
         console.error(`✗ Unknown --format value "${options.format}". Use text or json.`);
         process.exit(1);
       }
-      const VALID = ["prompt_injection", "taint_escalation", "tool_scope_violation"] as const;
+      // 041 — `provenance_injection` is an accepted vector key (its generator
+      // lands in 042/043; requesting it today yields zero scenarios).
+      const VALID = [
+        "prompt_injection",
+        "taint_escalation",
+        "tool_scope_violation",
+        "provenance_injection",
+      ] as const;
       type Vector = (typeof VALID)[number];
       let vectors: ReadonlyArray<Vector> | undefined;
       if (options.vectors !== undefined) {

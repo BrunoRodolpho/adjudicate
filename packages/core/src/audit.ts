@@ -70,6 +70,36 @@ export interface Supersession {
 }
 
 /**
+ * Construct the `rewrite_executed` supersession link for the live REWRITE→EXECUTE
+ * path (011/T3).
+ *
+ * When the kernel returns REWRITE and the rewritten envelope re-adjudicates to a
+ * second-pass EXECUTE, the durable audit row is indexed by the EXECUTED
+ * (rewritten) `intentHash` — NOT the original benign hash (see
+ * `adjudicateAndAudit`). This helper builds the back-link that preserves the
+ * original→rewritten provenance so the audit reader can follow the executed row
+ * back to the proposal the kernel substituted.
+ *
+ *   - `originalIntentHash` — the original (pre-rewrite) envelope's intentHash,
+ *     stored as `predecessorIntentHash`.
+ *   - `at` — the wall-clock anchor of the rewrite/execution (the shell's clock),
+ *     stored as `predecessorAt`.
+ *
+ * Pure: no I/O, no clock read of its own. The caller (the impure shell) supplies
+ * the timestamp so the kernel stays deterministic/replayable.
+ */
+export function rewriteExecutedSupersession(
+  originalIntentHash: string,
+  at: string,
+): Supersession {
+  return {
+    predecessorIntentHash: originalIntentHash,
+    predecessorAt: at,
+    reason: "rewrite_executed",
+  };
+}
+
+/**
  * Snapshot of the CapabilityPlanner output that produced this decision. Used
  * for governance traceability: "what did the LLM see at this turn?" and for
  * planFingerprint cross-correlation in the LearningSink.

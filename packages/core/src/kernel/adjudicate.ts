@@ -38,7 +38,7 @@
  */
 
 import { basis, BASIS_CODES, type DecisionBasis } from "../basis-codes.js";
-import { canPropose } from "../taint.js";
+import { canPropose, taintRank } from "../taint.js";
 import {
   decisionExecute,
   decisionRefuse,
@@ -242,7 +242,20 @@ function _adjudicateImpl<K extends string, P, S>(
   //     target; trusting the caller-supplied hash makes content-addressing
   //     unverified. A forged or drifted hash is refused here, fail-closed.
   //     Adopters using buildEnvelope pay zero cost — the hashes match.
-  if (deriveIntentHash(envelope) !== envelope.intentHash) {
+  //
+  //     T1 (011): the derivation itself is wrapped — a non-canonicalizable
+  //     payload (e.g. a BigInt or a cyclic value sneaking past the type wall)
+  //     must REFUSE as GUARD_PANIC, never throw out of the pure kernel
+  //     (invariant #6 totality). Closes the §D caveat that derivation at
+  //     :245 ran outside the guard try/catch.
+  let derivedHash: string;
+  try {
+    derivedHash = deriveIntentHash(envelope);
+  } catch (err) {
+    if (traceOut) traceOut.push({ phase: "schema", outcome: "match" });
+    return guardPanicRefusal("schema", null, null, err, accumulated);
+  }
+  if (derivedHash !== envelope.intentHash) {
     if (traceOut) traceOut.push({ phase: "schema", outcome: "match" });
     return decisionRefuse(
       refuse(
@@ -267,7 +280,7 @@ function _adjudicateImpl<K extends string, P, S>(
     }
     if (d !== null) {
       if (traceOut) traceOut.push(traceEntry("state", i, guard, "match"));
-      return enrichBasis(d, accumulated);
+      return enrichBasis(gateRewrite(d, envelope), accumulated);
     }
     if (traceOut) traceOut.push(traceEntry("state", i, guard, "pass"));
   }
@@ -320,7 +333,7 @@ function _adjudicateImpl<K extends string, P, S>(
     }
     if (d !== null) {
       if (traceOut) traceOut.push(traceEntry("auth", i, guard, "match"));
-      return enrichBasis(d, accumulated);
+      return enrichBasis(gateRewrite(d, envelope), accumulated);
     }
     if (traceOut) traceOut.push(traceEntry("auth", i, guard, "pass"));
   }
@@ -338,7 +351,7 @@ function _adjudicateImpl<K extends string, P, S>(
     }
     if (d !== null) {
       if (traceOut) traceOut.push(traceEntry("business", i, guard, "match"));
-      return enrichBasis(d, accumulated);
+      return enrichBasis(gateRewrite(d, envelope), accumulated);
     }
     if (traceOut) traceOut.push(traceEntry("business", i, guard, "pass"));
   }
@@ -360,6 +373,85 @@ function _adjudicateImpl<K extends string, P, S>(
 }
 
 /**
+ * Gate a guard's Decision before it leaves the kernel.
+ *
+ * For every Decision kind except REWRITE this is the identity. For a REWRITE
+ * (011 / T1) the kernel applies two fail-closed checks to the substituted
+ * `rewritten` envelope — the kernel must never hand a rewrite to the executor
+ * unless it would itself pass content-addressing and the monotonicity law:
+ *
+ *   1. intentHash re-derivation — `deriveIntentHash(rewritten)` must equal
+ *      `rewritten.intentHash`. A forged/drifted rewrite hash REFUSEs with the
+ *      `schema:intent_hash_mismatch` code, exactly like the original-envelope
+ *      gate at step 1b. The derivation is wrapped so a non-canonicalizable
+ *      rewritten payload becomes a GUARD_PANIC REFUSE, never a throw out of
+ *      the pure kernel (invariant #6 totality).
+ *   2. taint monotonicity (§C / invariant #7) — a non-deterministic rewrite may
+ *      only increase friction, never decrease it. A rewrite whose `rewritten.taint`
+ *      outranks the ORIGINAL `envelope.taint` (e.g. UNTRUSTED→SYSTEM) would
+ *      launder provenance, so it REFUSEs with `taint:propagation_violation`.
+ *
+ * The downstream audited shell (`adjudicateAndAudit`) re-adjudicates a surviving
+ * REWRITE through the kernel a SECOND time and only lets a second-pass EXECUTE
+ * reach the executor (invariant #1) — this gate is the pure-kernel half that
+ * makes the rewritten bytes safe to re-adjudicate.
+ */
+function gateRewrite(decision: Decision, envelope: IntentEnvelope): Decision {
+  if (decision.kind !== "REWRITE") return decision;
+  const rewritten = decision.rewritten;
+
+  // Gate refusals carry ONLY their gate-specific basis; the surrounding
+  // `enrichBasis(gateRewrite(...), accumulated)` call prepends the prior-phase
+  // pass-bases exactly once (same contract as a guard's own returned decision).
+
+  // (1) intentHash re-derivation on the rewritten envelope, fail-closed.
+  let derived: string;
+  try {
+    derived = deriveIntentHash(rewritten);
+  } catch (err) {
+    // Non-canonicalizable rewritten payload → GUARD_PANIC REFUSE (no throw).
+    return guardPanicRefusal("schema", null, null, err, []);
+  }
+  if (derived !== rewritten.intentHash) {
+    return decisionRefuse(
+      refuse(
+        "SECURITY",
+        "intent_hash_mismatch",
+        "This action cannot be processed at the moment.",
+        "decision.rewritten.intentHash does not match the canonical content hash",
+      ),
+      [
+        basis("schema", BASIS_CODES.schema.INTENT_HASH_MISMATCH, {
+          subject: "rewritten",
+        }),
+      ],
+    );
+  }
+
+  // (2) taint monotonicity — a rewrite may never raise the trust of the
+  //     proposal. Higher rank = more trust; a rewritten taint that outranks
+  //     the original is a friction-DECREASING substitution, forbidden by §C.
+  if (taintRank(rewritten.taint) > taintRank(envelope.taint)) {
+    return decisionRefuse(
+      refuse(
+        "SECURITY",
+        "taint_level_insufficient",
+        "I can't perform this action with the information available.",
+        `Rewrite would elevate taint ${envelope.taint} -> ${rewritten.taint}`,
+      ),
+      [
+        basis("taint", BASIS_CODES.taint.PROPAGATION_VIOLATION, {
+          original: envelope.taint,
+          rewritten: rewritten.taint,
+        }),
+      ],
+    );
+  }
+
+  return decision;
+}
+
+/**
  * Guard-panic refusal — emitted when a guard (or the taint policy) throws.
  *
  * Per ADR-106: kernel determinism + fail-closed posture means a thrown guard
@@ -375,7 +467,7 @@ function _adjudicateImpl<K extends string, P, S>(
  * `canPropose` is not a guard array entry.
  */
 function guardPanicRefusal(
-  phase: "state" | "taint" | "auth" | "business",
+  phase: "schema" | "state" | "taint" | "auth" | "business",
   guardIndex: number | null,
   guard: unknown,
   err: unknown,

@@ -13,7 +13,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { adjudicate, adjudicateWithTrace } from "../../../src/kernel/adjudicate.js";
-import { buildEnvelope } from "../../../src/envelope.js";
+import { buildEnvelope, type IntentEnvelope } from "../../../src/envelope.js";
+import { decisionRewrite } from "../../../src/decision.js";
 import type { Guard, PolicyBundle } from "../../../src/kernel/policy.js";
 import type { TaintPolicy } from "../../../src/taint.js";
 
@@ -178,5 +179,67 @@ describe("invariant: throwing guards never panic out of adjudicate()", () => {
     });
     const decision = adjudicate(baseEnvelope, baseState, bundle);
     expect(decision.kind).toBe("REFUSE");
+  });
+
+  // ── 011/T1: hash derivation on the REWRITE path is inside the kernel's
+  //    fail-closed totality. A guard that returns a REWRITE whose rewritten
+  //    payload cannot be canonicalized (a non-finite number has no JCS form,
+  //    so deriveIntentHash throws) must NOT throw out of the kernel — it must
+  //    REFUSE with kernel.GUARD_PANIC, just like a throwing guard. ─────────
+  it("non-canonicalizable decision.rewritten payload → GUARD_PANIC REFUSE (not a throw)", () => {
+    // A rewritten envelope whose payload holds Infinity — `canonicalize`
+    // throws RangeError on non-finite numbers, so deriveIntentHash(rewritten)
+    // throws. Hand-built (buildEnvelope would throw at construction).
+    const poisonRewritten = {
+      version: 2,
+      kind: "k1",
+      payload: { value: Number.POSITIVE_INFINITY },
+      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-poison",
+      actor: { principal: "llm", sessionId: "s1" },
+      taint: "TRUSTED",
+      intentHash: "a".repeat(64),
+    } as unknown as IntentEnvelope<TestKind, TestPayload>;
+
+    const rewriteGuard: Guard<TestKind, TestPayload, TestState> = () =>
+      decisionRewrite(poisonRewritten, "poison rewrite", []);
+
+    const bundle = makeBundle({ business: [rewriteGuard] });
+
+    // Must NOT throw.
+    let decision!: ReturnType<typeof adjudicate>;
+    expect(() => {
+      decision = adjudicate(baseEnvelope, baseState, bundle);
+    }).not.toThrow();
+
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("guard_panic");
+    const panic = decision.basis.find(
+      (b) => b.category === "kernel" && b.code === "guard_panic",
+    );
+    expect(panic).toBeDefined();
+    expect(panic?.detail?.phase).toBe("schema");
+  });
+
+  it("determinism: same non-canonicalizable rewrite → byte-identical refusal", () => {
+    const poisonRewritten = {
+      version: 2,
+      kind: "k1",
+      payload: { value: Number.NaN },
+      createdAt: "2026-04-23T12:00:00.000Z",
+      nonce: "n-poison-2",
+      actor: { principal: "llm", sessionId: "s1" },
+      taint: "TRUSTED",
+      intentHash: "b".repeat(64),
+    } as unknown as IntentEnvelope<TestKind, TestPayload>;
+    const bundle = makeBundle({
+      business: [() => decisionRewrite(poisonRewritten, "poison", [])],
+    });
+    const first = adjudicate(baseEnvelope, baseState, bundle);
+    const second = adjudicate(baseEnvelope, baseState, bundle);
+    expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+    expect(first.kind).toBe("REFUSE");
   });
 });

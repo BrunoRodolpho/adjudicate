@@ -12,6 +12,7 @@ import {
   buildEnvelope,
   decisionExecute,
   decisionRefuse,
+  decisionRewrite,
   KERNEL_REFUSAL_CODES,
   PackConformanceError,
   refuse,
@@ -388,6 +389,80 @@ describe("withBasisAudit — runtime drift detection", () => {
     expect(KERNEL_REFUSAL_CODES.has("schema_version_unsupported")).toBe(true);
     expect(KERNEL_REFUSAL_CODES.has("taint_level_insufficient")).toBe(true);
     expect(KERNEL_REFUSAL_CODES.has("default_deny")).toBe(true);
+  });
+
+  // ── 011/T5: taint-elevating REWRITE fails closed (not telemetry-only) ──
+  it("FAILS CLOSED on a taint-elevating REWRITE — substitutes a SECURITY REFUSE", () => {
+    // makeEnv() is UNTRUSTED; a rewrite that elevates to SYSTEM is friction-
+    // decreasing and forbidden by §C monotonicity.
+    const elevated = buildEnvelope({
+      kind: "thing.do",
+      payload: {},
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "SYSTEM",
+      nonce: "n-elevated",
+      createdAt: "2026-04-23T12:00:00.000Z",
+    });
+    const elevatingRewrite: Guard<K, unknown, unknown> = () =>
+      decisionRewrite(elevated, "laundering", [
+        basis("business", BASIS_CODES.business.QUANTITY_CAPPED),
+      ]);
+    const wrapped = withBasisAudit(
+      makePack({
+        policy: {
+          stateGuards: [],
+          authGuards: [],
+          taint: taintPolicy,
+          business: [elevatingRewrite],
+          default: "REFUSE",
+        },
+      }),
+    );
+    const decision = adjudicate(makeEnv(), {}, wrapped.policy);
+    // No longer the rewrite — a fail-closed SECURITY REFUSE.
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(
+      decision.basis.some(
+        (b) => b.category === "taint" && b.code === "propagation_violation",
+      ),
+    ).toBe(true);
+    // The regression is still recorded (telemetry preserved) AND blocked.
+    expect(
+      recordedFailures.some((f) => f.errorClass === "rewrite_taint_regression"),
+    ).toBe(true);
+  });
+
+  it("a NON-elevating REWRITE (same taint) passes through unchanged", () => {
+    const same = buildEnvelope({
+      kind: "thing.do",
+      payload: { v: 1 },
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "UNTRUSTED",
+      nonce: "n-same",
+      createdAt: "2026-04-23T12:00:00.000Z",
+    });
+    const rewrite: Guard<K, unknown, unknown> = () =>
+      decisionRewrite(same, "clamp", [
+        basis("business", BASIS_CODES.business.QUANTITY_CAPPED),
+      ]);
+    const wrapped = withBasisAudit(
+      makePack({
+        policy: {
+          stateGuards: [],
+          authGuards: [],
+          taint: taintPolicy,
+          business: [rewrite],
+          default: "REFUSE",
+        },
+      }),
+    );
+    const decision = adjudicate(makeEnv(), {}, wrapped.policy);
+    expect(decision.kind).toBe("REWRITE");
+    expect(
+      recordedFailures.some((f) => f.errorClass === "rewrite_taint_regression"),
+    ).toBe(false);
   });
 
   // ── PerformanceReviewer-008: idempotent wrapping ─────────────────────

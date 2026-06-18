@@ -10,6 +10,21 @@
  *
  * REWRITE is scope-restricted: sanitization, normalization, and safe mechanical
  * capping only. Never business transformation. See @adjudicate/core/README.md.
+ *
+ * **REWRITE re-adjudication & executed-hash recording (011).** A REWRITE is a
+ * *proposal substitution*, not authorization. The `rewritten` envelope carries
+ * its own content-addressed `intentHash`; the kernel never mutates that recipe.
+ * Two things happen to a REWRITE before any side effect:
+ *   1. In the pure kernel (`adjudicate`), the rewritten `intentHash` is re-derived
+ *      fail-closed and a taint-elevating rewrite is blocked (a non-deterministic
+ *      rewrite may only INCREASE friction — §C monotonicity).
+ *   2. In the audited shell (`adjudicateAndAudit`), the rewritten envelope
+ *      re-enters the kernel ONCE; only a second-pass EXECUTE lets it reach the
+ *      executor. The EXECUTED (rewritten) hash — not the original — is the audit
+ *      row's indexed `intentHash` and the ledger-claim key, linked back to the
+ *      original via a `rewrite_executed` supersession.
+ * REWRITE→REWRITE is bounded to that single pass: a rewrite that itself rewrites
+ * falls through to REFUSE, never recursing.
  */
 
 import type { IntentEnvelope } from "./envelope.js";

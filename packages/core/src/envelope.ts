@@ -34,6 +34,31 @@ import { DEFAULT_ORIGIN, type Origin, type Taint } from "./taint.js";
 export const INTENT_ENVELOPE_VERSION = 2 as const;
 export type IntentEnvelopeVersion = typeof INTENT_ENVELOPE_VERSION;
 
+/**
+ * Per-kind resource references (031) — the envelope's authorization slot.
+ *
+ * A closed map from a role name (`"owner"`, `"account"`, `"tenant"`,
+ * `"resource"`, …) to the resource identifier the kind operates on. This is
+ * the field the kernel needs to bind the proposing actor against the resource
+ * in the payload, closing the IDOR root cause: `IntentActor` is provenance-only
+ * (`principal`/`sessionId`/`attestation`) and carries NO owner/tenant/resource
+ * slot, so until v3 the kernel could never compare actor to payload.
+ *
+ * The shape is constrained per-kind by the host: each `kind` declares which
+ * resource refs it requires (e.g. `pix.charge.refund` requires
+ * `{ account: ... }`). 031 only adds the SLOT and binds it into `intentHash`;
+ * the authority predicate that reads it is plan 034 and the authority-graph
+ * resolver is 032/033 — no guard consults `resourceRefs` in 031.
+ *
+ * **Canonical-drop-safe (031 §3 / §7).** Optional and ABSENT by default, the
+ * same mechanism as `IntentActor.attestation`: an envelope WITHOUT
+ * `resourceRefs` (or with it explicitly `undefined`) is canonical-JSON-dropped
+ * from the `intentHash` pre-image, so it hashes IDENTICALLY to its post-041
+ * value. Only envelopes that actually CARRY resource-refs get a new hash —
+ * existing no-resource-refs golden/replay vectors stay byte-stable.
+ */
+export type ResourceRefs = Readonly<Record<string, string>>;
+
 export interface IntentActor {
   readonly principal: "llm" | "user" | "system";
   readonly sessionId: string;
@@ -75,6 +100,16 @@ export interface IntentEnvelope<K extends string = string, P = unknown> {
    * contaminating propagation gate that reads it is plan 042.
    */
   readonly origin: Origin;
+  /**
+   * Per-kind resource references (031) — the envelope's authorization slot.
+   * Optional and canonical-drop-safe: when absent it is dropped from the
+   * `intentHash` pre-image (mirroring `actor.attestation`), so a v2/post-041
+   * envelope without resource-refs hashes IDENTICALLY to a v3 envelope with the
+   * field explicitly `undefined`. Present resource-refs ARE bound into
+   * `intentHash` (§D #4) so the LLM cannot post-hoc flip the declared owner.
+   * Read by no guard in 031 — the authority predicate is plan 034.
+   */
+  readonly resourceRefs?: ResourceRefs;
   /** sha256 of canonical(envelope minus intentHash). Computed once at construction. */
   readonly intentHash: string;
 }
@@ -111,6 +146,15 @@ export interface BuildEnvelopeInput<K extends string, P> {
    * LLM-bytes site.
    */
   readonly origin?: Origin;
+  /**
+   * Per-kind resource references (031). Optional at the call site AND in the
+   * constructed envelope — UNLIKE `origin` (which is always-present), this is
+   * canonical-drop-safe: omitting it produces an envelope with NO `resourceRefs`
+   * key, which hashes identically to the post-041 no-refs value. Supply it only
+   * for kinds that carry an authorization target; the kernel binds whatever you
+   * pass into `intentHash`.
+   */
+  readonly resourceRefs?: ResourceRefs;
 }
 
 /**
@@ -130,6 +174,18 @@ export interface BuildEnvelopeInput<K extends string, P> {
  * to the `intentHash` pre-image changes every envelope hash; … no
  * cross-version persistence of pre-041 hashes is in scope").
  */
+/**
+ * **031 — `resourceRefs` is CANONICAL-DROP-SAFE in the pre-image.** UNLIKE
+ * `origin`, it is NOT always-present: it is emitted into the pre-image object
+ * only as `e.resourceRefs`, which is `undefined` for any envelope built
+ * without it. `canonicalize` (@adjudicate/canonical) filters `undefined`
+ * properties BEFORE hashing, so the `resourceRefs` key vanishes from the
+ * canonical JSON exactly as `attestation` does — a no-resource-refs envelope
+ * hashes IDENTICALLY to its post-041 value (the existing golden + replay
+ * vectors stay byte-stable, including the replay-longevity corpus). Only an
+ * envelope that actually CARRIES resource-refs binds them into `intentHash`,
+ * making the declared owner tamper-evident (§D #4).
+ */
 function intentHashInput<K extends string, P>(e: {
   readonly version: IntentEnvelopeVersion;
   readonly kind: K;
@@ -138,6 +194,7 @@ function intentHashInput<K extends string, P>(e: {
   readonly actor: IntentActor;
   readonly taint: Taint;
   readonly origin: Origin;
+  readonly resourceRefs?: ResourceRefs;
 }): Record<string, unknown> {
   return {
     version: e.version,
@@ -147,21 +204,30 @@ function intentHashInput<K extends string, P>(e: {
     actor: e.actor,
     taint: e.taint,
     origin: e.origin,
+    // Canonical-drop-safe (031): when undefined, canonicalize() omits the key
+    // entirely → byte-identical to the post-041 no-resource-refs pre-image.
+    resourceRefs: e.resourceRefs,
   };
 }
 
 /**
  * Construct a fully-formed IntentEnvelope with a computed intentHash.
  * Hash is derived from `(version, kind, payload, nonce, actor, taint,
- * origin)` — NOT `createdAt`. Reconstructing an envelope from its fields
- * with the same `nonce` and `origin` produces the same hash regardless of
- * `createdAt`. `origin` defaults to `DEFAULT_ORIGIN` (`"LLM"`) when omitted.
+ * origin[, resourceRefs])` — NOT `createdAt`. Reconstructing an envelope from
+ * its fields with the same `nonce`, `origin`, and `resourceRefs` produces the
+ * same hash regardless of `createdAt`. `origin` defaults to `DEFAULT_ORIGIN`
+ * (`"LLM"`) when omitted; `resourceRefs` (031) is NOT defaulted — when omitted
+ * it is canonical-dropped, so a no-refs envelope hashes identically to its
+ * post-041 value and the `resourceRefs` key is absent from the result.
  */
 export function buildEnvelope<K extends string, P>(
   input: BuildEnvelopeInput<K, P>,
 ): IntentEnvelope<K, P> {
   const createdAt = input.createdAt ?? new Date().toISOString();
   const origin = input.origin ?? DEFAULT_ORIGIN;
+  // 031: do NOT default resourceRefs — keep it undefined when omitted so it is
+  // canonical-dropped from the pre-image (no hash drift for no-refs envelopes).
+  const resourceRefs = input.resourceRefs;
   const intentHash = sha256Canonical(
     intentHashInput({
       version: INTENT_ENVELOPE_VERSION,
@@ -171,9 +237,10 @@ export function buildEnvelope<K extends string, P>(
       actor: input.actor,
       taint: input.taint,
       origin,
+      resourceRefs,
     }),
   );
-  return {
+  const envelope: IntentEnvelope<K, P> = {
     version: INTENT_ENVELOPE_VERSION,
     kind: input.kind,
     payload: input.payload,
@@ -184,6 +251,12 @@ export function buildEnvelope<K extends string, P>(
     origin,
     intentHash,
   };
+  // Only attach the key when present so a no-refs envelope's key set stays
+  // exactly the post-041 nine — `EXPECTED_ENVELOPE_KEYS` admits it but does not
+  // require it (canonical-drop-safe parity with `attestation`).
+  return resourceRefs === undefined
+    ? envelope
+    : { ...envelope, resourceRefs };
 }
 
 /**
@@ -200,13 +273,19 @@ export function deriveIntentHash(envelope: IntentEnvelope): string {
 }
 
 /**
- * The exactly-nine documented top-level envelope fields (041 added `origin`).
- * `isIntentEnvelope` rejects any object whose key set is not precisely this
- * set, mirroring `additionalProperties: false` in
- * `docs/specs/intent-envelope-v2.schema.json`. Module-level so the guard
- * does not reallocate the Set on every call.
+ * The documented top-level envelope fields. 041 added `origin`; 031 added the
+ * OPTIONAL `resourceRefs` (canonical-drop-safe). `isIntentEnvelope` rejects any
+ * object that is missing a REQUIRED key or carries a key outside this set,
+ * mirroring `additionalProperties: false` in
+ * `docs/specs/intent-envelope-v2.schema.json`. Module-level so the guard does
+ * not reallocate the Set on every call.
+ *
+ * `REQUIRED_ENVELOPE_KEYS` are always-present (the nine post-041 fields);
+ * `OPTIONAL_ENVELOPE_KEYS` (just `resourceRefs`) MAY be present. An envelope
+ * with no resource-refs has exactly the nine required keys (so the key set is
+ * byte-stable with post-041); one with resource-refs has ten.
  */
-const EXPECTED_ENVELOPE_KEYS = new Set([
+const REQUIRED_ENVELOPE_KEYS = [
   "version",
   "kind",
   "payload",
@@ -216,6 +295,11 @@ const EXPECTED_ENVELOPE_KEYS = new Set([
   "taint",
   "origin",
   "intentHash",
+] as const;
+const OPTIONAL_ENVELOPE_KEYS = ["resourceRefs"] as const;
+const EXPECTED_ENVELOPE_KEYS = new Set<string>([
+  ...REQUIRED_ENVELOPE_KEYS,
+  ...OPTIONAL_ENVELOPE_KEYS,
 ]);
 
 /**
@@ -225,18 +309,20 @@ const EXPECTED_ENVELOPE_KEYS = new Set([
  */
 export function isIntentEnvelope(value: unknown): value is IntentEnvelope {
   if (value === null || typeof value !== "object") return false;
-  // Reject extras AND missing fields (spec: additionalProperties:false on
-  // intent-envelope-v2.schema.json). An accepted envelope carrying an extra
-  // key would otherwise hash differently (canonicalize iterates all entries),
-  // silently breaking retry dedup.
+  // Reject extras (spec: additionalProperties:false on
+  // intent-envelope-v2.schema.json) AND require every REQUIRED field. An
+  // accepted envelope carrying an extra key would otherwise hash differently
+  // (canonicalize iterates all entries), silently breaking retry dedup.
+  // `resourceRefs` (031) is OPTIONAL — admitted but not required, so a no-refs
+  // envelope (nine keys) and a with-refs envelope (ten keys) both validate.
   const keys = Object.keys(value as object);
-  if (
-    keys.length !== EXPECTED_ENVELOPE_KEYS.size ||
-    keys.some((k) => !EXPECTED_ENVELOPE_KEYS.has(k))
-  ) {
+  if (keys.some((k) => !EXPECTED_ENVELOPE_KEYS.has(k))) return false;
+  if (!REQUIRED_ENVELOPE_KEYS.every((k) => keys.includes(k))) return false;
+  const v = value as Partial<IntentEnvelope>;
+  // If resourceRefs is present it MUST be a string→string map (drop-safe shape).
+  if (v.resourceRefs !== undefined && !isResourceRefs(v.resourceRefs)) {
     return false;
   }
-  const v = value as Partial<IntentEnvelope>;
   return (
     v.version === INTENT_ENVELOPE_VERSION &&
     typeof v.kind === "string" &&
@@ -254,6 +340,20 @@ export function isIntentEnvelope(value: unknown): value is IntentEnvelope {
       v.origin === "ExternalAPI" ||
       v.origin === "LLM" ||
       v.origin === "System")
+  );
+}
+
+/**
+ * Structural guard for the 031 `resourceRefs` slot: a plain object whose every
+ * value is a string (the resource identifier). Used by `isIntentEnvelope` to
+ * keep the runtime allow-list aligned with the `ResourceRefs` type.
+ */
+function isResourceRefs(value: unknown): value is ResourceRefs {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value as Record<string, unknown>).every(
+    (v) => typeof v === "string",
   );
 }
 

@@ -149,6 +149,35 @@
       "expectedHash": "08e5dd2cabfe985f516c890a835d46531daf2e8c9fabab7672582117dd8f3d97"
     },
     {
+      "label": "v10-resource-refs-dropped",
+      "category": "envelope",
+      "notes": "031 drop-safety baseline — the SAME envelope WITHOUT resourceRefs. An envelope built with resourceRefs absent (or explicitly undefined) MUST canonical-drop the key, so this hash equals what every pre-031 / post-041 implementation already produces for a no-refs envelope. The v11 vector below is this object PLUS a resourceRefs map; it MUST differ.",
+      "input": {
+        "version": 2,
+        "kind": "pix.charge.refund",
+        "payload": { "chargeId": "chg_1", "amount": 100 },
+        "nonce": "n-golden-10",
+        "actor": { "principal": "llm", "sessionId": "s-golden-10" },
+        "taint": "UNTRUSTED"
+      },
+      "expectedHash": "03632850662810fc8a9086ffe6fffef38ce890559c1ac5b549a9445f66d92a3e"
+    },
+    {
+      "label": "v11-resource-refs-bound",
+      "category": "envelope",
+      "notes": "031 v3 — resourceRefs PRESENT is bound into the hash (§D #4: the LLM cannot post-hoc flip the declared owner). Same envelope as v10 plus resourceRefs {account, owner}; MUST hash differently from v10. resourceRefs keys are canonicalized (recursive lexicographic sort) like any object. A no-refs envelope drops the key entirely (see v10).",
+      "input": {
+        "version": 2,
+        "kind": "pix.charge.refund",
+        "payload": { "chargeId": "chg_1", "amount": 100 },
+        "nonce": "n-golden-10",
+        "actor": { "principal": "llm", "sessionId": "s-golden-10" },
+        "taint": "UNTRUSTED",
+        "resourceRefs": { "account": "acct_7", "owner": "user_42" }
+      },
+      "expectedHash": "4b20fc314bc4856ca615ddd6bb66b3c7da2ca3818d296dcfa82386d9c4eda08c"
+    },
+    {
       "label": "audit-v4-execute",
       "category": "audit-record-subset",
       "notes": "Canonical AuditRecord v4 hash subset for an EXECUTE decision. The subset is the record minus {auditHash, signature}; see packages/core/src/audit.ts. Cross-runtime audit verification MUST hash this subset to the listed digest.",

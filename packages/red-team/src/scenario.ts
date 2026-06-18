@@ -27,6 +27,14 @@ export interface ScenarioIntent {
   readonly taint: Taint;
   readonly nonce: string;
   readonly createdAt?: string;
+  /**
+   * 031 — optional per-kind resource refs. Canonical-drop-safe: omitted on the
+   * existing vectors so their envelopes hash exactly as before; a vector that
+   * supplies it gets a v3-with-refs envelope (the runner threads it through
+   * `buildEnvelope`). Resource-refs do NOT weaken the taint short-circuit — a
+   * sub-minimum intent is still REFUSEd whether or not it declares an owner.
+   */
+  readonly resourceRefs?: Readonly<Record<string, string>>;
 }
 
 /**

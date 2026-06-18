@@ -5,8 +5,20 @@ import {
   type MetricsSink,
   type SinkFailureEvent,
 } from "@adjudicate/core/kernel";
+import {
+  BASIS_CODES,
+  basis,
+  buildAuditRecord,
+  buildEnvelope,
+  decisionRefuse,
+  recordAggregateSnapshot,
+  refuse,
+  verifyAuditRecord,
+  type AggregateSnapshot,
+} from "@adjudicate/core";
 import { createMemoryLedger } from "../src/ledger-memory.js";
 import { createRedisLedger, type RedisLedgerClient } from "../src/ledger-redis.js";
+import { replayWithIntegrity } from "../src/replay-integrity.js";
 
 function spyMetricsSink(failures: SinkFailureEvent[]): MetricsSink {
   return {
@@ -197,5 +209,86 @@ describe("ExecutionLedger — Redis implementation", () => {
       kind: "k",
     });
     expect(setCalls[0]!.options?.EX).toBe(60);
+  });
+});
+
+// ── 052: the recorded aggregate snapshot persists through the replayable record ─
+// The aggregate/limit snapshot is recorded onto the durable AuditRecord (the
+// governance record of truth) and carried VERBATIM by this package's
+// replay/integrity path. These pin that the snapshot survives the durable
+// record round-trip, is tamper-evident (auditHash), and the integrity check
+// catches a snapshot tampered after build.
+describe("052 — recorded aggregate snapshot persists through the audit record", () => {
+  const snapshot: AggregateSnapshot = {
+    windows: { "acct_7|daily": 1500 },
+    at: "2026-04-23T11:59:00.000Z",
+  };
+
+  function refuseRecord() {
+    const env = buildEnvelope({
+      kind: "pix.charge.create",
+      payload: { amount: 999 },
+      actor: { principal: "llm", sessionId: "s-052" },
+      taint: "UNTRUSTED",
+      nonce: "n-052",
+      createdAt: "2026-04-23T12:00:00.000Z",
+    });
+    return buildAuditRecord({
+      envelope: env,
+      decision: decisionRefuse(
+        refuse("BUSINESS_RULE", "aggregate.limit.exceeded", "over limit"),
+        [basis("business", BASIS_CODES.business.RULE_VIOLATED)],
+      ),
+      durationMs: 3,
+      at: "2026-04-23T12:00:01.000Z",
+      aggregateSnapshot: recordAggregateSnapshot(snapshot),
+    });
+  }
+
+  it("carries the recorded snapshot verbatim and verifies tamper-evident", () => {
+    const record = refuseRecord();
+    expect(record.aggregateSnapshot?.snapshot).toEqual(snapshot);
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("replayWithIntegrity carries the snapshot through and reports it intact", () => {
+    const record = refuseRecord();
+    // A deterministic adjudicator that re-decides over the RECORDED snapshot on
+    // the record — reproducing the stored REFUSE. The snapshot is read off the
+    // durable record, proving it persisted through to the replayable record.
+    const report = replayWithIntegrity([record], (env) => {
+      const committed =
+        record.aggregateSnapshot?.snapshot.windows["acct_7|daily"] ?? 0;
+      void env;
+      return committed >= 1000
+        ? decisionRefuse(
+            refuse("BUSINESS_RULE", "aggregate.limit.exceeded", "over limit"),
+            [basis("business", BASIS_CODES.business.RULE_VIOLATED)],
+          )
+        : decisionRefuse(refuse("BUSINESS_RULE", "other", "x"), []);
+    });
+    expect(report.total).toBe(1);
+    expect(report.matched).toBe(1);
+    expect(report.mismatches).toHaveLength(0);
+    expect(report.integrityFailures).toHaveLength(0);
+  });
+
+  it("integrity FAILS when the persisted snapshot is tampered after build", () => {
+    const record = refuseRecord();
+    const tampered = {
+      ...record,
+      aggregateSnapshot: {
+        snapshot: { ...snapshot, windows: { "acct_7|daily": 0 } },
+        snapshotHash: record.aggregateSnapshot!.snapshotHash,
+      },
+    };
+    const report = replayWithIntegrity([tampered], () =>
+      decisionRefuse(
+        refuse("BUSINESS_RULE", "aggregate.limit.exceeded", "over limit"),
+        [basis("business", BASIS_CODES.business.RULE_VIOLATED)],
+      ),
+    );
+    expect(report.integrityFailures).toHaveLength(1);
+    expect(report.integrityFailures[0]!.kind).toBe("AUDIT_HASH_TAMPERED");
   });
 });

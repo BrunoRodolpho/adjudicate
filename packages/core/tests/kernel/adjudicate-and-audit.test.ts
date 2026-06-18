@@ -9,14 +9,18 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  aggregateSnapshotFromRecorded,
   basis,
   BASIS_CODES,
   buildEnvelope,
   decisionExecute,
   decisionRefuse,
   decisionRewrite,
+  hashAggregateSnapshot,
+  recordAggregateSnapshot,
   refuse,
   verifyAuditRecord,
+  type AggregateSnapshot,
   type AuditRecord,
   type AuditSink,
   type Ledger,
@@ -28,6 +32,7 @@ import {
   type TaintPolicy,
 } from "../../src/index.js";
 import {
+  adjudicate,
   adjudicateAndAudit,
   createRuntimeContext,
   setLearningSink,
@@ -644,5 +649,209 @@ describe("adjudicateAndAudit — 091 bind policyVersion/kernelVersion", () => {
     expect(record.policyVersion).toBe("pol-rw-2.0.0");
     expect(record.kernelVersion).toBe("ker-rw-0.5.0");
     expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+});
+
+// ── 052: inject (read-only) + record the aggregate snapshot into the AuditRecord ─
+// The impure shell computes the aggregate/limit snapshot (from the counting
+// substrate this plan owns) and injects it READ-ONLY via deps. These tests assert
+// the snapshot is recorded VERBATIM onto BOTH buildAuditRecord call sites (main +
+// kill-switch), is bound into the tamper-evident auditHash pre-image (mirroring
+// 033/091), is OMITTED (hash-stable, no `undefined` key) when not injected, that
+// the wrapper NEVER mutates/refetches/timestamps the injected snapshot, and that
+// re-running the pure kernel over the RECORDED snapshot reproduces the SAME
+// decision (§D-5 replay). intentHash is untouched (invariant #4).
+describe("adjudicateAndAudit — 052 inject + record aggregate snapshot", () => {
+  async function emitOne(
+    bundle: PolicyBundle<string, unknown, unknown>,
+    deps: Parameters<typeof adjudicateAndAudit>[3],
+    env = envFixture(),
+  ): Promise<AuditRecord> {
+    const result = await adjudicateAndAudit(env, {}, bundle, deps);
+    return result.record;
+  }
+
+  const snapshot: AggregateSnapshot = {
+    windows: { "acct_7|daily": 1500, "acct_7|monthly": 42000 },
+    at: "2026-04-23T11:59:00.000Z",
+  };
+
+  it("records the injected aggregate snapshot VERBATIM onto the MAIN path record", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const recorded = recordAggregateSnapshot(snapshot);
+    const record = await emitOne(passBundle, {
+      sink,
+      aggregateSnapshot: recorded,
+    });
+    expect(record.aggregateSnapshot).toEqual(recorded);
+    // Verbatim: the recorded windows/at are byte-equal to what was injected.
+    expect(record.aggregateSnapshot?.snapshot).toEqual(snapshot);
+    // The content-address is the canonical hash of the injected snapshot.
+    expect(record.aggregateSnapshot?.snapshotHash).toBe(
+      hashAggregateSnapshot(snapshot),
+    );
+    // The bound snapshot IS in the auditHash pre-image, so the record verifies.
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("the recorded snapshot IS part of the auditHash pre-image (tamper → tampered)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const record = await emitOne(passBundle, {
+      sink,
+      aggregateSnapshot: recordAggregateSnapshot(snapshot),
+    });
+    // Tamper the recorded windows → the auditHash no longer matches.
+    const tampered = {
+      ...record,
+      aggregateSnapshot: {
+        snapshot: { ...snapshot, windows: { "acct_7|daily": 999_999 } },
+        snapshotHash: record.aggregateSnapshot!.snapshotHash,
+      },
+    };
+    const v = verifyAuditRecord(tampered);
+    expect(v.verified).toBe(false);
+    if (v.verified === false) expect(v.reason).toBe("tampered");
+  });
+
+  it("OMITS the field on the main path when not injected (no undefined key, hash-stable)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const record = await emitOne(passBundle, { sink });
+    expect("aggregateSnapshot" in record).toBe(false);
+    // The omitting record still verifies — the absent field was never in the
+    // pre-image, proving the conditional spread is byte-identical to pre-052.
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("records the snapshot onto the KILL-SWITCH path record", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const context = createRuntimeContext({ id: "tenant-052" });
+    context.killSwitch.set(true, "test-052-maintenance");
+    const record = await emitOne(passBundle, {
+      sink,
+      context,
+      aggregateSnapshot: recordAggregateSnapshot(snapshot),
+    });
+    expect(record.decision.kind).toBe("REFUSE"); // kill-switch path
+    expect(record.aggregateSnapshot?.snapshot).toEqual(snapshot);
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("the wrapper does NOT mutate/refetch/timestamp the injected snapshot (read-only)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const recorded = recordAggregateSnapshot(snapshot);
+    // Freeze the injected snapshot deeply: any mutation attempt by the wrapper
+    // would throw in strict mode (vitest runs ESM strict).
+    Object.freeze(recorded);
+    Object.freeze(recorded.snapshot);
+    Object.freeze(recorded.snapshot.windows);
+    const before = JSON.stringify(recorded);
+    const record = await emitOne(passBundle, {
+      sink,
+      aggregateSnapshot: recorded,
+    });
+    // The dep object is byte-identical after the call (no mutation/refetch).
+    expect(JSON.stringify(recorded)).toBe(before);
+    // The recorded `at` is the SHELL-sampled value, NOT re-timestamped by the
+    // wrapper's clock (which would have been the record's own `at`).
+    expect(record.aggregateSnapshot?.snapshot.at).toBe(snapshot.at);
+    expect(record.aggregateSnapshot?.snapshot.at).not.toBe(record.at);
+  });
+
+  it("replay over the RECORDED snapshot reproduces the SAME decision (§D-5, non-vacuous)", async () => {
+    // A business guard whose decision DEPENDS on the injected aggregate snapshot
+    // (read read-only off injected state): over-limit → REFUSE, under-limit →
+    // EXECUTE. This makes the replay assertion non-vacuous — the snapshot value
+    // genuinely drives the outcome.
+    const LIMIT = 2000;
+    const snapshotBundle: PolicyBundle<
+      string,
+      unknown,
+      { aggregate: AggregateSnapshot }
+    > = {
+      stateGuards: [],
+      authGuards: [],
+      taint: taintPolicy,
+      business: [
+        (_env, state) =>
+          state.aggregate.windows["acct_7|daily"]! >= LIMIT
+            ? decisionRefuse(
+                refuse("BUSINESS_RULE", "aggregate.limit.exceeded", "over limit"),
+                [basis("business", BASIS_CODES.business.RULE_VIOLATED)],
+              )
+            : decisionExecute([
+                basis("business", BASIS_CODES.business.RULE_SATISFIED),
+              ]),
+      ],
+      default: "REFUSE",
+    };
+    // Inject an OVER-limit snapshot → the decision must be REFUSE.
+    const overLimit: AggregateSnapshot = {
+      windows: { "acct_7|daily": 2500 },
+      at: "2026-04-23T11:59:00.000Z",
+    };
+    const recorded = recordAggregateSnapshot(overLimit);
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const result = await adjudicateAndAudit(
+      envFixture(),
+      { aggregate: overLimit },
+      snapshotBundle,
+      { sink, aggregateSnapshot: recorded },
+    );
+    expect(result.decision.kind).toBe("REFUSE");
+    expect(result.record.aggregateSnapshot).toEqual(recorded);
+
+    // REPLAY: re-derive the snapshot from the RECORDED audit field (fail-closed
+    // integrity check) and re-run the PURE kernel over it. The decision must be
+    // byte-identical to the one originally recorded.
+    const replayedSnapshot = aggregateSnapshotFromRecorded(
+      result.record.aggregateSnapshot!,
+    );
+    const replayed = adjudicate(
+      envFixture(),
+      { aggregate: replayedSnapshot },
+      snapshotBundle,
+    );
+    expect(replayed.kind).toBe(result.decision.kind);
+    expect(replayed.basis).toEqual(result.decision.basis);
+
+    // Counter-proof the dependence is real: an UNDER-limit recorded snapshot
+    // replays to EXECUTE, so the snapshot value genuinely drives the outcome.
+    const underLimit = recordAggregateSnapshot({
+      windows: { "acct_7|daily": 100 },
+      at: overLimit.at,
+    });
+    const replayedUnder = adjudicate(
+      envFixture(),
+      { aggregate: aggregateSnapshotFromRecorded(underLimit) },
+      snapshotBundle,
+    );
+    expect(replayedUnder.kind).toBe("EXECUTE");
+  });
+
+  it("a tampered/drifted recorded snapshot FAILS replay closed (invariant #6)", () => {
+    const recorded = recordAggregateSnapshot(snapshot);
+    const drifted = {
+      ...recorded,
+      snapshot: { ...snapshot, windows: { "acct_7|daily": 0 } }, // hash no longer matches
+    };
+    expect(() => aggregateSnapshotFromRecorded(drifted)).toThrow(
+      /integrity failure/,
+    );
+  });
+
+  it("injecting the aggregate snapshot does NOT change the intentHash (invariant #4)", async () => {
+    // The intentHash is a function of the envelope only; the injected snapshot
+    // rides as deps/state, never an envelope field. The recorded subject hash
+    // equals the bare-envelope hash with or without the snapshot.
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const baseEnv = envFixture();
+    const withSnap = await emitOne(passBundle, {
+      sink,
+      aggregateSnapshot: recordAggregateSnapshot(snapshot),
+    });
+    const withoutSnap = await emitOne(passBundle, { sink });
+    expect(withSnap.intentHash).toBe(baseEnv.intentHash);
+    expect(withoutSnap.intentHash).toBe(baseEnv.intentHash);
+    expect(withSnap.envelope.intentHash).toBe(withoutSnap.envelope.intentHash);
   });
 });

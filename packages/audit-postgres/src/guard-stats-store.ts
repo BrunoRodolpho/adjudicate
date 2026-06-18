@@ -2,10 +2,18 @@
  * Postgres-backed GuardFireStatsStore. Plugs into core's `GuardFireStats`
  * accumulator so guard-fire counters survive restarts.
  *
- * Writes are UPSERTs that add to the per-day natural key. The natural key
- * is `(guard_name, guard_phase, decision_kind, day, COALESCE(pack_id,''))`
- * — the `COALESCE` lives in the upsert path rather than the constraint
- * because Postgres treats NULL as distinct in unique constraints.
+ * Writes are UPSERTs that add to the per-day natural key. The natural key is
+ * `(guard_name, guard_phase, decision_kind, day, pack_id)` and IS the
+ * migration-006 PRIMARY KEY arbiter the additive `ON CONFLICT` targets.
+ *
+ * 052 — `pack_id` is `NOT NULL DEFAULT ''` (migration 006): the default
+ * (no-pack) accumulator writes the empty-string sentinel, NOT NULL. A NULL
+ * `pack_id` would (a) violate the PK column's implicit NOT NULL (Postgres 23502)
+ * and (b) — since Postgres treats NULL as DISTINCT in PK/unique arbiters —
+ * prevent the `ON CONFLICT` from ever matching two no-pack rows, so the upsert
+ * would INSERT duplicates instead of aggregating (the over-count failure). The
+ * empty-string sentinel makes the arbiter deterministic and the additive upsert
+ * atomic/coalescing for every write, with or without a pack.
  *
  * Reads return rows newer-than the supplied ISO `since`, optionally
  * filtered by pack.
@@ -61,10 +69,15 @@ export function createPostgresGuardFireStatsStore(
   return {
     async write(bucket) {
       const raw = bucket as unknown as Record<string, unknown>;
+      // 052: the no-pack case writes the empty-string sentinel, NOT NULL — it is
+      // the PK arbiter value migration-006 declares (`pack_id NOT NULL DEFAULT
+      // ''`). Passing NULL here would either violate the PK column NOT NULL
+      // (23502) or, treated as DISTINCT, defeat the additive `ON CONFLICT`
+      // arbiter so the upsert duplicates rows instead of coalescing them.
       const packId =
         typeof raw.packId === "string" && raw.packId.length > 0
           ? (raw.packId as string)
-          : null;
+          : "";
       await deps.writer.upsertGuardStat({
         guardName: bucket.guardName,
         guardPhase: bucket.guardPhase,

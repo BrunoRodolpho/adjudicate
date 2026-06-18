@@ -90,6 +90,25 @@ function makeMemoKey(b: Omit<GuardFireBucket, "count"> & { packId?: string }): s
 /**
  * In-memory accumulator. Implements `LearningSink` so it can be plugged into
  * `RuntimeContext.learning` or `setLearningSink()` directly.
+ *
+ * ── 052 — the durable aggregate-counting SUBSTRATE (single owner) ──────────
+ * Plan 052 OWNS this counting substrate: the coalescing/delta-write counter
+ * here (`recordOutcome` writes the per-call DELTA `count:1`, NOT the merged
+ * running total) plus the additive Postgres upsert it writes through to
+ * (`audit-postgres` `UPSERT_GUARD_STAT_SQL`: `ON CONFLICT (...) DO UPDATE SET
+ * count = audit_guard_stats.count + EXCLUDED.count`) and the migration-006 PK
+ * arbiter. That trio makes counting ATOMIC/COALESCING under concurrency: each
+ * write is an additive single-statement upsert (no read-modify-write, no
+ * over-commit TOCTOU race — distinct from the ephemeral Redis park counter's
+ * `INCR→EXPIRE→check→DECR` sequence in `runtime/defer-park.ts`).
+ *
+ * **051 and 053 CONSUME this substrate READ-ONLY.** 051's velocity/limit guards
+ * read the aggregate counts through `queryAsync` (the store-direct path); 053's
+ * reservation extends the SAME additive upsert template. Consumers MUST NOT
+ * re-implement the counter or write through a non-additive path — doing so
+ * re-introduces the double-count (triangular `N(N+1)/2`) the delta-write seam
+ * here exists to prevent (see `recordOutcome` and `guard-stats.test.ts`'s
+ * assert-6-not-9 regression).
  */
 export class GuardFireStats implements LearningSink {
   private readonly memo = new Map<string, GuardFireBucket & { packId?: string }>()

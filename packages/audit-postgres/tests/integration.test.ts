@@ -59,6 +59,7 @@ import {
   createPostgresSink,
   recordToRow,
 } from "../src/postgres-sink.js";
+import { UPSERT_GUARD_STAT_SQL } from "../src/guard-stats-store.js";
 
 const INTEGRATION = process.env.INTEGRATION_TEST === "1";
 const describeIntegration = INTEGRATION ? describe : describe.skip;
@@ -379,5 +380,102 @@ describeIntegration("integration — audit-postgres sink vs a real migrated DB",
     } finally {
       await pool.query(`DROP TABLE IF EXISTS ${T}`);
     }
+  });
+});
+
+// ── 052: the additive guard-stats upsert against a live migrated table ────────
+// Exercises the PRODUCTION `UPSERT_GUARD_STAT_SQL` against a real table shaped
+// EXACTLY like migration-006 (`pack_id NOT NULL DEFAULT ''` + the 5-column PK).
+// Proves: (a) the additive `ON CONFLICT ... DO UPDATE SET count = count +
+// EXCLUDED.count` arbiter is backed by a REAL PK (no silent 42P10); (b) repeated
+// concurrent delta-writes COALESCE atomically to the exact total (no over-commit,
+// no lost-update, no triangular over-count); (c) the no-pack '' sentinel keys a
+// single row (a NULL would either fail the PK NOT NULL or split into duplicates).
+// Self-contained: builds + drops a throwaway audit_guard_stats-shaped table so it
+// does not depend on migration-006 being applied to the shared DB.
+describeIntegration("integration — 052 additive guard-stats upsert vs a real DB", () => {
+  let pool: PgPoolLike;
+  const T = "__it_052_guard_stats";
+
+  beforeAll(async () => {
+    if (!CONN) {
+      throw new Error(
+        "INTEGRATION_TEST=1 but no PG_TEST_URL/DATABASE_URL set. See header.",
+      );
+    }
+    const pg = (await import("pg")) as unknown as {
+      default?: { Pool: new (cfg: { connectionString: string }) => PgPoolLike };
+      Pool?: new (cfg: { connectionString: string }) => PgPoolLike;
+    };
+    const Pool = (pg.default?.Pool ?? pg.Pool)!;
+    pool = new Pool({ connectionString: CONN });
+    // Build the table EXACTLY as migration-006 declares it (PK + '' sentinel).
+    await pool.query(`DROP TABLE IF EXISTS ${T}`);
+    await pool.query(
+      `CREATE TABLE ${T} (
+        guard_name    TEXT   NOT NULL,
+        guard_phase   TEXT   NOT NULL,
+        decision_kind TEXT   NOT NULL,
+        day           DATE   NOT NULL,
+        pack_id       TEXT   NOT NULL DEFAULT '',
+        count         BIGINT NOT NULL DEFAULT 0,
+        CONSTRAINT ${T}_pk PRIMARY KEY (guard_name, guard_phase, decision_kind, day, pack_id)
+      )`,
+    );
+  });
+
+  afterAll(async () => {
+    if (pool) {
+      await pool.query(`DROP TABLE IF EXISTS ${T}`);
+      await pool.end();
+    }
+  });
+
+  /** Run the PRODUCTION upsert SQL against the throwaway table. */
+  function upsert(packId: string, delta: number): Promise<unknown> {
+    return pool.query(UPSERT_GUARD_STAT_SQL.replace("audit_guard_stats", T), [
+      "amount-threshold",
+      "business",
+      "EXECUTE",
+      "2026-05-13",
+      packId,
+      delta,
+    ]);
+  }
+
+  async function totalFor(packId: string): Promise<number> {
+    const r = await pool.query(
+      `SELECT count FROM ${T} WHERE pack_id = $1 AND guard_name = $2`,
+      [packId, "amount-threshold"],
+    );
+    return r.rows.length ? Number(r.rows[0]!.count) : 0;
+  }
+
+  it("the additive ON CONFLICT upsert is backed by a real PK (no 42P10) and coalesces", async () => {
+    // First write inserts; subsequent writes on the SAME PK accumulate additively.
+    await upsert("", 1);
+    await upsert("", 1);
+    await upsert("", 1);
+    expect(await totalFor("")).toBe(3);
+    const rows = await pool.query(`SELECT count(*)::int AS n FROM ${T}`);
+    expect(Number(rows.rows[0]!.n)).toBe(1); // one PK row, not 3 duplicates
+  });
+
+  it("N CONCURRENT delta-writes converge on EXACTLY N (atomic accumulate, no over-commit)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const N = 100;
+    await Promise.all(Array.from({ length: N }, () => upsert("", 1)));
+    expect(await totalFor("")).toBe(N);
+  });
+
+  it("the '' pack sentinel keys ONE row (a NULL would split/fail the PK)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    await upsert("", 2);
+    await upsert("pix", 5); // distinct pack → distinct PK row
+    await upsert("", 3);
+    expect(await totalFor("")).toBe(5);
+    expect(await totalFor("pix")).toBe(5);
+    const rows = await pool.query(`SELECT count(*)::int AS n FROM ${T}`);
+    expect(Number(rows.rows[0]!.n)).toBe(2);
   });
 });

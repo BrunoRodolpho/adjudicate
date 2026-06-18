@@ -28,10 +28,12 @@
  */
 
 import type {
+  AggregateSnapshot,
   AuthorityEdge,
   AuthorityGraph,
   AuthorityRelationship,
   IntentEnvelope,
+  RecordedAggregateSnapshot,
   RecordedAuthoritySnapshot,
 } from "./envelope.js";
 import type { DecisionBasis } from "./basis-codes.js";
@@ -412,6 +414,90 @@ export function createAuthorityGraphStore(graph: AuthorityGraph): AuthorityGraph
           ),
   };
   return Object.freeze(store);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 052 · Aggregate-snapshot injection + recording for replay (§D-5, inv. #5)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// 052 INJECTS the aggregate/limit snapshot into the one kernel decision (via
+// injected state/deps) and RECORDS it into the audit record so the decision is
+// REPLAYABLE: re-running the PURE kernel over the recorded snapshot reproduces
+// the decision bit-identically (index §D-5, invariant #5). Mirrors the 033
+// authority-snapshot seam exactly, over `@adjudicate/canonical` so the recorded
+// snapshot never drifts from `intentHash` semantics (NFC, fail-on-non-finite):
+//
+//   • `recordAggregateSnapshot(snapshot)` — content-addresses the INJECTED
+//     snapshot (`hashAggregateSnapshot`, RFC 8785 / JCS) into a
+//     `RecordedAggregateSnapshot` the audit record carries (052 T2). Pure.
+//
+//   • `aggregateSnapshotFromRecorded(recorded)` — on REPLAY, returns the SAME
+//     immutable snapshot from the RECORDED inputs after a fail-closed integrity
+//     check, so the pure kernel reads byte-identical windows and decides
+//     identically (052 T2/T6). A recorded snapshot whose `snapshotHash` no
+//     longer matches its `snapshot` (a tampered/drifted recorded snapshot)
+//     throws rather than replaying a different decision (§D-5, invariant #6).
+//
+// Neither touches the `Decision` algebra (no 7th outcome, no field — invariant
+// #2) and neither enters `intentHashInput` (the snapshot rides injected state,
+// not a hashed envelope field — invariant #4). No GUARD is wired here: 052 owns
+// only the inject/record + the counting substrate; the velocity/limit guards
+// that CONSUME the substrate read-only are 051 (§C: aggregate signals may only
+// RAISE friction, never authorize EXECUTE).
+
+/**
+ * Content-address an aggregate/limit snapshot (052 T2) for the audit record so
+ * the injected snapshot replays bit-identically (invariant #5). Rides
+ * `@adjudicate/canonical` (`sha256SnapshotCanonical`, RFC 8785 / JCS) — NOT a
+ * forked canonicalizer — so a recorded snapshot never drifts from `intentHash`
+ * semantics (NFC, fail-on-non-finite). Pure: no clock/RNG/IO.
+ */
+export function hashAggregateSnapshot(snapshot: AggregateSnapshot): string {
+  return sha256SnapshotCanonical(snapshot);
+}
+
+/**
+ * Build the RECORDED aggregate snapshot (052 T2) from the snapshot the kernel
+ * decision was INJECTED with: pairs the immutable `snapshot` with its
+ * content-address (`hashAggregateSnapshot`). The audit shell records this onto
+ * the `AuditRecord` so the decision replays bit-identically (§D-5, invariant #5).
+ *
+ * Pure & synchronous (kernel-purity §D): no clock/RNG/IO. Re-running it over the
+ * same snapshot yields a byte-identical `snapshotHash`.
+ */
+export function recordAggregateSnapshot(
+  snapshot: AggregateSnapshot,
+): RecordedAggregateSnapshot {
+  return { snapshot, snapshotHash: hashAggregateSnapshot(snapshot) };
+}
+
+/**
+ * Replay primitive (052 T2/T6): return the SAME immutable `AggregateSnapshot`
+ * from a RECORDED snapshot so the pure kernel re-reads byte-identical windows
+ * and reproduces the byte-identical decision — the §D-5 replayability proof that
+ * the recorded snapshot is sufficient to re-derive the decision.
+ *
+ * Fail-closed integrity (§D-5 / invariant #6): re-content-addresses the recorded
+ * `snapshot` and compares to the stored `snapshotHash`. A mismatch means the
+ * recorded snapshot was tampered with or drifted from its hash — replaying it
+ * would silently re-decide over DIFFERENT windows than the hash claims, so we
+ * throw rather than produce a non-faithful replay. A faithful recorded snapshot
+ * always passes and yields a snapshot identical to the one used at decision time.
+ *
+ * Pure & synchronous: no clock/RNG/IO.
+ */
+export function aggregateSnapshotFromRecorded(
+  recorded: RecordedAggregateSnapshot,
+): AggregateSnapshot {
+  const rederived = hashAggregateSnapshot(recorded.snapshot);
+  if (rederived !== recorded.snapshotHash) {
+    throw new Error(
+      `aggregateSnapshotFromRecorded: recorded snapshot integrity failure — ` +
+        `re-derived snapshotHash ${rederived} does not match stored ` +
+        `${recorded.snapshotHash} (tampered or drifted recorded aggregate snapshot)`,
+    );
+  }
+  return recorded.snapshot;
 }
 
 function dedupe<T>(values: readonly T[]): readonly T[] {

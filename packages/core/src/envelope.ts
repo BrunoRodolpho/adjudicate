@@ -30,6 +30,7 @@
 
 import { sha256Canonical } from "./hash.js";
 import { DEFAULT_ORIGIN, type Origin, type Taint } from "./taint.js";
+import { timingSafeHexEqual } from "./timing-safe.js";
 
 export const INTENT_ENVELOPE_VERSION = 2 as const;
 export type IntentEnvelopeVersion = typeof INTENT_ENVELOPE_VERSION;
@@ -470,4 +471,37 @@ export function hasUnknownEnvelopeVersion(value: unknown): boolean {
     v.version !== INTENT_ENVELOPE_VERSION &&
     typeof v.version === "number"
   );
+}
+
+/**
+ * Nonce reconciliation (022 T3) — re-derive the nonce-bound `intentHash` for an
+ * envelope and constant-time-compare it against a presented hash.
+ *
+ * The single-use capability burn store (022) redeems a capability bound to an
+ * `intentHash` (which content-addresses `nonce` per §D #4). Before honoring a
+ * burn, a caller must confirm the envelope it holds STILL re-derives to the
+ * `intentHash` the capability was minted against — a different nonce (or any
+ * tampered hashed field) yields a different hash and MUST be rejected.
+ *
+ * This deliberately REUSES the canonical `intentHash` recipe via
+ * `deriveIntentHash` (the `intentHashInput` pre-image is NOT touched, so the
+ * nonce binding and `createdAt` exclusion stay byte-identical, §D #4) and the
+ * shared `sha256Canonical` (@adjudicate/canonical, never the conformance fork)
+ * so a re-derivation is byte-identical to construction (§D #5 determinism).
+ *
+ * Fail-closed (§D #6 / index §C): the comparison runs through
+ * `timingSafeHexEqual` — constant-time (no early-exit forgery oracle), returns
+ * `false` (NEVER throws) on a non-string / length-mismatch / mismatch. A
+ * mutated nonce, a presented hash that is not a 64-char hex string, or any
+ * divergence yields `false`, so a burn keyed on this reconciliation cannot be
+ * honored on a mismatch — no fail-open grant.
+ *
+ * Pure: no I/O, no clock, no `node:crypto`. Safe in the browser bundle (the
+ * burn STORE that consumes this lives in the impure adapter-core shell, §D).
+ */
+export function reconcileNonceHash(
+  envelope: IntentEnvelope,
+  presentedHash: unknown,
+): boolean {
+  return timingSafeHexEqual(deriveIntentHash(envelope), presentedHash);
 }

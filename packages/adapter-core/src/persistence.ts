@@ -18,7 +18,7 @@
  * their SDK's conversation-history shape through unchanged.
  */
 
-import type { IntentEnvelope } from "@adjudicate/core";
+import type { Capability, IntentEnvelope } from "@adjudicate/core";
 
 // ── Defer / Park Redis surface ──────────────────────────────────────────────
 
@@ -227,6 +227,113 @@ export function createInMemoryConfirmationStore<H = unknown>(): ConfirmationStor
       store.delete(token);
       if (entry.expiresAt <= Date.now()) return null;
       return entry.pending;
+    },
+  };
+}
+
+// ─── BurnStore (single-use capability burn, 022) ─────────────────────────────
+
+/**
+ * Single-use capability "burn" store (022) — the AUTHORIZATION-BEARING
+ * at-most-once redemption primitive a cap-gated executor (024) consumes.
+ *
+ * Unlike the lossy display-only approval registry and unlike
+ * `ConfirmationStore` (which is a transport for a user-held token), this store
+ * OWNS the single-use guarantee for a kernel-minted `Capability` (021): a
+ * capability minted on EXECUTE may be redeemed EXACTLY ONCE before its executor
+ * honors it. It mirrors the `ConfirmationStore.take` single-use contract above
+ * — get-and-delete, idempotent yes-then-yes, TTL-expiring — but it is
+ * authoritative, not display-only.
+ *
+ * **Atomicity — the headline guarantee.** `burn(nonce)` is a single
+ * claim-and-burn primitive: the read of the bound record AND the delete that
+ * consumes it are ONE atomic step. The in-memory reference is atomic within the
+ * single-threaded event loop (the read+delete is synchronous between `await`
+ * points); the Redis backing (`createRedisBurnStore`, `persistence-redis.ts`)
+ * makes it atomic ACROSS replicas with a Lua `EVAL` get-and-delete, closing the
+ * non-atomic GET-then-DEL double-spend race the production confirmation store
+ * documents. A non-atomic GET-then-DEL would let two concurrent `burn(nonce)`
+ * calls both observe the same pending grant (double-spend) — the burn store
+ * forbids that.
+ *
+ * **Fail-closed (§D #6 / index §C).** A burn MISS (key absent), an EXPIRED
+ * grant (past TTL), or a store/IO error yields NO redemption (`null` /
+ * rejection) — never a fail-open grant. Removing the store cannot loosen any
+ * guard: no guard authorizes on a SUCCESSFUL burn (the burn gates an executor,
+ * not a kernel decision), so the failure mode is friction, never bypass.
+ *
+ * Generic over the bound record `R` (defaults to `Capability`) so 024 can store
+ * whatever grant shape it redeems while keeping the interface reusable.
+ */
+export interface BurnStore<R = Capability> {
+  /**
+   * Persist a single-use, claimable grant keyed by `nonce` with a TTL. Writing
+   * is first-writer-wins (mirroring the `Ledger` `"acquired"`/`"exists"`
+   * idempotent-claim, `core/src/ledger.ts`): a second `mint` of a LIVE key is
+   * suppressed and returns `false`, so a grant cannot be silently overwritten
+   * (which would otherwise resurrect an already-burned single-use key). Returns
+   * `true` when the grant was claimed, `false` when the key is already live.
+   */
+  mint(nonce: string, record: R, ttlSeconds: number): Promise<boolean>;
+  /**
+   * Atomically claim-and-burn the grant bound to `nonce`. Returns the bound
+   * record EXACTLY ONCE; every subsequent `burn(nonce)` returns `null`
+   * (idempotent yes-then-yes, single-use). Returns `null` for an unknown nonce
+   * and for an EXPIRED grant (fail-closed past TTL). The read and the burn are
+   * one atomic step — no GET-then-DEL race.
+   */
+  burn(nonce: string): Promise<R | null>;
+}
+
+interface BurnEntry<R> {
+  readonly record: R;
+  readonly expiresAt: number;
+}
+
+/**
+ * In-memory reference `BurnStore` (022 T1). Atomic single-use within the
+ * single-threaded event loop: `burn` reads, validates TTL, and deletes
+ * synchronously between `await` points, so two `burn(nonce)` calls cannot both
+ * observe the same live grant — exactly the `ConfirmationStore.take` single-use
+ * contract, but authoritative. Opportunistic `sweepExpired` on `mint` bounds the
+ * map without a background timer (mirrors `createInMemoryConfirmationStore`,
+ * MemoryReviewer-005). Suitable for tests + quickstart; NOT for cross-process
+ * production (use `createRedisBurnStore`).
+ */
+export function createInMemoryBurnStore<R = Capability>(): BurnStore<R> {
+  const store = new Map<string, BurnEntry<R>>();
+
+  const isLive = (entry: BurnEntry<R> | undefined): entry is BurnEntry<R> =>
+    entry !== undefined && entry.expiresAt > Date.now();
+
+  function sweepExpired(now: number): void {
+    for (const [nonce, entry] of store) {
+      if (entry.expiresAt <= now) store.delete(nonce);
+    }
+  }
+
+  return {
+    async mint(nonce, record, ttlSeconds) {
+      sweepExpired(Date.now());
+      // First-writer-wins: never overwrite a LIVE grant (that could resurrect
+      // an already-claimed single-use key). An expired key is reclaimable.
+      if (isLive(store.get(nonce))) return false;
+      store.set(nonce, {
+        record,
+        expiresAt: Date.now() + ttlSeconds * 1000,
+      });
+      return true;
+    },
+    async burn(nonce) {
+      // Atomic claim-and-burn: read + delete happen synchronously here, with no
+      // `await` between them, so two concurrent burns of the same nonce cannot
+      // both win. The single delete consumes the grant exactly once.
+      const entry = store.get(nonce);
+      if (entry === undefined) return null;
+      store.delete(nonce);
+      // Fail-closed on expiry: a grant past its TTL is never honored (§D #6).
+      if (entry.expiresAt <= Date.now()) return null;
+      return entry.record;
     },
   };
 }

@@ -30,6 +30,9 @@ export {
 export {
   DEFAULT_TIER3_ANALYZERS,
   policyCoherenceAnalyzer,
+  compositionReachabilityAnalyzer,
+  compositionEscalationCycleAnalyzer,
+  detectEscalationCycles,
   type PlannerProbe,
   type Tier3Analyzer,
 } from "./tier3.js";

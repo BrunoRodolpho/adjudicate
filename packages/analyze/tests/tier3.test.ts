@@ -5,8 +5,18 @@ import { paymentsPixPack } from "@adjudicate/pack-payments-pix";
 import {
   analyzePolicy,
   policyCoherenceAnalyzer,
+  compositionReachabilityAnalyzer,
+  compositionEscalationCycleAnalyzer,
+  detectEscalationCycles,
   type PlannerProbe,
 } from "../src/index.js";
+
+function thresholdGuard(name: string, threshold: number, comparator: ">=" | "<=" | ">" | "<") {
+  return withMetadata((() => null) as Guard<string, unknown, unknown>, {
+    name,
+    description: { kind: "threshold", threshold, comparator },
+  });
+}
 
 type AnyPack = PackV0<string, unknown, unknown, unknown>;
 
@@ -119,5 +129,124 @@ describe("PolicyCoherenceAnalyzer (AJD-301)", () => {
     const withProbes = analyzePolicy({ pack: p, plannerProbes: [probe] });
     expect(without.diagnostics.some((d) => d.code === "AJD-301")).toBe(false);
     expect(withProbes.diagnostics.some((d) => d.code === "AJD-301")).toBe(true);
+  });
+});
+
+describe("CompositionReachabilityAnalyzer (AJD-302)", () => {
+  it("emits a probe_coverage_floor warning when probes miss declared intents (counts only)", () => {
+    const d = compositionReachabilityAnalyzer.analyze(
+      pack({ intents: ["x.a", "x.b", "x.c"], allowedIntents: ["x.a"] }),
+      [probe],
+    );
+    const floor = d.find((x) => x.detail?.rule === "probe_coverage_floor");
+    expect(floor?.severity).toBe("warning");
+    expect(floor?.detail).toMatchObject({ declaredNonSystem: 3, covered: 1, probeCount: 1 });
+    // Confidence caveat: it must NOT re-list the uncovered intents — that is
+    // AJD-301 unreachable_intent's job (no double-reporting).
+    expect(JSON.stringify(floor?.detail)).not.toContain("x.b");
+  });
+
+  it("does not fire the coverage floor at full coverage; excludes system-only intents", () => {
+    const full = compositionReachabilityAnalyzer.analyze(
+      pack({ intents: ["x.a", "x.b"], allowedIntents: ["x.a", "x.b"] }),
+      [probe],
+    );
+    expect(full.some((x) => x.detail?.rule === "probe_coverage_floor")).toBe(false);
+    // x.sys is system-only (elevated taint) → excluded from the coverage denominator.
+    const withSys = compositionReachabilityAnalyzer.analyze(
+      pack({
+        intents: ["x.a", "x.sys"],
+        allowedIntents: ["x.a"],
+        taint: (k) => (k === "x.sys" ? "TRUSTED" : "UNTRUSTED"),
+      }),
+      [probe],
+    );
+    expect(withSys.some((x) => x.detail?.rule === "probe_coverage_floor")).toBe(false);
+  });
+
+  it("flags threshold_unreachable when the planner offers no intents", () => {
+    const d = compositionReachabilityAnalyzer.analyze(
+      pack({ business: [thresholdGuard("t", 10, ">=")], allowedIntents: [] }),
+      [probe],
+    );
+    expect(rules(d)).toContain("threshold_unreachable");
+  });
+
+  it("flags threshold_redundancy for same-phase same-direction subsumed bounds (advisory note)", () => {
+    const d = compositionReachabilityAnalyzer.analyze(
+      pack({
+        business: [thresholdGuard("strict", 10, ">="), thresholdGuard("weak", 5, ">=")],
+        allowedIntents: ["x.create"],
+      }),
+      [probe],
+    );
+    const red = d.find((x) => x.detail?.rule === "threshold_redundancy");
+    expect(red?.severity).toBe("note");
+    expect(red?.detail).toMatchObject({
+      redundant: "business[1]",
+      dominating: "business[0]",
+      unverifiableField: true,
+    });
+  });
+
+  it("does not flag redundancy across opposite directions (that is AJD-301 threshold_conflict's domain)", () => {
+    const d = compositionReachabilityAnalyzer.analyze(
+      pack({
+        business: [thresholdGuard("lo", 10, ">="), thresholdGuard("hi", 50, "<=")],
+        allowedIntents: ["x.create"],
+      }),
+      [probe],
+    );
+    expect(rules(d)).not.toContain("threshold_redundancy");
+  });
+
+  it("is deterministic and probe-order-insensitive", () => {
+    const p = pack({
+      intents: ["x.a", "x.b"],
+      allowedIntents: ["x.a"],
+      business: [thresholdGuard("a", 10, ">="), thresholdGuard("b", 5, ">=")],
+    });
+    const A: PlannerProbe[] = [
+      { label: "a", state: {}, context: {} },
+      { label: "b", state: {}, context: {} },
+    ];
+    expect(JSON.stringify(compositionReachabilityAnalyzer.analyze(p, A))).toBe(
+      JSON.stringify(compositionReachabilityAnalyzer.analyze(p, [...A].reverse())),
+    );
+  });
+});
+
+describe("CompositionEscalationCycle (AJD-303)", () => {
+  it("detectEscalationCycles finds back-edge cycles and ignores a DAG", () => {
+    expect(
+      detectEscalationCycles([
+        { from: "a", to: "b" },
+        { from: "b", to: "a" },
+      ]),
+    ).toEqual([["a", "b", "a"]]);
+    expect(
+      detectEscalationCycles([
+        { from: "a", to: "b" },
+        { from: "b", to: "c" },
+      ]),
+    ).toEqual([]);
+    expect(detectEscalationCycles([{ from: "a", to: "a" }])).toEqual([["a", "a"]]);
+  });
+
+  it("is a sound no-op on packs today (no escalation-target metadata → no edges)", () => {
+    const d = compositionEscalationCycleAnalyzer.analyze(
+      pack({ business: [thresholdGuard("t", 10, ">=")], allowedIntents: ["x.create"] }),
+      [probe],
+    );
+    expect(d).toHaveLength(0);
+  });
+});
+
+describe("Tier-3 pipeline wiring", () => {
+  it("runs AJD-302 (advisory) alongside AJD-301 when probes are supplied; never gating", () => {
+    const p = pack({ intents: ["x.a", "x.b"], allowedIntents: ["x.a"] });
+    const report = analyzePolicy({ pack: p, plannerProbes: [probe] });
+    expect(report.diagnostics.some((d) => d.code === "AJD-302")).toBe(true);
+    expect(report.diagnostics.filter((d) => d.code === "AJD-302" && d.severity === "error")).toHaveLength(0);
   });
 });

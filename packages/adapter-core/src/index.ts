@@ -110,6 +110,20 @@ export {
   sha256Canonical,
   timingSafeHexEqual,
 } from "@adjudicate/core";
+// 023 — resource-binding verifier surfaced at the executor-seam package so the
+// binding gate (`runExecute`) and adopters pin ONE recipe: `verifyResourceBinding`
+// re-derives the envelope's `intentHash` via the untouched `intentHashInput`
+// recipe (`deriveIntentHash`) and compares constant-time via `timingSafeHexEqual`.
+// The executor honors ONLY the kernel-bound payload (anti-IDOR / anti-resource-swap).
+export {
+  DEFAULT_RESOURCE_BINDING_POLICY,
+  deriveIntentHash,
+  verifyResourceBinding,
+} from "@adjudicate/core";
+export type {
+  ResourceBindingPolicy,
+  ResourceBindingResult,
+} from "@adjudicate/core";
 export {
   createPostgresMemoryStore,
   type CreatePostgresMemoryStoreOptions,

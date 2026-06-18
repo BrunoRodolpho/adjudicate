@@ -234,6 +234,118 @@ describe("translateDecision (adapter-core)", () => {
   });
 });
 
+// ── 023: resource-binding at the executor seam (anti-IDOR) ───────────────────
+//
+// The executor must honor ONLY the kernel-bound (signed) payload. `runExecute`
+// re-derives the envelope's intentHash and constant-time-compares it BEFORE
+// invokeIntent: a payload / resourceRefs swapped AFTER the kernel decision
+// fail-closes and the executor is NOT reached (invariants #1, #6). These tests
+// integrate with the SAME seam shared by 011 (REWRITE re-verify) / 012 (read
+// routing) / 013 (required sink) — none is weakened.
+describe("023 resource-binding (executor honors the kernel-bound payload)", () => {
+  it("EXECUTE on a correctly-bound envelope → invokeIntent reached, executes", async () => {
+    const ctx = buildContext();
+    const t = await translateDecision({ ...ctx, decision: decisionExecute([]) });
+    expect(ctx.executor.invokeIntent).toHaveBeenCalledWith(envelope, {});
+    expect(t.toolResult?.isError).toBeUndefined();
+  });
+
+  it("ANTI-IDOR: an EXECUTE whose payload was swapped after the decision → NOT reached, fail-closed", async () => {
+    // The kernel decided EXECUTE over `envelope`. A swap substitutes a different
+    // payload (a bigger refund) while keeping the stale, kernel-bound intentHash
+    // — exactly the resource-swap an LLM would attempt between decision and
+    // execution. The binding re-derives a different hash and refuses.
+    const swapped: IntentEnvelope<"pix.charge.refund", Payload> = {
+      ...envelope,
+      payload: { amountCentavos: 999_999 }, // intentHash now stale
+    };
+    expect(deriveIntentHash(swapped)).not.toBe(swapped.intentHash); // proof it's a swap
+    const ctx = buildContext();
+    const t = await translateDecision({
+      ...ctx,
+      decision: decisionExecute([]),
+      envelope: swapped,
+    });
+    // Non-vacuous: the executor is NEVER invoked, and a binding-mismatch error
+    // surfaces. (Without 023 the swapped payload would have been executed.)
+    expect(ctx.executor.invokeIntent).not.toHaveBeenCalled();
+    expect(t.loopAction).toEqual({ kind: "continue" });
+    expect(t.toolResult?.isError).toBe(true);
+    expect(t.toolResult?.content).toContain("resource binding mismatch");
+  });
+
+  it("ANTI-IDOR: a resourceRefs account swap → NOT reached (031 authorization target bound)", async () => {
+    // The classic IDOR: keep the refund amount, repoint the `account` target at
+    // a victim's account after the kernel decided.
+    const bound = buildEnvelope<"pix.charge.refund", Payload>({
+      kind: "pix.charge.refund",
+      payload: { amountCentavos: 5000 },
+      nonce: "n-refs",
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "UNTRUSTED",
+      resourceRefs: { account: "acct_OWNER" },
+    });
+    const swappedRefs: IntentEnvelope<"pix.charge.refund", Payload> = {
+      ...bound,
+      resourceRefs: { account: "acct_VICTIM" }, // hash now stale
+    };
+    const ctx = buildContext();
+    const t = await translateDecision({
+      ...ctx,
+      decision: decisionExecute([]),
+      envelope: swappedRefs,
+    });
+    expect(ctx.executor.invokeIntent).not.toHaveBeenCalled();
+    expect(t.toolResult?.isError).toBe(true);
+  });
+
+  it("REWRITE path still re-verifies (011 coexistence): a valid rewritten envelope binds and executes", async () => {
+    const ctx = buildContext();
+    const t = await translateDecision({
+      ...ctx,
+      decision: decisionRewrite(rewrittenEnvelope, "amount clamped", []),
+    });
+    // 011 contract intact: the executor runs the REWRITTEN bytes (re-verified by
+    // the same binding fence) — not the original.
+    expect(ctx.executor.invokeIntent).toHaveBeenCalledWith(rewrittenEnvelope, {});
+    expect(t.toolResult?.isError).toBeUndefined();
+  });
+
+  it("policy=off restores the pre-023 seam: a swapped payload executes (rollback dial)", async () => {
+    // The documented rollback (§7): with the binding disabled the executor seam
+    // behaves exactly as pre-023. This proves the gate is what blocks the swap.
+    const swapped: IntentEnvelope<"pix.charge.refund", Payload> = {
+      ...envelope,
+      payload: { amountCentavos: 999_999 },
+    };
+    const ctx = buildContext();
+    const t = await translateDecision({
+      ...ctx,
+      decision: decisionExecute([]),
+      envelope: swapped,
+      resourceBindingPolicy: "off",
+    });
+    expect(ctx.executor.invokeIntent).toHaveBeenCalledWith(swapped, {});
+    expect(t.toolResult?.isError).toBeUndefined();
+  });
+
+  it("policy=warn still fail-closes a swap (friction never decreases, §C)", async () => {
+    const swapped: IntentEnvelope<"pix.charge.refund", Payload> = {
+      ...envelope,
+      payload: { amountCentavos: 999_999 },
+    };
+    const ctx = buildContext();
+    const t = await translateDecision({
+      ...ctx,
+      decision: decisionExecute([]),
+      envelope: swapped,
+      resourceBindingPolicy: "warn",
+    });
+    expect(ctx.executor.invokeIntent).not.toHaveBeenCalled();
+    expect(t.toolResult?.isError).toBe(true);
+  });
+});
+
 // ── 012: READ through the kernel ────────────────────────────────────────────
 
 const permissiveTaint: TaintPolicy = { minimumFor: () => "UNTRUSTED" };

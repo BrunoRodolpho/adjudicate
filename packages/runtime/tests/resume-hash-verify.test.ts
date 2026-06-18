@@ -11,11 +11,12 @@
  * and comparing to the stored `intentHash`.
  */
 import { describe, expect, it } from "vitest"
-import { buildEnvelope, sha256Canonical } from "@adjudicate/core"
+import { buildEnvelope, deriveIntentHash, sha256Canonical } from "@adjudicate/core"
 import {
   parkDeferredIntent,
   resumeDeferredIntent,
   verifyParkedEnvelopeHash,
+  verifyResourceBinding,
   type DeferRedis,
   type ParkRedis,
   type ParkedEnvelope,
@@ -372,5 +373,74 @@ describe("verifyParkedEnvelopeHash unit tests", () => {
       origin: ENVELOPE.origin,
     })
     expect(derived).toBe(ENVELOPE.intentHash)
+  })
+})
+
+/**
+ * 023 T4 — drift cross-check: the resource-binding pre-image
+ * (`verifyResourceBinding` / `deriveIntentHash`) and the parked-envelope
+ * pre-image (`verifyParkedEnvelopeHash`) MUST be the SAME canonical recipe. If
+ * they diverge, the executor seam would honor a payload the resume path rejects
+ * (or vice-versa) and replay (#5) breaks. This pins they re-derive the SAME hash
+ * for the SAME envelope (non-vacuous: it equals the stored intentHash).
+ */
+describe("023 — resource-binding pre-image equals the parked-envelope pre-image (no drift)", () => {
+  it("both verifiers re-derive the SAME intentHash for the same envelope", () => {
+    // The parked-envelope verifier's pre-image (re-derived inside it).
+    const parkedPreimage = sha256Canonical({
+      version: ENVELOPE.version,
+      kind: ENVELOPE.kind,
+      payload: ENVELOPE.payload,
+      nonce: ENVELOPE.nonce,
+      actor: ENVELOPE.actor,
+      taint: ENVELOPE.taint,
+      origin: ENVELOPE.origin,
+    })
+    // The resource-binding verifier's pre-image (deriveIntentHash).
+    const bindingPreimage = deriveIntentHash(ENVELOPE)
+    expect(bindingPreimage).toBe(parkedPreimage)
+    expect(bindingPreimage).toBe(ENVELOPE.intentHash)
+
+    // And both verifiers agree the honest envelope is intact/bound.
+    expect(verifyResourceBinding(ENVELOPE).bound).toBe(true)
+    const parked: ParkedEnvelope = {
+      envelope: {
+        intentHash: ENVELOPE.intentHash,
+        kind: ENVELOPE.kind,
+        actor: { sessionId: ENVELOPE.actor.sessionId },
+        payload: ENVELOPE.payload,
+        version: ENVELOPE.version,
+        nonce: ENVELOPE.nonce,
+        taint: ENVELOPE.taint,
+        actorPrincipal: ENVELOPE.actor.principal,
+        origin: ENVELOPE.origin,
+      },
+      signal: "any",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    expect(verifyParkedEnvelopeHash(parked).verified).toBe(true)
+  })
+
+  it("a payload swap breaks BOTH verifiers identically (shared fence)", () => {
+    const swapped = { ...ENVELOPE, payload: { amountCentavos: 999_999_999 } }
+    // Resource-binding: not bound.
+    expect(verifyResourceBinding(swapped).bound).toBe(false)
+    // Parked-envelope verifier over the same swapped content + stale stored hash.
+    const tamperedParked: ParkedEnvelope = {
+      envelope: {
+        intentHash: ENVELOPE.intentHash, // stale (bound to original payload)
+        kind: ENVELOPE.kind,
+        actor: { sessionId: ENVELOPE.actor.sessionId },
+        payload: swapped.payload,
+        version: ENVELOPE.version,
+        nonce: ENVELOPE.nonce,
+        taint: ENVELOPE.taint,
+        actorPrincipal: ENVELOPE.actor.principal,
+        origin: ENVELOPE.origin,
+      },
+      signal: "any",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    expect(verifyParkedEnvelopeHash(tamperedParked).verified).toBe(false)
   })
 })

@@ -98,6 +98,51 @@ describe("@adjudicate/canonical — 021 capability pre-image lock", () => {
   });
 });
 
+describe("@adjudicate/canonical — 023 resource-binding pre-image lock", () => {
+  // 023 binds the executor to the kernel-decided payload by re-deriving the
+  // envelope `intentHash` (the `intentHashInput` recipe) and comparing it
+  // constant-time. The binding pre-image is EXACTLY the intentHash pre-image —
+  // the same canonical recipe `verifyParkedEnvelopeHash` and the kernel use — so
+  // it MUST stay golden-vector-locked or the executor seam would honor a payload
+  // the kernel never signed. These literals match the pinned envelope vectors.
+  const preimageNoRefs = {
+    version: 2,
+    kind: "order.submit",
+    payload: { sku: "X", qty: 2 },
+    nonce: "n-1",
+    actor: { principal: "llm", sessionId: "s-1" },
+    taint: "UNTRUSTED",
+  };
+  const preimageWithRefs = {
+    ...preimageNoRefs,
+    resourceRefs: { account: "acct_7", owner: "user_42" },
+  };
+
+  it("the binding pre-image (no resource-refs) is golden-vector-locked", () => {
+    // Identical bytes to the pinned `envelope-hash-recipe` golden vector — the
+    // executor-seam binding re-derives THIS hash.
+    expect(sha256Canonical(preimageNoRefs)).toBe(
+      "cd017dd347b4a8c4c748f7a064788f82eb30fd240d6667873b16cefeb4ed4bc0",
+    );
+  });
+
+  it("the binding pre-image WITH resource-refs is golden-vector-locked (031 target bound)", () => {
+    // Present resource-refs ARE part of the binding pre-image, so an account
+    // swap re-derives a different hash and fail-closes the executor (anti-IDOR).
+    expect(sha256Canonical(preimageWithRefs)).toBe(
+      "8368d0df30f07c8624f36eb26d2edbbd19364b0293f595e958e99e44135add40",
+    );
+  });
+
+  it("a swapped resource-ref re-derives a DIFFERENT binding hash (the fence bites)", () => {
+    const swapped = {
+      ...preimageWithRefs,
+      resourceRefs: { account: "acct_VICTIM", owner: "user_42" },
+    };
+    expect(sha256Canonical(swapped)).not.toBe(sha256Canonical(preimageWithRefs));
+  });
+});
+
 describe("@adjudicate/canonical — 031 v3 resource-refs drop-safety", () => {
   // The envelope-hash recipe MINUS resourceRefs (the existing
   // `envelope-hash-recipe` golden vector). The v3 `envelope-with-resource-refs`

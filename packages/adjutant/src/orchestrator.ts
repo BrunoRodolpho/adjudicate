@@ -18,7 +18,7 @@
  *     (incident now terminal), the kernel REFUSEs and nothing executes.
  */
 
-import { buildEnvelope } from "@adjudicate/core";
+import { buildEnvelope, verifyResourceBinding } from "@adjudicate/core";
 import type {
   AuditRecord,
   AuditSink,
@@ -55,6 +55,31 @@ function defaultGenerateToken(): string {
     );
   }
   return globalThis.crypto.randomUUID();
+}
+
+/**
+ * 023 — resource-binding fence at the Adjutant executor seam. Adjutant invokes
+ * the adopter's `invokeIntent` DIRECTLY (it has no `runExecute`), so the same
+ * binding the adapter-core loop enforces must hold here: the executor honors ONLY
+ * the kernel-bound payload. Re-derive the envelope's `intentHash` from its own
+ * content and constant-time-compare it (`verifyResourceBinding`); a mismatch —
+ * a `payload` / `resourceRefs` swapped after the kernel decided (anti-IDOR) —
+ * THROWS before the side effect so the executor is never reached (invariants #1,
+ * #6). The envelopes Adjutant executes are always the kernel-returned ones
+ * (the original on EXECUTE, `decision.rewritten` folded into `envelope` on
+ * REWRITE), so a well-formed flow always passes; this fences a forged/swapped one.
+ */
+function assertResourceBound(
+  envelope: IntentEnvelope<IncidentIntentKind>,
+): void {
+  const binding = verifyResourceBinding(envelope as IntentEnvelope);
+  if (!binding.bound) {
+    throw new Error(
+      `[adjutant] resource-binding mismatch — refusing to execute ` +
+        `(intentHash ${binding.stored} does not re-derive from the envelope content; ` +
+        `derived ${binding.derived || "<uncanonicalizable>"}). Anti-IDOR fence (023).`,
+    );
+  }
 }
 
 export interface RemediationOrchestratorOptions {
@@ -249,6 +274,8 @@ export function createRemediationOrchestrator(
           continue;
         }
         if (decision.kind === "EXECUTE") {
+          // 023 — honor only the kernel-bound payload (anti-IDOR).
+          assertResourceBound(envelope);
           executorResult = await options.executor.invokeIntent(envelope, state);
           executed = true;
           executedEnvelope = envelope;
@@ -313,6 +340,8 @@ export function createRemediationOrchestrator(
         });
         decision = res.decision;
         if (decision.kind === "EXECUTE") {
+          // 023 — honor only the kernel-bound payload (anti-IDOR).
+          assertResourceBound(env);
           executorResult = await options.executor.invokeIntent(env, state);
           executed = true;
         }

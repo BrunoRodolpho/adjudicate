@@ -505,3 +505,85 @@ export function reconcileNonceHash(
 ): boolean {
   return timingSafeHexEqual(deriveIntentHash(envelope), presentedHash);
 }
+
+// ── 023 — resource-binding verifier (executor honors the signed payload) ─────
+
+/**
+ * Resource-binding verification policy (023 §3). Mirrors the parked-envelope
+ * verifier's `verifyHash` dial (`packages/runtime/src/defer-resume.ts`) so the
+ * two paths cannot drift in semantics:
+ *   - `"strict"` (default) — a binding mismatch fail-closes the EXECUTE; the
+ *     executor is NOT invoked (invariant #1, #6).
+ *   - `"warn"` — a binding mismatch STILL fail-closes (the executor is never
+ *     invoked on a mismatch — friction never decreases, §C); `warn` exists only
+ *     as a staged-rollout dial parity with `defer-resume.ts`, but it does NOT
+ *     weaken the gate.
+ *   - `"off"` — no verification (revert/rollback dial; NOT recommended in
+ *     production — restores the pre-023 executor seam exactly).
+ */
+export type ResourceBindingPolicy = "strict" | "warn" | "off";
+
+export const DEFAULT_RESOURCE_BINDING_POLICY: ResourceBindingPolicy = "strict";
+
+/**
+ * Result of a resource-binding check:
+ *   - `{ bound: true }` — the re-derived `intentHash` matches `envelope.intentHash`;
+ *     the executor may honor this exact (kernel-bound) payload.
+ *   - `{ bound: false, derived, stored }` — the re-derived hash does NOT match;
+ *     the envelope's payload / resource-refs were swapped or tampered after the
+ *     kernel decision (anti-IDOR / anti-resource-swap). Fail-closed: the executor
+ *     MUST NOT be invoked.
+ */
+export type ResourceBindingResult =
+  | { readonly bound: true }
+  | { readonly bound: false; readonly derived: string; readonly stored: string };
+
+/**
+ * 023 — verify that an envelope's payload is bound to the kernel-decided
+ * `intentHash` before the executor is invoked.
+ *
+ * The threat this closes (anti-IDOR / anti-resource-swap): the kernel decides
+ * EXECUTE over one envelope, but the LLM (or any code between the decision and
+ * the side effect) substitutes a DIFFERENT resource — swapping `payload` or
+ * `resourceRefs` (031, the per-kind authorization target) to point at someone
+ * else's account. Because `intentHash` content-addresses
+ * `(version, kind, payload, nonce, actor, taint, origin, resourceRefs)` (§D #4),
+ * a swapped resource re-derives a DIFFERENT hash. Re-deriving here and comparing
+ * against the carried `envelope.intentHash` detects the swap fail-closed.
+ *
+ * **Reuse, do not fork (023 §3 / T4).** This deliberately calls the SAME
+ * `deriveIntentHash` recipe `buildEnvelope` constructs with (the `intentHashInput`
+ * pre-image is NOT touched, so the binding excludes `createdAt` and binds
+ * resource-refs exactly as the parked-envelope verifier and the kernel's
+ * step-1b gate do — invariant #4, #5). The constant-time comparator is
+ * `timingSafeHexEqual` (no early-exit forgery oracle; returns `false`, never
+ * throws, on a non-string / length mismatch — §D #6).
+ *
+ * **Determinism fence (§D #5).** Re-derivation excludes `createdAt` and reuses
+ * `sha256Canonical` (@adjudicate/canonical), so a bound envelope replays
+ * byte-identically; the check is observation-then-gate — it never rewrites the
+ * payload nor weakens any other outcome.
+ *
+ * **`deriveIntentHash` can throw** on a non-canonicalizable payload (a non-finite
+ * number, per RFC 8785 §3.2.2.3). That is caught and reported as `bound: false`
+ * with an empty `derived` — a payload that cannot even be canonicalized cannot
+ * be the kernel-bound one, so it fail-closes (no executor invocation).
+ *
+ * Pure: no I/O, no clock, no `node:crypto`. Browser-bundleable (the executor
+ * seam that consumes this lives in the impure adapter-core shell, §D).
+ */
+export function verifyResourceBinding(
+  envelope: IntentEnvelope,
+): ResourceBindingResult {
+  let derived: string;
+  try {
+    derived = deriveIntentHash(envelope);
+  } catch {
+    // A payload that cannot be canonicalized cannot match the kernel-bound hash.
+    return { bound: false, derived: "", stored: envelope.intentHash };
+  }
+  if (!timingSafeHexEqual(derived, envelope.intentHash)) {
+    return { bound: false, derived, stored: envelope.intentHash };
+  }
+  return { bound: true };
+}

@@ -1,3 +1,14 @@
+/**
+ * @adjudicate/pack-access-governance — CapabilityPlanner.
+ *
+ * **023 — bound payload at the executor seam.** An access intent this planner
+ * exposes (`access.request` / `access.revoke`) reaches the adopter's executor
+ * ONLY through the adapter-core loop's binding gate (`runExecute` /
+ * `verifyResourceBinding`): the executor honors ONLY the exact `payload` /
+ * `resourceRefs` (e.g. the grant / principal the revoke targets) the kernel
+ * adjudicated. An LLM that swaps the target after the decision fail-closes
+ * upstream and never reaches the executor (anti-IDOR; invariants #1, #6).
+ */
 import {
   filterReadOnly,
   safePlan,

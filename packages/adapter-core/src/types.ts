@@ -17,6 +17,7 @@ import type {
   IntentEnvelope,
   Ledger,
   PackV0,
+  ResourceBindingPolicy,
   StructuralMismatch,
   Taint,
 } from "@adjudicate/core";
@@ -138,6 +139,15 @@ export interface AdopterExecutor<K extends string, P, S> {
    * MUTATING surface. Reached only when a `{ kind: "intent" }`
    * `ToolClassification` was authorized by the kernel (`EXECUTE`/validated
    * `REWRITE`).
+   *
+   * **023 — resource-bound payload only.** The loop verifies the resource
+   * binding BEFORE this call: it re-derives `envelope.intentHash` from the
+   * envelope's own content and constant-time-compares it against the carried
+   * hash (`resourceBindingPolicy`, default `"strict"`). So `invokeIntent` is
+   * GUARANTEED to receive the EXACT payload the kernel adjudicated — a payload /
+   * resource-ref swapped after the decision fail-closes upstream and never
+   * reaches this surface (anti-IDOR). The executor may honor the envelope's
+   * `payload` / `resourceRefs` as authoritative.
    */
   invokeIntent(envelope: IntentEnvelope<K, P>, state: S): Promise<unknown>;
 }
@@ -327,6 +337,21 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
    * verification fields fails closed rather than resuming with a warning.
    */
   readonly verifyParkedHash?: "strict" | "warn" | "off";
+  /**
+   * 023 — resource-binding policy enforced at the executor seam (`runExecute`)
+   * before `invokeIntent`. The executor honors ONLY the kernel-bound (signed)
+   * payload: the loop re-derives the envelope's `intentHash` from its own content
+   * (the untouched `intentHashInput` recipe — invariant #4) and constant-time-
+   * compares it against the carried hash via `timingSafeHexEqual`. A mismatch —
+   * the LLM swapped `payload` / `resourceRefs` (031) AFTER the kernel decided —
+   * fail-closes the EXECUTE so the executor is never reached (anti-IDOR /
+   * anti-resource-swap; invariants #1, #6).
+   *
+   * Defaults to `"strict"` (inside `runExecute`). `"warn"` still fail-closes on a
+   * mismatch (friction never decreases, §C); `"off"` is the rollback dial that
+   * restores the exact pre-023 executor seam (023 §7).
+   */
+  readonly resourceBindingPolicy?: ResourceBindingPolicy;
   /**
    * Optional low-cardinality trace sink. The loop emits one event per
    * iteration/decision/pause; sink must NOT throw. Defaults to no-op.

@@ -32,6 +32,7 @@ import { basis, BASIS_CODES } from "../basis-codes.js";
 import {
   attachAuditMetadata,
   buildAuditRecord,
+  rewriteExecutedSupersession,
   type AuditPlanSnapshot,
   type AuditRecord,
   type Supersession,
@@ -50,6 +51,7 @@ import {
 import { refuse } from "../refusal.js";
 import { type AuditSink } from "../sink.js";
 import {
+  adjudicate,
   adjudicateWithTrace,
   type AdjudicationTraceEntry,
 } from "./adjudicate.js";
@@ -394,6 +396,15 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // `deps.supersedes` (set by adapters for defer_resumed / rewrite_executed /
   // replay) always wins over this auto-derivation.
   let confirmationSupersedes: Supersession | undefined;
+  // 011/T2: the envelope whose bytes actually execute and get recorded/claimed.
+  // For a plain EXECUTE this is the original `envelope`; for a kernel REWRITE
+  // that re-adjudicated to a second-pass EXECUTE it becomes `decision.rewritten`
+  // — the EXECUTED (rewritten) hash is the one the audit row indexes and the one
+  // that claims a ledger key (replay protection for the bytes that ran).
+  let executedEnvelope: IntentEnvelope = envelope as IntentEnvelope;
+  // 011/T2: auto-derived `rewrite_executed` supersession linking the executed
+  // (rewritten) audit row back to the ORIGINAL benign hash for provenance.
+  let rewriteSupersedes: Supersession | undefined;
   // ConcurrencyReviewer-002: track whether THIS call claimed the ledger key
   // (recordExecution returned "acquired"). Set true only inside the
   // recordExecution block below. Never set on the REPLAY_SUPPRESSED racing
@@ -456,8 +467,73 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       };
     }
 
+    // ── 2b. REWRITE re-adjudication (011/T2) ─────────────────────────
+    // A kernel REWRITE substitutes a sanitized envelope but is NOT itself
+    // authorization to execute. Re-enter the PURE kernel ONCE on the rewritten
+    // envelope so its intentHash is re-derived fail-closed and the full
+    // state→taint→auth→business→default order runs against the EXECUTED bytes.
+    // Only a second-pass EXECUTE lets the rewritten envelope flow to the
+    // executor (invariant #1); any other second-pass outcome (REFUSE, ESCALATE,
+    // a taint-elevation block, or a second REWRITE) becomes THE decision and the
+    // rewritten envelope never executes.
+    //
+    // Bounded to a SINGLE pass (plan §7 loop risk): the re-adjudication uses the
+    // pure `adjudicate()` with no REWRITE re-entry of its own, so a rewritten
+    // envelope that itself yields REWRITE is collapsed to REFUSE here rather
+    // than recursing.
+    if (decision.kind === "REWRITE") {
+      const original = decision;
+      // REWRITE is scope-restricted to payload sanitization and never changes
+      // `kind` (decision.ts contract), so the rewritten envelope is the same
+      // (K, P) as the original — sound to re-adjudicate against the same policy.
+      const rewritten = original.rewritten as IntentEnvelope<K, P>;
+      const second = adjudicate(rewritten, state, policy);
+      if (second.kind === "EXECUTE") {
+        // The rewritten envelope is authorized. Keep the REWRITE decision so the
+        // adapter executes the rewritten bytes, but switch the recorded/claimed
+        // subject to the EXECUTED (rewritten) envelope and link it back to the
+        // original via a `rewrite_executed` supersession.
+        executedEnvelope = rewritten as IntentEnvelope;
+        rewriteSupersedes = rewriteExecutedSupersession(
+          envelope.intentHash,
+          clock.nowIso(),
+        );
+      } else {
+        // The rewritten envelope failed re-adjudication (incl. a second REWRITE,
+        // collapsed to REFUSE below). Fail closed — the substitution is NOT
+        // executed; the second-pass decision stands, recorded against the
+        // original envelope.
+        decision =
+          second.kind === "REWRITE"
+            ? decisionRefuse(
+                refuse(
+                  "SECURITY",
+                  "guard_panic",
+                  "System is temporarily unavailable.",
+                  "REWRITE re-adjudicated to a second REWRITE; bounded to a single pass (refused)",
+                ),
+                [
+                  ...second.basis,
+                  basis("kernel", BASIS_CODES.kernel.GUARD_PANIC, {
+                    phase: "rewrite",
+                    reason: "rewrite_loop_bounded",
+                  }),
+                ],
+              )
+            : second;
+      }
+    }
+
     // ── 3. EXECUTE-race fix: claim the ledger key ───────────────────
-    if (decision.kind === "EXECUTE" && deps.ledger) {
+    // Lifted (011/T2) to cover the validated-REWRITE path: the claim key is the
+    // EXECUTED (rewritten) hash, not the original. Only ONE hash claims a key
+    // (plan §7 double-claim risk) — for a plain EXECUTE `executedEnvelope` IS the
+    // original; for a REWRITE→EXECUTE it is the rewritten envelope and the
+    // original benign hash is never claimed.
+    const claimsLedger =
+      decision.kind === "EXECUTE" ||
+      (decision.kind === "REWRITE" && executedEnvelope !== (envelope as IntentEnvelope));
+    if (claimsLedger && deps.ledger) {
       const recordStart = clock.nowMs();
       // LogicReviewer-013: `""` is the load-bearing sentinel for "no resolver
       // wired, or resolver returned nothing" — recordExecution stores it as the
@@ -465,19 +541,19 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       // claim. It is NOT a placeholder for a real version; downstream readers
       // distinguish `""` (no version known) from a concrete row version.
       const resourceVersion =
-        deps.resolveResourceVersion?.(envelope as IntentEnvelope, state) ?? "";
+        deps.resolveResourceVersion?.(executedEnvelope, state) ?? "";
       const outcome = await deps.ledger.recordExecution({
-        intentHash: envelope.intentHash,
+        intentHash: executedEnvelope.intentHash,
         resourceVersion,
-        sessionId: envelope.actor.sessionId,
-        kind: envelope.kind,
+        sessionId: executedEnvelope.actor.sessionId,
+        kind: executedEnvelope.kind,
       });
       emitLedgerOp({
         op: "record",
         outcome: outcome === "acquired" ? "ok" : "duplicate",
-        intentKind: envelope.kind,
+        intentKind: executedEnvelope.kind,
         latencyMs: clock.nowMs() - recordStart,
-        intentHash: envelope.intentHash,
+        intentHash: executedEnvelope.intentHash,
       });
       if (outcome === "acquired") {
         // This call won the SET-NX — record that so the audit-emit catch can
@@ -492,10 +568,10 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         const synthetic: LedgerHit = {
           resourceVersion,
           at: clock.nowIso(),
-          sessionId: envelope.actor.sessionId,
-          kind: envelope.kind,
+          sessionId: executedEnvelope.actor.sessionId,
+          kind: executedEnvelope.kind,
         };
-        decision = replaySuppressedRefusal(envelope.intentHash, synthetic);
+        decision = replaySuppressedRefusal(executedEnvelope.intentHash, synthetic);
       }
     }
   }
@@ -556,13 +632,21 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   }
 
   // ── 6. Audit emission ──────────────────────────────────────────────
-  const supersedes = deps.supersedes ?? confirmationSupersedes;
+  // Supersedes precedence: an explicit `deps.supersedes` always wins; otherwise
+  // the 011/T2 auto-derived `rewrite_executed` link (when the REWRITE executed)
+  // takes priority over the confirmation_resolved auto-derivation.
+  const supersedes =
+    deps.supersedes ?? rewriteSupersedes ?? confirmationSupersedes;
   const kernelIdentity = ctx?.kernelIdentity
     ? { id: ctx.kernelIdentity.id, version: ctx.kernelIdentity.version }
     : undefined;
+  // 011/T2: the durable audit row's subject is the EXECUTED envelope — for a
+  // validated REWRITE that is the rewritten envelope, so the indexed
+  // `intentHash` equals the bytes that ran (not the original benign hash). The
+  // `rewrite_executed` supersession preserves the original→rewritten provenance.
   const record = applyMeta(
     buildAuditRecord({
-      envelope,
+      envelope: executedEnvelope,
       decision,
       durationMs,
       at: clock.nowIso(),
@@ -590,13 +674,15 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     // This is error-path-only cleanup: the success path is untouched, so no
     // Decision / AuditRecord / hash byte moves.
     if (ledgerAcquired && deps.ledger) {
+      // 011/T2: release the EXECUTED hash (the one actually claimed) — for a
+      // validated REWRITE that is the rewritten hash, not the original.
       if (typeof deps.ledger.release === "function") {
         try {
-          await deps.ledger.release(envelope.intentHash);
+          await deps.ledger.release(executedEnvelope.intentHash);
         } catch (releaseErr) {
           emitSinkFailure({
             sink: "ledger",
-            subject: envelope.intentHash,
+            subject: executedEnvelope.intentHash,
             errorClass:
               releaseErr instanceof Error ? releaseErr.name : "Error",
             consecutiveFailures: 1,
@@ -606,7 +692,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         // Ledger does not support release — emit an observable orphan signal.
         emitSinkFailure({
           sink: "ledger",
-          subject: envelope.intentHash,
+          subject: executedEnvelope.intentHash,
           errorClass: "ledger_orphaned",
           consecutiveFailures: 1,
         });
@@ -614,7 +700,15 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     }
     throw emitErr;
   } finally {
-    if (decision.kind !== "EXECUTE" && deps.rateLimitRollback) {
+    // 011/T2: a validated REWRITE executes the rewritten bytes (a side effect),
+    // so for rate-limit-rollback purposes it is "executing" just like EXECUTE —
+    // do NOT roll back the counter for it. Only genuinely non-executing
+    // decisions (REFUSE/ESCALATE/DEFER/REQUEST_CONFIRMATION, or a REWRITE that
+    // failed re-adjudication) roll back.
+    const decisionExecutes =
+      decision.kind === "EXECUTE" ||
+      (decision.kind === "REWRITE" && executedEnvelope !== (envelope as IntentEnvelope));
+    if (!decisionExecutes && deps.rateLimitRollback) {
       try {
         await deps.rateLimitRollback();
       } catch (err) {

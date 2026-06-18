@@ -14,7 +14,7 @@
  * | Surface | When it runs | What it does | Blocking? |
  * |---|---|---|---|
  * | `assertPackConformance(pack, opts)` | **boot-time, sync** | Structural: required fields present, intents/basisCodes non-empty + unique, default polarity opt-in. | **Yes** — throws `PackConformanceError`. |
- * | `withBasisAudit(pack)` wrapper | **runtime, every decision** | Telemetry: REFUSE/basis/REWRITE-taint/DEFER-signal drift recorded as `recordSinkFailure(…)`. | **No** — Decisions pass through unchanged. |
+ * | `withBasisAudit(pack)` wrapper | **runtime, every decision** | Telemetry: REFUSE/basis/REWRITE-taint/DEFER-signal drift recorded as `recordSinkFailure(…)`. A taint-elevating REWRITE additionally fails closed to a SECURITY REFUSE (011/T5). | **Only** the taint-elevating REWRITE — all other drift passes through. |
  * | `runConformance(pack, opts)` from `@adjudicate/conformance` | **CI / boot-time, sync** | Property: probes many synthetic envelopes against the policy and asserts replay-determinism, taint protection, basis-vocabulary purity, guard ordering. | **Returns a report; caller decides.** |
  *
  * The first two live in this module. The third is in `@adjudicate/conformance`
@@ -40,12 +40,13 @@
  * taxonomy.
  */
 
-import { isKnownBasisCode } from "./basis-codes.js";
-import type { Decision } from "./decision.js";
+import { basis, BASIS_CODES, isKnownBasisCode } from "./basis-codes.js";
+import { decisionRefuse, type Decision } from "./decision.js";
 import type { IntentEnvelope } from "./envelope.js";
 import { recordSinkFailure } from "./kernel/metrics.js";
 import type { Guard, PolicyBundle } from "./kernel/policy.js";
 import type { PackV0 } from "./pack.js";
+import { refuse } from "./refusal.js";
 import { taintRank } from "./taint.js";
 
 /**
@@ -228,12 +229,14 @@ export function assertPackConformance<
  *   - Any decision with a basis category:code outside `BASIS_CODES`
  *     records `basis_vocabulary_drift`.
  *   - REWRITE with `rewritten.taint` of higher rank than `envelope.taint`
- *     records `rewrite_taint_regression`.
+ *     records `rewrite_taint_regression` AND fails closed to a SECURITY REFUSE
+ *     (011/T5) — a friction-decreasing rewrite is blocked, not merely observed.
  *   - DEFER with a `signal` outside `pack.signals` (when declared)
  *     records `defer_signal_drift`.
  *
- * Decisions are returned unchanged. The wrapper mirrors the audit-fail-open
- * posture of the pre-T4 wrapper: drift is observed, not blocked.
+ * All drift surfaces EXCEPT the taint-elevating REWRITE are observe-only: those
+ * Decisions pass through unchanged. The taint-elevating REWRITE is the one
+ * monotonicity-violating case the wrapper now blocks (§C / invariant #7).
  */
 export function withBasisAudit<
   K extends string,
@@ -283,7 +286,17 @@ function wrapGuard<K extends string, P, S>(
   const wrapped = (envelope: IntentEnvelope<K, P>, state: S): Decision | null => {
     const decision: Decision | null = guard(envelope, state);
     if (decision !== null) {
-      auditDecision(decision, envelope, declaredCodes, declaredSignals, packId);
+      const substitute = auditDecision(
+        decision,
+        envelope,
+        declaredCodes,
+        declaredSignals,
+        packId,
+      );
+      // T5 (011): a taint-elevating REWRITE is no longer telemetry-only — the
+      // wrapper substitutes a fail-closed REFUSE so the friction-decreasing
+      // rewrite never reaches the kernel/executor (§C monotonicity, invariant #7).
+      if (substitute !== null) return substitute;
     }
     return decision;
   };
@@ -298,7 +311,7 @@ function auditDecision<K extends string, P>(
   declaredCodes: ReadonlySet<string>,
   declaredSignals: ReadonlySet<string> | null,
   packId: string,
-): void {
+): Decision | null {
   // ── 1. Refusal-code drift (existing behaviour). ───────────────────
   if (decision.kind === "REFUSE") {
     const code = decision.refusal.code;
@@ -324,7 +337,14 @@ function auditDecision<K extends string, P>(
     }
   }
 
-  // ── 3. T4: REWRITE taint regression. ─────────────────────────────
+  // ── 3. REWRITE taint regression — FAIL CLOSED (011/T5). ──────────
+  // A REWRITE whose `rewritten.taint` outranks the original `envelope.taint`
+  // is a friction-DECREASING substitution: it would launder UNTRUSTED-origin
+  // bytes into a higher trust band. §C monotonicity forbids any non-deterministic
+  // component lowering friction, so this is no longer telemetry-only — the
+  // wrapper records the regression AND returns a SECURITY REFUSE that the kernel
+  // sees instead of the rewrite (invariant #7). The kernel's own `gateRewrite`
+  // is the second, belt-and-suspenders layer for packs not wrapped here.
   if (decision.kind === "REWRITE") {
     if (taintRank(decision.rewritten.taint) > taintRank(envelope.taint)) {
       recordSinkFailure({
@@ -333,6 +353,22 @@ function auditDecision<K extends string, P>(
         errorClass: "rewrite_taint_regression",
         consecutiveFailures: 1,
       });
+      return decisionRefuse(
+        refuse(
+          "SECURITY",
+          "taint_level_insufficient",
+          "I can't perform this action with the information available.",
+          `Pack ${packId} REWRITE would elevate taint ${envelope.taint} -> ${decision.rewritten.taint} (blocked)`,
+        ),
+        [
+          ...decision.basis,
+          basis("taint", BASIS_CODES.taint.PROPAGATION_VIOLATION, {
+            original: envelope.taint,
+            rewritten: decision.rewritten.taint,
+            packId,
+          }),
+        ],
+      );
     }
   }
 
@@ -347,4 +383,6 @@ function auditDecision<K extends string, P>(
       });
     }
   }
+
+  return null;
 }

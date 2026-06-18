@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildEnvelope,
   decisionExecute,
   decisionRewrite,
   type ExecutorContract,
@@ -17,22 +18,25 @@ interface Payload {
 }
 type State = Record<string, never>;
 
-const envelope: IntentEnvelope<"pix.charge.refund", Payload> = {
-  version: 2,
+const envelope: IntentEnvelope<"pix.charge.refund", Payload> = buildEnvelope({
   kind: "pix.charge.refund",
   payload: { amountCentavos: 5000 },
   createdAt: "2026-04-29T12:00:00.000Z",
   nonce: "n-1",
   actor: { principal: "llm", sessionId: "s-1" },
   taint: "UNTRUSTED",
-  intentHash: "f".repeat(64),
-};
+});
 
-const rewritten: IntentEnvelope<"pix.charge.refund", Payload> = {
-  ...envelope,
+// 011/T4: a real content-addressed hash — runExecute re-verifies the rewritten
+// hash before executing, so the fixture must derive cleanly from its content.
+const rewritten: IntentEnvelope<"pix.charge.refund", Payload> = buildEnvelope({
+  kind: "pix.charge.refund",
   payload: { amountCentavos: 3000 },
-  intentHash: "e".repeat(64),
-};
+  createdAt: "2026-04-29T12:00:00.000Z",
+  nonce: "n-1",
+  actor: { principal: "llm", sessionId: "s-1" },
+  taint: "UNTRUSTED",
+});
 
 // Executor must return { refundId: string, refunded: number }.
 const contract: ExecutorContract = {
@@ -116,6 +120,31 @@ describe("executor output contract (item 1)", () => {
     }
     expect(first.intentHash).toBe(rewritten.intentHash);
     expect(first.mismatch.path).toBe("refundId");
+  });
+
+  it("REWRITE: executor receives ONLY the verified rewritten bytes, never the original (011/T2+T4)", async () => {
+    const ctx = buildContext({ result: { refundId: "r-1", refunded: 3000 } });
+    await translateDecision({ ...ctx, decision: decisionRewrite(rewritten, "clamped", []) });
+    const calls = (ctx.executor.invokeIntent as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    const handed = calls[0]?.[0] as IntentEnvelope;
+    // The executor sees the rewritten hash — the exact bytes the audited kernel
+    // re-adjudicated to a second-pass EXECUTE — and never the original proposal.
+    expect(handed.intentHash).toBe(rewritten.intentHash);
+    expect(handed.intentHash).not.toBe(envelope.intentHash);
+  });
+
+  it("REWRITE: a rewritten envelope with a stale hash is fail-closed, executor never runs (011/T4)", async () => {
+    // Stand-in for a Decision NOT produced by the audited kernel path: the
+    // rewritten bytes were tampered after the kernel verified them.
+    const tampered: IntentEnvelope<"pix.charge.refund", Payload> = {
+      ...rewritten,
+      payload: { amountCentavos: 7777 },
+    };
+    const ctx = buildContext({ result: { refundId: "r-1", refunded: 3000 } });
+    const t = await translateDecision({ ...ctx, decision: decisionRewrite(tampered, "clamped", []) });
+    expect(ctx.executor.invokeIntent).not.toHaveBeenCalled();
+    expect(t.toolResult?.isError).toBe(true);
   });
 
   it("is deterministic for a given (output, contract)", async () => {

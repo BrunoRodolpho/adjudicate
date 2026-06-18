@@ -8,8 +8,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { adjudicate } from "@adjudicate/core/kernel";
-import { buildEnvelope, type IntentEnvelope } from "@adjudicate/core";
+import { adjudicate, adjudicateAndAudit } from "@adjudicate/core/kernel";
+import {
+  buildEnvelope,
+  deriveIntentHash,
+  noopAuditSink,
+  type IntentEnvelope,
+} from "@adjudicate/core";
 import {
   CONFIRM_REFUND_THRESHOLD_CENTAVOS,
   ESCALATE_REFUND_THRESHOLD_CENTAVOS,
@@ -202,6 +207,48 @@ describe("pack-payments-pix — six Decision outcomes", () => {
       refundCentavos: number;
     };
     expect(rewritten.refundCentavos).toBe(30_000);
+  });
+
+  // 011/T2+T3: the REWRITE outcome, run through the audited kernel path, records
+  // the EXECUTED (rewritten) hash — not the original benign hash — and links it
+  // back to the original via a `rewrite_executed` supersession.
+  it("REWRITE through adjudicateAndAudit records the executed (rewritten) hash + rewrite_executed supersession", async () => {
+    const original = envelope("pix.charge.refund", {
+      chargeId: "cha-confirmed-low", // original 30_000
+      refundCentavos: 50_000, // clamped to 30_000 on rewrite
+      reason: "customer request",
+    });
+
+    // Sanity: the pure kernel REWRITEs this proposal.
+    const pure = adjudicate(original, state(), pixPolicyBundle);
+    expect(pure.kind).toBe("REWRITE");
+    if (pure.kind !== "REWRITE") return;
+    const rewrittenHash = pure.rewritten.intentHash;
+    expect(rewrittenHash).not.toBe(original.intentHash);
+    // The rewritten hash genuinely re-derives from the rewritten content.
+    expect(deriveIntentHash(pure.rewritten)).toBe(rewrittenHash);
+
+    const { decision, record } = await adjudicateAndAudit(
+      original,
+      state(),
+      pixPolicyBundle,
+      { sink: noopAuditSink() },
+    );
+
+    // The decision is still a REWRITE (the rewritten envelope re-adjudicated to
+    // a second-pass EXECUTE, so the adapter will execute the rewritten bytes).
+    expect(decision.kind).toBe("REWRITE");
+
+    // The durable audit row indexes the EXECUTED (rewritten) hash, NOT the
+    // original benign hash.
+    expect(record.intentHash).toBe(rewrittenHash);
+    expect(record.envelope.intentHash).toBe(rewrittenHash);
+    expect(record.intentHash).not.toBe(original.intentHash);
+
+    // …with a rewrite_executed supersession back to the original proposal.
+    expect(record.supersedes).toBeDefined();
+    expect(record.supersedes?.reason).toBe("rewrite_executed");
+    expect(record.supersedes?.predecessorIntentHash).toBe(original.intentHash);
   });
 
   it("REQUEST_CONFIRMATION: refund at the medium threshold", () => {

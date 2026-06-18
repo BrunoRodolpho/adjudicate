@@ -15,13 +15,30 @@
  * the original) and surfaces a human-readable note in the tool-result
  * by default.
  *
+ * **REWRITE re-adjudication contract (011/T4).** A REWRITE Decision only ever
+ * reaches this translator from `adjudicateAndAudit` (the audited kernel path the
+ * loop drives). That path re-enters the PURE kernel on the rewritten envelope —
+ * re-deriving its `intentHash` fail-closed, re-running the full guard order, and
+ * blocking a taint-elevating rewrite — and surfaces a `REWRITE` Decision ONLY
+ * when the rewritten envelope passed a SECOND-pass EXECUTE. It also records the
+ * EXECUTED (rewritten) hash in the audit row and claims the rewritten hash in
+ * the ledger. So executing `decision.rewritten` here is NOT a raw, un-adjudicated
+ * `invokeIntent`: the kernel already authorized and recorded these exact bytes.
+ * `runExecute` defends this contract — it refuses to execute a rewritten envelope
+ * whose `intentHash` does not re-derive from its own content (a forged Decision
+ * spliced in outside the kernel path).
+ *
  * **First non-continue Decision wins**: if multiple tool_use blocks fire
  * in the same assistant turn, the loop processes them in order but
  * stops translating the moment a non-continue Decision arrives. The
  * remaining blocks are surfaced as `not_processed_due_to_pause`.
  */
 
-import { validateOutputShape } from "@adjudicate/core";
+import {
+  deriveIntentHash,
+  timingSafeHexEqual,
+  validateOutputShape,
+} from "@adjudicate/core";
 import type {
   Decision,
   ExecutorContract,
@@ -236,6 +253,38 @@ async function runExecute<K extends string, P, S, H>(
   effectiveEnvelope: IntentEnvelope<K, P>,
   rewriteReason: string | null,
 ): Promise<DecisionTranslation> {
+  // 011/T4: defend the REWRITE re-adjudication contract. The audited kernel path
+  // (adjudicateAndAudit) re-derives the rewritten intentHash fail-closed and only
+  // emits a REWRITE Decision for a rewritten envelope that passed a second-pass
+  // EXECUTE — but the executor must never run a rewritten envelope whose hash does
+  // not re-derive from its own content (a Decision forged outside the kernel path).
+  // Re-verify here, fail-closed, before the side effect. EXECUTE (rewriteReason ===
+  // null) skips this — its hash was verified by the kernel's step-1b gate and is
+  // not re-derived a second time on the hot path.
+  if (rewriteReason !== null) {
+    let derived: string;
+    try {
+      derived = deriveIntentHash(effectiveEnvelope as IntentEnvelope);
+    } catch {
+      derived = "";
+    }
+    if (derived === "" || !timingSafeHexEqual(derived, effectiveEnvelope.intentHash)) {
+      const errResult: ToolResultBlock = {
+        toolUseId: ctx.toolUseId,
+        content:
+          "Rewritten action could not be verified and was not executed.",
+        isError: true,
+      };
+      return {
+        toolResult: errResult,
+        loopAction: { kind: "continue" },
+        extraEvents: [
+          { kind: "tool_result", toolUseId: ctx.toolUseId, payload: errResult },
+        ],
+      };
+    }
+  }
+
   let executorResult: unknown;
   try {
     executorResult = await ctx.executor.invokeIntent(

@@ -15,6 +15,7 @@ import {
   type ToolClassification,
 } from "@adjudicate/core/llm";
 import {
+  createEscalateGuard,
   createStateDeferGuard,
   createSystemTaintPolicy,
   createThresholdGuard,
@@ -24,6 +25,7 @@ import {
   KYC_DOCUMENTS_UPLOADED_SIGNAL,
   KYC_EXECUTE_THRESHOLD,
   KYC_REFUSE_THRESHOLD,
+  KYC_SANCTIONS_MATCH_THRESHOLD,
   KYC_VENDOR_COMPLETED_SIGNAL,
   KYC_VENDOR_TIMEOUT_MS,
   type IdentityKycContext,
@@ -47,18 +49,25 @@ import {
  * Guard ordering (within `business`) — kernel evaluates in declaration
  * order, first non-null wins:
  *
- *   1. requireDocumentUpload   — kyc.start always DEFERs for documents
- *   2. waitForVerification     — kyc.document.upload always DEFERs for vendor
- *   3. escalateOnAmlFlag       — kyc.vendor.callback ESCALATEs if FLAGGED
- *   4. refuseLowScore          — kyc.vendor.callback REFUSEs if score < 50
- *   5. executeOnHighScore      — kyc.vendor.callback EXECUTEs if score ≥ 90
+ *   1. requireDocumentUpload          — kyc.start always DEFERs for documents
+ *   2. waitForVerification            — kyc.document.upload always DEFERs for vendor
+ *   3. escalateOnAmlFlag              — kyc.vendor.callback ESCALATEs if amlStatus FLAGGED
+ *   4. escalateOnSanctionsMatchScore  — kyc.vendor.callback ESCALATEs if amlMatchScore ≥ 80
+ *   5. refuseLowScore                 — kyc.vendor.callback REFUSEs if score < 50
+ *   6. executeOnHighScore             — kyc.vendor.callback EXECUTEs if score ≥ 90
  *
- * Borderline (50 ≤ score < 90, CLEAR) falls through to `default: "REFUSE"`
- * — conservative-by-default. Adopters can add a REQUEST_CONFIRMATION
- * guard for that range when their compliance team permits.
+ * The two sanctions/OFAC escalate guards (3+4) form an escalate-only UNION
+ * (plan 102): FLAGGED (score-independent) OR amlMatchScore ≥ threshold. Both
+ * are ordered before the score guards (5+6) so a sanctions signal can only
+ * raise friction to a human, never authorize EXECUTE (§C monotonicity).
+ *
+ * Borderline (50 ≤ score < 90, CLEAR, no sanctions match) falls through to
+ * `default: "REFUSE"` — conservative-by-default. Adopters can add a
+ * REQUEST_CONFIRMATION guard for that range when their compliance team permits.
  *
  * Layer-2 primitives in use (Phase 5 refactor):
  *   - `createStateDeferGuard`     drives requireDocumentUpload + waitForVerification
+ *   - `createEscalateGuard`       drives escalateOnSanctionsMatchScore (102)
  *   - `createThresholdGuard`      drives refuseLowScore + executeOnHighScore
  *   - `createSystemTaintPolicy`   declares kyc.vendor.callback as system-only
  */
@@ -172,19 +181,50 @@ const waitForVerification = nameGuard(
 );
 
 /**
- * kyc.vendor.callback with `amlStatus: "FLAGGED"` ESCALATEs to a human
- * reviewer. The reason includes the AML match score + entity so the
- * Operator Console (Phase 2a) surfaces actionable detail in the
- * governance event log — not just "AML flagged" with no follow-on.
+ * Sanctions/OFAC screening signal — escalate-only (plan 102).
  *
- * Ordered before refuseLowScore + executeOnHighScore so AML hits beat
- * any score-based decision (a high-scoring identity that ALSO matches
- * a watchlist still escalates).
+ * The sanctions provider result rides as an injected snapshot on the
+ * `kyc.vendor.callback` payload (`amlStatus` + `amlMatchScore` +
+ * `amlMatchEntity`). The kernel reads it as a pure compliance signal that
+ * may only ESCALATE to a human (or fall through to REFUSE) — it can NEVER
+ * authorize EXECUTE and never waive a downstream gate. This preserves §C
+ * monotonicity (inv. 7): a compliance signal sets a friction CEILING, never
+ * a floor; only deterministic score rules can authorize EXECUTE.
  *
- * Stays inline (not a Layer-2 primitive): the AML check isn't a
- * threshold-crossing — it's a discrete enum match. Lifting it would
- * require a `createEnumMatchGuard` factory we don't have a second
- * use case for yet.
+ * The signal escalates on the UNION of two INDEPENDENT conditions, neither
+ * able to silently skip the other:
+ *
+ *   (a) `amlStatus === "FLAGGED"`  — a hard, score-INDEPENDENT escalate
+ *       predicate. A vendor that sets the flag with NO `amlMatchScore` still
+ *       escalates. Realized by `escalateOnAmlFlag` below.
+ *   (b) `amlMatchScore >= KYC_SANCTIONS_MATCH_THRESHOLD` — a validated,
+ *       range-checked watchlist correlation (previously `amlMatchScore` was
+ *       never compared — only decoration). Realized by
+ *       `escalateOnSanctionsMatchScore` (createEscalateGuard) below.
+ *
+ * The OR is implemented as TWO escalate-only checks — NOT a single
+ * `createEscalateGuard` — because `createEscalateGuard` ANDs predicate +
+ * threshold (guards.ts:435-439: abstains when `extract` is null/undefined or
+ * the comparator does not cross). Folding the FLAGGED check into the score
+ * guard would let a missing `amlMatchScore` gate the flag out — exactly the
+ * "FLAGGED + no score never escalates" regression §7 warns about. So the
+ * FLAGGED branch MUST be its own standalone check. Both branches emit only
+ * ESCALATE → "human" with a business `rule_violated` basis.
+ */
+
+/**
+ * (a) FLAGGED — the hard, score-independent escalate predicate. The reason
+ * surfaces the AML match score + entity (when present) so the Operator
+ * Console governance event log shows actionable detail.
+ *
+ * Ordered before refuseLowScore + executeOnHighScore so a FLAGGED hit beats
+ * any score-based decision (a high-scoring identity that ALSO matches a
+ * watchlist still escalates). Escalate-only — no `decisionExecute` path.
+ *
+ * Stays inline (not `createEscalateGuard`): this branch is a discrete enum
+ * match with no threshold crossing, and it must NOT depend on `amlMatchScore`
+ * being present. The `createEnumMatchGuard` factory the old comment wished for
+ * does not exist; an inline guard is the correct shape for the flag branch.
  */
 const escalateOnAmlFlag: Guard<
   IdentityKycIntentKind,
@@ -204,6 +244,7 @@ const escalateOnAmlFlag: Guard<
   return decisionEscalate("human", reason, [
     basis("business", "rule_violated", {
       rule: "aml_screening",
+      signal: "aml_flag",
       ...(payload.amlMatchScore !== undefined
         ? { matchScore: payload.amlMatchScore }
         : {}),
@@ -213,6 +254,58 @@ const escalateOnAmlFlag: Guard<
     }),
   ]);
 };
+
+/**
+ * (b) `amlMatchScore >= KYC_SANCTIONS_MATCH_THRESHOLD` — grounds the
+ * watchlist match score in the escalate-only primitive contract
+ * (`createEscalateGuard`, guards.ts:432-457). This makes `amlMatchScore` a
+ * VALIDATED, range-checked signal instead of a never-compared decoration: a
+ * strong sanctions correlation escalates for human review even if the vendor
+ * did not set the hard `amlStatus: "FLAGGED"` flag (the additive friction
+ * branch of the UNION).
+ *
+ * Escalate-only by construction: `createEscalateGuard` pins `onCross` to
+ * `decisionEscalate` — there is no path to EXECUTE/REWRITE. Ordered before
+ * refuseLowScore + executeOnHighScore so the kernel's first-non-null
+ * short-circuit structurally prevents downgrade to EXECUTE (§C inv. 7),
+ * mirroring `escalateRegressionScore` in pack-deployments-approval.
+ *
+ * Abstains (returns null) when `amlMatchScore` is absent — so the FLAGGED
+ * branch (a) above carries the score-independent case.
+ */
+const escalateOnSanctionsMatchScore = nameGuard(
+  "escalateOnSanctionsMatchScore",
+  createEscalateGuard<
+    IdentityKycIntentKind,
+    IdentityKycPayload,
+    IdentityKycState
+  >({
+    matches: (env) => env.kind === "kyc.vendor.callback",
+    extract: (env) =>
+      (env.payload as KycVendorCallbackPayload).amlMatchScore,
+    threshold: KYC_SANCTIONS_MATCH_THRESHOLD,
+    comparator: ">=",
+    to: "human",
+    reason: (value, threshold, env) => {
+      const entity = (env.payload as KycVendorCallbackPayload).amlMatchEntity;
+      return entity !== undefined
+        ? `Sanctions screening: ${value}% watchlist match (≥ ${threshold}) against ${entity}`
+        : `Sanctions screening: ${value}% watchlist match (≥ ${threshold}) — review required`;
+    },
+    basis: (value, threshold, env) => {
+      const entity = (env.payload as KycVendorCallbackPayload).amlMatchEntity;
+      return [
+        basis("business", "rule_violated", {
+          rule: "aml_screening",
+          signal: "sanctions_match_score",
+          matchScore: value,
+          threshold,
+          ...(entity !== undefined ? { matchEntity: entity } : {}),
+        }),
+      ];
+    },
+  }),
+);
 
 /**
  * kyc.vendor.callback with `score < KYC_REFUSE_THRESHOLD` REFUSEs. The
@@ -293,8 +386,13 @@ export const policy: PolicyBundle<
     // DEFER guards — handle the async progression
     requireDocumentUpload,
     waitForVerification,
-    // Terminal guards for kyc.vendor.callback (ordered by specificity)
-    escalateOnAmlFlag,
+    // Sanctions/OFAC escalate-only signal (102) — the UNION's two branches,
+    // BOTH ordered before refuseLowScore/executeOnHighScore so the kernel's
+    // first-non-null short-circuit structurally prevents any downgrade to
+    // EXECUTE (§C monotonicity, inv. 7).
+    escalateOnAmlFlag, // (a) FLAGGED — score-independent
+    escalateOnSanctionsMatchScore, // (b) amlMatchScore ≥ threshold
+    // Terminal score guards for kyc.vendor.callback (ordered by specificity)
     refuseLowScore,
     executeOnHighScore,
   ],

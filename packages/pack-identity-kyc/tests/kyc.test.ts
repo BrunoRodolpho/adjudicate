@@ -202,6 +202,120 @@ describe("pack-identity-kyc — terminal Decision branches", () => {
     expect(d.kind).toBe("ESCALATE");
   });
 
+  // ── 102 §7 regression mitigation: FLAGGED + NO score still ESCALATEs ──
+  // The escalate-only AML UNION moved from a pure amlStatus echo to also reading
+  // amlMatchScore via createEscalateGuard. createEscalateGuard ANDs predicate +
+  // threshold and ABSTAINS when extract() is null/undefined. If the FLAGGED
+  // branch were folded into the score guard, a FLAGGED callback that OMITS
+  // amlMatchScore would silently fall through to score handling. This pins the
+  // standalone FLAGGED branch: a flag with no score still escalates.
+  it("FLAGGED with NO amlMatchScore still ESCALATEs (score-independent branch)", () => {
+    const callback = buildEnvelope({
+      kind: "kyc.vendor.callback",
+      // High score, FLAGGED, but the vendor sent no amlMatchScore at all.
+      payload: { sessionId: "s1", score: 99, amlStatus: "FLAGGED" },
+      actor: { principal: "system", sessionId: "vendor-webhook" },
+      taint: "TRUSTED",
+      nonce: "n-aml-noscore",
+      createdAt: timestamp(),
+    });
+    const d = adjudicate(callback, baseState, policy);
+    expect(d.kind).toBe("ESCALATE");
+    if (d.kind === "ESCALATE") {
+      expect(d.to).toBe("human");
+      // Standalone flag branch records signal=aml_flag, not the score branch.
+      const aml = d.basis.find((b) => b.category === "business");
+      expect(aml?.detail).toMatchObject({ rule: "aml_screening", signal: "aml_flag" });
+    }
+  });
+
+  // ── 102 §3 (b): amlMatchScore is now a VALIDATED, compared escalate signal ──
+  // Previously amlMatchScore was never compared (decoration only). Grounded via
+  // createEscalateGuard (>= KYC_SANCTIONS_MATCH_THRESHOLD = 80), a strong
+  // watchlist correlation escalates to a human even when amlStatus is "CLEAR"
+  // and the score is EXECUTE-grade — the additive friction branch of the UNION.
+  it("CLEAR + amlMatchScore ≥ threshold ESCALATEs even at EXECUTE-grade score (sanctions signal)", () => {
+    const callback = buildEnvelope({
+      kind: "kyc.vendor.callback",
+      payload: {
+        sessionId: "s1",
+        score: 99, // would EXECUTE on score alone
+        amlStatus: "CLEAR", // vendor did NOT set the hard flag
+        amlMatchScore: 80, // but the watchlist correlation crosses the floor
+        amlMatchEntity: "OFAC SDN — fuzzy match",
+      },
+      actor: { principal: "system", sessionId: "vendor-webhook" },
+      taint: "TRUSTED",
+      nonce: "n-sanctions-clear-highscore",
+      createdAt: timestamp(),
+    });
+    const d = adjudicate(callback, baseState, policy);
+    expect(d.kind).toBe("ESCALATE");
+    if (d.kind === "ESCALATE") {
+      expect(d.to).toBe("human");
+      expect(d.reason).toMatch(/Sanctions screening/);
+      const aml = d.basis.find((b) => b.category === "business");
+      expect(aml?.detail).toMatchObject({
+        rule: "aml_screening",
+        signal: "sanctions_match_score",
+        matchScore: 80,
+        threshold: 80,
+      });
+    }
+  });
+
+  it("CLEAR + amlMatchScore BELOW threshold does NOT escalate (purely additive friction)", () => {
+    // A weak correlation (79 < 80) must NOT escalate — it falls through to the
+    // normal score path. Pins that the sanctions score branch is a real
+    // threshold crossing, not an always-on side effect of any amlMatchScore.
+    const callback = buildEnvelope({
+      kind: "kyc.vendor.callback",
+      payload: {
+        sessionId: "s1",
+        score: 99,
+        amlStatus: "CLEAR",
+        amlMatchScore: 79,
+      },
+      actor: { principal: "system", sessionId: "vendor-webhook" },
+      taint: "TRUSTED",
+      nonce: "n-sanctions-belowthreshold",
+      createdAt: timestamp(),
+    });
+    const d = adjudicate(callback, baseState, policy);
+    expect(d.kind).not.toBe("ESCALATE");
+    expect(d.kind).toBe("EXECUTE"); // score 99, CLEAR, sub-threshold match
+  });
+
+  // ── 102 §6 / §C inv. 7: sanctions signal is ESCALATE-ONLY (never EXECUTE) ──
+  // Mirrors pack-deployments-approval gates.test.ts "escalate wins over rewrite":
+  // across the whole verification-score range, a watchlist match ≥ threshold
+  // ESCALATEs and the kernel's first-non-null short-circuit structurally
+  // prevents any downgrade to EXECUTE — the sanctions signal sets a friction
+  // ceiling, never a floor (§C monotonicity, inv. 7).
+  it("ESCALATE-ONLY precedence: amlMatchScore ≥ threshold escalates over EXECUTE across the score range", () => {
+    for (const score of [50, 75, 89, 90, 95, 99, 100]) {
+      const callback = buildEnvelope({
+        kind: "kyc.vendor.callback",
+        payload: {
+          sessionId: "s1",
+          score,
+          amlStatus: "CLEAR",
+          amlMatchScore: 90, // ≥ 80 threshold
+          amlMatchEntity: "Watchlist Entry",
+        },
+        actor: { principal: "system", sessionId: "vendor-webhook" },
+        taint: "TRUSTED",
+        nonce: `n-sanctions-escalate-only-${score}`,
+        createdAt: timestamp(),
+      });
+      const d = adjudicate(callback, baseState, policy);
+      expect(d.kind).toBe("ESCALATE");
+      // The sanctions guard NEVER produces EXECUTE — escalate-only by
+      // construction (createEscalateGuard pins onCross to decisionEscalate).
+      expect(d.kind).not.toBe("EXECUTE");
+    }
+  });
+
   it("low score (no AML flag) → REFUSE with structured reason", () => {
     const callback = buildEnvelope({
       kind: "kyc.vendor.callback",

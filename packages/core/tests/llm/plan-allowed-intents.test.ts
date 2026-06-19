@@ -146,6 +146,59 @@ describe("safePlan with optional pack arg (T4)", () => {
   });
 });
 
+// 024 (T4) — the pack-bound 3-arg `safePlan` now accepts the minimal
+// `PackIntentsSurface` (`{ intents }`) so a Pack can engage `assertPlanSubsetOfPack`
+// on every plan() WITHOUT the planner↔pack construction cycle (the full PackV0
+// references the planner). These pin that the minimal surface engages the check
+// exactly like a full pack — the form the shipped packs adopt in `capabilities.ts`.
+describe("safePlan with PackIntentsSurface (024 T4 — break the planner↔pack cycle)", () => {
+  it("THROWS when allowedIntents ⊄ { intents } (subset invariant engaged via the minimal surface)", () => {
+    const wrapped = safePlan(
+      staticPlanner({
+        visibleReadTools: [],
+        allowedIntents: ["pix.charge.create", "admin.delete_all"],
+      }),
+      classification,
+      // The minimal surface — exactly what a Pack passes from capabilities.ts.
+      { intents: ["pix.charge.create", "pix.charge.refund"] },
+    );
+    let caught: PlanConformanceError | undefined;
+    try {
+      wrapped.plan({}, {});
+    } catch (err) {
+      caught = err as PlanConformanceError;
+    }
+    expect(caught).toBeInstanceOf(PlanConformanceError);
+    expect(caught!.intentsLeaked).toEqual(["admin.delete_all"]);
+  });
+
+  it("PASSES when allowedIntents ⊆ { intents }", () => {
+    const wrapped = safePlan(
+      staticPlanner({
+        visibleReadTools: [],
+        allowedIntents: ["pix.charge.create"],
+      }),
+      classification,
+      { intents: ["pix.charge.create", "pix.charge.refund"] },
+    );
+    expect(() => wrapped.plan({}, {})).not.toThrow();
+  });
+
+  it("assertPlanSubsetOfPack accepts the minimal { intents } surface directly", () => {
+    const plan = makePlan({ allowedIntents: ["a", "z"] });
+    // Non-vacuous: 'z' is absent from the surface → throws.
+    expect(() => assertPlanSubsetOfPack(plan, { intents: ["a", "b"] })).toThrow(
+      PlanConformanceError,
+    );
+    // And the in-set case passes.
+    expect(() =>
+      assertPlanSubsetOfPack(makePlan({ allowedIntents: ["a"] }), {
+        intents: ["a", "b"],
+      }),
+    ).not.toThrow();
+  });
+});
+
 describe("invariant: assertPlanSubsetOfPack throws iff allowedIntents ⊄ pack.intents", () => {
   it("holds across arbitrary plans and packs", () => {
     fc.assert(

@@ -48,11 +48,13 @@
 
 import {
   DEFAULT_RESOURCE_BINDING_POLICY,
+  timingSafeHexEqual,
   validateOutputShape,
   verifyResourceBinding,
 } from "@adjudicate/core";
 import type {
   AuditSink,
+  Capability,
   Decision,
   ExecutorContract,
   IntentEnvelope,
@@ -74,6 +76,7 @@ import type {
   AdopterExecutor,
   AgentEvent,
   AgentLogger,
+  CapabilityGate,
   ToolClassification,
   ToolResultBlock,
 } from "./types.js";
@@ -112,6 +115,16 @@ export interface DecisionTranslationContext<K extends string, P, S, H> {
    * the two binding checks share one staged-rollout vocabulary.
    */
   readonly resourceBindingPolicy?: ResourceBindingPolicy;
+  /**
+   * 024 — cap-gated executor. When present, `runExecute` BURNS the single-use
+   * capability the loop minted into `capabilityGate.burnStore` (keyed by the
+   * effective envelope's nonce), ed25519-VERIFIES it (`capabilityGate.verify` —
+   * the injected `verifyCapabilitySignature`, NOT the forgeable hash-bind check),
+   * and binds it to the effective envelope's `intentHash` BEFORE `invokeIntent`.
+   * A burn miss/expiry, store error, bad signature, or hash mismatch fail-closes
+   * the EXECUTE (invariants #1, #6). Absent (default) → the pre-024 seam.
+   */
+  readonly capabilityGate?: CapabilityGate;
 }
 
 export type LoopAction =
@@ -327,6 +340,80 @@ async function runExecute<K extends string, P, S, H>(
       const errResult: ToolResultBlock = {
         toolUseId: ctx.toolUseId,
         content,
+        isError: true,
+      };
+      return {
+        toolResult: errResult,
+        loopAction: { kind: "continue" },
+        extraEvents: [
+          { kind: "tool_result", toolUseId: ctx.toolUseId, payload: errResult },
+        ],
+      };
+    }
+  }
+
+  // 024 — cap-gated executor. When a CapabilityGate is configured, the executor
+  // honors a kernel-shell-minted, single-use, resource-bound capability INSTEAD
+  // of a raw envelope. The loop minted + signed the capability into 022's atomic
+  // BurnStore (keyed by the effective envelope's nonce) AFTER the pure decision;
+  // here we redeem it EXACTLY ONCE before the side effect:
+  //   1. BURN it from 022's store (single-use; a second use re-burns to null and
+  //      is suppressed — the atomic claim-and-burn, never a parallel one).
+  //   2. ed25519-VERIFY it via the injected `verify` (021-F1: the ASYMMETRIC
+  //      `verifyCapabilitySignature`, NOT the forgeable hash-bind `verifyCapability`)
+  //      — proof of KERNEL minting, not mere self-consistency.
+  //   3. BIND it to THIS envelope: the capability's `intentHash` must
+  //      constant-time-equal the effective envelope's own `intentHash` (already
+  //      re-derived clean by the 023 binding gate above), so a capability minted
+  //      for intent A cannot be redeemed for intent B (anti-IDOR / anti-replay).
+  // Any failure ABORTS the EXECUTE — `invokeIntent` is NOT reached (invariant #1,
+  // fail-closed per #6; §C: gating only adds friction). The gate is async (the
+  // store burn awaits); a thrown store/IO error is caught below and surfaces as a
+  // non-executing error tool-result (no fail-open).
+  if (ctx.capabilityGate !== undefined) {
+    const gate = ctx.capabilityGate;
+    let burned: Capability | null;
+    try {
+      burned = await gate.burnStore.burn(effectiveEnvelope.nonce);
+    } catch (err) {
+      // Store/IO error on the burn (write) path → fail-closed (§D #6). No
+      // redemption, executor NOT invoked.
+      ctx.log?.warn?.(
+        {
+          toolUseId: ctx.toolUseId,
+          sessionId: ctx.sessionId,
+          intentKind: effectiveEnvelope.kind,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "[adjudicate] capability burn store error — refusing to execute (fail-closed)",
+      );
+      burned = null;
+    }
+    // Verify exactly once (the injected `verify` is the ed25519 authority leg).
+    const sigOk = burned !== null && gate.verify(burned);
+    const capOk =
+      burned !== null &&
+      sigOk &&
+      timingSafeHexEqual(burned.intentHash, effectiveEnvelope.intentHash);
+    if (!capOk) {
+      ctx.log?.warn?.(
+        {
+          toolUseId: ctx.toolUseId,
+          sessionId: ctx.sessionId,
+          intentKind: effectiveEnvelope.kind,
+          reason:
+            burned === null
+              ? "burn_miss"
+              : !sigOk
+                ? "bad_signature"
+                : "intent_hash_mismatch",
+        },
+        "[adjudicate] capability gate failed — refusing to execute (fail-closed)",
+      );
+      const errResult: ToolResultBlock = {
+        toolUseId: ctx.toolUseId,
+        content:
+          "Action could not be authorized (capability gate) and was not executed.",
         isError: true,
       };
       return {

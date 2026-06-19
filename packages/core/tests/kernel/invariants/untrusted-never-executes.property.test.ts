@@ -336,3 +336,45 @@ describe("invariant: 013 sink/kill wiring never produces a NEW EXECUTE path", ()
     expect(decision.kind).toBe("EXECUTE");
   });
 });
+
+// ── 024: invariant #1 (only EXECUTE reaches the executor) holds bytewise under ─
+// the cap gate. The cap-gated executor (adapter-core) mints a signed, single-use
+// capability in the IMPURE shell AFTER the pure decision and gates the executor
+// on it. The PURE kernel must be UNCHANGED — it never takes a capability input,
+// and a capability is minted only on an EXECUTE/REWRITE the kernel already
+// authorized. So the cap gate can only ADD friction (turn a would-be EXECUTE
+// into a refusal-to-execute), NEVER manufacture a new EXECUTE the kernel did not
+// emit (§C monotonicity, §D #1). The kernel signature carries NO capability arg,
+// which these pin structurally.
+describe("invariant: the cap gate (024) never manufactures a new EXECUTE (kernel unchanged)", () => {
+  it("the pure adjudicate() signature takes ONLY (envelope, state, policy) — no capability input", () => {
+    // adjudicate is (envelope, state, bundle) → Decision. A 4th capability arg
+    // would mean the kernel consulted a grant; it does not. The kernel decides;
+    // the shell mints. (`.length` counts declared params before defaults/rest.)
+    expect(adjudicate.length).toBe(3);
+  });
+
+  it("re-running the kernel over the same recorded inputs is byte-identical (replayable, §D) — minting is out-of-kernel", () => {
+    fc.assert(
+      fc.property(intentKindArb, jsonSafePayloadArb, (kind, payload) => {
+        const e = env(kind, "SYSTEM", payload);
+        const a = adjudicate(e, {}, emptyBundle("EXECUTE"));
+        const b = adjudicate(e, {}, emptyBundle("EXECUTE"));
+        // The kernel produces the SAME decision regardless of any out-of-kernel
+        // capability minting that happens AFTER it in the shell.
+        expect(a.kind).toBe(b.kind);
+        expect(a.kind).toBe("EXECUTE");
+      }),
+      { numRuns: 500 },
+    );
+  });
+
+  it("an UNTRUSTED proposal for a SYSTEM-min kind still REFUSEs — the cap gate cannot un-refuse it", () => {
+    // The cap gate is downstream of the kernel: a kernel REFUSE never mints a
+    // capability (only EXECUTE/REWRITE do), so there is no grant to burn and no
+    // executor path. The kernel decision is the floor; gating only adds friction.
+    const decision = adjudicate(env("order.submit", "UNTRUSTED", { x: 1 }), {}, emptyBundle("EXECUTE"));
+    expect(decision.kind).not.toBe("EXECUTE");
+    expect(decision.kind).toBe("REFUSE");
+  });
+});

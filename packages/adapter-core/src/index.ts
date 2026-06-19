@@ -33,6 +33,9 @@ export type {
   AgentOutcome,
   AgentTurnResult,
   AssistantTurn,
+  // 024 — cap-gated executor contract (kernel-shell-minted, single-use,
+  // resource-bound capability gate honored at the executor seam).
+  CapabilityGate,
   ConfirmArgs,
   ProviderBridge,
   ProviderRequest,

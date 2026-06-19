@@ -20,6 +20,7 @@ export { DecisionKindSchema, DecisionSchema } from "./schemas/decision.js";
 export {
   AuditPlanSnapshotSchema,
   AuditRecordSchema,
+  AuditRecordVerificationSchema,
   SupersessionReasonSchema,
   SupersessionSchema,
 } from "./schemas/audit.js";

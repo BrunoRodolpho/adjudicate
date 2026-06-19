@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AuditRecordSchema } from "./audit.js";
+import { AuditRecordSchema, AuditRecordVerificationSchema } from "./audit.js";
 import { DecisionKindSchema } from "./decision.js";
 import { TaintSchema } from "./envelope.js";
 import { IntentHashSchema, IsoTimestampSchema } from "./common.js";
@@ -51,6 +51,18 @@ export const AuditQuerySchema = z.object({
 export const AuditQueryResultSchema = z.object({
   records: z.array(AuditRecordSchema).readonly(),
   nextCursor: z.string().optional(),
+  /**
+   * 092 — verify-on-read verdicts, ALIGNED BY INDEX with `records` (so
+   * `verifications[i]` is the verdict for `records[i]`). OPTIONAL + additive: a
+   * store that does not verify on read (the in-memory reference) simply omits it,
+   * and existing consumers ignore it. The Postgres cold-store read path
+   * (`createPostgresAuditStore`) populates it by running `verifyAuditRecord` over
+   * each row so the admin UI can flag tampered / forged-signature records rather
+   * than rendering them as authoritative (§C: reads only ADD friction).
+   *
+   * Length invariant: when present, `verifications.length === records.length`.
+   */
+  verifications: z.array(AuditRecordVerificationSchema).readonly().optional(),
 });
 
 export type AuditQuery = z.infer<typeof AuditQuerySchema>;

@@ -125,6 +125,7 @@ import {
   createLazyRedisTokenUsageAdapter,
 } from "@/lib/redis-client";
 import { createReferenceReplayInvoker } from "@/lib/replay-invoker";
+import { withVerifyOnRead } from "@/lib/audit-verification";
 import { PackRegistry } from "@/lib/packs/registry";
 import { requireConsoleAdminAuth } from "@/lib/admin-auth";
 import { getAuditBus } from "@/lib/audit-bus";
@@ -206,10 +207,17 @@ function createStores(): {
   emergencyStore: EmergencyStateStore;
   turnTraceStore: TurnTraceStore;
 } {
-  // Audit-side: Postgres if DATABASE_URL, mocks otherwise.
-  const auditStore: AuditStore = process.env.DATABASE_URL
-    ? createPostgresAuditStore({ reader: createPgPoolReader(getPgPool()) })
-    : createInMemoryAuditStore({ records: ALL_MOCKS });
+  // Audit-side: Postgres if DATABASE_URL, mocks otherwise. 092 — wrap in the
+  // verify-on-read decorator so the Explorer's list read always carries
+  // per-record tamper / signature verdicts. Idempotent: the Postgres store
+  // already populates `verifications`; the wrapper only fills them in for the
+  // in-memory mock store (which does not verify on read), so a tampered/forged
+  // row is flagged in BOTH modes rather than rendered as authoritative.
+  const auditStore: AuditStore = withVerifyOnRead(
+    process.env.DATABASE_URL
+      ? createPostgresAuditStore({ reader: createPgPoolReader(getPgPool()) })
+      : createInMemoryAuditStore({ records: ALL_MOCKS }),
+  );
 
   // Turn-trace store (responder-trace-admin C3): Postgres `turn_trace` when
   // DATABASE_URL is set, else an in-memory demo so the view renders in dev.

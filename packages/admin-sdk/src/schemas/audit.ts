@@ -39,6 +39,35 @@ export const SupersessionSchema = z.object({
   token: z.string().optional(),
 });
 
+/**
+ * 092 — per-record verification verdict from `verifyAuditRecord`. The cold-store
+ * read path verifies each returned record and surfaces this alongside it so the
+ * admin UI can render tamper / signature status. Mirrors the core
+ * `AuditRecordVerification` discriminated union (audit.ts):
+ *   - `{ verified: true }` — auditHash intact AND any present signature verifies.
+ *   - `{ verified: false, reason: "tampered" | "envelope_intent_mismatch",
+ *        derived, stored }` — the bytes were modified after build.
+ *   - `{ verified: false, reason: "invalid_signature", keyId, alg }` — the bytes
+ *        are intact but a present signature is not authentic.
+ *   - `{ verified: null, reason: "missing_hash" }` — pre-v4 record (no auditHash).
+ */
+export const AuditRecordVerificationSchema = z.union([
+  z.object({ verified: z.literal(true) }),
+  z.object({
+    verified: z.literal(false),
+    reason: z.enum(["tampered", "envelope_intent_mismatch"]),
+    derived: z.string(),
+    stored: z.string(),
+  }),
+  z.object({
+    verified: z.literal(false),
+    reason: z.literal("invalid_signature"),
+    keyId: z.string(),
+    alg: z.string(),
+  }),
+  z.object({ verified: z.null(), reason: z.literal("missing_hash") }),
+]);
+
 export const AuditRecordSchema = z.object({
   version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   intentHash: IntentHashSchema,

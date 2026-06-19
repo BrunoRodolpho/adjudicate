@@ -35,6 +35,7 @@ import {
   rewriteExecutedSupersession,
   type AuditPlanSnapshot,
   type AuditRecord,
+  type AuditSigner,
   type Supersession,
 } from "../audit.js";
 import {
@@ -137,6 +138,24 @@ export interface AdjudicateAndAuditDeps {
   readonly metadataProvider?: (
     record: AuditRecord,
   ) => Readonly<Record<string, unknown>> | undefined;
+  /**
+   * Optional (092) impure-shell audit signer. When supplied, BOTH the
+   * kill-switch and main `buildAuditRecord` call sites attach a real
+   * `signature` over the record's `auditHash` (the kernel `adjudicate()`
+   * stays pure — signing happens in the shell AFTER the decision, §D). The
+   * signature is EXCLUDED from the `auditHash` pre-image, so signing never
+   * invalidates tamper-evidence.
+   *
+   * FAIL-CLOSED (§D inv. 6): a signer that throws propagates out of
+   * `buildAuditRecord` and aborts this call BEFORE `sink.emit` — no unsigned
+   * record is ever emitted when a signer was configured. (For a non-EXECUTE
+   * decision the rate-limit rollback still runs: the throw escapes the
+   * try/finally in step 6+7 only on the main path; on the kill-switch path the
+   * signer runs inside `buildAuditRecord` before `sink.emit`, so a throw there
+   * skips emission entirely — friction, never bypass.) Omitting the signer
+   * keeps records unsigned (a valid, tamper-evident-only OSS record).
+   */
+  readonly signer?: AuditSigner;
   /**
    * Optional Execution Ledger. When supplied:
    *   - `checkLedger` runs before adjudication; a hit short-circuits the
@@ -452,6 +471,11 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         // carries the aggregate/limit inputs it was decided against, replayable.
         // Conditional spread keeps the field omitted (hash-stable) when absent.
         ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
+        // 092: attach a real signature over the kill-switch REFUSE row's
+        // auditHash (signed AFTER the hash, excluded from the pre-image). A
+        // throwing signer FAILS CLOSED here — it propagates before sink.emit, so
+        // no unsigned record is emitted (§D inv. 6).
+        ...(deps.signer !== undefined ? { signer: deps.signer } : {}),
       }),
     );
     try {
@@ -788,6 +812,17 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       // refetches/timestamps it); conditional spread keeps the field omitted
       // (hash-stable) when the shell injects nothing.
       ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
+      // 092: attach a real signature over the main (and 011 REWRITE-executed)
+      // row's auditHash — signed in the shell AFTER the pure decision (§D),
+      // excluded from the auditHash pre-image so it never invalidates tamper-
+      // evidence. A throwing signer FAILS CLOSED: it propagates out of
+      // buildAuditRecord here, BEFORE the sink.emit in step 6+7, so no unsigned
+      // record is ever emitted when a signer was configured (§D inv. 6). The
+      // caller's await therefore rejects — the (already-computed) decision is
+      // never returned to the executor and the audit row never lands. This is
+      // friction-only (§C): a signing outage halts the path rather than passing
+      // an unsigned EXECUTE through.
+      ...(deps.signer !== undefined ? { signer: deps.signer } : {}),
     }),
   );
 

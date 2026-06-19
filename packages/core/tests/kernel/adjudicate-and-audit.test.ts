@@ -17,11 +17,13 @@ import {
   decisionRefuse,
   decisionRewrite,
   hashAggregateSnapshot,
+  hashBindAuditSigner,
   recordAggregateSnapshot,
   refuse,
   verifyAuditRecord,
   type AggregateSnapshot,
   type AuditRecord,
+  type AuditSigner,
   type AuditSink,
   type Ledger,
   type LedgerHit,
@@ -1035,5 +1037,115 @@ describe("adjudicateAndAudit — 051 cumulative/velocity guard family", () => {
       velocityBundle,
     );
     expect(replayedUnder.kind).toBe("EXECUTE");
+  });
+});
+
+// ─── 092: AuditSigner wiring at BOTH buildAuditRecord call sites ─────────────
+// Proves deps.signer populates a REAL signature on the main path AND the
+// kill-switch early-return path, that signing does NOT change the auditHash
+// (pre-image exclusion), and that a throwing signer FAILS CLOSED (no record
+// emitted).
+describe("adjudicateAndAudit — 092 AuditSigner injection", () => {
+  async function emitOne(
+    bundle: PolicyBundle<string, unknown, unknown>,
+    deps: Parameters<typeof adjudicateAndAudit>[3],
+    env = envFixture(),
+  ): Promise<AuditRecord> {
+    const result = await adjudicateAndAudit(env, {}, bundle, deps);
+    return result.record;
+  }
+
+  it("MAIN path: deps.signer attaches a verifiable signature over the auditHash", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const record = await emitOne(passBundle, {
+      sink,
+      signer: hashBindAuditSigner("kms://main-key"),
+    });
+    expect(record.decision.kind).toBe("EXECUTE");
+    expect(record.signature).toBeDefined();
+    expect(record.signature!.keyId).toBe("kms://main-key");
+    expect(record.signature!.alg).toBe("sha256-hashbind");
+    // The signed record verifies on BOTH the hash axis and the signature axis.
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("KILL-SWITCH path: deps.signer attaches a verifiable signature on the early-return REFUSE", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const context = createRuntimeContext({ id: "tenant-092" });
+    context.killSwitch.set(true, "test-092-maintenance");
+    const record = await emitOne(passBundle, {
+      sink,
+      context,
+      signer: hashBindAuditSigner("kms://kill-key"),
+    });
+    // Sanity: this is the kill-switch early-return path, not the main path.
+    expect(record.decision.kind).toBe("REFUSE");
+    expect(record.signature).toBeDefined();
+    expect(record.signature!.keyId).toBe("kms://kill-key");
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("signing does NOT change the auditHash (pre-image exclusion) on the emitted record", async () => {
+    const signedSink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const unsignedSink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const signed = await emitOne(passBundle, {
+      sink: signedSink,
+      signer: hashBindAuditSigner("kms://k"),
+      clock: { nowIso: () => "2026-04-23T12:00:05.000Z", nowMs: () => 0 },
+    });
+    const unsigned = await emitOne(passBundle, {
+      sink: unsignedSink,
+      clock: { nowIso: () => "2026-04-23T12:00:05.000Z", nowMs: () => 0 },
+    });
+    // Identical inputs (fixed clock) → identical auditHash whether or not signed.
+    expect(signed.auditHash).toBe(unsigned.auditHash);
+    expect(unsigned.signature).toBeUndefined();
+  });
+
+  it("OMITS the signature when no signer is supplied (OSS tamper-evident-only)", async () => {
+    const sink: AuditSink = { emit: vi.fn().mockResolvedValue(undefined) };
+    const record = await emitOne(passBundle, { sink });
+    expect("signature" in record).toBe(false);
+    expect(verifyAuditRecord(record).verified).toBe(true);
+  });
+
+  it("FAIL-CLOSED: a throwing signer aborts the call and emits NO record (main path)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const sink: AuditSink = { emit };
+    const throwingSigner: AuditSigner = {
+      keyId: "kms://broken",
+      sign() {
+        throw new Error("KMS unavailable");
+      },
+    };
+    await expect(
+      adjudicateAndAudit(envFixture(), {}, passBundle, {
+        sink,
+        signer: throwingSigner,
+      }),
+    ).rejects.toThrow("KMS unavailable");
+    // No unsigned record was emitted — the signer error fails CLOSED before sink.emit.
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("FAIL-CLOSED: a throwing signer aborts the kill-switch path and emits NO record", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const sink: AuditSink = { emit };
+    const context = createRuntimeContext({ id: "tenant-092-fc" });
+    context.killSwitch.set(true, "test-092-maintenance");
+    const throwingSigner: AuditSigner = {
+      keyId: "kms://broken",
+      sign() {
+        throw new Error("HSM offline");
+      },
+    };
+    await expect(
+      adjudicateAndAudit(envFixture(), {}, passBundle, {
+        sink,
+        context,
+        signer: throwingSigner,
+      }),
+    ).rejects.toThrow("HSM offline");
+    expect(emit).not.toHaveBeenCalled();
   });
 });

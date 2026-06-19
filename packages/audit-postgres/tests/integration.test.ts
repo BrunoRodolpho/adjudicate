@@ -51,6 +51,7 @@ import {
   buildAuditRecord,
   buildEnvelope,
   decisionExecute,
+  hashBindAuditSigner,
 } from "@adjudicate/core";
 import type { AuditRecord } from "@adjudicate/core";
 import {
@@ -59,6 +60,11 @@ import {
   createPostgresSink,
   recordToRow,
 } from "../src/postgres-sink.js";
+import {
+  createPostgresAuditStore,
+  readVerificationSlot,
+} from "../src/audit-store.js";
+import type { PostgresReader } from "../src/pg-reader.js";
 import { UPSERT_GUARD_STAT_SQL } from "../src/guard-stats-store.js";
 
 const INTEGRATION = process.env.INTEGRATION_TEST === "1";
@@ -322,6 +328,89 @@ describeIntegration("integration — audit-postgres sink vs a real migrated DB",
     expect(await countByHash(rec.intentHash)).toBe(1);
   });
 
+  // ── 5b. 092 VERIFY-ON-READ against the REAL table ─────────────────────────
+  // Write a SIGNED record through the production sink, then read it back via the
+  // production cold-store (createPostgresAuditStore) and assert the verify-on-read
+  // verdict round-trips: an intact signed row verifies, and a row whose audit_hash
+  // is corrupted in-DB is FLAGGED (never returned as authoritative). This pins the
+  // full signature round-trip (signature_jsonb persisted by migration 008 →
+  // rowToRecord rehydration → verifyAuditRecord) end-to-end against Postgres.
+  function readerFor(p: PgPoolLike): PostgresReader {
+    return {
+      async query<R>(sql: string, params: readonly unknown[]): Promise<readonly R[]> {
+        const r = await p.query(sql, params);
+        return r.rows as unknown as readonly R[];
+      },
+    };
+  }
+
+  it("verify-on-read: a signed row round-trips to {verified:true} via the cold store", async () => {
+    const env = buildEnvelope({
+      kind: "order.item.add",
+      payload: { sku: "vor-signed", qty: 1 },
+      actor: { principal: "llm", sessionId: TEST_SESSION },
+      taint: "UNTRUSTED",
+      nonce: "n-vor-signed",
+      createdAt: "2026-06-15T12:00:00.000Z",
+    });
+    const rec = buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]),
+      durationMs: 7,
+      at: "2026-06-15T12:25:00.000Z",
+      signer: hashBindAuditSigner("kms://integration-key"),
+    });
+    expect(rec.signature).toBeDefined();
+    await sinkFor(pool).emit(rec);
+
+    const store = createPostgresAuditStore({ reader: readerFor(pool) });
+
+    // List read carries the verdict, index-aligned.
+    const result = await store.query({ limit: 100, intentHash: rec.intentHash });
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]!.signature).toEqual(rec.signature);
+    expect(result.verifications).toHaveLength(1);
+    expect(result.verifications![0]!.verified).toBe(true);
+
+    // Single-record read carries the verdict slot.
+    const single = await store.getByIntentHash(rec.intentHash);
+    expect(single).not.toBeNull();
+    expect(readVerificationSlot(single!)!.verified).toBe(true);
+  });
+
+  it("verify-on-read: a row corrupted in-DB is FLAGGED tampered, never authoritative", async () => {
+    const env = buildEnvelope({
+      kind: "order.item.add",
+      payload: { sku: "vor-tamper", qty: 1 },
+      actor: { principal: "llm", sessionId: TEST_SESSION },
+      taint: "UNTRUSTED",
+      nonce: "n-vor-tamper",
+      createdAt: "2026-06-15T12:00:00.000Z",
+    });
+    const rec = buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]),
+      durationMs: 7,
+      at: "2026-06-15T12:26:00.000Z",
+    });
+    await sinkFor(pool).emit(rec);
+
+    // Simulate an attacker with store-write access flipping a hashed column
+    // WITHOUT updating audit_hash — the read path must catch it.
+    await pool.query(
+      "UPDATE intent_audit SET duration_ms = 99999 WHERE intent_hash = $1 AND recorded_at = $2",
+      [rec.intentHash, rec.at],
+    );
+
+    const store = createPostgresAuditStore({ reader: readerFor(pool) });
+    const result = await store.query({ limit: 100, intentHash: rec.intentHash });
+    // The row is still RETURNED (forensics) but its verdict is verified:false.
+    expect(result.records).toHaveLength(1);
+    const v = result.verifications![0]!;
+    expect(v.verified).toBe(false);
+    if (v.verified === false) expect(v.reason).toBe("tampered");
+  });
+
   // ── 6. MIGRATION 009 IS APPLIED TO THE REAL TABLE (direct schema guard) ───
   // The arbiter the sink's ON CONFLICT depends on must be UNIQUE on the live
   // intent_audit. If 009 regressed, indisunique is false and this fails.
@@ -433,7 +522,14 @@ describeIntegration("integration — 052 additive guard-stats upsert vs a real D
 
   /** Run the PRODUCTION upsert SQL against the throwaway table. */
   function upsert(packId: string, delta: number): Promise<unknown> {
-    return pool.query(UPSERT_GUARD_STAT_SQL.replace("audit_guard_stats", T), [
+    // `UPSERT_GUARD_STAT_SQL` names `audit_guard_stats` TWICE (the INSERT INTO
+    // target AND the `DO UPDATE SET count = audit_guard_stats.count + …`
+    // qualified reference). A single `.replace()` rewrites only the first, so the
+    // second reference points at the real table that is NOT in the statement's
+    // FROM-clause → Postgres "missing FROM-clause entry for table". Use
+    // `replaceAll` so the throwaway table is substituted everywhere. (Pre-existing
+    // 052-suite bug surfaced once the integration gate ran against a live DB.)
+    return pool.query(UPSERT_GUARD_STAT_SQL.replaceAll("audit_guard_stats", T), [
       "amount-threshold",
       "business",
       "EXECUTE",

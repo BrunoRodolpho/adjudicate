@@ -120,6 +120,119 @@ export interface AuditPlanSnapshot {
   readonly planFingerprint: string;
 }
 
+/**
+ * Cryptographic signature slot over an AuditRecord's `auditHash`. Shaped
+ * IDENTICALLY to `CapabilitySignature` (`capability.ts`) so audit and capability
+ * share one signature shape:
+ *   - `keyId` — identifier of the signing key (e.g. a KMS key alias).
+ *   - `alg`   — the signature algorithm. `"sha256-hashbind"` is the pure-JS,
+ *               browser-safe HASH-BIND leg this package can both produce and
+ *               verify; `"ed25519"` (or any asymmetric alg) is produced/verified
+ *               node-side (`@adjudicate/approval-engine`) and is OPAQUE to core's
+ *               browser-safe `verifyAuditRecord` (it never false-fails a record
+ *               whose asymmetric signature it cannot check — see below).
+ *   - `value` — the signature. For `"sha256-hashbind"` it is the
+ *               `sha256Canonical` of the signature pre-image; for asymmetric algs
+ *               it is the detached signature, base64-encoded.
+ */
+export interface AuditSignature {
+  readonly keyId: string;
+  readonly alg: string;
+  readonly value: string;
+}
+
+/**
+ * The hash-bind signature algorithm tag — the pure-JS, browser-safe leg that
+ * `@adjudicate/core` can both MINT (`bindAuditSignature` / `hashBindAuditSigner`)
+ * and VERIFY (`verifyAuditRecord`) with no `node:crypto` / no `Buffer`. The
+ * value commits to a canonical pre-image over `(auditHash, keyId)`, so a
+ * tampered `auditHash` or a signature moved to another record fails the
+ * constant-time compare. The ASYMMETRIC (ed25519) signer/verifier lives in
+ * `@adjudicate/approval-engine` and signs the SAME pre-image.
+ */
+export const AUDIT_HASHBIND_ALG = "sha256-hashbind" as const;
+
+/**
+ * Versioned pre-image tag for an audit-record signature — the first line of the
+ * canonical string an AuditSigner signs and `verifyAuditRecord` re-derives
+ * (mirrors `CAPABILITY_PREIMAGE_VERSION`, `capability.ts`). Versioned so the
+ * format can evolve without ambiguity: a signature minted over v1 bytes can
+ * never be presented against a v2 pre-image (the tag line differs → the hash
+ * differs).
+ */
+export const AUDIT_SIGNATURE_PREIMAGE_VERSION =
+  "adjudicate-audit-signature-v1" as const;
+
+/**
+ * Pluggable, impure-shell signer for audit records (092). Lives at the §D
+ * shell boundary: the kernel `adjudicate()` stays pure and NEVER signs — the
+ * shell calls `sign(auditHash)` AFTER `buildAuditRecord` has computed the
+ * tamper-evident `auditHash`, and attaches the result to `record.signature`.
+ *
+ * `signature` is EXCLUDED from the `auditHash` pre-image (like `metadata`), so
+ * post-hoc signing never invalidates the hash (the pre-image-exclusion
+ * invariant, §7).
+ *
+ * Implementations:
+ *   - `hashBindAuditSigner` (this package) — the pure-JS, browser-safe
+ *     `"sha256-hashbind"` leg. Tamper-evident; NOT non-repudiation.
+ *   - an ed25519 KMS/HSM signer (`@adjudicate/approval-engine`, node-side) — the
+ *     asymmetric, non-repudiation leg.
+ *
+ * `sign` MUST be a pure function of `auditHash` (deterministic per key) so the
+ * signed record stays replayable. It may THROW on a signing failure — the shell
+ * treats a signer error as FAIL-CLOSED (aborts EXECUTE) per §D inv. 6.
+ */
+export interface AuditSigner {
+  /** Identifier recorded into the signature slot (e.g. a KMS key alias). */
+  readonly keyId: string;
+  /** Produce the signature over the record's already-computed `auditHash`. */
+  sign(auditHash: string): AuditSignature;
+}
+
+/**
+ * Build the versioned canonical pre-image STRING an AuditSigner signs and
+ * `verifyAuditRecord` re-derives — a version tag line followed by the
+ * `sha256Canonical` of `(auditHash, keyId)`. Binding `keyId` means a signature
+ * minted under one key id cannot be re-presented under another (the pre-image
+ * differs). Pure: no I/O, no clock, no `node:crypto`. Browser-safe.
+ */
+export function auditSignaturePreimage(auditHash: string, keyId: string): string {
+  const bodyHash = sha256Canonical({ auditHash, keyId });
+  return `${AUDIT_SIGNATURE_PREIMAGE_VERSION}\n${bodyHash}`;
+}
+
+/**
+ * Pure-JS, browser-safe hash-bind AuditSigner (mirrors `bindCapability`,
+ * `capability.ts`). Its `value` is the `sha256Canonical` of the versioned
+ * signature pre-image, so `verifyAuditRecord` can verify it anywhere without a
+ * public key or `node:crypto`. Tamper-evident — NOT asymmetric non-repudiation
+ * (for that, plug an ed25519 signer from `@adjudicate/approval-engine`).
+ */
+export function bindAuditSignature(
+  auditHash: string,
+  keyId: string,
+): AuditSignature {
+  return {
+    keyId,
+    alg: AUDIT_HASHBIND_ALG,
+    value: sha256Canonical(auditSignaturePreimage(auditHash, keyId)),
+  };
+}
+
+/**
+ * Construct a pure-JS hash-bind `AuditSigner` for the given key id. The impure
+ * shell injects this (or a node-side asymmetric signer) into the audit build
+ * path so emitted records carry a real `signature`.
+ */
+export function hashBindAuditSigner(keyId: string): AuditSigner {
+  return {
+    keyId,
+    sign: (auditHash: string): AuditSignature =>
+      bindAuditSignature(auditHash, keyId),
+  };
+}
+
 export interface AuditRecord {
   readonly version: AuditRecordVersion;
   readonly intentHash: string;
@@ -182,11 +295,7 @@ export interface AuditRecord {
    * the kernel decision REPLAYS over the recorded bound inputs (§D #5) without
    * any signing.
    */
-  readonly signature?: {
-    readonly keyId: string;
-    readonly alg: string;
-    readonly value: string;
-  };
+  readonly signature?: AuditSignature;
   /**
    * Optional (033). The RECORDED authority-graph snapshot the kernel decision
    * was INJECTED with — the immutable graph plus its content-address
@@ -295,6 +404,17 @@ export interface BuildAuditInput {
    * (no `undefined` key, hash-stable for non-injecting adopters).
    */
   readonly aggregateSnapshot?: RecordedAggregateSnapshot;
+  /**
+   * Optional (092). Impure-shell signer. When supplied, `buildAuditRecord`
+   * computes `auditHash` FIRST, then calls `signer.sign(auditHash)` and attaches
+   * the result to `record.signature`. The signature is EXCLUDED from the
+   * `auditHash` pre-image, so signing post-hoc never invalidates the hash. A
+   * throwing signer propagates out of `buildAuditRecord` — the shell treats this
+   * as FAIL-CLOSED (aborts EXECUTE rather than emitting an unsigned record, §D
+   * inv. 6). Omitting it leaves `signature` absent (a valid, tamper-evident-only
+   * record — the documented OSS contract).
+   */
+  readonly signer?: AuditSigner;
 }
 
 export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
@@ -350,10 +470,20 @@ export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
   // tamper-evident token. `metadata` (v5+) is EXCLUDED so post-hoc/async
   // attachment does not invalidate the hash. Verifiers strip the same fields.
   const auditHash = sha256Canonical(baseRecord);
+  // 092: attach a real `signature` AFTER computing `auditHash`. `signature` is
+  // EXCLUDED from the pre-image (the `sha256Canonical(baseRecord)` above does not
+  // see it), so signing post-hoc never invalidates the hash — exactly like
+  // `metadata`. A throwing signer propagates (FAIL-CLOSED: the shell aborts
+  // EXECUTE rather than emitting an unsigned record). Omitting the signer leaves
+  // the field absent: a valid, tamper-evident-only record (OSS contract).
+  const signature: AuditSignature | undefined = input.signer
+    ? input.signer.sign(auditHash)
+    : undefined;
   return {
     ...baseRecord,
     ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     auditHash,
+    ...(signature !== undefined ? { signature } : {}),
   };
 }
 
@@ -374,16 +504,34 @@ export function attachAuditMetadata(
 /**
  * Verify an AuditRecord's tamper-evident hash.
  *
- * Re-derives `sha256Canonical(record \ { auditHash, signature })` and
- * compares to the stored `auditHash`. Returns:
- *   - `{ verified: true }` — hash matches; record is intact
+ * Re-derives `sha256Canonical(record \ { auditHash, signature, metadata })` and
+ * compares to the stored `auditHash`, then (092) checks the `signature` leg when
+ * one is present and verifiable. Returns:
+ *   - `{ verified: true }` — hash matches AND any present signature verifies;
+ *      record is intact and (if signed) authentic on the verifiable leg.
  *   - `{ verified: false, reason: "tampered", derived, stored }` — hash
- *      mismatch; the stored record was modified after build
- *   - `{ verified: null, reason: "missing_hash" }` — pre-v4 record;
- *      verification not applicable
+ *      mismatch; the stored record was modified after build.
+ *   - `{ verified: false, reason: "envelope_intent_mismatch", derived, stored }`
+ *      — the stored `envelope.intentHash` does not re-derive from its content.
+ *   - `{ verified: false, reason: "invalid_signature", keyId, alg }` (092) — the
+ *      auditHash is intact but a PRESENT signature does not verify (a forged or
+ *      moved signature). Layered ON TOP of the auditHash check: the tamper axis
+ *      passes, the authenticity axis fails.
+ *   - `{ verified: null, reason: "missing_hash" }` — pre-v4 record; verification
+ *      not applicable.
  *
- * Pure function. No I/O. Verifies tamper-evidence only — non-repudiation
- * (signature verification) is a separate concern via a pluggable verifier.
+ * **Signature verification scope (092 / §D browser-safe boundary).**
+ * `@adjudicate/core` is browser-bundled (no `node:crypto`), so this function can
+ * only verify the pure-JS HASH-BIND leg (`alg: "sha256-hashbind"`,
+ * `auditSignaturePreimage`). For an ASYMMETRIC signature (`alg: "ed25519"` etc.)
+ * it does NOT attempt verification — it leaves that record `verified: true` on
+ * the hash axis and defers asymmetric verification to the node-side verifier
+ * (`@adjudicate/approval-engine`) supplied via `opts.verifySignature`. A caller
+ * MAY inject `verifySignature` to verify asymmetric signatures here; it returns
+ * `false` to flag an invalid one. This keeps core fail-SAFE: it never
+ * false-fails a record whose signature it structurally cannot check.
+ *
+ * Pure function. No I/O.
  */
 export type AuditRecordVerification =
   | { readonly verified: true }
@@ -403,10 +551,37 @@ export type AuditRecordVerification =
       readonly derived: string;
       readonly stored: string;
     }
+  | {
+      // 092: the auditHash is intact but a PRESENT signature does not verify —
+      // a forged hash-bind value, or an asymmetric signature the injected
+      // `verifySignature` rejected, or a signature moved to a different record.
+      // Distinct from "tampered" (the auditHash axis passed).
+      readonly verified: false;
+      readonly reason: "invalid_signature";
+      readonly keyId: string;
+      readonly alg: string;
+    }
   | { readonly verified: null; readonly reason: "missing_hash" };
+
+/**
+ * Optional verification knobs (092). `verifySignature` is the node-side
+ * asymmetric verifier hook: when supplied, `verifyAuditRecord` uses it to verify
+ * NON-hashbind (`alg !== "sha256-hashbind"`) signatures — a node caller passes
+ * `@adjudicate/approval-engine`'s ed25519 verifier so the cold-store read path
+ * can flag a forged asymmetric signature. Omitting it (the browser-safe default)
+ * leaves asymmetric signatures unverified (record stays `verified: true` on the
+ * hash axis). The hash-bind leg is ALWAYS verified regardless.
+ */
+export interface VerifyAuditRecordOptions {
+  readonly verifySignature?: (
+    auditHash: string,
+    signature: AuditSignature,
+  ) => boolean;
+}
 
 export function verifyAuditRecord(
   record: AuditRecord,
+  opts?: VerifyAuditRecordOptions,
 ): AuditRecordVerification {
   // Envelope self-consistency (CryptoReviewer-006 / LogicReviewer-012):
   // re-derive `envelope.intentHash` from the envelope's content-addressed
@@ -445,6 +620,46 @@ export function verifyAuditRecord(
   // boolean-identical to `===` for all inputs and never throws.
   if (!timingSafeHexEqual(derived, stored)) {
     return { verified: false, reason: "tampered", derived, stored };
+  }
+  // 092 — signature axis, layered ON TOP of the (now-passing) auditHash axis.
+  // A record may legitimately carry NO signature (OSS contract) — that stays
+  // verified:true. A present signature is checked on whichever leg core can:
+  //   - hash-bind (`sha256-hashbind`): verified pure-JS, browser-safe, here.
+  //   - asymmetric (ed25519, ...): verified ONLY if the caller injected
+  //     `verifySignature`; otherwise left unverified (fail-SAFE — core cannot
+  //     load a public key, so it never false-fails what it cannot check).
+  const sig = record.signature;
+  if (sig !== undefined) {
+    if (sig.alg === AUDIT_HASHBIND_ALG) {
+      // Re-derive the hash-bind value from the (verified) auditHash + keyId and
+      // constant-time compare. A forged value, or a signature minted for a
+      // different auditHash/keyId, re-derives a different hash and fails.
+      const expected = sha256Canonical(
+        auditSignaturePreimage(stored, sig.keyId),
+      );
+      if (!timingSafeHexEqual(sig.value, expected)) {
+        return {
+          verified: false,
+          reason: "invalid_signature",
+          keyId: sig.keyId,
+          alg: sig.alg,
+        };
+      }
+    } else if (opts?.verifySignature !== undefined) {
+      // Asymmetric leg: defer to the injected node-side verifier (which holds
+      // the public key). It binds `auditHash` so a signature cannot be moved to
+      // another record. Returns false on any forged/cross-record/bad signature.
+      if (!opts.verifySignature(stored, sig)) {
+        return {
+          verified: false,
+          reason: "invalid_signature",
+          keyId: sig.keyId,
+          alg: sig.alg,
+        };
+      }
+    }
+    // else: asymmetric signature with no verifier injected → unverified, but the
+    // record is intact on the hash axis. Fail-SAFE (never false-fail).
   }
   return { verified: true };
 }

@@ -16,6 +16,7 @@ import {
   buildAuditRecord,
   buildEnvelope,
   type Decision,
+  hashBindAuditSigner,
   sha256Canonical,
   type IntentEnvelope,
   type Taint,
@@ -229,5 +230,72 @@ describe("replayWithIntegrity", () => {
     );
     expect(intentFailure).toBeDefined();
     expect(intentFailure!.detail.derived).toBe(expected);
+  });
+});
+
+// ─── 092: the harness reflects the signature verdict ────────────────────────
+// A record whose auditHash is intact but whose signature is forged surfaces as
+// a distinct AUDIT_SIGNATURE_INVALID integrity failure (not AUDIT_HASH_TAMPERED).
+describe("replayWithIntegrity — 092 signature verdict", () => {
+  it("a valid signature does NOT add an integrity failure (matched, intact)", () => {
+    const env = envelopeWith();
+    const decision = executeDecision();
+    const record = buildAuditRecord({
+      envelope: env,
+      decision,
+      durationMs: 1,
+      at: "2026-05-20T00:00:01.000Z",
+      signer: hashBindAuditSigner("kms://harness-key"),
+    });
+    const report = replayWithIntegrity([record], () => decision);
+    expect(report.matched).toBe(1);
+    expect(report.integrityFailures).toHaveLength(0);
+    expect(isReplayIntegrityClean(report)).toBe(true);
+  });
+
+  it("a forged signature surfaces AUDIT_SIGNATURE_INVALID (auditHash intact)", () => {
+    const env = envelopeWith();
+    const decision = executeDecision();
+    const record = buildAuditRecord({
+      envelope: env,
+      decision,
+      durationMs: 1,
+      at: "2026-05-20T00:00:01.000Z",
+      signer: hashBindAuditSigner("kms://harness-key"),
+    });
+    // Forge ONLY the signature value; the auditHash (over the record sans
+    // signature) is untouched, so the tamper axis passes and the signature axis
+    // fails — a distinct kind, NOT AUDIT_HASH_TAMPERED.
+    const forged: AuditRecord = {
+      ...record,
+      signature: { ...record.signature!, value: "0".repeat(64) },
+    };
+    const report = replayWithIntegrity([forged], () => decision);
+    expect(report.matched).toBe(0);
+    expect(report.integrityFailures).toHaveLength(1);
+    const failure = report.integrityFailures[0]!;
+    expect(failure.kind).toBe("AUDIT_SIGNATURE_INVALID");
+    // The detail carries the offending keyId + alg (not a hash pair).
+    expect(failure.detail.stored).toBe("kms://harness-key");
+    expect(failure.detail.derived).toBe("sha256-hashbind");
+    expect(isReplayIntegrityClean(report)).toBe(false);
+  });
+
+  it("auditHash tamper still surfaces AUDIT_HASH_TAMPERED even on a signed record", () => {
+    const env = envelopeWith();
+    const decision = executeDecision();
+    const record = buildAuditRecord({
+      envelope: env,
+      decision,
+      durationMs: 1,
+      at: "2026-05-20T00:00:01.000Z",
+      signer: hashBindAuditSigner("kms://harness-key"),
+    });
+    // Mutate a hashed field — the auditHash axis fails BEFORE the signature axis,
+    // so the kind is AUDIT_HASH_TAMPERED (the bytes were modified).
+    const tampered: AuditRecord = { ...record, durationMs: 99999 };
+    const report = replayWithIntegrity([tampered], () => decision);
+    expect(report.integrityFailures).toHaveLength(1);
+    expect(report.integrityFailures[0]!.kind).toBe("AUDIT_HASH_TAMPERED");
   });
 });

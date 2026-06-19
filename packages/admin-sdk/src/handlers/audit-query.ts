@@ -35,6 +35,14 @@ function isInvalidCursorError(err: unknown): boolean {
  * Returning the handler from a factory (rather than exporting the function
  * directly) keeps the dependency injection explicit: the store is bound
  * once at mount time, not per-request.
+ *
+ * 092 — verify-on-read pass-through. When the underlying store verifies on read
+ * (the Postgres cold-store does — `createPostgresAuditStore`), its
+ * `AuditQueryResult.verifications` (per-record verdicts, index-aligned with
+ * `records`) flows through this handler UNCHANGED so the tRPC route can render
+ * tamper / signature status. Stores that do not verify (the in-memory reference)
+ * omit it and the field is simply absent. The handler never strips, reorders, or
+ * recomputes the verdicts — it only maps the InvalidCursorError to BAD_REQUEST.
  */
 export function createAuditQueryHandler(
   deps: CreateAuditQueryHandlerDeps,

@@ -139,3 +139,48 @@ describe("createAuditQueryHandler — InvalidCursorError → BAD_REQUEST", () =>
     await expect(h(q())).rejects.toBe(boom);
   });
 });
+
+/**
+ * 092 — the handler PASSES THROUGH the store's verify-on-read verdicts
+ * (`AuditQueryResult.verifications`) unchanged, and does NOT regress the
+ * InvalidCursorError → BAD_REQUEST mapping.
+ */
+describe("createAuditQueryHandler — 092 verify-on-read pass-through", () => {
+  const verifyingStore = (verdicts: AuditQueryResult["verifications"]): AuditStore => ({
+    async query(): Promise<AuditQueryResult> {
+      return { records: ALL, verifications: verdicts };
+    },
+    async getByIntentHash() {
+      return null;
+    },
+  });
+
+  it("forwards the verifications array verbatim (same reference, not recomputed)", async () => {
+    const verdicts: AuditQueryResult["verifications"] = ALL.map(() => ({
+      verified: true as const,
+    }));
+    const h = createAuditQueryHandler({ store: verifyingStore(verdicts) });
+    const result = await h(q());
+    expect(result.verifications).toBe(verdicts);
+    expect(result.verifications).toHaveLength(ALL.length);
+  });
+
+  it("forwards an invalid_signature verdict through to the caller", async () => {
+    const verdicts: AuditQueryResult["verifications"] = [
+      { verified: false, reason: "invalid_signature", keyId: "kms://k", alg: "sha256-hashbind" },
+      ...ALL.slice(1).map(() => ({ verified: true as const })),
+    ];
+    const h = createAuditQueryHandler({ store: verifyingStore(verdicts) });
+    const result = await h(q());
+    const flagged = result.verifications![0]!;
+    expect(flagged.verified).toBe(false);
+    if (flagged.verified === false) expect(flagged.reason).toBe("invalid_signature");
+  });
+
+  it("a store that omits verifications still works (field stays undefined)", async () => {
+    const result = await handler(q());
+    // The reference in-memory store does not verify on read.
+    expect(result.verifications).toBeUndefined();
+    expect(result.records.length).toBeGreaterThan(0);
+  });
+});

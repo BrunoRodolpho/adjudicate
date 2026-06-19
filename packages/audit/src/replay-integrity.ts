@@ -44,7 +44,14 @@ export type { Adjudicator } from "./adjudicator.js";
 
 export interface IntegrityFailure {
   readonly intentHash: string;
-  readonly kind: "AUDIT_HASH_TAMPERED" | "INTENT_HASH_MISMATCH";
+  readonly kind:
+    | "AUDIT_HASH_TAMPERED"
+    | "INTENT_HASH_MISMATCH"
+    // 092: the auditHash is intact but a PRESENT signature does not verify (a
+    // forged hash-bind value or a rejected asymmetric signature). Distinct from
+    // AUDIT_HASH_TAMPERED so an operator can tell "the bytes were modified" from
+    // "the bytes are intact but the signature is not authentic".
+    | "AUDIT_SIGNATURE_INVALID";
   readonly detail: {
     readonly stored: string;
     readonly derived: string;
@@ -99,19 +106,38 @@ export function replayWithIntegrity(
       });
     }
 
-    // Integrity axis 2: audit record auditHash.
+    // Integrity axis 2: audit record auditHash + signature (092). A single
+    // verdict now covers both the tamper axis (auditHash) and the authenticity
+    // axis (signature). The `invalid_signature` outcome carries `keyId`/`alg`
+    // (not stored/derived hashes), so it maps to a distinct IntegrityFailure
+    // kind reflecting the keyId/alg in the detail rather than two hashes.
     let auditHashOk = true;
     const auditVerification: AuditRecordVerification = verifyAuditRecord(record);
     if (auditVerification.verified === false) {
       auditHashOk = false;
-      integrityFailures.push({
-        intentHash: record.intentHash,
-        kind: "AUDIT_HASH_TAMPERED",
-        detail: {
-          stored: auditVerification.stored,
-          derived: auditVerification.derived,
-        },
-      });
+      if (auditVerification.reason === "invalid_signature") {
+        integrityFailures.push({
+          intentHash: record.intentHash,
+          kind: "AUDIT_SIGNATURE_INVALID",
+          detail: {
+            // The signature axis has no derived/stored hash pair to report; carry
+            // the offending key id + alg so an operator can locate the key.
+            stored: auditVerification.keyId,
+            derived: auditVerification.alg,
+          },
+        });
+      } else {
+        // "tampered" (auditHash mismatch) or "envelope_intent_mismatch" — both
+        // carry the stored/derived hash pair.
+        integrityFailures.push({
+          intentHash: record.intentHash,
+          kind: "AUDIT_HASH_TAMPERED",
+          detail: {
+            stored: auditVerification.stored,
+            derived: auditVerification.derived,
+          },
+        });
+      }
     } else if (auditVerification.verified === null) {
       preV4++;
       // Don't penalize matched count for legacy records — the replay

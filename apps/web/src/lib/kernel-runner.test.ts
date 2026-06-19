@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runPlayground } from "./kernel-runner";
+import { recentRecords, runPlayground } from "./kernel-runner";
 
 /**
  * apps/web's first automated test. Pins the PII-demo playground behaviour the
@@ -57,5 +57,29 @@ describe("playground receipt shape (grounds the 131 re-pitch copy)", () => {
     expect(record.signature).toBeUndefined();
     expect(record.prevAuditHash).toBeUndefined();
     expect(record.kernelIdentity).toBeUndefined();
+  });
+
+  it("the same keyless-hash shape holds for the persisted recentRecords feed (132 · T4)", async () => {
+    // T4: the 131 copy fix asserts the playground receipt is keyless tamper-
+    // evident (auditHash) but NOT signed / chained / kernel-identified. Pin that
+    // against the in-memory sink `recentRecords()` reads — the exact feed the
+    // /api/playground/outcome-distribution route and the console replica chart
+    // consume — so the code-backed source of truth covers the persisted path,
+    // not just the value `runPlayground` happens to return.
+    await runPlayground({
+      intentKind: "support.ticket.create",
+      payload: { subject: "help", body: "please add a dark mode to the dashboard" },
+    });
+    const recent = recentRecords();
+    expect(recent.length).toBeGreaterThan(0);
+    const latest = recent[0]!;
+    // Keyless tamper-evidence present (the only claim the copy may make).
+    expect(typeof latest.auditHash).toBe("string");
+    expect(latest.auditHash).toMatch(/^[0-9a-f]{64}$/);
+    // The forbidden claims: no signer, no inter-record chain, no kernel identity
+    // are wired into the playground, so none of these land on the stored record.
+    expect(latest.signature).toBeUndefined();
+    expect(latest.prevAuditHash).toBeUndefined();
+    expect(latest.kernelIdentity).toBeUndefined();
   });
 });

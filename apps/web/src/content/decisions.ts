@@ -17,6 +17,13 @@ export interface DecisionContent {
   readonly playgroundPreset: {
     readonly intentKind: string;
     readonly payload: Record<string, unknown>;
+    /**
+     * Optional pre-loaded Pack state. Some outcomes only arise when the kernel
+     * reads a fact out of state S (e.g. an approval already on file) — without
+     * it the same payload re-adjudicates to a different kind. Seeded as plain
+     * JSON; the kernel-runner rehydrates it into the Pack's runtime shape.
+     */
+    readonly state?: unknown;
   };
 }
 
@@ -64,9 +71,32 @@ export const DECISIONS: Record<DecisionKind, DecisionContent> = {
     bg: "bg-rewrite/10",
     border: "border-rewrite/40",
     icon: "RotateCcw",
+    // A production deploy at 100% ramp is REWRITTEN down to the 25% production
+    // cap (basis quantity_capped). The approval already on file is what lets
+    // that REWRITE SURVIVE the kernel's 011 re-adjudication: the kernel rewrites
+    // the 100% ramp to 25%, then re-adjudicates the corrected envelope — and
+    // because the deploy IS approved, the clamped request clears the
+    // production-approval gate (EXECUTE) instead of escalating, so the final
+    // audited decision is the REWRITE. Drop the approval and the SAME payload
+    // re-adjudicates to ESCALATE (the clamped-but-unapproved deploy escalates;
+    // see guided-cases `deploy-prod-overshoot`), which is why this preset must
+    // seed the approval in state — without it the homepage REWRITE centerpiece
+    // would render an ESCALATE receipt.
     playgroundPreset: {
       intentKind: "deployment.approval.request",
       payload: { service: "api", environment: "production", gitSha: "feedface", rampPercent: 100 },
+      state: {
+        approvals: {
+          "production/api/feedface": {
+            service: "api",
+            environment: "production",
+            gitSha: "feedface",
+            approver: "sre-oncall",
+            decision: "approved",
+            at: "2026-06-07T00:00:00.000Z",
+          },
+        },
+      },
     },
   },
   DEFER: {

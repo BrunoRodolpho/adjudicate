@@ -51,6 +51,7 @@ const REASON_LABEL: Record<Supersession["reason"], string> = {
   defer_resumed: "Resumed from defer",
   rewrite_executed: "Rewritten from",
   replay: "Replayed from",
+  budget_satisfied: "Budget satisfied from",
   lgpd_scrub: "LGPD scrub from",
 };
 

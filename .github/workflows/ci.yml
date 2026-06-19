@@ -61,3 +61,40 @@ jobs:
       - name: Dependency advisory audit (high+)
         run: pnpm audit --prod --audit-level high
         continue-on-error: true
+
+  # 083 — kernel-purity dep allowlist promoted to a REQUIRED CI gate.
+  #
+  # `pnpm rc:check` runs the release-candidate invariant chain whose
+  # kernel-dep-allowlist step (scripts/rc-checks.ts) fails the build if
+  # `@adjudicate/core` ever grows a dependency outside the §D allowlist
+  # ({@adjudicate/canonical, @noble/hashes, zod}). Until now this lived only
+  # in the `rc:check` script wired to NO workflow — the kernel-purity boundary
+  # (§D) was enforced only if someone ran it locally. It is now a required
+  # check on every PR + push-to-main.
+  #
+  # Kept as a SEPARATE job (083 §7 mitigation) so it can be reverted
+  # independently of the lint+test job above. This is a build/CI gate only —
+  # it NEVER runs inside `adjudicate()`. §C monotonicity / §D-6 fail-closed:
+  # an unlisted kernel dependency reddens the pipeline and blocks the merge;
+  # it never relaxes a gate.
+  kernel-purity:
+    name: Kernel-purity dep allowlist (rc:check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (workspace packages — needed by rc:check lint/test phases)
+        run: pnpm build
+
+      - name: RC invariant chain incl. kernel-dep allowlist
+        run: pnpm rc:check

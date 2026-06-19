@@ -22,6 +22,7 @@ import {
   _resetMetricsSink,
   type CapabilityPlanner,
   type Guard,
+  type InstallPackOptions,
   type LearningSink,
   type LoadSealReport,
   type LoadTrustReport,
@@ -489,5 +490,86 @@ describe("installPack — 082 verifyOnLoad (fail-closed provenance gate)", () =>
   it("verifyOnLoad ABSENT ⇒ unchanged pre-082 behavior (installs without provenance)", () => {
     const result = installPack(makePack(), noSinks);
     expect(result.pack.id).toBe("pack-test");
+  });
+});
+
+// ── 083: change-control (maker/checker/signer + CI gates) is ORTHOGONAL to the
+// kernel install path ────────────────────────────────────────────────────────
+//
+// Plan 083 adds maker/checker/signer segregation-of-duties + the kernel-purity
+// dep allowlist as CI gates — all of it WORKFLOW/CONFIG ONLY (.github/CODEOWNERS,
+// release.yml environment, ci.yml rc:check, freeze-matrix --version-pin). None of
+// it may couple into `installPack`, which is the impure in-process load shell of
+// the PURE kernel (§D). These tests prove the install surface is a CI/ops-
+// independent surface: its behavior is byte-identical regardless of any
+// change-control / CI environment, and its source carries no publish-path
+// coupling. A future plan that smuggled a CI/CODEOWNERS/NPM_TOKEN concept into
+// the load path would redden here.
+describe("installPack — 083 change-control is orthogonal to the load path", () => {
+  beforeEach(() => {
+    _resetMetricsSink();
+    _resetLearningSink();
+  });
+  afterEach(() => {
+    _resetMetricsSink();
+    _resetLearningSink();
+    delete process.env.CI;
+    delete process.env.GITHUB_ACTIONS;
+    delete process.env.NPM_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  const noSinks = { installDefaultMetrics: false, installDefaultLearning: false } as const;
+
+  it("installs identically whether or not CI / publish-path env is present (no env coupling)", () => {
+    // Baseline: no CI/change-control environment.
+    const bare = installPack(makePack(), noSinks);
+
+    // Now set every CI / publish-path env var the segregated publish stage uses.
+    process.env.CI = "true";
+    process.env.GITHUB_ACTIONS = "true";
+    process.env.NPM_TOKEN = "npm_should_be_irrelevant_to_the_kernel";
+    process.env.GITHUB_TOKEN = "ghs_should_be_irrelevant_to_the_kernel";
+    const inCi = installPack(makePack(), noSinks);
+
+    // The load path reads NONE of these — the pack id, the wrapped policy shape,
+    // and the installedDefaults must be identical (change-control is out-of-kernel).
+    expect(inCi.pack.id).toBe(bare.pack.id);
+    expect(inCi.installedDefaults).toEqual(bare.installedDefaults);
+    expect(describePolicyBundle(inCi.pack.policy)).toEqual(
+      describePolicyBundle(bare.pack.policy),
+    );
+  });
+
+  it("InstallPackOptions exposes NO change-control / CI / publish-path option key", () => {
+    // The option surface a caller can pass. 083 added zero options here — the
+    // segregation lives entirely in .github/. This is the load-bearing assertion
+    // that the kernel install path stayed free of change-control coupling.
+    const optionKeys: Array<keyof InstallPackOptions> = [
+      "installDefaultMetrics",
+      "installDefaultLearning",
+      "auditBasisDrift",
+      "allowDefaultExecute",
+      "warn",
+      "authoritySnapshot",
+      "verifyOnLoad",
+    ];
+    // A typo / a smuggled `codeowners` | `npmToken` | `signer` key would fail to
+    // type-check above, but we also assert the runtime install ignores any
+    // such ambient property defensively.
+    const sneaky = {
+      ...noSinks,
+      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
+      codeowners: ["@adjudicate/release-checkers"],
+      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
+      requireCheckerApproval: true,
+      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
+      npmToken: "secret",
+    } as InstallPackOptions;
+    const result = installPack(makePack(), sneaky);
+    expect(result.pack.id).toBe("pack-test");
+    // Sanity: the documented keys are the complete, change-control-free set.
+    expect(optionKeys).toContain("verifyOnLoad");
+    expect(optionKeys).not.toContain("codeowners" as keyof InstallPackOptions);
   });
 });

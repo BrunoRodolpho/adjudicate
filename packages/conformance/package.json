@@ -26,7 +26,10 @@
   "devDependencies": {
     "@adjudicate/core": "workspace:*",
     "@adjudicate/pack-access-governance": "workspace:*",
+    "@adjudicate/pack-cli-agent": "workspace:*",
     "@adjudicate/pack-deployments-approval": "workspace:*",
+    "@adjudicate/pack-identity-kyc": "workspace:*",
+    "@adjudicate/pack-incident-response": "workspace:*",
     "@adjudicate/pack-payments-pix": "workspace:*",
     "@adjudicate/primitives": "workspace:*",
     "typescript": "^5.9.0",

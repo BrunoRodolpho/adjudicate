@@ -77,6 +77,10 @@ export const IdentityKycPack = {
   basisCodes: [
     // Refusal taxonomy (Refusal.code) the policy may emit.
     "kyc.verification_score_too_low",
+    // 201 — the authority guard's REFUSE code (Refusal.code, bare — the form
+    // `withBasisAudit` drift-checks). Declaring it suppresses the observe-only
+    // `basis_code_drift` telemetry on the §D #8 owner-predicate refusal.
+    "tenant_binding_violation",
   ],
   signals: [
     // DEFER signals the policy emits. The runtime parks intents on these
@@ -106,6 +110,7 @@ export type {
   IdentityKycIntentKind,
   IdentityKycPayload,
   IdentityKycState,
+  KycAuthorityContext,
   KycDeferSignal,
   KycDocumentUploadPayload,
   KycSession,

@@ -221,6 +221,19 @@ export function createRemediationOrchestrator(
           prompt: pending.prompt ?? "Confirm remediation?",
           taint: finalEnvelope.taint,
           channel: ADJUTANT_CHANNEL,
+          // 072 — separation-of-duty proposer binding. Captured from the
+          // PROPOSING envelope's actor (the maker): the stable `sessionId` is the
+          // proposer id, with the provenance `principal` carried as a display
+          // label. Display/governance projection ONLY — this is NOT threaded into
+          // the kernel `confirmationReceipt` below (the ops-plane resolve() still
+          // binds only {approver, channel} into the receipt, never the proposer),
+          // and NOT into the intentHash, so §D-4 and the additive-determinism
+          // fence are untouched. It lets a downstream four-eyes check compare the
+          // resolving approver against the proposer engine-side.
+          requestedBy: {
+            id: finalEnvelope.actor.sessionId,
+            displayName: finalEnvelope.actor.principal,
+          },
           status: "pending",
           requestedAt: at,
         };

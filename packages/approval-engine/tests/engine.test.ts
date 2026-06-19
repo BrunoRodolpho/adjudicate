@@ -7,7 +7,10 @@ import {
 } from "../src/index.js";
 import { baseRequest, fakeAgent } from "./helpers.js";
 
-function makeEngine(confirmImpl?: Parameters<typeof fakeAgent>[0]) {
+function makeEngine(
+  confirmImpl?: Parameters<typeof fakeAgent>[0],
+  extra: Partial<Parameters<typeof createApprovalEngine<unknown, unknown, string[]>>[0]> = {},
+) {
   const { agent, confirmCalls } = fakeAgent(confirmImpl);
   const channel = createConsoleLogChannel();
   const engine = createApprovalEngine<unknown, unknown, string[]>({
@@ -16,6 +19,7 @@ function makeEngine(confirmImpl?: Parameters<typeof fakeAgent>[0]) {
     channels: [channel],
     resolveStateContext: async () => ({ state: { fresh: true }, context: { c: 1 } }),
     now: () => "2026-04-29T12:00:00.000Z",
+    ...extra,
   });
   return { engine, channel, confirmCalls };
 }
@@ -81,6 +85,96 @@ describe("createApprovalEngine — resolve", () => {
       channel: { confirmed: "console-log", requested: "console-log" },
     });
     expect(confirmCalls[0]!.binding).not.toHaveProperty("approver");
+  });
+});
+
+// ── 072 — separation-of-duty (four-eyes / maker-checker) ─────────────────────
+describe("createApprovalEngine — separation-of-duty (072)", () => {
+  it("rejects a self-approve (approver === proposer) fail-closed and never calls agent.confirm", async () => {
+    const { engine, confirmCalls } = makeEngine(undefined, {
+      enforceSeparationOfDuty: true,
+    });
+    await engine.request({ ...baseRequest, requestedBy: { id: "alice" } });
+    await expect(
+      engine.resolve({ token: "tok-1", accepted: true, by: { id: "alice" } }),
+    ).rejects.toMatchObject({ code: "SELF_APPROVAL_FORBIDDEN" });
+    // The maker's own request stays pending — the guard runs BEFORE confirm().
+    expect(confirmCalls.length).toBe(0);
+    expect((await engine.get("tok-1"))?.status).toBe("pending");
+  });
+
+  it("allows a DIFFERENT approver to approve (approver !== proposer)", async () => {
+    const { engine, confirmCalls } = makeEngine(undefined, {
+      enforceSeparationOfDuty: true,
+    });
+    await engine.request({ ...baseRequest, requestedBy: { id: "alice" } });
+    const { request } = await engine.resolve({
+      token: "tok-1",
+      accepted: true,
+      by: { id: "bob" },
+    });
+    expect(request.status).toBe("approved");
+    expect(confirmCalls.length).toBe(1);
+  });
+
+  it("rejects the configured agent identity self-approving its own proposal", async () => {
+    const { engine, confirmCalls } = makeEngine(undefined, {
+      enforceSeparationOfDuty: true,
+      agentIdentity: "the-agent",
+    });
+    await engine.request({ ...baseRequest, requestedBy: { id: "alice" } });
+    await expect(
+      engine.resolve({ token: "tok-1", accepted: true, by: { id: "the-agent" } }),
+    ).rejects.toMatchObject({ code: "SELF_APPROVAL_FORBIDDEN" });
+    expect(confirmCalls.length).toBe(0);
+  });
+
+  it("fail-closed: rejects when the approver identity is missing under enforcement", async () => {
+    const { engine, confirmCalls } = makeEngine(undefined, {
+      enforceSeparationOfDuty: true,
+    });
+    await engine.request({ ...baseRequest, requestedBy: { id: "alice" } });
+    await expect(
+      engine.resolve({ token: "tok-1", accepted: true }), // no `by`
+    ).rejects.toMatchObject({ code: "SELF_APPROVAL_FORBIDDEN" });
+    expect(confirmCalls.length).toBe(0);
+  });
+
+  it("fail-closed: rejects when the request captured no proposer (requestedBy) under enforcement", async () => {
+    const { engine, confirmCalls } = makeEngine(undefined, {
+      enforceSeparationOfDuty: true,
+    });
+    await engine.request(baseRequest); // no requestedBy
+    await expect(
+      engine.resolve({ token: "tok-1", accepted: true, by: { id: "bob" } }),
+    ).rejects.toMatchObject({ code: "SELF_APPROVAL_FORBIDDEN" });
+    expect(confirmCalls.length).toBe(0);
+  });
+
+  it("a maker may still DECLINE their own request (a decline never authorizes)", async () => {
+    const { engine, confirmCalls } = makeEngine(undefined, {
+      enforceSeparationOfDuty: true,
+    });
+    await engine.request({ ...baseRequest, requestedBy: { id: "alice" } });
+    const { request } = await engine.resolve({
+      token: "tok-1",
+      accepted: false,
+      by: { id: "alice" }, // proposer declining is fine
+    });
+    expect(request.status).toBe("declined");
+    expect(confirmCalls.length).toBe(1); // confirm runs the decline path
+  });
+
+  it("default OFF (rollback flag, §7): a self-approve is permitted when enforcement is not enabled", async () => {
+    const { engine, confirmCalls } = makeEngine(); // no enforceSeparationOfDuty
+    await engine.request({ ...baseRequest, requestedBy: { id: "alice" } });
+    const { request } = await engine.resolve({
+      token: "tok-1",
+      accepted: true,
+      by: { id: "alice" },
+    });
+    expect(request.status).toBe("approved"); // pre-072 behavior preserved
+    expect(confirmCalls.length).toBe(1);
   });
 });
 

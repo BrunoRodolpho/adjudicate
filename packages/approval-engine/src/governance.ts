@@ -24,13 +24,30 @@ export interface QuorumPolicy {
   readonly distinctApprovers?: boolean;
 }
 
-/** Whether the accumulated approvals satisfy the quorum policy. Pure. */
+/**
+ * Whether the accumulated approvals satisfy the quorum policy. Pure.
+ *
+ * 072 — separation-of-duty: when a `proposerId` is supplied AND
+ * `distinctApprovers` is in effect (the default), a vote cast by the PROPOSER
+ * (the maker) is NOT counted toward `minApprovals` — a maker self-vote must not
+ * advance the four-eyes quorum. The proposer id is deduped against the approver
+ * set exactly as approver ids are deduped against each other. When
+ * `distinctApprovers === false` (raw-vote counting), the proposer filter is also
+ * applied so a self-vote never inflates a raw tally either. Omitting `proposerId`
+ * is byte-identical to the pre-072 behavior.
+ */
 export function quorumMet(
   approvals: ReadonlyArray<{ readonly id: string }> | undefined,
   policy: QuorumPolicy,
+  proposerId?: string,
 ): boolean {
   const list = approvals ?? [];
-  const count = policy.distinctApprovers === false ? list.length : new Set(list.map((a) => a.id)).size;
+  const eligible =
+    proposerId === undefined ? list : list.filter((a) => a.id !== proposerId);
+  const count =
+    policy.distinctApprovers === false
+      ? eligible.length
+      : new Set(eligible.map((a) => a.id)).size;
   return count >= policy.minApprovals;
 }
 

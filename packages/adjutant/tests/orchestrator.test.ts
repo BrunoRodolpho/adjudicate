@@ -366,4 +366,80 @@ describe("RemediationOrchestrator — 071 receipt binding (approver, channel)", 
     });
     expect(exec!.supersedes!.binding).not.toHaveProperty("approver");
   });
+
+  // ── 072 — proposer (requestedBy) stamped on the request, NOT on the receipt ──
+  it("stamps the proposer (requestedBy) on the ApprovalRequest from the minting actor", async () => {
+    const state = stateWith();
+    const proposalStore = createInMemoryRemediationProposalStore();
+    const approvalRegistry = createInMemoryApprovalRegistry();
+    const orch = createRemediationOrchestrator({
+      executor: { invokeRead: vi.fn(async () => ({})), invokeIntent: vi.fn(async () => ({ ok: true })) },
+      getState: () => state,
+      proposalStore,
+      approvalRegistry,
+      // A REVIEW disposition is operator-originated → principal "user".
+      actor: { principal: "user", sessionId: "operator-paula" },
+    });
+
+    await orch.handle({
+      incidentId: "inc-1",
+      action: "patch",
+      blastRadius: 12,
+      disposition: "REVIEW",
+      nonce: "n-072-proposer",
+      at: "2026-06-18T00:00:00.000Z",
+    });
+    const proposal = proposalStore.list().find((p) => p.status === "pending_review")!;
+    const request = await approvalRegistry.get(proposal.approvalToken!);
+    // The proposer is captured from the proposing envelope's actor — a stable
+    // sessionId id with the provenance principal as the display label.
+    expect(request?.requestedBy).toEqual({
+      id: "operator-paula",
+      displayName: "user",
+    });
+  });
+
+  it("072: the proposer (requestedBy) is NEVER threaded into the kernel confirmationReceipt binding", async () => {
+    const state = stateWith();
+    const records: import("@adjudicate/core").AuditRecord[] = [];
+    const proposalStore = createInMemoryRemediationProposalStore();
+    const approvalRegistry = createInMemoryApprovalRegistry();
+    const orch = createRemediationOrchestrator({
+      executor: { invokeRead: vi.fn(async () => ({})), invokeIntent: vi.fn(async () => ({ ok: true })) },
+      getState: () => state,
+      proposalStore,
+      approvalRegistry,
+      actor: { principal: "user", sessionId: "operator-paula" },
+      sink: { async emit(r) { records.push(r); } },
+    });
+
+    await orch.handle({
+      incidentId: "inc-1",
+      action: "patch",
+      blastRadius: 12,
+      disposition: "REVIEW",
+      nonce: "n-072-no-receipt-proposer",
+      at: "2026-06-18T00:00:00.000Z",
+    });
+    const proposal = proposalStore.list().find((p) => p.status === "pending_review")!;
+
+    // A DIFFERENT identity (operator-jane) approves the maker's (operator-paula) request.
+    const res = await orch.resolve({
+      token: proposal.approvalToken!,
+      accepted: true,
+      by: { id: "operator-jane", displayName: "Jane" },
+      at: "2026-06-18T01:00:00.000Z",
+    });
+    expect(res.executed).toBe(true);
+    const exec = records.find((r) => r.decision.kind === "EXECUTE")!;
+    // The kernel-side forensic binding records the APPROVER + channel only — the
+    // proposer (operator-paula) is NOT present anywhere on the receipt binding.
+    expect(exec.supersedes!.binding).toEqual({
+      approver: "operator-jane",
+      channel: "adjutant",
+    });
+    expect(exec.supersedes!.binding).not.toHaveProperty("proposer");
+    expect(exec.supersedes!.binding).not.toHaveProperty("requestedBy");
+    expect(JSON.stringify(exec.supersedes)).not.toContain("operator-paula");
+  });
 });

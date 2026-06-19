@@ -21,6 +21,31 @@ describe("quorumMet", () => {
   it("undefined approvals never meets a positive quorum", () => {
     expect(quorumMet(undefined, { minApprovals: 1 })).toBe(false);
   });
+
+  // ── 072 — separation-of-duty: proposer self-vote does not count ────────────
+  it("does not count a proposer self-vote toward the quorum (distinct, default)", () => {
+    // proposer "a" also voted; only "b" is an eligible approver → quorum 2 unmet.
+    expect(quorumMet([{ id: "a" }, { id: "b" }], { minApprovals: 2 }, "a")).toBe(false);
+    // two NON-proposer approvers reach quorum 2.
+    expect(quorumMet([{ id: "b" }, { id: "c" }], { minApprovals: 2 }, "a")).toBe(true);
+    // proposer self-vote alone never reaches even quorum 1.
+    expect(quorumMet([{ id: "a" }], { minApprovals: 1 }, "a")).toBe(false);
+  });
+
+  it("filters the proposer in raw-vote counting too (distinctApprovers=false)", () => {
+    // Three raw votes but one is the proposer → only 2 eligible.
+    expect(
+      quorumMet([{ id: "a" }, { id: "a" }, { id: "b" }], { minApprovals: 3, distinctApprovers: false }, "a"),
+    ).toBe(false);
+    expect(
+      quorumMet([{ id: "b" }, { id: "b" }], { minApprovals: 2, distinctApprovers: false }, "a"),
+    ).toBe(true);
+  });
+
+  it("omitting proposerId is byte-identical to the pre-072 behavior", () => {
+    expect(quorumMet([{ id: "a" }, { id: "b" }], { minApprovals: 2 })).toBe(true);
+    expect(quorumMet([{ id: "a" }, { id: "a" }], { minApprovals: 2 })).toBe(false);
+  });
 });
 
 describe("isEscalationDue", () => {

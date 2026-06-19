@@ -48,4 +48,28 @@ describe("createInMemoryApprovalRegistry", () => {
     expect(await r.get("a")).toBeNull();
     expect((await r.list()).length).toBe(2);
   });
+
+  // ── 072 — separation-of-duty proposer projection ───────────────────────────
+  it("persists requestedBy (proposer) and returns it from get and list", async () => {
+    const r = createInMemoryApprovalRegistry();
+    const withProposer: ApprovalRequest = {
+      ...base,
+      requestedBy: { id: "maker-mallory", displayName: "Mallory" },
+    };
+    await r.put(withProposer, 3600);
+    expect((await r.get("t1"))?.requestedBy).toEqual({
+      id: "maker-mallory",
+      displayName: "Mallory",
+    });
+    const listed = await r.list({ status: "pending" });
+    expect(listed[0]?.requestedBy?.id).toBe("maker-mallory");
+  });
+
+  it("requestedBy is optional — a request without a proposer round-trips with it absent", async () => {
+    const r = createInMemoryApprovalRegistry();
+    await r.put(base, 3600); // base carries no requestedBy
+    const got = await r.get("t1");
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("requestedBy");
+  });
 });

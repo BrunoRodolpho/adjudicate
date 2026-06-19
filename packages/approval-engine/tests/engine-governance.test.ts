@@ -91,6 +91,32 @@ describe("approval engine — quorum (ADR-143)", () => {
     expect(r.request.status).toBe("declined");
     expect(confirmCalls.length).toBe(1);
   });
+
+  // ── 072 — a proposer self-vote does not count toward the four-eyes quorum ───
+  it("a proposer self-vote is accumulated but does NOT advance quorum (distinct)", async () => {
+    const { engine, confirmCalls } = makeEngine({ quorum: { minApprovals: 2 } });
+    // The proposer "alice" requests, then votes for her own request.
+    await engine.request({ ...baseRequest, requestedBy: { id: "alice" } });
+
+    const self = await engine.resolve({ token: "tok-1", accepted: true, by: { id: "alice" } });
+    // Vote recorded for the audit trail, but it does NOT count → still pending.
+    expect(self.turn).toBeNull();
+    expect(self.request.status).toBe("pending");
+    expect(self.request.approvals?.map((a) => a.id)).toEqual(["alice"]);
+    expect(confirmCalls.length).toBe(0);
+
+    // A single proposer self-vote alone could otherwise have met minApprovals:2
+    // had a SECOND distinct approver not been required. Add a real approver and a
+    // second real approver to reach the two ELIGIBLE (non-proposer) approvals.
+    const v1 = await engine.resolve({ token: "tok-1", accepted: true, by: { id: "bob" } });
+    expect(v1.turn).toBeNull(); // only bob counts so far (alice excluded) → 1 of 2
+    expect(confirmCalls.length).toBe(0);
+
+    const v2 = await engine.resolve({ token: "tok-1", accepted: true, by: { id: "carol" } });
+    expect(v2.turn).not.toBeNull(); // bob + carol = 2 eligible → quorum met
+    expect(v2.request.status).toBe("approved");
+    expect(confirmCalls.length).toBe(1);
+  });
 });
 
 describe("approval engine — quorum concurrency (#6)", () => {

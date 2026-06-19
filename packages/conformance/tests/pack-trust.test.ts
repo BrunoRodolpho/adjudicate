@@ -382,3 +382,52 @@ describe("verifyPackTrust", () => {
     expect(report.errors.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// 084 — the staged-rollout CANARY stage relies on `verifyPackTrust` under the
+// `require_signature` TrustPolicy as its TRUST precondition: a candidate pack
+// promoted past the canary MUST carry a valid publisher signature, and an
+// unsigned/forged candidate is refused (fail-closed, §D-6) BEFORE the canary's
+// adversarial re-run is even meaningful — an untrusted pack never promotes.
+describe("verifyPackTrust — 084 canary-stage trust precondition (require_signature)", () => {
+  it("a validly signed candidate is TRUSTED under require_signature (canary-stage accept)", () => {
+    const { publicKey, privateKey } = genEd25519();
+    const sig = signPackFingerprint({
+      fingerprint: computePackFingerprint(PACK),
+      privateKeyPem: privateKey,
+      algorithm: "ed25519",
+      keyId: "canary",
+    });
+    const report = verifyPackTrust({
+      pack: PACK,
+      publicKeyPem: publicKey,
+      signature: sig,
+      policy: "require_signature",
+    });
+    expect(report.trusted).toBe(true);
+    expect(report.signatureVerification?.verified).toBe(true);
+  });
+
+  it("an UNSIGNED candidate is REFUSED under require_signature (canary never promotes an untrusted pack)", () => {
+    const report = verifyPackTrust({ pack: PACK, policy: "require_signature" });
+    expect(report.trusted).toBe(false);
+    expect(report.errors.some((e) => /require_signature/.test(e))).toBe(true);
+  });
+
+  it("a candidate signed with the WRONG key is REFUSED (canary-stage fail-closed)", () => {
+    const signer = genEd25519();
+    const wrong = genEd25519();
+    const sig = signPackFingerprint({
+      fingerprint: computePackFingerprint(PACK),
+      privateKeyPem: signer.privateKey,
+      algorithm: "ed25519",
+      keyId: "canary",
+    });
+    const report = verifyPackTrust({
+      pack: PACK,
+      publicKeyPem: wrong.publicKey,
+      signature: sig,
+      policy: "require_signature",
+    });
+    expect(report.trusted).toBe(false);
+  });
+});

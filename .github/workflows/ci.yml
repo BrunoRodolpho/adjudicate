@@ -52,6 +52,43 @@ jobs:
           --pack ./packages/pack-identity-kyc/dist/index.js
           --pack ./packages/pack-deployments-approval/dist/index.js
 
+      # 084 — adversarial-canary gate (alongside the ADR-140 composition gate).
+      # Re-runs the FULL STRICT red-team suite + the 035 ownership/IDOR vector
+      # over each shipped pack dist bundle and gates the verdict against a
+      # COMMITTED, version-controlled BASELINE (.github/canary-baselines/<id>.json).
+      #
+      # The gate is the FULL STRICT gate (not the weaker `execute-escape` policy):
+      # it sees every NON-EXECUTE escape and every §C friction regression, not
+      # only a reached EXECUTE. The committed baseline freezes the DOCUMENTED,
+      # pre-existing 035-F1 #8 gaps (pack-identity-kyc's forged-owner DEFER cases;
+      # cli/pix/deploy's taint defended-upstream/vacuous cases) so CI does not go
+      # permanently red on KNOWN holes — while ROLLING BACK (exit 2) the instant
+      # any NEW escape/error/IDOR-escape/vacuity opens OR any baselined decision
+      # weakens to LESS friction (e.g. a money-mover's IDOR REFUSE→DEFER). That is
+      # the §C / §D-6 property the global `execute-escape` wiring could not deliver
+      # (it promoted kyc's 12 open IDOR DEFERs and any non-EXECUTE friction-
+      # lowering). A change to a pack's defended posture requires a REVIEWED
+      # baseline update in the same PR. The gate runs entirely in the shell, never
+      # inside adjudicate() (§D kernel purity). Fixed seed ⇒ reproducible verdict.
+      - name: Adversarial canary gate (baseline-anchored strict red-team)
+        run: |
+          set -e
+          for pack in \
+            cli-agent:pack-cli-agent \
+            access-governance:pack-access-governance \
+            incident-response:pack-incident-response \
+            payments-pix:pack-payments-pix \
+            identity-kyc:pack-identity-kyc \
+            deployments-approval:pack-deployments-approval ; do
+            dir="${pack%%:*}" ; id="${pack##*:}"
+            echo "::group::canary $id"
+            node packages/cli/dist/bin.js red-team \
+              --baseline ".github/canary-baselines/${id}.json" \
+              --seed 1 \
+              --pack "./packages/pack-${dir}/dist/index.js"
+            echo "::endgroup::"
+          done
+
       - name: Version consistency
         run: pnpm check:versions
 

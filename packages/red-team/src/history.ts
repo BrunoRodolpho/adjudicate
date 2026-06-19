@@ -1,7 +1,15 @@
 import { sha256Canonical } from "@adjudicate/canonical";
 import type { GenerateOptions, RedTeamPack } from "./scenario.js";
 import { generateAllVectors } from "./vectors.js";
-import { runRedTeam, type RedTeamReport, type RedTeamSummary } from "./runner.js";
+import {
+  runCanaryGate,
+  runRedTeam,
+  type CanaryExitCode,
+  type CanaryGateResult,
+  type CanaryPolicy,
+  type RedTeamReport,
+  type RedTeamSummary,
+} from "./runner.js";
 
 /**
  * Red-team run-history surface (ADR-133).
@@ -211,5 +219,131 @@ export function createInMemoryRedTeamHistoryStore(
     reset() {
       byPack = new Map();
     },
+  };
+}
+
+// ─── 084: staged rollout (shadow → canary → auto-rollback) over the history ──
+//
+// The canary gate (`runCanaryGate`) is single-shot. A staged rollout compares
+// the SHADOW stage to the CANARY stage so a posture REGRESSION between them
+// triggers auto-rollback even if the canary stage's own verdict were clean.
+// Persistence is the existing history store seam — the same `record(report,
+// at)` used for trend charting — so shadow vs canary deltas are durable and
+// comparable. PURE over its inputs (no clock/RNG): the caller supplies the
+// per-stage timestamps and seed.
+
+/** Outcome of one staged-rollout run: the two stage verdicts + the rollout call. */
+export interface StagedCanaryRolloutResult {
+  /** The shadow-stage canary verdict (the trusted baseline). */
+  readonly shadow: CanaryGateResult;
+  /** The canary-stage canary verdict (the candidate). */
+  readonly canary: CanaryGateResult;
+  /**
+   * True when the canary stage is WORSE than shadow on the comparable posture:
+   * more escapes, more errors, or it newly became vacuous. A regression forces
+   * rollback even if `canary.exitCode` were 0 on its own.
+   */
+  readonly regressed: boolean;
+  /** Human-readable reasons the rollout rolled back (empty ⇒ promote). */
+  readonly reasons: ReadonlyArray<string>;
+  /**
+   * The rollout verdict: 0 = PROMOTE, 2 = ROLLBACK. Fail-closed (§D #6) — any
+   * stage failing OR a shadow→canary regression rolls back; §C monotonicity —
+   * the rollout only ever ADDS friction over the per-stage verdicts.
+   */
+  readonly exitCode: CanaryExitCode;
+}
+
+/** Compare a candidate stage to a baseline stage; rollback on any regression. */
+function detectRegression(
+  baseline: CanaryGateResult,
+  candidate: CanaryGateResult,
+): { regressed: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (candidate.report.summary.escaped > baseline.report.summary.escaped) {
+    reasons.push(
+      `escapes regressed ${baseline.report.summary.escaped} → ${candidate.report.summary.escaped}`,
+    );
+  }
+  if (candidate.report.summary.errors > baseline.report.summary.errors) {
+    reasons.push(
+      `errors regressed ${baseline.report.summary.errors} → ${candidate.report.summary.errors}`,
+    );
+  }
+  // A canary that newly became vacuous (shadow exercised the taint gate, canary
+  // no longer does) is a coverage regression — the guarantee silently hollowed.
+  if (candidate.taintVacuous && !baseline.taintVacuous) {
+    reasons.push("taint-escalation coverage became vacuous (taint gate no longer exercised)");
+  }
+  // An ownership/IDOR escape appearing at canary that was clean at shadow.
+  if (candidate.ownership.escaped > baseline.ownership.escaped) {
+    reasons.push(
+      `ownership/IDOR escapes regressed ${baseline.ownership.escaped} → ${candidate.ownership.escaped}`,
+    );
+  }
+  return { regressed: reasons.length > 0, reasons };
+}
+
+/**
+ * Run a staged shadow → canary rollout, persisting both stage outcomes through
+ * the supplied history store, and flip to ROLLBACK (exit 2) on any stage failure
+ * OR a shadow→canary regression.
+ *
+ * The SHADOW stage runs the currently-trusted `pack` (the baseline); the CANARY
+ * stage runs the `candidate` (the proposed guard-config). When `candidate` is
+ * omitted it defaults to the same `pack` — a single-pack idempotent re-run. Both
+ * stages run the SAME frozen scenario set at the SAME seed, so a clean candidate
+ * promotes and a genuine REGRESSION between baseline and candidate (a guard
+ * weakened, an IDOR hole opened, taint coverage collapsed to vacuous) rolls back
+ * even if the candidate's own single-shot verdict looked clean. The two stage
+ * timestamps are caller-supplied — the package never reads a clock.
+ *
+ * §C monotonicity / §D-6 fail-closed: the rollout exit is never LOWER than the
+ * worst stage verdict, and any regression delta can only RAISE friction.
+ */
+export function runStagedCanaryRollout(
+  pack: RedTeamPack,
+  args: {
+    /** Persistence seam — both stage reports are recorded for the trend/deltas. */
+    readonly store: RedTeamHistoryStore;
+    /** ISO-8601 stamp for the shadow run (caller-supplied). */
+    readonly shadowAt: string;
+    /** ISO-8601 stamp for the canary run (caller-supplied). */
+    readonly canaryAt: string;
+    /**
+     * The candidate guard-config to canary against the `pack` baseline. Defaults
+     * to `pack` (a single-pack idempotent re-run with no delta).
+     */
+    readonly candidate?: RedTeamPack;
+    /** Canary failure policy applied at BOTH stages. Defaults to `"strict"`. */
+    readonly policy?: CanaryPolicy;
+  } & GenerateOptions,
+): StagedCanaryRolloutResult {
+  const policy: CanaryPolicy = args.policy ?? "strict";
+  const genOpts: GenerateOptions = {
+    ...(args.seed !== undefined ? { seed: args.seed } : {}),
+    ...(args.perIntent !== undefined ? { perIntent: args.perIntent } : {}),
+  };
+  const candidate = args.candidate ?? pack;
+
+  const shadow = runCanaryGate(pack, { stage: "shadow", policy, ...genOpts });
+  args.store.record(shadow.report, args.shadowAt);
+
+  const canary = runCanaryGate(candidate, { stage: "canary", policy, ...genOpts });
+  args.store.record(canary.report, args.canaryAt);
+
+  const { regressed, reasons } = detectRegression(shadow, canary);
+
+  // Fail-closed, friction-only: ROLLBACK if either stage failed OR a regression
+  // is detected. The rollout exit can only be >= each stage's exit (never lower).
+  const rollback =
+    shadow.exitCode === 2 || canary.exitCode === 2 || regressed;
+
+  return {
+    shadow,
+    canary,
+    regressed,
+    reasons,
+    exitCode: rollback ? 2 : 0,
   };
 }

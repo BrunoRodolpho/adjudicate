@@ -5,8 +5,10 @@ import { createRewriteGuard } from "@adjudicate/primitives";
 import {
   computeConfigDigest,
   extractSealableSurface,
+  freezeSealableSurface,
   sealPackConfig,
   verifyConfigSeal,
+  verifyConfigSealFrozen,
   type SealablePackInput,
 } from "../src/config-seal.js";
 
@@ -248,5 +250,48 @@ describe("config-seal — registry fields are NOT sealed (non-interference)", ()
     } as SealablePackInput;
 
     expect(computeConfigDigest(extractSealableSurface(withRegistry))).toBe(baseDigest);
+  });
+});
+
+// 084 — the staged-rollout CANARY stage verifies the seal via the FROZEN cadence
+// (`verifyConfigSealFrozen`) under the strict `require_signature` policy. These
+// assert that the frozen path is the one the canary stage relies on: a clean
+// signed digest gates correctly (verified) and any drift is caught (fail-closed).
+describe("config-seal — 084 canary-stage frozen-cadence path (require_signature)", () => {
+  it("a clean signed digest VERIFIES through verifyConfigSealFrozen under require_signature", () => {
+    const { publicKeyPem, privateKeyPem } = ed25519Keys();
+    const pack = makePack();
+    const frozen = freezeSealableSurface(extractSealableSurface(pack));
+    const seal = sealPackConfig(pack, { privateKeyPem });
+    const report = verifyConfigSealFrozen(frozen, seal, {
+      publicKeyPem,
+      policy: "require_signature",
+    });
+    expect(report.verified).toBe(true);
+    expect(report.digestMatch).toBe("match");
+    // The canary path is the SAME verdict the live path produces for a static pack.
+    expect(verifyConfigSeal(pack, seal, { publicKeyPem, policy: "require_signature" }).verified).toBe(true);
+  });
+
+  it("the frozen canary path is FAIL-CLOSED: an UNSIGNED seal is REFUSED under require_signature", () => {
+    const pack = makePack();
+    const frozen = freezeSealableSurface(extractSealableSurface(pack));
+    const unsignedSeal = sealPackConfig(pack); // digest matches, no signature
+    const report = verifyConfigSealFrozen(frozen, unsignedSeal, { policy: "require_signature" });
+    expect(report.verified).toBe(false);
+    expect(report.errors.some((e) => /require_signature/.test(e))).toBe(true);
+  });
+
+  it("the frozen canary path catches a DRIFTED digest (tampered seal)", () => {
+    const { publicKeyPem, privateKeyPem } = ed25519Keys();
+    const pack = makePack();
+    const frozen = freezeSealableSurface(extractSealableSurface(pack));
+    const seal = { ...sealPackConfig(pack, { privateKeyPem }), digest: "0".repeat(64) };
+    const report = verifyConfigSealFrozen(frozen, seal, {
+      publicKeyPem,
+      policy: "require_signature",
+    });
+    expect(report.verified).toBe(false);
+    expect(report.digestMatch).toBe("mismatch");
   });
 });

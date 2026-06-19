@@ -355,6 +355,70 @@ export interface SessionContaminationConfig {
   readonly enabled: boolean;
 }
 
+/**
+ * The configuration-integrity seal gate options on `AdjudicatedAgentOptions`
+ * (ADR-121, hardened by ADR-137/081/082). Named so the 084 staged-rollout
+ * canary-stage helper can RETURN a fail-closed instance of exactly this shape.
+ *
+ * 084 — STRICT KNOB PAIRING (see the field docs below). At the CANARY rollout
+ * stage these knobs MUST be `policy:"require_signature"` +
+ * `engageKillSwitchOnMismatch:true` + `reverify:"every_turn"`, so a seal drift
+ * during canary LATCHES the kill switch (fail-closed) instead of self-healing
+ * the next turn (§C monotonicity / §D-7: a rollout may only ADD friction).
+ * `canaryStageConfigSeal(...)` constructs that posture from a seal + key.
+ */
+export interface AgentConfigSealOptions {
+  readonly seal: ConfigSeal;
+  readonly publicKeyPem?: string;
+  readonly policy?: ConfigSealPolicy;
+  readonly engageKillSwitchOnMismatch?: boolean;
+  /**
+   * Re-verification cadence. `"every_turn"` (default) re-extracts + re-hashes
+   * the live pack each turn (catches reference-swap). `"frozen"` verifies a
+   * deep-frozen surface captured at construction (cheapest; catches seal
+   * tampering, not live drift). `{ ttlMs }` amortizes `every_turn` under load
+   * via a loop-layer clock (never the kernel).
+   */
+  readonly reverify?: "every_turn" | "frozen" | { readonly ttlMs: number };
+  /** Best-effort drift hook (tamper-evident telemetry). Fires on mismatch. */
+  readonly onDrift?: (report: ConfigSealReport) => void;
+}
+
+/**
+ * 084 — build the fail-closed CANARY-stage seal posture. At the canary stage of
+ * a staged rollout the loop MUST enforce the strict seal knobs so a seal drift
+ * LATCHES the kill switch (fail-closed) rather than only refusing the current
+ * turn and self-healing the next (the lax deprecation-window default the loop
+ * still allows for normal turns, loop.ts L1 warning).
+ *
+ * Returns an `AgentConfigSealOptions` with:
+ *   - `policy: "require_signature"`        — an unsigned/re-signed seal cannot pass
+ *   - `engageKillSwitchOnMismatch: true`   — drift ENGAGES (latches) the kill switch
+ *   - `reverify: "every_turn"`             — re-verify every turn (catch a live swap)
+ *
+ * The caller supplies the recorded `seal` + the publisher's `publicKeyPem` (both
+ * injected snapshots, §D — never derived here). An optional `onDrift` telemetry
+ * hook is threaded. The strict knobs are NON-OVERRIDABLE by design: scoping the
+ * strict posture to the canary stage (§7 risk mitigation) leaves the documented
+ * one-release lax default intact for normal turns while making the canary gate
+ * itself fail-closed. §C/§D-7: the rollout may only ADD friction, never relax it.
+ */
+export function canaryStageConfigSeal(args: {
+  readonly seal: ConfigSeal;
+  readonly publicKeyPem: string;
+  readonly onDrift?: (report: ConfigSealReport) => void;
+}): AgentConfigSealOptions {
+  return {
+    seal: args.seal,
+    publicKeyPem: args.publicKeyPem,
+    // Fail-closed canary-stage knobs — these are the load-bearing constants.
+    policy: "require_signature",
+    engageKillSwitchOnMismatch: true,
+    reverify: "every_turn",
+    ...(args.onDrift !== undefined ? { onDrift: args.onDrift } : {}),
+  };
+}
+
 export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
   /**
    * Pack the agent adjudicates against. MUST already be the output of
@@ -484,22 +548,7 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
    * the adopter (§C: failure → friction, never bypass). This is documented, not
    * silently relied upon (082 §7 risk: lax adapter default).
    */
-  readonly configSeal?: {
-    readonly seal: ConfigSeal;
-    readonly publicKeyPem?: string;
-    readonly policy?: ConfigSealPolicy;
-    readonly engageKillSwitchOnMismatch?: boolean;
-    /**
-     * Re-verification cadence. `"every_turn"` (default) re-extracts + re-hashes
-     * the live pack each turn (catches reference-swap). `"frozen"` verifies a
-     * deep-frozen surface captured at construction (cheapest; catches seal
-     * tampering, not live drift). `{ ttlMs }` amortizes `every_turn` under load
-     * via a loop-layer clock (never the kernel).
-     */
-    readonly reverify?: "every_turn" | "frozen" | { readonly ttlMs: number };
-    /** Best-effort drift hook (tamper-evident telemetry). Fires on mismatch. */
-    readonly onDrift?: (report: ConfigSealReport) => void;
-  };
+  readonly configSeal?: AgentConfigSealOptions;
   /**
    * Hash-verification policy for parked envelope blobs at resume.
    * Defaults to `"strict"` (SecurityReviewer-010): a legacy blob lacking

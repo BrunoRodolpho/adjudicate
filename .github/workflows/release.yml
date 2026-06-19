@@ -55,6 +55,41 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # 084 — adversarial-canary PUBLISH PRECONDITION (staged rollout). Before a
+      # single artifact is signed/published, re-run the FULL STRICT red-team
+      # canary (all vectors + the 035 ownership/IDOR vector) over each shipped pack
+      # dist bundle and gate it against the COMMITTED baseline
+      # (.github/canary-baselines/<id>.json). A FAILED canary exits 2 and ABORTS
+      # the job BEFORE the publish (SIGNER) step ever runs.
+      #
+      # This is the FULL STRICT gate, NOT the weaker `execute-escape` policy: it
+      # aborts promotion on ANY NEW escape/error/IDOR-escape/vacuity beyond the
+      # baseline AND on ANY §C friction regression — a guard-config change cannot
+      # reach production trust if it opens a new hole OR silently lowers friction
+      # on the ownership/authority surface (e.g. a money-mover's IDOR REFUSE→DEFER)
+      # (§C monotonicity, §D-6 fail-closed: a failed canary aborts promotion). The
+      # committed baseline freezes the documented pre-existing 035-F1 gaps so the
+      # precondition gates REGRESSIONS, not the known holes. (Same gate as ci.yml.)
+      # Runs in the CI shell, never inside adjudicate() (§D kernel purity).
+      - name: Adversarial canary gate (publish precondition, baseline-anchored)
+        run: |
+          set -e
+          for pack in \
+            cli-agent:pack-cli-agent \
+            access-governance:pack-access-governance \
+            incident-response:pack-incident-response \
+            payments-pix:pack-payments-pix \
+            identity-kyc:pack-identity-kyc \
+            deployments-approval:pack-deployments-approval ; do
+            dir="${pack%%:*}" ; id="${pack##*:}"
+            echo "::group::canary $id"
+            node packages/cli/dist/bin.js red-team \
+              --baseline ".github/canary-baselines/${id}.json" \
+              --seed 1 \
+              --pack "./packages/pack-${dir}/dist/index.js"
+            echo "::endgroup::"
+          done
+
       - name: Create release PR or publish
         id: changesets
         uses: changesets/action@v1

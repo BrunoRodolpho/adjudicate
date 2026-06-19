@@ -38,10 +38,21 @@ export { generateToolScopeViolationEnvelopes } from "./vectors/tool-scope-violat
 
 export {
   computeRedTeamExitCode,
+  deriveCanaryBaseline,
+  frozenCanaryScenarios,
+  runBaselinedCanaryGate,
+  runCanaryGate,
   runConfigSealCapEditRegression,
   runRedTeam,
   taintEscalationCausality,
   TAINT_GATE_BASIS,
+  type BaselinedCanaryGateResult,
+  type CanaryBaseline,
+  type CanaryBaselineScenario,
+  type CanaryExitCode,
+  type CanaryGateResult,
+  type CanaryPolicy,
+  type CanaryStage,
   type CapEditRegressionResult,
   type RedTeamReport,
   type RedTeamResult,
@@ -58,12 +69,14 @@ export {
   createInMemoryRedTeamHistoryStore,
   digestRedTeamReport,
   runRedTeamAcrossPacks,
+  runStagedCanaryRollout,
   type RedTeamHistoryOptions,
   type RedTeamHistoryQuery,
   type RedTeamHistoryStore,
   type RedTeamHistoryView,
   type RedTeamRunRecord,
   type RedTeamTrendPoint,
+  type StagedCanaryRolloutResult,
 } from "./history.js";
 
 export {

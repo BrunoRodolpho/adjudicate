@@ -84,6 +84,30 @@ describe("orchestrator.resolve — full re-adjudication via confirmationReceipt"
     expect(list.find((r) => r.token === "tok-1")?.status).toBe("approved");
   });
 
+  // ── 073 — approver identity is recorded ONLY via markResolved (registry
+  // projection), never as the kernel's authority input. The kernel override
+  // authorizes on intentHash; the 071 {approver, channel} binding is an
+  // equality/audit gate only. The operator's `by` lands on resolvedBy.
+  it("073: the approving operator's identity is stamped onto the registry projection via markResolved", async () => {
+    const { orch, approvalRegistry } = setup();
+    await orch.handle(reviewSignal("n-1"));
+    const res = await orch.resolve({
+      token: "tok-1",
+      accepted: true,
+      by: { id: "op-7", displayName: "Operator Seven" },
+      at: "2026-06-07T10:00:00.000Z",
+    });
+
+    expect(res.executed).toBe(true);
+    // The approver identity is on the DISPLAY projection (markResolved), the
+    // governance record — not minted into any kernel authority.
+    const stored = await approvalRegistry.get("tok-1");
+    expect(stored?.status).toBe("approved");
+    expect(stored?.resolvedBy).toEqual({ id: "op-7", displayName: "Operator Seven" });
+    // The returned request mirrors the projection.
+    expect(res.request?.resolvedBy?.id).toBe("op-7");
+  });
+
   it("the EXECUTE carries a confirmation:received basis (kernel substitution, not a minted EXECUTE)", async () => {
     const { orch } = setup();
     await orch.handle(reviewSignal("n-1"));

@@ -223,3 +223,169 @@ describe("createApprovalEngine — adversarial", () => {
     expect((await engine.get("tok-1"))?.status).toBe("pending");
   });
 });
+
+// ── 073 — deterministic multi-modal fallback routing (first-successful-wins) ──
+describe("createApprovalEngine — channel fallback routing (073)", () => {
+  it("first successful channel wins: a failed channel falls through to the next", async () => {
+    const { agent } = fakeAgent();
+    const slackTry = vi.fn(async () => {
+      throw new Error("slack down");
+    });
+    const emailTry = vi.fn(async () => ({ channelRef: "msg-99" }));
+    const engine = createApprovalEngine<unknown, unknown, string[]>({
+      agent,
+      registry: createInMemoryApprovalRegistry(),
+      // declared order is the fallback order: slack first, then email.
+      channels: [
+        { id: "slack", request: slackTry },
+        { id: "email", request: emailTry },
+      ],
+      resolveStateContext: async () => ({ state: {}, context: {} }),
+      now: () => "2026-06-19T12:00:00.000Z",
+    });
+
+    const req = await engine.request(baseRequest);
+    // slack was tried and failed; email succeeded and is the recorded channel.
+    expect(slackTry).toHaveBeenCalledTimes(1);
+    expect(emailTry).toHaveBeenCalledTimes(1);
+    expect(req.channel).toBe("email");
+    expect(req.channelRef).toBe("msg-99");
+    expect(req.status).toBe("pending");
+  });
+
+  it("stops at the FIRST success — a later channel is never tried", async () => {
+    const { agent } = fakeAgent();
+    const slackTry = vi.fn(async () => ({ channelRef: "slack-ref" }));
+    const emailTry = vi.fn(async () => ({ channelRef: "email-ref" }));
+    const engine = createApprovalEngine<unknown, unknown, string[]>({
+      agent,
+      registry: createInMemoryApprovalRegistry(),
+      channels: [
+        { id: "slack", request: slackTry },
+        { id: "email", request: emailTry },
+      ],
+      resolveStateContext: async () => ({ state: {}, context: {} }),
+    });
+    const req = await engine.request(baseRequest);
+    expect(slackTry).toHaveBeenCalledTimes(1);
+    expect(emailTry).not.toHaveBeenCalled(); // first success wins
+    expect(req.channel).toBe("slack");
+    expect(req.channelRef).toBe("slack-ref");
+  });
+
+  it("records the projection (status pending) when EVERY channel fails, then surfaces CHANNEL_FAILED", async () => {
+    const { agent } = fakeAgent();
+    const a = vi.fn(async () => {
+      throw new Error("a down");
+    });
+    const b = vi.fn(async () => {
+      throw new Error("b down");
+    });
+    const engine = createApprovalEngine<unknown, unknown, string[]>({
+      agent,
+      registry: createInMemoryApprovalRegistry(),
+      channels: [
+        { id: "a", request: a },
+        { id: "b", request: b },
+      ],
+      resolveStateContext: async () => ({ state: {}, context: {} }),
+    });
+    await expect(engine.request(baseRequest)).rejects.toMatchObject({ code: "CHANNEL_FAILED" });
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+    // The display projection is still recorded so an out-of-band scheduler can act.
+    const stored = await engine.get("tok-1");
+    expect(stored?.status).toBe("pending");
+    expect(stored?.channel).toBe("b"); // the last-attempted channel id
+  });
+
+  it("route() picks which channels (in order) are attempted", async () => {
+    const { agent } = fakeAgent();
+    const slackTry = vi.fn(async () => ({ channelRef: "slack-ref" }));
+    const emailTry = vi.fn(async () => ({ channelRef: "email-ref" }));
+    const engine = createApprovalEngine<unknown, unknown, string[]>({
+      agent,
+      registry: createInMemoryApprovalRegistry(),
+      channels: [
+        { id: "slack", request: slackTry },
+        { id: "email", request: emailTry },
+      ],
+      // route email-only.
+      route: () => ["email"],
+      resolveStateContext: async () => ({ state: {}, context: {} }),
+    });
+    const req = await engine.request(baseRequest);
+    expect(slackTry).not.toHaveBeenCalled();
+    expect(emailTry).toHaveBeenCalledTimes(1);
+    expect(req.channel).toBe("email");
+  });
+
+  it("threads adopter-built approve/decline deep links into the channel context", async () => {
+    const { agent } = fakeAgent();
+    const seen: Array<{ approveUrl?: string; declineUrl?: string }> = [];
+    const engine = createApprovalEngine<unknown, unknown, string[]>({
+      agent,
+      registry: createInMemoryApprovalRegistry(),
+      channels: [
+        {
+          id: "spy",
+          request: async (ctx) => {
+            seen.push({ approveUrl: ctx.approveUrl, declineUrl: ctx.declineUrl });
+            return { channelRef: "r" };
+          },
+        },
+      ],
+      buildLinks: (token) => ({
+        approveUrl: `https://app.test/approve/${token}`,
+        declineUrl: `https://app.test/decline/${token}`,
+      }),
+      resolveStateContext: async () => ({ state: {}, context: {} }),
+    });
+    await engine.request(baseRequest);
+    expect(seen[0]).toEqual({
+      approveUrl: "https://app.test/approve/tok-1",
+      declineUrl: "https://app.test/decline/tok-1",
+    });
+  });
+
+  it("invokes notifyResolved on the resolving channel with the outcome + approver", async () => {
+    const { agent } = fakeAgent();
+    const notifyResolved = vi.fn(async () => {});
+    const engine = createApprovalEngine<unknown, unknown, string[]>({
+      agent,
+      registry: createInMemoryApprovalRegistry(),
+      channels: [
+        {
+          id: "slack",
+          request: async () => ({ channelRef: "msg-1" }),
+          notifyResolved,
+        },
+      ],
+      resolveStateContext: async () => ({ state: {}, context: {} }),
+      now: () => "2026-06-19T12:00:00.000Z",
+    });
+    await engine.request(baseRequest);
+    await engine.resolve({ token: "tok-1", accepted: true, by: { id: "alice", displayName: "Alice" } });
+
+    expect(notifyResolved).toHaveBeenCalledTimes(1);
+    const [ctxArg, outcomeArg] = notifyResolved.mock.calls[0]!;
+    // notifyResolved gets the original display context (NOT the binding/receipt).
+    expect(ctxArg).toMatchObject({ token: "tok-1", intentKind: "deploy.request" });
+    expect(ctxArg).not.toHaveProperty("approveUrl"); // built fresh from display fields only
+    expect(outcomeArg).toEqual({ status: "approved", by: { id: "alice", displayName: "Alice" } });
+  });
+
+  it("a declined resolve still notifies the channel with status declined", async () => {
+    const { agent } = fakeAgent();
+    const notifyResolved = vi.fn(async () => {});
+    const engine = createApprovalEngine<unknown, unknown, string[]>({
+      agent,
+      registry: createInMemoryApprovalRegistry(),
+      channels: [{ id: "slack", request: async () => ({ channelRef: "m" }), notifyResolved }],
+      resolveStateContext: async () => ({ state: {}, context: {} }),
+    });
+    await engine.request(baseRequest);
+    await engine.resolve({ token: "tok-1", accepted: false, by: { id: "bob" } });
+    expect(notifyResolved.mock.calls[0]![1]).toMatchObject({ status: "declined" });
+  });
+});

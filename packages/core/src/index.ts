@@ -50,8 +50,13 @@ export {
 } from "./pack-conformance.js";
 export {
   installPack,
+  PackLoadVerificationError,
   type InstallPackOptions,
   type InstalledPack,
+  type VerifyOnLoadOptions,
+  type LoadTrustReport,
+  type LoadSealReport,
+  type PackFingerprintLike,
 } from "./install.js";
 export * from "./kernel/index.js";
 export * from "./llm/index.js";

@@ -181,6 +181,54 @@ describe("config-seal — guard CODE is sealed (081, Critique #27)", () => {
   });
 });
 
+// ── 082: the LOAD-PATH defaults (installPack verifyOnLoad) ───────────────────
+// installPack injects verifyConfigSeal with policy:"require_signature" (NOT the
+// library default require_digest). The verifier RE-EXTRACTS + RE-HASHES the LIVE
+// pack, so a swapped/drifted surface (or an unsigned seal) fails closed.
+describe("config-seal — 082 load-path defaults (require_signature, re-extract LIVE pack)", () => {
+  it("a matching, signed seal verifies against the re-extracted live pack (accept)", () => {
+    const { publicKeyPem, privateKeyPem } = ed25519Keys();
+    const seal = sealPackConfig(makePack(), { privateKeyPem, algorithm: "ed25519", keyId: "load" });
+    const report = verifyConfigSeal(makePack(), seal, { publicKeyPem, policy: "require_signature" });
+    expect(report.verified).toBe(true);
+    expect(report.digestMatch).toBe("match");
+  });
+
+  it("REFUSES a live pack whose surface drifted from the seal (re-hash mismatch)", () => {
+    const { publicKeyPem, privateKeyPem } = ed25519Keys();
+    // Seal minted over threshold=100; the LIVE pack now has threshold=50.
+    const seal = sealPackConfig(makePack({ threshold: 100 }), {
+      privateKeyPem,
+      algorithm: "ed25519",
+      keyId: "load",
+    });
+    const report = verifyConfigSeal(makePack({ threshold: 50 }), seal, {
+      publicKeyPem,
+      policy: "require_signature",
+    });
+    expect(report.digestMatch).toBe("mismatch");
+    expect(report.verified).toBe(false);
+  });
+
+  it("REFUSES an UNSIGNED seal under require_signature (load-path fail-closed)", () => {
+    const seal = sealPackConfig(makePack()); // no privateKeyPem ⇒ no signature
+    const report = verifyConfigSeal(makePack(), seal, { policy: "require_signature" });
+    expect(report.verified).toBe(false);
+    expect(report.errors.some((e) => /require_signature/.test(e))).toBe(true);
+  });
+
+  it("REFUSES a seal signed by the WRONG key (load-path fail-closed)", () => {
+    const { privateKeyPem } = ed25519Keys();
+    const { publicKeyPem: wrongPub } = ed25519Keys();
+    const seal = sealPackConfig(makePack(), { privateKeyPem, algorithm: "ed25519", keyId: "load" });
+    const report = verifyConfigSeal(makePack(), seal, {
+      publicKeyPem: wrongPub,
+      policy: "require_signature",
+    });
+    expect(report.verified).toBe(false);
+  });
+});
+
 describe("config-seal — registry fields are NOT sealed (non-interference)", () => {
   it("adding sideEffects / executorContract / handlers leaves the digest unchanged", () => {
     const baseDigest = computeConfigDigest(extractSealableSurface(makePack()));

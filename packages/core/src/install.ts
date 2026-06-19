@@ -33,6 +33,127 @@ import {
 } from "./pack-conformance.js";
 import type { PackV0 } from "./pack.js";
 
+/**
+ * 082 — load-time provenance verification result contracts.
+ *
+ * These are the MINIMAL structural shapes `installPack` needs from the
+ * provenance verifiers, declared HERE (in `@adjudicate/core`) so the load path
+ * never takes a build dependency on `@adjudicate/conformance` — which already
+ * depends on `@adjudicate/core` (a `core → conformance` import would be a cycle).
+ * The real verifiers (`verifyPackTrust`, `verifyConfigSeal`) live in conformance
+ * and are INJECTED through `VerifyOnLoadOptions` (the impure shell wires them);
+ * `PackTrustReport` / `ConfigSealReport` are structurally assignable to these.
+ * Kernel-purity holds (§D): verification reads injected snapshots + the live
+ * pack surface only — no IO, no clock, no signing here.
+ */
+export interface LoadTrustReport {
+  /** True only when every trust axis passed under the supplied policy. */
+  readonly trusted: boolean;
+  readonly errors: ReadonlyArray<string>;
+}
+
+export interface LoadSealReport {
+  /** True only when digest + (policy-required) signature both verified. */
+  readonly verified: boolean;
+  readonly errors: ReadonlyArray<string>;
+}
+
+/**
+ * 082 — `installPack` refuses to install a Pack whose signature/trust or config
+ * seal does not verify (fail-closed, §D-6: a write-path verification failure
+ * ABORTS the install; it never installs an unverified Pack and never fails
+ * open). Behind this option — when `verifyOnLoad` is absent the install path is
+ * byte-identical to pre-082 (only `assertPackConformance` runs), so this is a
+ * non-breaking, opt-in load gate (§7).
+ *
+ * Both verifiers are INJECTED (the shell supplies the conformance functions and
+ * the recorded `seal` / `publicKeyPem` snapshots) so `@adjudicate/core` keeps
+ * zero dependency on `@adjudicate/conformance`. Defaults are STRICT at the load
+ * boundary (§3): trust `policy:"require_signature"` and seal `policy:
+ * "require_signature"`, so an UNSIGNED Pack (no `signature` / no `publicKeyPem`
+ * supplied) fails closed rather than installing unverified (§C: failure →
+ * friction, never bypass).
+ */
+export interface VerifyOnLoadOptions {
+  /**
+   * Injected trust verifier — pass `verifyPackTrust` from
+   * `@adjudicate/conformance`. Called over the pack's declarative fingerprint
+   * subset with the strict load-path defaults. A report with `trusted === false`
+   * ABORTS the install.
+   */
+  readonly verifyPackTrust: (args: {
+    readonly pack: PackFingerprintLike;
+    readonly expectedFingerprint?: string;
+    readonly publicKeyPem?: string;
+    readonly signature?: unknown;
+    readonly policy?: string;
+  }) => LoadTrustReport;
+  /**
+   * Injected seal verifier — pass `verifyConfigSeal` from
+   * `@adjudicate/conformance`. Re-extracts + re-hashes the LIVE pack and checks
+   * it against the injected `seal`. A report with `verified === false` ABORTS
+   * the install. Omit (`seal` absent) to verify trust only.
+   */
+  readonly verifyConfigSeal?: (
+    pack: unknown,
+    seal: unknown,
+    options: { readonly publicKeyPem?: string; readonly policy?: string },
+  ) => LoadSealReport;
+  /**
+   * The recorded config-seal SNAPSHOT to verify the live pack against (injected
+   * input, §D). Required for seal enforcement; when omitted, only trust is
+   * checked. Under the strict default seal policy, a missing seal cannot be
+   * "verified clean" — it is simply not run (trust still gates the install).
+   */
+  readonly seal?: unknown;
+  /** Expected fingerprint to additionally pin (optional belt-and-suspenders). */
+  readonly expectedFingerprint?: string;
+  /** Publisher's PEM-encoded public key. REQUIRED under the strict default. */
+  readonly publicKeyPem?: string;
+  /** The detached signature over the fingerprint. REQUIRED under the strict default. */
+  readonly signature?: unknown;
+  /**
+   * Trust policy. Defaults to the STRICT load posture `"require_signature"` (NOT
+   * the library default `best_effort`) so absence of a valid signature refuses
+   * the install (§3).
+   */
+  readonly trustPolicy?: string;
+  /**
+   * Config-seal policy. Defaults to the STRICT load posture `"require_signature"`
+   * (NOT the library default `require_digest`) so a seal without a verified
+   * signature refuses the install (§3).
+   */
+  readonly sealPolicy?: string;
+}
+
+/** Minimal declarative-subset shape the injected trust verifier fingerprints. */
+export interface PackFingerprintLike {
+  readonly id: string;
+  readonly version: string;
+  readonly contract: string;
+  readonly intents: ReadonlyArray<string>;
+  readonly signals?: ReadonlyArray<string>;
+  readonly basisCodes?: ReadonlyArray<string>;
+}
+
+/**
+ * 082 — thrown when load-time provenance verification fails. Fail-closed: the
+ * install is ABORTED before any sink wiring or snapshot recording, so an
+ * unverified Pack never becomes the live authority (§D-1, §D-6).
+ */
+export class PackLoadVerificationError extends Error {
+  constructor(
+    public readonly packId: string,
+    public readonly axis: "trust" | "config_seal",
+    public readonly errors: ReadonlyArray<string>,
+  ) {
+    super(
+      `Pack "${packId}" failed load-time ${axis} verification: ${errors.join("; ")}`,
+    );
+    this.name = "PackLoadVerificationError";
+  }
+}
+
 export interface InstallPackOptions {
   /**
    * When true (default), `installPack` wires `createConsoleMetricsSink()`
@@ -77,6 +198,17 @@ export interface InstallPackOptions {
    * snapshot is recorded, not consulted by any guard.
    */
   readonly authoritySnapshot?: AuthorityGraph;
+  /**
+   * 082 — LOAD-TIME provenance enforcement. When supplied, `installPack`
+   * verifies the Pack's signature/trust (`verifyPackTrust`) and, when a `seal`
+   * is provided, its config seal (`verifyConfigSeal`) BEFORE returning the
+   * `InstalledPack`. A non-verifying report throws `PackLoadVerificationError`
+   * and the Pack does NOT install (fail-closed, §D-6 / §C). Absent ⇒ unchanged
+   * pre-082 behavior (only `assertPackConformance` runs). The verifiers are
+   * INJECTED (from `@adjudicate/conformance`) so the kernel keeps no dependency
+   * on conformance; defaults are STRICT (`require_signature` on both axes).
+   */
+  readonly verifyOnLoad?: VerifyOnLoadOptions;
 }
 
 export type InstalledDefault = "metrics" | "learning";
@@ -147,6 +279,58 @@ export function installPack<K extends string, P, S, C>(
     if (err instanceof Error && err.name === "PlanConformanceError") throw err;
     // Any other unexpected error from the probe is non-fatal — the install
     // gate is best-effort plan validation, not a new failure surface.
+  }
+
+  // 082 — LOAD-TIME PROVENANCE GATE (fail-closed, §D-6 / §C).
+  //
+  // Runs AFTER conformance (a malformed pack still fails fast) but BEFORE any
+  // sink wiring, default install, or snapshot recording — so a Pack that does
+  // not verify NEVER installs anything destructive and NEVER becomes the live
+  // adjudication authority (§D-1: only a verified Pack can reach the executor).
+  // The verifiers are INJECTED (`verifyPackTrust` / `verifyConfigSeal` from
+  // `@adjudicate/conformance`) so core takes no conformance dependency. Defaults
+  // are STRICT: trust + seal policies both `"require_signature"`, so an unsigned
+  // Pack (no signature / no publicKeyPem) refuses the install rather than
+  // installing unverified. With `verifyOnLoad` absent, this block is skipped and
+  // behavior is byte-identical to pre-082.
+  if (options.verifyOnLoad !== undefined) {
+    const v = options.verifyOnLoad;
+    const trustReport = v.verifyPackTrust({
+      pack: pack as unknown as PackFingerprintLike,
+      ...(v.expectedFingerprint !== undefined
+        ? { expectedFingerprint: v.expectedFingerprint }
+        : {}),
+      ...(v.publicKeyPem !== undefined ? { publicKeyPem: v.publicKeyPem } : {}),
+      ...(v.signature !== undefined ? { signature: v.signature } : {}),
+      // STRICT default at the load boundary (§3) — NOT the library's best_effort.
+      policy: v.trustPolicy ?? "require_signature",
+    });
+    if (!trustReport.trusted) {
+      throw new PackLoadVerificationError(
+        pack.id ?? "<unknown>",
+        "trust",
+        trustReport.errors,
+      );
+    }
+
+    // Config-seal enforcement runs only when a seal snapshot is injected. The
+    // verifier re-extracts + re-hashes the LIVE pack, so a swapped/tampered pack
+    // surface drives a digest mismatch and aborts the install. Under the strict
+    // default seal policy, an unsigned seal also fails closed.
+    if (v.seal !== undefined && v.verifyConfigSeal !== undefined) {
+      const sealReport = v.verifyConfigSeal(pack, v.seal, {
+        ...(v.publicKeyPem !== undefined ? { publicKeyPem: v.publicKeyPem } : {}),
+        // STRICT default at the load boundary (§3) — NOT the library's require_digest.
+        policy: v.sealPolicy ?? "require_signature",
+      });
+      if (!sealReport.verified) {
+        throw new PackLoadVerificationError(
+          pack.id ?? "<unknown>",
+          "config_seal",
+          sealReport.errors,
+        );
+      }
+    }
   }
 
   const installedDefaults: InstalledDefault[] = [];

@@ -21,10 +21,14 @@
 
 import {
   buildEnvelope,
+  contaminateSession,
+  mergeTaint,
   sha256Canonical,
   timingSafeHexEqual,
   type Decision,
   type IntentEnvelope,
+  type SessionContamination,
+  type Taint,
 } from "@adjudicate/core";
 import { adjudicateAndAudit, getDefaultRuntimeContext } from "@adjudicate/core/kernel";
 import {
@@ -83,6 +87,13 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
   // failure defaults to friction, never bypass). The config-seal path already
   // uses this same default to ENGAGE the switch (line ~150).
   const runtimeContext = options.runtimeContext ?? getDefaultRuntimeContext();
+
+  // 042 — session contamination is OFF unless the adopter opts in. When ON, an
+  // untrusted-origin datum entering the session (an authorized READ result)
+  // lowers the taint of every subsequently minted LLM intent via the lattice
+  // meet. Cleared ONLY by the authenticated resume() path (a fresh runLoop with
+  // no flag), never by an LLM action.
+  const contaminationEnabled = options.contamination?.enabled === true;
 
   // Configuration-integrity seal gate (ADR-121, hardened by ADR-137). Verified at
   // the START of every public entry point (send/resume/confirm) per the `reverify`
@@ -245,6 +256,13 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
     const events: AgentEvent[] = [...seedEvents];
     let history = initialHistory;
     let lastDecision: Decision | null = null;
+    // 042 — per-turn session contamination flag. Starts clean (a fresh runLoop
+    // call, including the authenticated resume() path, never inherits a prior
+    // turn's contamination — clearing is structural). Set monotonically when an
+    // authorized READ serves an untrusted datum into context; folded into every
+    // subsequently minted LLM intent's taint. Only consulted when contamination
+    // is enabled, so the OFF path is byte-identical to pre-042.
+    let sessionContamination: SessionContamination | undefined = undefined;
 
     if (seedDecision !== null) {
       const single = await processSingleDecision({
@@ -420,22 +438,52 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
           });
           toolResults.push(readRouted.toolResult);
           events.push(...readRouted.extraEvents);
+          // 042 — the laundering leg: an authorized READ that SERVED a datum
+          // reflected untrusted retrieved content back into the model's
+          // context. Contaminate the session (treating the datum as `Retrieved`
+          // / UNTRUSTED) so the NEXT minted LLM intent inherits the taint via
+          // the lattice meet. Monotonic (`contaminateSession` only lowers
+          // trust) and gated on the adopter opt-in.
+          if (contaminationEnabled && readRouted.served) {
+            sessionContamination = contaminateSession(sessionContamination, {
+              origin: "Retrieved",
+              taint: "UNTRUSTED",
+            });
+          }
           continue;
         }
 
         // cls.kind === "intent"
         // 041 — stamp the provenance SOURCE axis at the single site where
         // LLM-proposed `tool_use` bytes become an envelope. These bytes were
-        // proposed by the model, so origin = "LLM" (the harness default),
-        // stamped explicitly next to taint:"UNTRUSTED". origin is bound into
-        // the intentHash but gated by no guard in 041 (the contaminating
-        // propagation gate that reads it is plan 042).
+        // proposed by the model, so the DECLARED origin = "LLM" (the harness
+        // default), declared next to taint:"UNTRUSTED".
+        //
+        // 042 — fold the per-turn session contamination flag into the minted
+        // taint via the lattice meet at this single envelope-minting seam,
+        // replacing the former unconditional `"UNTRUSTED"` literal. The meet is
+        // monotonic (`mergeTaint` only lowers trust, never raises it), so a
+        // contaminated session can only ADD friction; a clean session
+        // (`undefined` flag) yields exactly the declared taint, byte-identical
+        // to pre-042. The fold happens BEFORE `buildEnvelopeFromToolUse` hashes,
+        // so the contaminated taint is inside the intentHash pre-image (#4) —
+        // an LLM cannot post-hoc flip it. `buildEnvelopeFromToolUse` also stamps
+        // the contaminating origin (when the flag is set) so a contamination-
+        // lowered refusal is attributed `taint:propagation_violation`.
+        const declaredTaint: Taint = "UNTRUSTED";
+        const mintedTaint = mergeTaint(
+          declaredTaint,
+          sessionContamination?.taint ?? declaredTaint,
+        );
         const envelope = buildEnvelopeFromToolUse({
           intentKind: cls.intentKind,
           payload: cls.payload,
           sessionId,
-          taint: "UNTRUSTED",
+          taint: mintedTaint,
           origin: "LLM",
+          ...(sessionContamination !== undefined
+            ? { contamination: sessionContamination }
+            : {}),
           nonce: deriveNonce({
             sessionId,
             toolUseId: tu.id,

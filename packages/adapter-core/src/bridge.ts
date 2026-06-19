@@ -15,9 +15,11 @@
  */
 
 import {
+  applySessionContamination,
   buildEnvelope,
   type IntentEnvelope,
   type Origin,
+  type SessionContamination,
   type Taint,
 } from "@adjudicate/core";
 import type { Plan } from "@adjudicate/core/llm";
@@ -119,6 +121,16 @@ export interface BuildEnvelopeFromToolUseArgs {
    * `intentHash` by `buildEnvelope`, but consulted by no kernel guard in 041.
    */
   readonly origin: Origin;
+  /**
+   * 042 — the per-session contamination flag (set in the loop when an
+   * untrusted-origin datum entered the session), folded into the minted taint
+   * via the lattice meet BEFORE the envelope is hashed. `undefined` (a clean
+   * session, or contamination disabled) leaves the declared taint untouched —
+   * the non-contaminated path is byte-identical to pre-042. When present, the
+   * envelope's `origin` is replaced with the contaminating source so the kernel
+   * can attribute a contamination-lowered refusal (`propagation_violation`).
+   */
+  readonly contamination?: SessionContamination;
   readonly nonce: string;
 }
 
@@ -128,16 +140,28 @@ export interface BuildEnvelopeFromToolUseArgs {
  * principal = `"llm"`, taint as supplied (always `"UNTRUSTED"` from the
  * loop), and `origin` as supplied (the loop stamps `"LLM"` — the model
  * proposed the bytes). `origin` joins the `intentHash` pre-image.
+ *
+ * 042 — when a session contamination flag is supplied, the minted taint is the
+ * lattice meet of the declared taint and the contamination taint
+ * (`applySessionContamination`), and the stamped `origin` is replaced with the
+ * contaminating source. Both are folded BEFORE `buildEnvelope` hashes, so the
+ * contaminated taint/origin sit inside the `intentHash` pre-image (invariant
+ * #4) — an LLM cannot post-hoc flip them. The meet is monotonic (never raises
+ * trust), preserving the bridge invariant that LLM-derived envelopes are never
+ * raised above UNTRUSTED.
  */
 export function buildEnvelopeFromToolUse(
   args: BuildEnvelopeFromToolUseArgs,
 ): IntentEnvelope<string, unknown> {
+  const taint = applySessionContamination(args.taint, args.contamination);
+  const origin =
+    args.contamination !== undefined ? args.contamination.origin : args.origin;
   return buildEnvelope({
     kind: args.intentKind,
     payload: args.payload,
     actor: { principal: "llm", sessionId: args.sessionId },
-    taint: args.taint,
-    origin: args.origin,
+    taint,
+    origin,
     nonce: args.nonce,
   });
 }

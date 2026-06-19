@@ -525,6 +525,15 @@ export async function routeReadThroughKernel<S, H>(
 ): Promise<{
   readonly toolResult: ToolResultBlock;
   readonly extraEvents: ReadonlyArray<AgentEvent>;
+  /**
+   * 042 — true when the READ was authorized AND `invokeRead` actually returned
+   * a datum that was reflected into the model's context (the laundering leg).
+   * The loop folds this into the session contamination flag (treating the
+   * returned data as `Retrieved` origin) when contamination is enabled. A
+   * refused/kill-switched read or an executor error did NOT introduce an
+   * untrusted datum, so it does not contaminate (`served: false`).
+   */
+  readonly served: boolean;
 }> {
   const envelope = buildEnvelopeFromToolUse({
     intentKind: ctx.classification.name,
@@ -566,7 +575,7 @@ export async function routeReadThroughKernel<S, H>(
       isError: true,
     };
     events.push({ kind: "tool_result", toolUseId: ctx.toolUseId, payload: result });
-    return { toolResult: result, extraEvents: events };
+    return { toolResult: result, extraEvents: events, served: false };
   }
 
   // Authorized READ → serve via the READ-ONLY executor surface.
@@ -589,7 +598,9 @@ export async function routeReadThroughKernel<S, H>(
       toolUseId: ctx.toolUseId,
       payload: errResult,
     });
-    return { toolResult: errResult, extraEvents: events };
+    // Executor threw — no datum entered context, so the session is not
+    // contaminated by this read.
+    return { toolResult: errResult, extraEvents: events, served: false };
   }
 
   const result: ToolResultBlock = {
@@ -598,7 +609,9 @@ export async function routeReadThroughKernel<S, H>(
   };
   events.push({ kind: "handler_result", toolUseId: ctx.toolUseId, result: readResult });
   events.push({ kind: "tool_result", toolUseId: ctx.toolUseId, payload: result });
-  return { toolResult: result, extraEvents: events };
+  // 042 — an authorized read served a datum into the model's context: this is
+  // the laundering leg. The loop contaminates the session on `served: true`.
+  return { toolResult: result, extraEvents: events, served: true };
 }
 
 export { AdapterError, AdapterErrorCode };

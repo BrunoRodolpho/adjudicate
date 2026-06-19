@@ -26,6 +26,7 @@ export {
 } from "./scenario.js";
 
 export { generatePromptInjectionEnvelopes } from "./vectors/prompt-injection.js";
+export { generateProvenanceInjectionEnvelopes } from "./vectors/provenance-injection.js";
 export { generateTaintEscalationEnvelopes } from "./vectors/taint-escalation.js";
 export { generateToolScopeViolationEnvelopes } from "./vectors/tool-scope-violation.js";
 

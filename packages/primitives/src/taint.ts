@@ -29,6 +29,48 @@ import type { Origin, Taint, TaintPolicy } from "@adjudicate/core";
  */
 export type { Origin } from "@adjudicate/core";
 
+/**
+ * 042 — adopter-facing session-contamination policy.
+ *
+ * Contamination (000_index.md §G) makes untrusted *origin* contaminating at the
+ * session level: once a `Retrieved`/`ExternalAPI` datum enters context, the
+ * harness lowers the taint of every subsequently minted LLM intent in that
+ * session via the lattice meet, so the kernel's existing `canPropose` gate sees
+ * the contaminated taint. This is the adopter knob the harness reads; the
+ * mechanism (meet + monotonic fold) lives in `@adjudicate/core`'s taint module
+ * and the adapter shell, never in a kernel guard.
+ *
+ * **Default OFF** (`enabled: false`) so existing deployments are byte-identical
+ * to pre-042 behavior — the non-contaminated path mints exactly the declared
+ * taint. Adopters opt in by passing `{ enabled: true }`.
+ */
+export interface SessionContaminationPolicy {
+  /** When true, the harness folds session contamination into minted intents. */
+  readonly enabled: boolean;
+}
+
+export interface SessionContaminationPolicyOptions {
+  /**
+   * Enable session contamination. Defaults to `false` (OFF) — the safe,
+   * behavior-preserving default. Turning it ON does not weaken any guard; it
+   * can only *add* friction (the lattice meet lowers trust, never raises it).
+   */
+  readonly enabled?: boolean;
+}
+
+/**
+ * 042 — build the canonical adopter-facing contamination policy. Default OFF.
+ * Provided as a factory (mirroring `createSystemTaintPolicy`) so the "is
+ * contamination enabled for this Pack?" decision is a one-line, single-sourced
+ * audit at Pack-installation time rather than an inline boolean scattered across
+ * adapter wiring.
+ */
+export function createSessionContaminationPolicy(
+  options: SessionContaminationPolicyOptions = {},
+): SessionContaminationPolicy {
+  return { enabled: options.enabled ?? false };
+}
+
 export interface SystemTaintPolicyOptions {
   /**
    * Intent kinds that originate from the system (webhooks, scheduled

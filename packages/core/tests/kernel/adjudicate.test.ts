@@ -35,6 +35,9 @@ function baseEnvelope(overrides: Partial<IntentEnvelope<Kind, Payload>> = {}): I
     payload: hashRelevant.payload ?? { toolName: "add_item" },
     actor: hashRelevant.actor ?? { principal: "llm", sessionId: "s-1" },
     taint: hashRelevant.taint ?? "UNTRUSTED",
+    // 042 — thread origin so the contaminating-origin path can be exercised.
+    // Defaults to "LLM" (non-contaminating) via buildEnvelope when omitted.
+    ...(hashRelevant.origin !== undefined ? { origin: hashRelevant.origin } : {}),
     nonce: hashRelevant.nonce ?? "n-test",
     createdAt: createdAt ?? "2026-04-23T12:00:00.000Z",
   });
@@ -153,6 +156,68 @@ describe("adjudicate — taint gate", () => {
       kind: "payment.send" as Kind,
       taint: "SYSTEM",
     });
+    const decision = adjudicate(env, { step: "pre_order" }, bundle());
+    expect(decision.kind).toBe("EXECUTE");
+  });
+
+  // ── 042 — contamination-lowered refusals emit PROPAGATION_VIOLATION ───────
+
+  it("a NON-contaminating origin (LLM default) keeps the bare LEVEL_INSUFFICIENT basis", () => {
+    // Sub-minimum UNTRUSTED proposal with the default LLM origin — a bare
+    // declared-untrusted refusal, NOT a propagation-caused one.
+    const env = baseEnvelope({ kind: "payment.send" as Kind });
+    expect(env.origin).toBe("LLM");
+    const decision = adjudicate(env, { step: "pre_order" }, bundle());
+    if (decision.kind !== "REFUSE") throw new Error("expected REFUSE");
+    const taintBasis = decision.basis.find((b) => b.category === "taint");
+    expect(taintBasis?.code).toBe(BASIS_CODES.taint.LEVEL_INSUFFICIENT);
+  });
+
+  it("a CONTAMINATING origin (Retrieved) on a sub-minimum refusal emits PROPAGATION_VIOLATION", () => {
+    const env = baseEnvelope({
+      kind: "payment.send" as Kind,
+      origin: "Retrieved",
+    });
+    const decision = adjudicate(env, { step: "pre_order" }, bundle());
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    // Still the same refusal CODE (no new outcome / refusal vocabulary) ...
+    expect(decision.refusal.code).toBe("taint_level_insufficient");
+    // ... but the basis distinguishes the propagation cause for audit.
+    const taintBasis = decision.basis.find((b) => b.category === "taint");
+    expect(taintBasis?.code).toBe(BASIS_CODES.taint.PROPAGATION_VIOLATION);
+    expect(taintBasis?.detail?.origin).toBe("Retrieved");
+  });
+
+  it("a CONTAMINATING origin (ExternalAPI) also emits PROPAGATION_VIOLATION", () => {
+    const env = baseEnvelope({
+      kind: "payment.send" as Kind,
+      origin: "ExternalAPI",
+    });
+    const decision = adjudicate(env, { step: "pre_order" }, bundle());
+    if (decision.kind !== "REFUSE") throw new Error("expected REFUSE");
+    const taintBasis = decision.basis.find((b) => b.category === "taint");
+    expect(taintBasis?.code).toBe(BASIS_CODES.taint.PROPAGATION_VIOLATION);
+  });
+
+  it("a contaminating origin that PASSES the taint gate is NOT refused (still EXECUTE)", () => {
+    // SYSTEM taint clears the SYSTEM minimum even with a Retrieved origin —
+    // the basis-code split only applies to the REFUSE path, never to weaken it.
+    const env = baseEnvelope({
+      kind: "payment.send" as Kind,
+      taint: "SYSTEM",
+      origin: "Retrieved",
+    });
+    const decision = adjudicate(env, { step: "pre_order" }, bundle());
+    expect(decision.kind).toBe("EXECUTE");
+  });
+
+  it("a contaminating origin does NOT manufacture a refusal for an UNTRUSTED-min kind", () => {
+    // Default kind tolerates UNTRUSTED; a Retrieved origin must not invent
+    // friction where the taint gate passes — PROPAGATION_VIOLATION is only a
+    // basis on an already-failing taint check, never a new gate.
+    const env = baseEnvelope({ origin: "Retrieved" });
     const decision = adjudicate(env, { step: "pre_order" }, bundle());
     expect(decision.kind).toBe("EXECUTE");
   });

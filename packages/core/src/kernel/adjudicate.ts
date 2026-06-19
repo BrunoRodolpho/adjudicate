@@ -38,7 +38,7 @@
  */
 
 import { basis, BASIS_CODES, type DecisionBasis } from "../basis-codes.js";
-import { canPropose, taintRank } from "../taint.js";
+import { canPropose, isContaminatingOrigin, taintRank } from "../taint.js";
 import {
   decisionExecute,
   decisionRefuse,
@@ -313,18 +313,34 @@ function _adjudicateImpl<K extends string, P, S>(
   }
   if (!taintAllowed) {
     if (traceOut) traceOut.push({ phase: "taint", outcome: "match" });
+    // 042 — distinguish a contamination-LOWERED refusal from a bare
+    // declared-untrusted one. The envelope's harness-stamped `origin` (041,
+    // already in the intentHash pre-image) is the pure, read-only signal: when
+    // the sub-minimum proposal carries a CONTAMINATING origin (Retrieved /
+    // ExternalAPI — untrusted data fed back into context), the refusal is
+    // attributed to provenance propagation, populating the previously-UNUSED
+    // `taint:propagation_violation` basis so audit can tell the two apart. This
+    // is NOT a new outcome (still REFUSE), NOT a new guard phase, and reads no
+    // new input — it only chooses the basis CODE on the existing taint refusal.
+    const propagationCaused = isContaminatingOrigin(envelope.origin);
+    const code = propagationCaused
+      ? BASIS_CODES.taint.PROPAGATION_VIOLATION
+      : BASIS_CODES.taint.LEVEL_INSUFFICIENT;
     return decisionRefuse(
       refuse(
         "SECURITY",
         "taint_level_insufficient",
         "I can't perform this action with the information available.",
-        `Taint ${envelope.taint} insufficient for intent kind ${envelope.kind}`,
+        propagationCaused
+          ? `Contaminated proposal (origin ${envelope.origin}) lowered taint ${envelope.taint} below the minimum for intent kind ${envelope.kind}`
+          : `Taint ${envelope.taint} insufficient for intent kind ${envelope.kind}`,
       ),
       [
         ...accumulated,
-        basis("taint", BASIS_CODES.taint.LEVEL_INSUFFICIENT, {
+        basis("taint", code, {
           actual: envelope.taint,
           kind: envelope.kind,
+          ...(propagationCaused ? { origin: envelope.origin } : {}),
         }),
       ],
     );

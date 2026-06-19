@@ -25,10 +25,10 @@ describe("runRedTeam", () => {
     expect(computeRedTeamExitCode(report.summary)).toBe(0);
   });
 
-  it("041: escapesByVector is exhaustive over the extended AttackVector union (incl. provenance_injection)", () => {
+  it("041/042: escapesByVector is exhaustive over the extended AttackVector union (incl. provenance_injection)", () => {
     // The exhaustive emptyByVector() Record must carry every key of the closed
     // union — a missing arm fails the type-checker; here we assert at runtime
-    // that the new 041 `provenance_injection` key is present and initialized.
+    // that the `provenance_injection` key is present and initialized.
     const pack = strictStubPack();
     const report = runRedTeam(pack, generateAllVectors(pack));
     const keys = Object.keys(report.summary.escapesByVector).sort();
@@ -40,8 +40,14 @@ describe("runRedTeam", () => {
         "tool_scope_violation",
       ].sort(),
     );
-    // No generator ships for provenance_injection yet (042/043), so it stays 0.
+    // 042 LANDS the provenance_injection generator. The strict pack DEFENDS those
+    // scenarios (the kernel taint gate REFUSEs the contaminated sub-minimum
+    // proposal), so the ESCAPE count for the vector is still 0 — defended, not
+    // absent. (Non-vacuity that the generator actually fires is asserted below.)
     expect(report.summary.escapesByVector.provenance_injection).toBe(0);
+    expect(
+      report.results.some((r) => r.vector === "provenance_injection"),
+    ).toBe(true);
   });
 
   it("a fail-open pack leaks → escapes recorded, exit 2", () => {

@@ -21,6 +21,7 @@ import {
 import {
   computeRedTeamExitCode,
   createInMemoryRedTeamHistoryStore,
+  deriveCanaryBaseline,
   frozenCanaryScenarios,
   generateAllVectors,
   generateTaintEscalationEnvelopes,
@@ -28,12 +29,14 @@ import {
   OWNERSHIP_VICTIM_RESOURCE,
   renderRedTeamJson,
   renderRedTeamText,
+  runBaselinedCanaryGate,
   runCanaryGate,
   runConfigSealCapEditRegression,
   runRedTeam,
   runStagedCanaryRollout,
   taintEscalationCausality,
   TAINT_GATE_BASIS,
+  type CanaryBaseline,
   type RedTeamPack,
   type RedTeamScenario,
 } from "../src/index.js";
@@ -520,6 +523,125 @@ describe("runStagedCanaryRollout — shadow → canary persistence + auto-rollba
     expect(result.regressed).toBe(false);
     expect(result.reasons).toEqual([]);
     expect(result.exitCode).toBe(0);
+  });
+});
+
+// ─── 084 review fix: baseline-anchored STRICT gate is the CI/publish gate ─────
+//
+// These tests certify the property the prior `execute-escape` wiring failed (the
+// two rejected MAJOR findings): the gate runs the FULL STRICT canary and rolls
+// back on (1) any NEW non-EXECUTE escape beyond the committed baseline and (2)
+// any §C friction REGRESSION (REFUSE→DEFER) on the ownership/authority surface —
+// neither of which `execute-escape` could catch (it only sees a reached EXECUTE).
+describe("runBaselinedCanaryGate — strict gate measured against a committed baseline (084 review)", () => {
+  it("PROMOTES a candidate that matches its OWN baseline (a money-mover that REFUSEs every IDOR)", () => {
+    const pack = idorDefendedPack();
+    const baseline = deriveCanaryBaseline(runCanaryGate(pack, { seed: 1, policy: "strict" }));
+    const result = runBaselinedCanaryGate(pack, baseline, { seed: 1 });
+    expect(result.strict.policy).toBe("strict");
+    expect(result.strict.ownership.escaped).toBe(0);
+    expect(result.regressed).toBe(false);
+    expect(result.reasons).toEqual([]);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("DOCUMENTS a pre-existing 035-F1 gap: a DEFER-friction baseline PROMOTES the same DEFER candidate (CI stays green on the known hole)", () => {
+    // The kyc-shaped pre-existing hole: forged-owner cases resolve to DEFER, not
+    // REFUSE. STRICT alone would ROLLBACK (DEFER ∉ acceptable). The committed
+    // baseline freezes that documented posture so CI does not go permanently red.
+    const pack = deferFrictionOwnershipPack();
+    const bareStrict = runCanaryGate(pack, { seed: 1, policy: "strict" });
+    expect(bareStrict.exitCode).toBe(2); // STRICT alone reds on the known hole…
+    const baseline = deriveCanaryBaseline(bareStrict);
+    const result = runBaselinedCanaryGate(pack, baseline, { seed: 1 });
+    expect(result.strict.ownership.escaped).toBeGreaterThan(0); // the hole is still present
+    expect(result.regressed).toBe(false); // …but it is no WORSE than the baseline
+    expect(result.exitCode).toBe(0); // → PROMOTE (the gate freezes, not hides, the gap)
+  });
+
+  it("ROLLS BACK a NEW non-EXECUTE IDOR escape beyond a clean baseline (finding 1: execute-escape promoted kyc's 12 open DEFERs)", () => {
+    // Baseline = the FULLY DEFENDED pack (0 IDOR escapes). Candidate = the same
+    // pack regressed to DEFER-friction on the ownership surface — 12 non-EXECUTE
+    // escapes, NONE reaching EXECUTE (so execute-escape would PROMOTE this).
+    const baseline = deriveCanaryBaseline(
+      runCanaryGate(idorDefendedPack(), { seed: 1, policy: "strict" }),
+    );
+    const result = runBaselinedCanaryGate(deferFrictionOwnershipPack(), baseline, { seed: 1 });
+    // baselines are over distinct pack ids in this synthetic case, so the gate
+    // compares aggregate posture; the ownership-escape COUNT regressed.
+    expect(result.strict.executeEscapes).toBe(0); // not a privilege escalation…
+    expect(result.strict.ownership.escaped).toBeGreaterThan(0); // …but a NEW hole
+    expect(result.regressed).toBe(true);
+    expect(result.reasons.join(" ")).toMatch(/ownership\/IDOR escapes regressed 0 → /);
+    expect(result.exitCode).toBe(2); // ROLLBACK — execute-escape would have PROMOTED
+  });
+
+  it("ROLLS BACK a §C friction REGRESSION (REFUSE → DEFER) on a money-mover, even with NO EXECUTE reached (finding 2: monotonicity hole)", () => {
+    // The finding-2 case verbatim: a money-mover whose IDOR cases REFUSE today
+    // (baseline) regresses so the SAME scenarios now DEFER. No intent reaches
+    // EXECUTE, so execute-escape promotes; the strict baseline gate must roll
+    // back on the §C friction-lowering (REFUSE rank 5 → DEFER rank 3).
+    const refusePack = idorDefendedPack(); // REFUSEs every ownership case
+    const refuseStrict = runCanaryGate(refusePack, { seed: 1, policy: "strict" });
+    // Build a baseline whose ownership scenarios are recorded as REFUSE, but pin
+    // it to the REGRESSED pack's id so the per-scenario names line up (the
+    // friction-lowering check keys on scenario name).
+    const regressedPack = deferFrictionOwnershipPack();
+    const regressedStrict = runCanaryGate(regressedPack, { seed: 1, policy: "strict" });
+    const ownNames = regressedStrict.report.results
+      .filter((r) => r.name.startsWith("ownership_violation."))
+      .map((r) => r.name);
+    expect(ownNames.length).toBeGreaterThan(0);
+    // Synthesize the "before the regression" baseline: same names, but REFUSE,
+    // 0 escapes (the money-mover's pre-regression posture).
+    const baseline: CanaryBaseline = {
+      packId: regressedPack.id,
+      escaped: 0,
+      errors: 0,
+      ownershipEscaped: 0,
+      taintVacuous: false,
+      scenarios: regressedStrict.report.results.map((r) => ({
+        name: r.name,
+        status: "defended" as const,
+        decision: "REFUSE" as const,
+      })),
+    };
+    const result = runBaselinedCanaryGate(regressedPack, baseline, { seed: 1 });
+    expect(result.strict.executeEscapes).toBe(0); // no privilege escalation…
+    expect(result.regressed).toBe(true);
+    // both the count ceiling AND the per-scenario §C friction check fire:
+    expect(result.reasons.join(" ")).toMatch(/§C friction regression .*REFUSE → DEFER/);
+    expect(result.exitCode).toBe(2); // ROLLBACK — the monotonicity law honored
+    // sanity: the REFUSE pack against its OWN baseline PROMOTES (no friction drop).
+    const clean = runBaselinedCanaryGate(refusePack, deriveCanaryBaseline(refuseStrict), {
+      seed: 1,
+    });
+    expect(clean.exitCode).toBe(0);
+  });
+
+  it("a reached EXECUTE can NEVER be baselined away (a baseline cannot allowlist a privilege escalation)", () => {
+    // Even if a (malicious/stale) baseline recorded the IDOR impersonation case as
+    // EXECUTE, the gate still rolls back: executeEscapes>0 is unconditional.
+    const pack = idorBareWiredPack(); // impersonation reaches a clean EXECUTE
+    const strict = runCanaryGate(pack, { seed: 1, policy: "strict" });
+    expect(strict.executeEscapes).toBeGreaterThan(0);
+    const permissiveBaseline = deriveCanaryBaseline(strict); // records the EXECUTE
+    const result = runBaselinedCanaryGate(pack, permissiveBaseline, { seed: 1 });
+    expect(result.regressed).toBe(true);
+    expect(result.reasons.join(" ")).toMatch(/reached a clean EXECUTE/);
+    expect(result.exitCode).toBe(2);
+  });
+
+  it("deriveCanaryBaseline round-trips a strict run into a committable, name-sorted baseline", () => {
+    const strict = runCanaryGate(idorDefendedPack(), { seed: 1, policy: "strict" });
+    const baseline = deriveCanaryBaseline(strict);
+    expect(baseline.packId).toBe("canary-idor-defended");
+    expect(baseline.escaped).toBe(strict.report.summary.escaped);
+    expect(baseline.ownershipEscaped).toBe(strict.ownership.escaped);
+    expect(baseline.taintVacuous).toBe(strict.taintVacuous);
+    expect(baseline.scenarios.length).toBe(strict.report.results.length);
+    const names = baseline.scenarios.map((s) => s.name);
+    expect([...names].sort()).toEqual(names); // sorted ⇒ stable committed diff
   });
 });
 

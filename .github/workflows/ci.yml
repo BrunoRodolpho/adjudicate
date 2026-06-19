@@ -52,34 +52,40 @@ jobs:
           --pack ./packages/pack-identity-kyc/dist/index.js
           --pack ./packages/pack-deployments-approval/dist/index.js
 
-      # 084 — FROZEN adversarial-canary gate (alongside the ADR-140 composition
-      # gate). Re-runs the full red-team suite + the 035 ownership/IDOR vector
-      # over each shipped pack dist bundle as a DETERMINISTIC publish precondition.
-      # `--canary-policy execute-escape` is the §D-1 PRIVILEGE-ESCALATION gate: a
-      # rollback (exit 2) fires only when an adversarial intent reaches a clean
-      # EXECUTE (the executor) or errors — fail-closed (§D-6). This is the right
-      # policy for the HETEROGENEOUS shipped catalog: several packs legitimately
-      # defend their adversarial scenarios UPSTREAM of the taint gate (schema/
-      # state preconditions), and pack-identity-kyc carries the documented,
-      # pre-existing 035-F1 #8 gap (forged-owner kinds resolve to DEFER friction,
-      # not REFUSE — never an EXECUTE). The STRICT non-vacuity hard-fail (the full
-      # gate) is exercised in the @adjudicate/red-team unit suite over a candidate
-      # pack expected to FULLY defend; running it as a blocking gate over the
-      # current catalog would over-block on those non-escalation properties (§7
-      # risk). The gate runs entirely in the shell, never inside adjudicate()
-      # (§D kernel purity). Fixed seed ⇒ reproducible verdict run-to-run.
-      - name: Adversarial canary gate (frozen red-team over the shipped packs)
+      # 084 — adversarial-canary gate (alongside the ADR-140 composition gate).
+      # Re-runs the FULL STRICT red-team suite + the 035 ownership/IDOR vector
+      # over each shipped pack dist bundle and gates the verdict against a
+      # COMMITTED, version-controlled BASELINE (.github/canary-baselines/<id>.json).
+      #
+      # The gate is the FULL STRICT gate (not the weaker `execute-escape` policy):
+      # it sees every NON-EXECUTE escape and every §C friction regression, not
+      # only a reached EXECUTE. The committed baseline freezes the DOCUMENTED,
+      # pre-existing 035-F1 #8 gaps (pack-identity-kyc's forged-owner DEFER cases;
+      # cli/pix/deploy's taint defended-upstream/vacuous cases) so CI does not go
+      # permanently red on KNOWN holes — while ROLLING BACK (exit 2) the instant
+      # any NEW escape/error/IDOR-escape/vacuity opens OR any baselined decision
+      # weakens to LESS friction (e.g. a money-mover's IDOR REFUSE→DEFER). That is
+      # the §C / §D-6 property the global `execute-escape` wiring could not deliver
+      # (it promoted kyc's 12 open IDOR DEFERs and any non-EXECUTE friction-
+      # lowering). A change to a pack's defended posture requires a REVIEWED
+      # baseline update in the same PR. The gate runs entirely in the shell, never
+      # inside adjudicate() (§D kernel purity). Fixed seed ⇒ reproducible verdict.
+      - name: Adversarial canary gate (baseline-anchored strict red-team)
         run: |
           set -e
           for pack in \
-            ./packages/pack-cli-agent/dist/index.js \
-            ./packages/pack-access-governance/dist/index.js \
-            ./packages/pack-incident-response/dist/index.js \
-            ./packages/pack-payments-pix/dist/index.js \
-            ./packages/pack-identity-kyc/dist/index.js \
-            ./packages/pack-deployments-approval/dist/index.js ; do
-            echo "::group::canary $pack"
-            node packages/cli/dist/bin.js red-team --canary --canary-policy execute-escape --seed 1 --pack "$pack"
+            cli-agent:pack-cli-agent \
+            access-governance:pack-access-governance \
+            incident-response:pack-incident-response \
+            payments-pix:pack-payments-pix \
+            identity-kyc:pack-identity-kyc \
+            deployments-approval:pack-deployments-approval ; do
+            dir="${pack%%:*}" ; id="${pack##*:}"
+            echo "::group::canary $id"
+            node packages/cli/dist/bin.js red-team \
+              --baseline ".github/canary-baselines/${id}.json" \
+              --seed 1 \
+              --pack "./packages/pack-${dir}/dist/index.js"
             echo "::endgroup::"
           done
 

@@ -2,6 +2,7 @@ import {
   adjudicateWithTrace,
   buildEnvelope,
   describePolicyBundle,
+  restrictivenessRank,
   type DecisionKind,
   type PolicyBundle,
 } from "@adjudicate/core";
@@ -433,4 +434,177 @@ export function runCanaryGate(
         : 0;
 
   return { stage, policy, report, causality, taintVacuous, executeEscapes, ownership, exitCode };
+}
+
+// ─── 084: baseline-anchored STRICT canary gate (the CI / publish gate) ───────
+//
+// `runCanaryGate(policy:"strict")` is the FULL gate — it rolls back on ANY
+// non-acceptable decision, a vacuous taint pass, or any IDOR escape. That is the
+// right semantics for a candidate the operator expects to FULLY defend, but the
+// CURRENTLY-SHIPPED catalog carries DOCUMENTED, pre-existing 035-F1 #8 gaps
+// (kyc forged-owner cases resolve to DEFER not REFUSE; cli/pix/deploy defend the
+// taint vector UPSTREAM of the taint gate → vacuous). Running bare strict as a
+// blocking gate would PERMANENTLY redden CI on those known holes.
+//
+// The earlier wiring "solved" that by globally substituting the WEAKER
+// `execute-escape` policy at the gate. That was the reviewer-rejected hole: it
+// blinds the gate to (a) every NON-EXECUTE IDOR escape (kyc's 12 forged-owner
+// DEFERs promote) and (b) every §C friction REGRESSION that does not reach
+// EXECUTE (a money-mover's IDOR defense silently weakening REFUSE→DEFER still
+// promotes). `execute-escape` only catches a reached EXECUTE.
+//
+// `runBaselinedCanaryGate` is the correct gate: it runs the FULL STRICT gate and
+// then compares the strict verdict to a COMMITTED BASELINE that records the known
+// pre-existing posture. It PROMOTES iff the candidate is NO WORSE than the
+// baseline on every axis; it ROLLS BACK on ANY of:
+//
+//   • a NEW escape / error / IDOR-escape / vacuity beyond the baseline counts;
+//   • a §C FRICTION REGRESSION on ANY scenario — a recorded decision moving to a
+//     STRICTLY LESS restrictive kind (e.g. a money-mover's IDOR REFUSE → DEFER),
+//     even when both kinds are "acceptable" to that vector. This is the §C / §D-6
+//     property `execute-escape` could not deliver: a guard-config change that
+//     lowers friction on the ownership/authority surface aborts promotion.
+//
+// A baseline is itself produced by `deriveCanaryBaseline` from a STRICT run, so
+// CI documents exactly which holes are tolerated and freezes them: the gate goes
+// red the instant any NEW hole opens or any recorded defense weakens. Pure +
+// deterministic over `(pack, baseline, opts)`.
+
+/** A per-scenario decision the baseline freezes, keyed by scenario `name`. */
+export interface CanaryBaselineScenario {
+  readonly name: string;
+  readonly status: RedTeamStatus;
+  /** The decision kind the baseline recorded (absent on an `error` scenario). */
+  readonly decision?: DecisionKind;
+}
+
+/**
+ * A COMMITTED, version-controlled snapshot of a pack's known strict-canary
+ * posture. The gate promotes iff a fresh strict run is NO WORSE than this. It
+ * documents (rather than hides) the pre-existing 035-F1 gaps so CI reddens on any
+ * NEW regression while staying green on a frozen, reviewed set of known holes.
+ */
+export interface CanaryBaseline {
+  readonly packId: string;
+  /** Frozen aggregate posture (the ceilings a fresh run may not exceed). */
+  readonly escaped: number;
+  readonly errors: number;
+  readonly ownershipEscaped: number;
+  readonly taintVacuous: boolean;
+  /** Per-scenario decisions, so a friction-LOWERING on any scenario is caught. */
+  readonly scenarios: ReadonlyArray<CanaryBaselineScenario>;
+}
+
+/** Derive a committable baseline from a STRICT canary run. Pure. */
+export function deriveCanaryBaseline(result: CanaryGateResult): CanaryBaseline {
+  return {
+    packId: result.report.pack.id,
+    escaped: result.report.summary.escaped,
+    errors: result.report.summary.errors,
+    ownershipEscaped: result.ownership.escaped,
+    taintVacuous: result.taintVacuous,
+    scenarios: result.report.results
+      .map((r) => ({
+        name: r.name,
+        status: r.status,
+        ...(r.decision !== undefined ? { decision: r.decision } : {}),
+      }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+  };
+}
+
+export interface BaselinedCanaryGateResult {
+  /** The underlying STRICT canary verdict (full per-scenario detail). */
+  readonly strict: CanaryGateResult;
+  /** The committed baseline this run was measured against. */
+  readonly baseline: CanaryBaseline;
+  /** True when the fresh run is WORSE than the baseline on any axis. */
+  readonly regressed: boolean;
+  /** Human-readable reasons the gate rolled back (empty ⇒ promote). */
+  readonly reasons: ReadonlyArray<string>;
+  /**
+   * The gate verdict. 0 = PROMOTE, 2 = ROLLBACK. Fail-closed (§D-6): a reached
+   * EXECUTE / error / NEW escape / NEW vacuity / §C friction-lowering rolls back.
+   * §C monotonicity: never lowers friction below the strict run for the baseline.
+   */
+  readonly exitCode: CanaryExitCode;
+}
+
+/**
+ * Run the STRICT canary and gate the verdict against a COMMITTED baseline.
+ *
+ * Rolls back (exit 2) on ANY of:
+ *   • a hard escape the strict gate flags unconditionally — a reached EXECUTE or
+ *     an error (these always roll back, baseline notwithstanding: a baseline
+ *     cannot "allowlist" a privilege escalation or a harness error);
+ *   • an aggregate posture WORSE than the baseline (more escapes / errors / IDOR
+ *     escapes, or newly vacuous);
+ *   • a §C FRICTION REGRESSION on any baselined scenario — its decision moved to
+ *     a strictly LESS restrictive kind than the baseline recorded.
+ *
+ * Promotes (exit 0) only when the run is no-worse-than-baseline on every axis.
+ */
+export function runBaselinedCanaryGate(
+  pack: RedTeamPack,
+  baseline: CanaryBaseline,
+  opts: { readonly stage?: CanaryStage } & GenerateOptions = {},
+): BaselinedCanaryGateResult {
+  const genOpts: GenerateOptions = {
+    ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
+    ...(opts.perIntent !== undefined ? { perIntent: opts.perIntent } : {}),
+  };
+  const strict = runCanaryGate(pack, {
+    ...(opts.stage !== undefined ? { stage: opts.stage } : {}),
+    policy: "strict",
+    ...genOpts,
+  });
+
+  const reasons: string[] = [];
+
+  // Hard escapes can NEVER be baselined away: a reached EXECUTE (§D-1 privilege
+  // escalation) or a harness error always rolls back regardless of the baseline.
+  if (strict.executeEscapes > 0) {
+    reasons.push(`${strict.executeEscapes} adversarial intent(s) reached a clean EXECUTE`);
+  }
+  if (strict.report.summary.errors > baseline.errors) {
+    reasons.push(`errors regressed ${baseline.errors} → ${strict.report.summary.errors}`);
+  }
+
+  // Aggregate posture may not exceed the frozen baseline ceilings.
+  if (strict.report.summary.escaped > baseline.escaped) {
+    reasons.push(`escapes regressed ${baseline.escaped} → ${strict.report.summary.escaped}`);
+  }
+  if (strict.ownership.escaped > baseline.ownershipEscaped) {
+    reasons.push(
+      `ownership/IDOR escapes regressed ${baseline.ownershipEscaped} → ${strict.ownership.escaped}`,
+    );
+  }
+  if (strict.taintVacuous && !baseline.taintVacuous) {
+    reasons.push("taint-escalation coverage became vacuous (taint gate no longer exercised)");
+  }
+
+  // §C MONOTONICITY: per-scenario friction-lowering. A baselined scenario whose
+  // decision moved to a STRICTLY less restrictive kind is a regression even if
+  // both kinds are "acceptable" to that vector — this is the REFUSE→DEFER money-
+  // mover weakening `execute-escape` could not catch.
+  const baselineByName = new Map(baseline.scenarios.map((s) => [s.name, s]));
+  for (const r of strict.report.results) {
+    const b = baselineByName.get(r.name);
+    if (b === undefined) continue; // a NEW scenario is covered by the count checks.
+    if (b.decision === undefined || r.decision === undefined) continue;
+    if (restrictivenessRank(r.decision) < restrictivenessRank(b.decision)) {
+      reasons.push(
+        `§C friction regression on "${r.name}": ${b.decision} → ${r.decision} (less restrictive)`,
+      );
+    }
+  }
+
+  const regressed = reasons.length > 0;
+  return {
+    strict,
+    baseline,
+    regressed,
+    reasons,
+    exitCode: regressed ? 2 : 0,
+  };
 }

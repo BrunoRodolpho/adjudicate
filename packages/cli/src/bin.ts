@@ -375,6 +375,10 @@ program
     "084 — canary failure policy. strict (default): non-acceptable decision/error/vacuous taint pass rolls back. execute-escape: roll back ONLY on a reached EXECUTE or error (§D-1 privilege-escalation gate, for a heterogeneous shipped catalog).",
     "strict",
   )
+  .option(
+    "--baseline <file>",
+    "084 — the CI/publish gate. Run the STRICT canary and gate it against a COMMITTED baseline JSON: PROMOTE iff no-worse-than-baseline; ROLLBACK on any NEW escape/error/IDOR/vacuity OR any §C friction regression (e.g. an IDOR REFUSE→DEFER). Documents the pre-existing 035-F1 gaps without blinding the gate. Implies --canary; overrides --canary-policy.",
+  )
   .option("--format <text|json>", "Output format. Defaults to text", "text")
   .action(
     async (options: {
@@ -384,6 +388,7 @@ program
       vectors?: string;
       canary?: boolean;
       canaryPolicy?: string;
+      baseline?: string;
       format?: string;
     }) => {
       const format = (options.format ?? "text") as "text" | "json";
@@ -416,12 +421,15 @@ program
         }
         vectors = parts as ReadonlyArray<Vector>;
       }
+      // --baseline implies canary mode (the baseline-anchored STRICT gate).
+      const canaryMode = options.canary === true || options.baseline !== undefined;
       await runRedTeamCommand({
         pack: options.pack,
         ...(options.seed !== undefined ? { seed: Number(options.seed) } : {}),
         ...(options.perIntent !== undefined ? { perIntent: Number(options.perIntent) } : {}),
         ...(vectors !== undefined ? { vectors } : {}),
-        ...(options.canary === true ? { canary: true, canaryPolicy } : {}),
+        ...(canaryMode ? { canary: true, canaryPolicy } : {}),
+        ...(options.baseline !== undefined ? { baseline: options.baseline } : {}),
         format,
       });
     },

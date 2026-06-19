@@ -180,6 +180,45 @@ describe("createEscalateGuard — FROZEN escalate-only-shape contract (101 §3)"
   });
 });
 
+describe("createEscalateGuard — escalate-only conjunction the 103 providers rely on (103 §4 T5)", () => {
+  // 103's suitability/Reg-BI (`aiEvalScore`) and KYC sanctions-match-score
+  // providers both ride `createEscalateGuard`. They depend on its CONJUNCTION
+  // contract — escalate iff `matches` is true AND the comparator crosses — to
+  // (a) escalate-only (never authorize EXECUTE) and (b) ABSTAIN (return null,
+  // letting the deterministic score path run) when the predicate matches but the
+  // value is sub-threshold. If `matches`-true-but-below-threshold leaked a
+  // non-null Decision, a weak sanctions correlation / a passing eval score would
+  // wrongly raise friction. These pin the exact seam those providers depend on.
+  const guard = createEscalateGuard<K, unknown, S>({
+    matches: (env) => env.kind === "test.action",
+    extract: (env) => (env.payload as { aml?: number }).aml ?? null,
+    threshold: 80,
+    comparator: ">=",
+    to: "human",
+    reason: (value, threshold) => `match ${value} ≥ ${threshold}`,
+  });
+
+  it("matches=true but value BELOW threshold → abstains (null), so the deterministic path runs", () => {
+    // The KYC sanctions branch must NOT escalate a 79% correlation (< 80); it
+    // abstains and the verification-score guards decide.
+    expect(guard(baseEnvelope({ aml: 79 }), baseState)).toBeNull();
+  });
+
+  it("matches=true and value AT/ABOVE threshold → ESCALATE to the configured route only", () => {
+    const d = guard(baseEnvelope({ aml: 80 }), baseState);
+    expect(d).not.toBeNull();
+    expect(d!.kind).toBe("ESCALATE");
+    if (d!.kind === "ESCALATE") expect(d!.to).toBe("human");
+  });
+
+  it("matches=true but value ABSENT → abstains (null): the FLAGGED-only/no-score case is carried by a sibling guard", () => {
+    // This is precisely why the KYC FLAGGED branch is a STANDALONE inline guard:
+    // createEscalateGuard abstains when extract() is null/undefined, so a
+    // score-independent escalate cannot be folded into the score guard.
+    expect(guard(baseEnvelope({}), baseState)).toBeNull();
+  });
+});
+
 describe("createIdempotencyGuard", () => {
   const guard = createIdempotencyGuard<K, unknown, S>({
     matches: (env) => env.kind === "test.action",

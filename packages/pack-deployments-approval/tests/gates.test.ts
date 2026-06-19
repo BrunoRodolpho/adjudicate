@@ -145,3 +145,58 @@ describe("regression-escalate signal — FROZEN escalate-only contract (101 §3)
     }
   });
 });
+
+describe("suitability/Reg-BI signal — escalate-only OVER an EXECUTE allow guard (103 §3/§4 T4)", () => {
+  // 103 hardens the suitability/Reg-BI (`aiEvalScore` regression) signal as an
+  // on-path, escalate-only provider that can only ever STEP FRICTION UP (§C
+  // `final = min(deterministic, risk_ceiling)`, §D inv-7). The 101/102 tests
+  // above pin escalate-over-REWRITE and escalate-over-REQUEST_CONFIRMATION; the
+  // strictest precedence — escalate over a genuine EXECUTE *allow* guard — is the
+  // 103-anchored net-new case. An APPROVED production deploy would otherwise
+  // EXECUTE via `allowApprovedProduction`; a sub-threshold suitability score must
+  // still ESCALATE, proving the signal sets a ceiling, never a floor, even
+  // against the one guard that authorizes EXECUTE.
+  const approvedProd: Record<string, DeploymentApproval> = {
+    "production/api/abc12345": {
+      service: "api",
+      environment: "production",
+      gitSha: "abc12345",
+      approver: "alice",
+      decision: "approved",
+      at: "2026-06-01T00:00:00.000Z",
+    },
+  };
+
+  it("approved production + sub-threshold aiEvalScore → ESCALATE (beats allowApprovedProduction EXECUTE)", () => {
+    const d = run(
+      { service: "api", environment: "production", gitSha: "abc12345", aiEvalScore: 70, rampPercent: 10 },
+      approvedProd,
+    );
+    expect(d.kind).toBe("ESCALATE");
+    if (d.kind === "ESCALATE") expect(d.to).toBe("human");
+  });
+
+  it("CONTROL: approved production + supra-threshold aiEvalScore → EXECUTE (signal abstains, allow guard fires)", () => {
+    // Proves the ESCALATE above is a real threshold crossing, not an always-on
+    // side effect of the approved-production path: at/above threshold the
+    // suitability guard abstains and the deterministic EXECUTE allow guard runs.
+    const d = run(
+      { service: "api", environment: "production", gitSha: "abc12345", aiEvalScore: 90, rampPercent: 10 },
+      approvedProd,
+    );
+    expect(d.kind).toBe("EXECUTE");
+  });
+
+  it("approved production: the signal escalates and NEVER EXECUTEs across the sub-threshold band", () => {
+    // The whole failing-eval band escalates an approved-production deploy that
+    // would otherwise EXECUTE — the suitability ceiling is non-downgradable.
+    for (let score = 0; score < 80; score += 5) {
+      const d = run(
+        { service: "api", environment: "production", gitSha: "abc12345", aiEvalScore: score, rampPercent: 10 },
+        approvedProd,
+      );
+      expect(d.kind).toBe("ESCALATE");
+      expect(d.kind).not.toBe("EXECUTE");
+    }
+  });
+});

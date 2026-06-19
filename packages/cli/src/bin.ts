@@ -250,7 +250,7 @@ pack
   )
   .option(
     "--policy <policy>",
-    'Trust policy: none | best_effort | require_fingerprint | require_signature. Defaults to best_effort.',
+    'Trust policy: none | best_effort | require_fingerprint | require_signature. Defaults to best_effort; use require_signature to match the strict installPack load-time gate (082).',
     "best_effort",
   )
   .option("--quiet", "Print only the fingerprint on stdout; exit 1 on failure", false)

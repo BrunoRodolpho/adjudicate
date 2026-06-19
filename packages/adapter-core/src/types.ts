@@ -329,6 +329,24 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
    * Defaults are intentionally lax for one deprecation release (decision L1): the
    * loop emits a one-time warning when `policy` isn't `require_signature` or when
    * `engageKillSwitchOnMismatch` is unset; a future release flips both.
+   *
+   * 082 — STRICT KNOB PAIRING (operators MUST set this for fail-closed posture).
+   * The same `require_signature` enforcement `installPack`'s `verifyOnLoad` runs
+   * at load time is honored at RUNTIME by the loop's `checkConfigSeal` wiring
+   * (`loop.ts`) ONLY when BOTH knobs are set together:
+   *
+   *   configSeal: {
+   *     seal, publicKeyPem,
+   *     policy: "require_signature",          // an unsigned seal cannot satisfy the gate
+   *     engageKillSwitchOnMismatch: true,     // drift engages the kill switch, not just a warn
+   *   }
+   *
+   * Without `policy:"require_signature"` + `publicKeyPem` the seal verifies on
+   * DIGEST only (a re-signed/forged seal can pass); without
+   * `engageKillSwitchOnMismatch:true` a drift only refuses the current turn and
+   * self-heals next turn (no latch). Pair BOTH to close the lax-default gap at
+   * the adopter (§C: failure → friction, never bypass). This is documented, not
+   * silently relied upon (082 §7 risk: lax adapter default).
    */
   readonly configSeal?: {
     readonly seal: ConfigSeal;

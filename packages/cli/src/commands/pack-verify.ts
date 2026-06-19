@@ -67,6 +67,18 @@ interface SignatureFile {
  *   adjudicate pack verify              # local dev — fingerprint only
  *   adjudicate pack verify --expect <hex>           # CI gate
  *   adjudicate pack verify --public-key <pem> --signature <json> --policy require_signature   # prod
+ *
+ * 082 — LOAD-PATH ALIGNMENT. The in-process load gate
+ * (`installPack({ verifyOnLoad })`) enforces `policy:"require_signature"` on
+ * BOTH trust and config-seal by default. CI/adopters running this command as a
+ * pre-install gate should pass the SAME strict posture
+ * (`--policy require_signature --public-key <pem> --signature <json>`, plus
+ * `--expect-seal <hex>` to bind the guard-code surface) so the command and the
+ * runtime load path agree — a Pack the CLI passes is exactly a Pack
+ * `installPack` would accept, and vice versa. The runtime `--policy` default
+ * stays `best_effort` for backwards-compatible local dev (an unsigned local
+ * Pack still fingerprints), but the production wiring above is the one that
+ * mirrors the strict load defaults.
  */
 export async function runPackVerify(
   packPath?: string,

@@ -46,6 +46,12 @@ export {
 } from "./manifest.js";
 
 // Pack trust primitives — fingerprinting + signature verification (v0.7).
+//
+// 082 — `verifyPackTrust` is the trust verifier the in-process LOAD path
+// consumes: `installPack({ verifyOnLoad: { verifyPackTrust, ... } })` injects it
+// (core cannot import conformance — that would be a cycle) and calls it
+// fail-closed with the strict `require_signature` load default before returning
+// the InstalledPack. Surfaced here as the single public entry point.
 export {
   computePackFingerprint,
   signPackFingerprint,
@@ -79,6 +85,12 @@ export {
 // Configuration Integrity Seal (ADR-121) — pins the introspectable config
 // surface (declarative + guard metadata + probed taint minimums) under a
 // signature; the adapter verifies at runtime.
+//
+// 082 — `verifyConfigSeal` is the seal verifier the in-process LOAD path
+// consumes: `installPack({ verifyOnLoad: { verifyConfigSeal, seal, ... } })`
+// injects it and calls it fail-closed (re-extract + re-hash the LIVE pack)
+// before returning the InstalledPack, with the strict `require_signature` load
+// default. Surfaced here so the load path and the CLI/runtime use one verifier.
 export {
   computeConfigDigest,
   extractSealableSurface,

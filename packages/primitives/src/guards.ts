@@ -291,6 +291,20 @@ export function createRewriteGuard<K extends string, P, S>(
   // cap is pinned under the mutated field's name; a state-derived cap function
   // is pinned by its source (a body edit is caught even though the runtime
   // value is not statically knowable).
+  //
+  // 082 — RESIDUAL BLIND SPOT (load-time enforcement must NOT over-claim).
+  // `installPack({ verifyOnLoad })` now refuses a Pack whose config seal does
+  // not verify, but a clean seal only proves the *sealed* code surface matches
+  // what was signed — it is NOT a full proof of guard-body integrity:
+  //   • a STATE-DERIVED `cap` (the `typeof options.cap === "function"` branch)
+  //     pins the function SOURCE, not the runtime value it returns, so the
+  //     actual clamp a given `state` produces is outside the digest; and
+  //   • the seal binds only what the descriptor surfaces — a guard that exposes
+  //     no `GuardCodeArtifact` contributes nothing to `guardCodeDigests`.
+  // Therefore load-time enforcement (082) attests SIGNATURE + SEALED-SURFACE
+  // provenance, not behavioral correctness of every closure. Closing the
+  // remaining cap-pinning gap is 081's "sign guard code" scope (upstream); 082
+  // relies on the seal here, it does not extend it.
   const codeArtifact =
     typeof options.cap === "number"
       ? { caps: { [options.mutateField]: options.cap }, source: guard.toString() }

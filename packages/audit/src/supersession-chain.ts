@@ -30,7 +30,28 @@ export interface SupersessionChainNode {
   readonly decisionKind: AuditRecord["decision"]["kind"];
   readonly at: string;
   readonly reason?: SupersessionReason;
+  /**
+   * The LOGICAL inter-record link — the predecessor's ENVELOPE content hash
+   * (`supersedes.predecessorIntentHash`). Present when this node supersedes a
+   * prior record. Distinct from `prevAuditHash`: it cannot detect a deleted or
+   * reordered record (it is a content-address re-used as a logical pointer).
+   */
   readonly predecessorIntentHash?: string;
+  /**
+   * 093 — this record's own `auditHash` (the per-stream cryptographic TIP this
+   * node contributes to the chain). Present for v4+ records. Surfaced so the
+   * report can expose the cryptographic chain alongside the logical
+   * supersession links.
+   */
+  readonly auditHash?: string;
+  /**
+   * 093 — the CRYPTOGRAPHIC inter-record link: the `auditHash` of the
+   * immediately-preceding record this node binds to (`record.prevAuditHash`).
+   * Distinct from `predecessorIntentHash` (a logical envelope hash): a mismatch
+   * between this and the actual predecessor's `auditHash` is a hard chain break
+   * (surfaced in `chainBreaks`), detecting deletion/reorder.
+   */
+  readonly prevAuditHash?: string;
 }
 
 export interface SupersessionChain {
@@ -89,6 +110,26 @@ export interface SupersessionChainReport {
   }>;
   /** Aggregate reason counts across every chain in the report. */
   readonly aggregateReasonCounts: Readonly<Record<SupersessionReason, number>>;
+  /**
+   * 093 — CRYPTOGRAPHIC chain breaks, surfaced DISTINCTLY from the logical
+   * `predecessorIntentHash` link. An entry is emitted when a record carries a
+   * `prevAuditHash` (the cryptographic per-stream tip) that does NOT equal the
+   * `auditHash` of its resolved supersession predecessor — i.e. the logical link
+   * resolved to a record, but the cryptographic link to that record is broken
+   * (the predecessor was substituted, or the recorded link drifted). This is the
+   * detection the logical link alone cannot provide: `predecessorIntentHash`
+   * walks the chain; `prevAuditHash` proves the walked predecessor is the
+   * authentic one.
+   */
+  readonly chainBreaks: ReadonlyArray<{
+    readonly intentHash: string;
+    /** The record's `prevAuditHash` (the cryptographic link it claims). */
+    readonly prevAuditHash: string;
+    /** The resolved predecessor's actual `auditHash` (what the link should be). */
+    readonly predecessorAuditHash: string | undefined;
+    /** The logical link the walk resolved by (for cross-referencing). */
+    readonly predecessorIntentHash: string;
+  }>;
 }
 
 const REASON_KEYS: ReadonlyArray<SupersessionReason> = [
@@ -96,6 +137,9 @@ const REASON_KEYS: ReadonlyArray<SupersessionReason> = [
   "defer_resumed",
   "rewrite_executed",
   "replay",
+  // 025 — capabilities-as-budgets: a budget-satisfied EXECUTE supersedes the
+  // REQUEST_CONFIRMATION it was substituted for.
+  "budget_satisfied",
   "lgpd_scrub",
 ];
 
@@ -105,6 +149,7 @@ function emptyReasonCounts(): Record<SupersessionReason, number> {
     defer_resumed: 0,
     rewrite_executed: 0,
     replay: 0,
+    budget_satisfied: 0,
     lgpd_scrub: 0,
   };
 }
@@ -119,6 +164,12 @@ function nodeOf(record: AuditRecord): SupersessionChainNode {
           reason: record.supersedes.reason,
           predecessorIntentHash: record.supersedes.predecessorIntentHash,
         }
+      : {}),
+    // 093 — surface the cryptographic tip (this record's own auditHash) and the
+    // cryptographic link (prevAuditHash) alongside the logical supersession link.
+    ...(record.auditHash !== undefined ? { auditHash: record.auditHash } : {}),
+    ...(record.prevAuditHash !== undefined
+      ? { prevAuditHash: record.prevAuditHash }
       : {}),
   };
 }
@@ -347,6 +398,41 @@ export function buildSupersessionChains(
     }
   }
 
+  // 093 — CRYPTOGRAPHIC chain-break detection, surfaced DISTINCTLY from the
+  // logical `predecessorIntentHash` link. For every record that BOTH carries a
+  // cryptographic link (`prevAuditHash`) AND supersedes a prior record we can
+  // resolve, compare the link to the resolved predecessor's `auditHash`. A
+  // mismatch means the logical walk found a predecessor but the cryptographic
+  // binding to it is broken (the predecessor was substituted, or the link
+  // drifted) — exactly the deletion/reorder the logical link cannot detect.
+  const chainBreaks: {
+    intentHash: string;
+    prevAuditHash: string;
+    predecessorAuditHash: string | undefined;
+    predecessorIntentHash: string;
+  }[] = [];
+  for (const r of records) {
+    if (r.prevAuditHash === undefined || r.supersedes === undefined) continue;
+    const prev = findRecord(
+      byHash,
+      r.supersedes.predecessorIntentHash,
+      r.supersedes.predecessorAt,
+    );
+    // Only assess when we resolved a DISTINCT predecessor record (the
+    // confirmation-resolved flow shares an intentHash; `prev === r` is not a
+    // cryptographic predecessor). An out-of-window predecessor (prev undefined)
+    // is reported as a dangling logical link, not a cryptographic break.
+    if (prev === undefined || prev === r) continue;
+    if (prev.auditHash !== r.prevAuditHash) {
+      chainBreaks.push({
+        intentHash: r.intentHash,
+        prevAuditHash: r.prevAuditHash,
+        predecessorAuditHash: prev.auditHash,
+        predecessorIntentHash: r.supersedes.predecessorIntentHash,
+      });
+    }
+  }
+
   // Deterministic ordering across every emitted collection.
   chains.sort((a, b) => (a.head.intentHash < b.head.intentHash ? -1 : 1));
   cycles.sort((a, b) => (a.head.intentHash < b.head.intentHash ? -1 : 1));
@@ -355,6 +441,7 @@ export function buildSupersessionChains(
   forks.sort((a, b) =>
     a.predecessorIntentHash < b.predecessorIntentHash ? -1 : 1,
   );
+  chainBreaks.sort((a, b) => (a.intentHash < b.intentHash ? -1 : 1));
 
   return {
     schemaVersion: 1,
@@ -364,6 +451,7 @@ export function buildSupersessionChains(
     cycles,
     forks,
     aggregateReasonCounts,
+    chainBreaks,
   };
 }
 

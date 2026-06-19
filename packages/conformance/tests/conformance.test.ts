@@ -51,6 +51,12 @@ function makeReadOnlyPack(
     policy,
     planner: { listAllowedTools: () => [], listAllowedKinds: () => [] },
     basisCodes: ["read.only.allowed"],
+    // AC-007 (035): a genuinely read-only kind must AFFIRMATIVELY declare itself
+    // read-only via sideEffects to be exempt from the owner-predicate requirement
+    // (DEFAULT-MUTATING classifier). This pack performs no mutation, so it
+    // declares "read" — which is the honest classification and the documented
+    // AC-007 exemption.
+    sideEffects: { "read.only": "read" },
   };
 }
 
@@ -128,12 +134,58 @@ describe("runConformance() check id stability", () => {
       "AC-004",
       "AC-005",
       "AC-006",
+      // AC-007 (plan 035) — mutating UNTRUSTED-min kinds must carry an owner
+      // predicate (§D #8). Registered ahead of AC-008 so the id order is dense.
+      "AC-007",
+      // AC-008 (plan 014) — the payload-self-confirmation check; took the next
+      // free id while AC-007 was reserved for 035.
+      "AC-008",
     ]);
   });
 
   it("individual checks are exported by name for partial-set composition", () => {
     expect(untrustedNeverExecutesCheck.id).toBe("AC-001");
     expect(defaultPolarityCheck.id).toBe("AC-006");
+  });
+});
+
+describe("ConformanceOptions.authorityGraph — 032 surface (AC-007 wired in 035)", () => {
+  // 032 EXTENDED the option surface; 035 wires AC-007. AC-007 is a STATIC
+  // structural check (it inspects authGuards/taint/sideEffects, NOT the
+  // authorityGraph snapshot), so passing the snapshot is still inert w.r.t. the
+  // report — but the real pix pack now PASSES AC-007 because 035 wired the
+  // authority guard into its authGuards.
+  const graph = {
+    edges: [
+      {
+        principal: "user_42",
+        relationship: "owns" as const,
+        resource: "acct_7",
+        permits: { actions: ["pix.charge.refund"] },
+      },
+    ],
+  };
+
+  it("accepts an injected authorityGraph snapshot WITHOUT throwing or changing the report", () => {
+    const baseline = runConformance(paymentsPixPack);
+    // The same call, now WITH the snapshot, must still pass identically — AC-007
+    // is structural and does not consult the snapshot, so the report is stable.
+    const withGraph = runConformance(paymentsPixPack, { authorityGraph: graph });
+    expect(withGraph.passed).toBe(true);
+    expect(withGraph.summary).toEqual(baseline.summary);
+    expect(withGraph.results.map((r) => r.id)).toEqual(
+      baseline.results.map((r) => r.id),
+    );
+  });
+
+  it("DEFAULT_CHECKS now registers AC-007 (035) — the real pix pack passes it", () => {
+    expect(DEFAULT_CHECKS.map((c) => c.id)).toContain("AC-007");
+    // The pix pack wires createAuthorityGuard into authGuards (035), so its
+    // mutating UNTRUSTED-min kinds (pix.charge.create/refund) now carry an owner
+    // predicate and AC-007 passes.
+    const report = runConformance(paymentsPixPack, { authorityGraph: graph });
+    const ac007 = report.results.find((r) => r.id === "AC-007");
+    expect(ac007?.passed).toBe(true);
   });
 });
 

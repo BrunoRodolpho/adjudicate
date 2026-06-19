@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AdopterExecutor } from "@adjudicate/adapter-core";
+import { buildEnvelope, verifyResourceBinding, type IntentEnvelope } from "@adjudicate/core";
 import {
   AUTO_REMEDIATION_BLAST_CAP,
   type IncidentDependency,
@@ -8,7 +9,11 @@ import {
   type IncidentStatus,
   type RemediationExecutePayload,
 } from "@adjudicate/pack-incident-response";
-import { createRemediationOrchestrator } from "../src/index.js";
+import {
+  createInMemoryRemediationProposalStore,
+  createRemediationOrchestrator,
+} from "../src/index.js";
+import { createInMemoryApprovalRegistry } from "@adjudicate/approval-engine";
 
 function stateWith(
   overrides: { status?: IncidentStatus; deps?: IncidentDependency[] } = {},
@@ -192,5 +197,249 @@ describe("RemediationOrchestrator — zero independent authority", () => {
     // The side effect happened exactly once, and only via the adopter executor.
     expect(executor.invokeIntent).toHaveBeenCalledTimes(1);
     expect(executor.invokeRead).not.toHaveBeenCalled();
+  });
+});
+
+// ── 023: resource-binding fence at the Adjutant executor seam ────────────────
+describe("RemediationOrchestrator — 023 resource binding (anti-IDOR)", () => {
+  it("the env handed to invokeIntent is the kernel-bound one (re-derives its own intentHash)", async () => {
+    const { orch, executor } = setup();
+    const out = await orch.handle({
+      incidentId: "inc-1",
+      action: "rollback",
+      blastRadius: 3,
+      disposition: "SAFE",
+      nonce: "n-bound",
+    });
+    expect(out.executed).toBe(true);
+    // The executor received exactly the kernel-decided envelope, and that
+    // envelope is resource-bound (its intentHash re-derives from its content) —
+    // the fence (assertResourceBound) passed precisely because nothing swapped
+    // the payload between decision and execution.
+    const passed = (executor.invokeIntent as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[0] as { intentHash: string };
+    expect(verifyResourceBinding(passed as never).bound).toBe(true);
+    expect(passed.intentHash).toBe(out.executedEnvelope!.intentHash);
+  });
+
+  it("a forged/swapped proposal envelope is refused before invokeIntent (resolve path)", async () => {
+    // Drive the resolve() seam with a proposal whose stored envelope payload was
+    // swapped after it was minted (stale intentHash). The kernel would re-derive
+    // a mismatch, but even if a forged EXECUTE were spliced in, assertResourceBound
+    // fail-closes before the side effect. We assert the executor never fires.
+    const state = stateWith();
+    const executor: AdopterExecutor<IncidentIntentKind, unknown, IncidentState> = {
+      invokeRead: vi.fn(async () => ({})),
+      invokeIntent: vi.fn(async () => ({ ok: true })),
+    };
+    const bound = buildEnvelope<IncidentIntentKind, RemediationExecutePayload>({
+      kind: "incident.remediation.execute",
+      payload: { incidentId: "inc-1", action: "rollback", blastRadius: 3 },
+      actor: { principal: "user", sessionId: "inc-1" },
+      taint: "TRUSTED",
+      nonce: "n-forge",
+    });
+    const swapped = {
+      ...bound,
+      payload: { incidentId: "inc-VICTIM", action: "rollback", blastRadius: 3 },
+    } as IntentEnvelope<IncidentIntentKind>;
+    // Sanity: the swap genuinely breaks the binding.
+    expect(verifyResourceBinding(swapped as never).bound).toBe(false);
+
+    const proposalStore = createInMemoryRemediationProposalStore();
+    proposalStore.put({
+      proposalId: "p-forge",
+      incidentId: "inc-1",
+      action: "rollback",
+      blastRadius: 3,
+      disposition: "REVIEW",
+      status: "pending_review",
+      approvalToken: "tok-forge",
+      intentHash: bound.intentHash,
+      envelope: swapped,
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:00.000Z",
+    });
+    const orch = createRemediationOrchestrator({
+      executor,
+      getState: () => state,
+      proposalStore,
+    });
+    // Accepting re-adjudicates the swapped envelope. The kernel refuses on the
+    // intent-hash mismatch; the binding fence is the executor-seam backstop.
+    const res = await orch.resolve({
+      token: "tok-forge",
+      accepted: true,
+      at: "2026-06-18T01:00:00.000Z",
+    });
+    expect(executor.invokeIntent).not.toHaveBeenCalled();
+    expect(res.executed).toBe(false);
+  });
+});
+
+describe("RemediationOrchestrator — 071 receipt binding (approver, channel)", () => {
+  it("an accepted resolve binds (approver, channel) onto the EXECUTE supersession", async () => {
+    const state = stateWith();
+    const executor: AdopterExecutor<IncidentIntentKind, unknown, IncidentState> = {
+      invokeRead: vi.fn(async () => ({})),
+      invokeIntent: vi.fn(async () => ({ ok: true })),
+    };
+    const records: import("@adjudicate/core").AuditRecord[] = [];
+    const proposalStore = createInMemoryRemediationProposalStore();
+    const orch = createRemediationOrchestrator({
+      executor,
+      getState: () => state,
+      proposalStore,
+      approvalRegistry: createInMemoryApprovalRegistry(),
+      sink: { async emit(r) { records.push(r); } },
+    });
+
+    // A REVIEW that adjudicates to REQUEST_CONFIRMATION parks a pending proposal.
+    const out = await orch.handle({
+      incidentId: "inc-1",
+      action: "patch",
+      blastRadius: 12,
+      disposition: "REVIEW",
+      nonce: "n-071-bind",
+      at: "2026-06-18T00:00:00.000Z",
+    });
+    expect(out.pending?.kind).toBe("review");
+    const proposal = proposalStore.list().find(
+      (p) => p.status === "pending_review",
+    )!;
+    expect(proposal.approvalToken).toBeDefined();
+
+    // The operator approves; the kernel substitutes EXECUTE and the audit row
+    // links back via a confirmation_resolved supersession carrying the bound
+    // approver + the ops-plane channel.
+    const res = await orch.resolve({
+      token: proposal.approvalToken!,
+      accepted: true,
+      by: { id: "operator-jane", displayName: "Jane" },
+      at: "2026-06-18T01:00:00.000Z",
+    });
+    expect(res.executed).toBe(true);
+    const exec = records.find((r) => r.decision.kind === "EXECUTE");
+    expect(exec).toBeDefined();
+    expect(exec!.supersedes).toMatchObject({
+      reason: "confirmation_resolved",
+      binding: { approver: "operator-jane", channel: "adjutant" },
+    });
+  });
+
+  it("an accepted resolve with no `by` still binds the channel (approver omitted)", async () => {
+    const state = stateWith();
+    const executor: AdopterExecutor<IncidentIntentKind, unknown, IncidentState> = {
+      invokeRead: vi.fn(async () => ({})),
+      invokeIntent: vi.fn(async () => ({ ok: true })),
+    };
+    const records: import("@adjudicate/core").AuditRecord[] = [];
+    const proposalStore = createInMemoryRemediationProposalStore();
+    const orch = createRemediationOrchestrator({
+      executor,
+      getState: () => state,
+      proposalStore,
+      approvalRegistry: createInMemoryApprovalRegistry(),
+      sink: { async emit(r) { records.push(r); } },
+    });
+    await orch.handle({
+      incidentId: "inc-1",
+      action: "patch",
+      blastRadius: 12,
+      disposition: "REVIEW",
+      nonce: "n-071-nobyy",
+      at: "2026-06-18T00:00:00.000Z",
+    });
+    const proposal = proposalStore.list().find(
+      (p) => p.status === "pending_review",
+    )!;
+    const res = await orch.resolve({
+      token: proposal.approvalToken!,
+      accepted: true,
+      at: "2026-06-18T01:00:00.000Z",
+    });
+    expect(res.executed).toBe(true);
+    const exec = records.find((r) => r.decision.kind === "EXECUTE");
+    expect(exec!.supersedes).toMatchObject({
+      reason: "confirmation_resolved",
+      binding: { channel: "adjutant" },
+    });
+    expect(exec!.supersedes!.binding).not.toHaveProperty("approver");
+  });
+
+  // ── 072 — proposer (requestedBy) stamped on the request, NOT on the receipt ──
+  it("stamps the proposer (requestedBy) on the ApprovalRequest from the minting actor", async () => {
+    const state = stateWith();
+    const proposalStore = createInMemoryRemediationProposalStore();
+    const approvalRegistry = createInMemoryApprovalRegistry();
+    const orch = createRemediationOrchestrator({
+      executor: { invokeRead: vi.fn(async () => ({})), invokeIntent: vi.fn(async () => ({ ok: true })) },
+      getState: () => state,
+      proposalStore,
+      approvalRegistry,
+      // A REVIEW disposition is operator-originated → principal "user".
+      actor: { principal: "user", sessionId: "operator-paula" },
+    });
+
+    await orch.handle({
+      incidentId: "inc-1",
+      action: "patch",
+      blastRadius: 12,
+      disposition: "REVIEW",
+      nonce: "n-072-proposer",
+      at: "2026-06-18T00:00:00.000Z",
+    });
+    const proposal = proposalStore.list().find((p) => p.status === "pending_review")!;
+    const request = await approvalRegistry.get(proposal.approvalToken!);
+    // The proposer is captured from the proposing envelope's actor — a stable
+    // sessionId id with the provenance principal as the display label.
+    expect(request?.requestedBy).toEqual({
+      id: "operator-paula",
+      displayName: "user",
+    });
+  });
+
+  it("072: the proposer (requestedBy) is NEVER threaded into the kernel confirmationReceipt binding", async () => {
+    const state = stateWith();
+    const records: import("@adjudicate/core").AuditRecord[] = [];
+    const proposalStore = createInMemoryRemediationProposalStore();
+    const approvalRegistry = createInMemoryApprovalRegistry();
+    const orch = createRemediationOrchestrator({
+      executor: { invokeRead: vi.fn(async () => ({})), invokeIntent: vi.fn(async () => ({ ok: true })) },
+      getState: () => state,
+      proposalStore,
+      approvalRegistry,
+      actor: { principal: "user", sessionId: "operator-paula" },
+      sink: { async emit(r) { records.push(r); } },
+    });
+
+    await orch.handle({
+      incidentId: "inc-1",
+      action: "patch",
+      blastRadius: 12,
+      disposition: "REVIEW",
+      nonce: "n-072-no-receipt-proposer",
+      at: "2026-06-18T00:00:00.000Z",
+    });
+    const proposal = proposalStore.list().find((p) => p.status === "pending_review")!;
+
+    // A DIFFERENT identity (operator-jane) approves the maker's (operator-paula) request.
+    const res = await orch.resolve({
+      token: proposal.approvalToken!,
+      accepted: true,
+      by: { id: "operator-jane", displayName: "Jane" },
+      at: "2026-06-18T01:00:00.000Z",
+    });
+    expect(res.executed).toBe(true);
+    const exec = records.find((r) => r.decision.kind === "EXECUTE")!;
+    // The kernel-side forensic binding records the APPROVER + channel only — the
+    // proposer (operator-paula) is NOT present anywhere on the receipt binding.
+    expect(exec.supersedes!.binding).toEqual({
+      approver: "operator-jane",
+      channel: "adjutant",
+    });
+    expect(exec.supersedes!.binding).not.toHaveProperty("proposer");
+    expect(exec.supersedes!.binding).not.toHaveProperty("requestedBy");
+    expect(JSON.stringify(exec.supersedes)).not.toContain("operator-paula");
   });
 });

@@ -32,8 +32,11 @@ import { basis, BASIS_CODES } from "../basis-codes.js";
 import {
   attachAuditMetadata,
   buildAuditRecord,
+  rewriteExecutedSupersession,
   type AuditPlanSnapshot,
   type AuditRecord,
+  type AuditSigner,
+  type BudgetGrant,
   type Supersession,
 } from "../audit.js";
 import {
@@ -41,7 +44,10 @@ import {
   decisionRefuse,
   type Decision,
 } from "../decision.js";
-import { type IntentEnvelope } from "../envelope.js";
+import {
+  type IntentEnvelope,
+  type RecordedAggregateSnapshot,
+} from "../envelope.js";
 import { sha256Canonical } from "../hash.js";
 import {
   type Ledger,
@@ -50,6 +56,7 @@ import {
 import { refuse } from "../refusal.js";
 import { type AuditSink } from "../sink.js";
 import {
+  adjudicate,
   adjudicateWithTrace,
   type AdjudicationTraceEntry,
 } from "./adjudicate.js";
@@ -66,7 +73,129 @@ import {
   recordSinkFailure,
 } from "./metrics.js";
 import type { PolicyBundle } from "./policy.js";
-import type { RuntimeContext } from "./runtime-context.js";
+import type {
+  KillSwitchControl,
+  KillSwitchState,
+  RuntimeContext,
+} from "./runtime-context.js";
+
+/**
+ * 013/T3 — fail-closed read of a tenant kill-switch control.
+ *
+ * Returns the active `KillSwitchState` when the switch fires (so the caller
+ * REFUSEs), or `null` when it is provably inactive. §C (failure defaults to
+ * friction, never bypass): if the control is missing or throws while being read,
+ * we DO NOT silently skip the check — we synthesize an ACTIVE state so the
+ * decision becomes a REFUSE. A RuntimeContext supplied without a usable
+ * kill-switch can no longer bypass the emergency-halt gate (invariant #6).
+ */
+function readTenantKillState(
+  killSwitch: KillSwitchControl | undefined,
+): KillSwitchState | null {
+  if (!killSwitch || typeof killSwitch.isKilled !== "function") {
+    return {
+      active: true,
+      reason: "kill_switch_control_absent",
+      toggledAt: "1970-01-01T00:00:00.000Z",
+    };
+  }
+  try {
+    if (!killSwitch.isKilled()) return null;
+    return killSwitch.state();
+  } catch {
+    return {
+      active: true,
+      reason: "kill_switch_control_unreadable",
+      toggledAt: "1970-01-01T00:00:00.000Z",
+    };
+  }
+}
+
+/**
+ * 071 — a single bound binding field. `confirmed` is the value the confirmation
+ * was actually resolved with (always recorded forensically); `requested` is the
+ * OPTIONAL value the original REQUEST_CONFIRMATION was issued against. When
+ * `requested` is present the override requires `requested === confirmed`.
+ */
+export interface ConfirmationBindingField {
+  /** The value the confirmation was resolved with (the bound, recorded value). */
+  readonly confirmed: string;
+  /**
+   * Optional: the value the REQUEST_CONFIRMATION was issued against (from the
+   * already-verified pending request). When present, the override requires it to
+   * equal `confirmed`; a mismatch falls through to the original verdict.
+   */
+  readonly requested?: string;
+}
+
+/**
+ * 071 — the bound (capability, approver, channel) tuple a post-confirmation
+ * EXECUTE is provably tied to. Each field is optional and independently gated:
+ * a caller that can supply only some of the tuple still binds those.
+ */
+export interface ConfirmationBinding {
+  /** The capability/grant the confirmation authorizes (opaque to the kernel). */
+  readonly capability?: ConfirmationBindingField;
+  /** The approver identity who confirmed (distinct from the proposer). */
+  readonly approver?: ConfirmationBindingField;
+  /** The channel the confirmation arrived on (Slack/email/console/...). */
+  readonly channel?: ConfirmationBindingField;
+}
+
+/**
+ * 071 — pure equality gate over a `ConfirmationBinding`. Returns `true` when
+ * EVERY present field whose `requested` value is supplied equals its `confirmed`
+ * value (fail-closed: any single mismatch returns `false`). A field with no
+ * `requested` value is forensically recorded but not gated (the caller could not
+ * supply the issued-against value). An absent `binding` is vacuously satisfied —
+ * that is the unchanged back-compat path.
+ *
+ * Pure: no I/O, no clock. Used INSIDE the override predicate so a mismatch on any
+ * bound field defaults to friction (the original REQUEST_CONFIRMATION), never a
+ * bypass (§D-6).
+ */
+export function confirmationBindingMatches(
+  binding: ConfirmationBinding | undefined,
+): boolean {
+  if (binding === undefined) return true;
+  const fieldOk = (f: ConfirmationBindingField | undefined): boolean =>
+    f === undefined || f.requested === undefined || f.requested === f.confirmed;
+  return (
+    fieldOk(binding.capability) &&
+    fieldOk(binding.approver) &&
+    fieldOk(binding.channel)
+  );
+}
+
+/**
+ * 071 — project a `ConfirmationBinding` onto the forensic `Supersession.binding`
+ * carrier: the BOUND (confirmed) values only, keys omitted when unsupplied so an
+ * omitted binding leaves the key off the supersession entirely (byte-identical
+ * supersedes / auditHash for non-binding callers, §D-5). Returns `undefined` when
+ * no field carries a confirmed value, so the supersession spread is a no-op.
+ *
+ * Pure. Records the confirmed value (what the EXECUTE is bound TO), not the
+ * issued-against `requested` value (which is a gate input, not the recorded fact).
+ */
+export function confirmationBindingRecord(
+  binding: ConfirmationBinding | undefined,
+):
+  | { capability?: string; approver?: string; channel?: string }
+  | undefined {
+  if (binding === undefined) return undefined;
+  const record: { capability?: string; approver?: string; channel?: string } = {
+    ...(binding.capability !== undefined
+      ? { capability: binding.capability.confirmed }
+      : {}),
+    ...(binding.approver !== undefined
+      ? { approver: binding.approver.confirmed }
+      : {}),
+    ...(binding.channel !== undefined
+      ? { channel: binding.channel.confirmed }
+      : {}),
+  };
+  return Object.keys(record).length > 0 ? record : undefined;
+}
 
 export interface AdjudicateAndAuditClock {
   nowIso(): string;
@@ -96,6 +225,24 @@ export interface AdjudicateAndAuditDeps {
   readonly metadataProvider?: (
     record: AuditRecord,
   ) => Readonly<Record<string, unknown>> | undefined;
+  /**
+   * Optional (092) impure-shell audit signer. When supplied, BOTH the
+   * kill-switch and main `buildAuditRecord` call sites attach a real
+   * `signature` over the record's `auditHash` (the kernel `adjudicate()`
+   * stays pure — signing happens in the shell AFTER the decision, §D). The
+   * signature is EXCLUDED from the `auditHash` pre-image, so signing never
+   * invalidates tamper-evidence.
+   *
+   * FAIL-CLOSED (§D inv. 6): a signer that throws propagates out of
+   * `buildAuditRecord` and aborts this call BEFORE `sink.emit` — no unsigned
+   * record is ever emitted when a signer was configured. (For a non-EXECUTE
+   * decision the rate-limit rollback still runs: the throw escapes the
+   * try/finally in step 6+7 only on the main path; on the kill-switch path the
+   * signer runs inside `buildAuditRecord` before `sink.emit`, so a throw there
+   * skips emission entirely — friction, never bypass.) Omitting the signer
+   * keeps records unsigned (a valid, tamper-evident-only OSS record).
+   */
+  readonly signer?: AuditSigner;
   /**
    * Optional Execution Ledger. When supplied:
    *   - `checkLedger` runs before adjudication; a hit short-circuits the
@@ -131,6 +278,46 @@ export interface AdjudicateAndAuditDeps {
    * process-wide default.
    */
   readonly context?: RuntimeContext;
+  /**
+   * Optional (091) policy version snapshot. An immutable, impure-shell-supplied
+   * snapshot of the signed policy/Pack version the kernel decided under. The
+   * pure decision does NOT derive it; the shell injects it (per §D: the kernel
+   * decides, the shell supplies recorded inputs). When supplied, BOTH the
+   * kill-switch and main `buildAuditRecord` call sites thread it onto the
+   * emitted record's `policyVersion`, making the policy identity part of the
+   * tamper-evident, replayable audit record (it IS in the auditHash pre-image).
+   * When omitted, the field is conditionally spread OUT — no `undefined` key,
+   * so adopters that do not inject it keep byte-identical, hash-stable records.
+   */
+  readonly policyVersion?: string;
+  /**
+   * Optional (091) kernel version snapshot. An immutable, impure-shell-supplied
+   * snapshot of the @adjudicate/core kernel version that produced the decision
+   * (distinct from `context.kernelIdentity.version`, which identifies the kernel
+   * BUILD). Threaded into BOTH `buildAuditRecord` call sites and bound into the
+   * auditHash pre-image like `policyVersion`; omission spreads it out (no
+   * `undefined` key, hash-stable for non-injecting adopters).
+   */
+  readonly kernelVersion?: string;
+  /**
+   * Optional (052) RECORDED aggregate/limit snapshot. An immutable,
+   * impure-shell-supplied snapshot of the cumulative/velocity counters the
+   * decision was made against (the per-window committed aggregates + the sample
+   * `at`), paired with its content-address (`recordAggregateSnapshot`). The pure
+   * kernel does NOT compute or refetch it; the shell injects it READ-ONLY (per
+   * §D: the kernel decides, the shell supplies recorded inputs) by reading the
+   * durable counting substrate this plan OWNS (`GuardFireStats` + the additive
+   * Postgres upsert). When supplied, BOTH the kill-switch and main
+   * `buildAuditRecord` call sites thread it onto the emitted record's
+   * `aggregateSnapshot`, binding it into the tamper-evident, REPLAYABLE auditHash
+   * pre-image so re-running the pure kernel over the recorded snapshot reproduces
+   * the SAME decision (§D-5, invariant #5). When omitted, the field is
+   * conditionally spread OUT — no `undefined` key, so adopters that do not inject
+   * it keep byte-identical, hash-stable records. NEVER read by `adjudicate()`;
+   * NEVER enters `intentHash` (invariant #4) — the shell never mutates/refetches/
+   * timestamps it, exactly like the read-only `state` discipline at `:412,:468`.
+   */
+  readonly aggregateSnapshot?: RecordedAggregateSnapshot;
   /**
    * T5 (#41 / top-priority E): rate-limit rollback handle. When the
    * kernel returns a non-EXECUTE Decision (REFUSE/ESCALATE/DEFER/
@@ -191,7 +378,80 @@ export interface AdjudicateAndAuditDeps {
      * before this field existed.
      */
     readonly token?: string;
+    /**
+     * Optional (071): the bound (capability, approver, channel) tuple the
+     * post-confirmation EXECUTE is provably tied to. `intentHash` (above)
+     * stays the LOAD-BEARING identity gate; this tuple is an ADDITIONAL,
+     * fail-closed gate that the override consults ONLY when present.
+     *
+     * Because `capability` and `channel` are NOT envelope fields and the
+     * approver is NEVER in `intentHashInput` (`envelope.ts` — invariant #4 is
+     * untouched), the binding values cannot be re-derived from the envelope:
+     * they TRAVEL on the receipt. Each field is a pair:
+     *   - `confirmed` — the value the confirmation was actually resolved with
+     *     (the approver who confirmed, the channel it arrived on, the
+     *     capability presented). ALWAYS the forensically recorded value.
+     *   - `requested?` — OPTIONAL: the value the original REQUEST_CONFIRMATION
+     *     was issued AGAINST (from the already-verified pending request). When
+     *     supplied, the override additionally REQUIRES `requested === confirmed`
+     *     for that field; a mismatch on ANY present field falls through to the
+     *     original REQUEST_CONFIRMATION verdict (fail-closed, §D-6) — never a
+     *     bypass.
+     *
+     * The kernel does NOT verify the capability/token (the adapter's
+     * `confirmationStore.take()` + timing-safe hash compare owns single-use /
+     * tamper defense, `loop.ts`); these fields participate ONLY in the equality
+     * gate and the forensic audit trail.
+     *
+     * STRICTLY ADDITIVE: a caller that omits `binding` (or any sub-field)
+     * produces a byte-identical `supersedes` (and therefore identical
+     * auditHash) as before this field existed — the keys are conditionally
+     * spread off the supersession entirely when unsupplied (§D-5).
+     */
+    readonly binding?: ConfirmationBinding;
   };
+  /**
+   * Budget grant (025 — capabilities-as-budgets). A human-granted, BOUNDED,
+   * STANDING pre-authorization the impure shell asserts so a CLASS of intents
+   * can satisfy the "ask first" threshold up to a declared limit WITHOUT a
+   * per-intent confirmation receipt. When supplied AND the grant's `intentKind`
+   * matches `envelope.kind` AND the kernel returns `REQUEST_CONFIRMATION`, the
+   * kernel substitutes `EXECUTE` with an appended `budget:satisfied` basis (and
+   * auto-derives a `budget_satisfied` supersession), EXACTLY mirroring the
+   * `confirmationReceipt` override above. State guards, taint guards, and auth
+   * guards are still evaluated in full — only the threshold-style "ask the user
+   * first" step is satisfied. Other Decisions (REFUSE/REWRITE/ESCALATE/DEFER/
+   * EXECUTE) are returned UNCHANGED (monotonicity-preserving, §C; closed
+   * 6-outcome algebra, §D #2 — no new kind, no confidence/metadata).
+   *
+   * The kernel does NOT verify or count the grant — the shell
+   * (`adapter-core/decisions.ts` + `loop.ts`) owns burn-down integrity and only
+   * asserts a grant AFTER a SUCCESSFUL atomic decrement against `limit` (the
+   * `evalIncrCheck` Lua primitive). Over-limit ⇒ no grant asserted ⇒ the kernel
+   * returns the original `REQUEST_CONFIRMATION` (fail-closed to friction, §C).
+   * Adopters wiring this directly MUST ensure the grant cannot be forged from
+   * untrusted inputs and that the decrement preceded the assertion.
+   *
+   * `originalAt` (LogicReviewer, 025): the `at` timestamp of the ORIGINAL
+   * REQUEST_CONFIRMATION audit row this budget substitution supersedes. The
+   * predecessor row is emitted by a SEPARATE, earlier `adjudicateAndAudit` call
+   * (the shell's first pass) at an earlier wall clock; this budget-satisfied
+   * EXECUTE is a SECOND call at a LATER wall clock. So `predecessorAt` MUST be
+   * the predecessor's `at`, NOT this call's `clock.nowIso()` (which equals this
+   * EXECUTE row's OWN `at`). When provided, it is stored as
+   * `supersedes.predecessorAt` so `buildSupersessionChains` (@adjudicate/audit)
+   * can JOIN on (predecessorIntentHash, predecessorAt) and disambiguate the two
+   * records that share the envelope's intentHash — mirroring
+   * `confirmationReceipt.originalAt`. When omitted, falls back to
+   * `clock.nowIso()` (legacy behaviour — use only when the predecessor row's
+   * `at` is unavailable to the caller; the chain walker then cannot disambiguate
+   * and may report the pair as a false cycle/singleton).
+   *
+   * STRICTLY ADDITIVE: this lives on the kernel deps slot, NOT on the recorded
+   * `BudgetGrant` data contract (it is a per-substitution timing detail, not
+   * standing-grant identity), so the basis pre-image is unchanged.
+   */
+  readonly budgetGrant?: BudgetGrant & { readonly originalAt?: string };
   /**
    * Optional explicit supersession link (AuditRecord v3). When supplied,
    * the produced AuditRecord carries this value under `supersedes`. Use this
@@ -228,8 +488,8 @@ export interface AdjudicateAndAuditResult {
  * the AuditRecord, and routes metrics/learning to the module-level defaults.
  * `ledger` adds dedup/REPLAY_SUPPRESSED; `context` (RuntimeContext) routes
  * metrics/learning/kill-switch per tenant; `rateLimitRollback`,
- * `resolveResourceVersion`, `plan`, `supersedes`, `kernelIdentity`, and `clock`
- * are all opt-in.
+ * `resolveResourceVersion`, `plan`, `supersedes`, `kernelIdentity`, `clock`,
+ * and the `policyVersion`/`kernelVersion` snapshots (091) are all opt-in.
  */
 export async function adjudicateAndAudit<K extends string, P, S>(
   envelope: IntentEnvelope<K, P>,
@@ -281,8 +541,23 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   };
 
   // ── 0. Tenant kill switch (in addition to the process-wide one in adjudicate()) ──
-  if (ctx?.killSwitch.isKilled()) {
-    const killState = ctx.killSwitch.state();
+  //
+  // 013/T3 — FAIL-CLOSED tenant kill-switch wiring (§C: failure defaults to
+  // friction, never bypass). The prior optional-chained guard SKIPPED the check
+  // entirely when a RuntimeContext was supplied without a functioning kill-switch
+  // control — a fail-open seam (invariant #6). Now, when a context is present, its
+  // kill-switch MUST be consultable: a missing/non-functional control is treated
+  // as ACTIVE (REFUSE), never silently bypassed. The adapter seam
+  // (loop.ts / decisions.ts) always supplies a non-optional context (defaulting to
+  // the process-wide default, whose switch is non-killed unless engaged), so an
+  // omitted RuntimeContext at the adapter no longer skips this guard. Raw kernel
+  // callers that supply NO context (`deps.context === undefined`) still rely on the
+  // always-on process-wide switch in adjudicate() — the closed 6-outcome algebra is
+  // unchanged for them.
+  const killState: KillSwitchState | null = ctx
+    ? readTenantKillState(ctx.killSwitch)
+    : null;
+  if (killState !== null) {
     const decision = decisionRefuse(
       refuse(
         "SECURITY",
@@ -294,7 +569,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         basis("kill", BASIS_CODES.kill.ACTIVE, {
           reason: killState.reason,
           toggledAt: killState.toggledAt,
-          tenant: ctx.id,
+          tenant: ctx!.id,
         }),
       ],
     );
@@ -347,6 +622,20 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         durationMs,
         at: clock.nowIso(),
         ...(deps.supersedes !== undefined ? { supersedes: deps.supersedes } : {}),
+        // 091: bind the injected policy/kernel version snapshots so a kill-switch
+        // REFUSE row carries the identity it was decided under. Conditional spread
+        // keeps the field omitted (no `undefined` key) when the shell injects nothing.
+        ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
+        ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
+        // 052: bind the injected aggregate snapshot so a kill-switch REFUSE row
+        // carries the aggregate/limit inputs it was decided against, replayable.
+        // Conditional spread keeps the field omitted (hash-stable) when absent.
+        ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
+        // 092: attach a real signature over the kill-switch REFUSE row's
+        // auditHash (signed AFTER the hash, excluded from the pre-image). A
+        // throwing signer FAILS CLOSED here — it propagates before sink.emit, so
+        // no unsigned record is emitted (§D inv. 6).
+        ...(deps.signer !== undefined ? { signer: deps.signer } : {}),
       }),
     );
     try {
@@ -394,6 +683,20 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // `deps.supersedes` (set by adapters for defer_resumed / rewrite_executed /
   // replay) always wins over this auto-derivation.
   let confirmationSupersedes: Supersession | undefined;
+  // 025 — auto-derived supersedes for the budget-substitution path. Mirrors the
+  // confirmation-receipt derivation; never co-occurs with it (both gate on the
+  // same single REQUEST_CONFIRMATION outcome, and the confirmation branch runs
+  // first and substitutes EXECUTE, so the budget branch's gate no longer holds).
+  let budgetSupersedes: Supersession | undefined;
+  // 011/T2: the envelope whose bytes actually execute and get recorded/claimed.
+  // For a plain EXECUTE this is the original `envelope`; for a kernel REWRITE
+  // that re-adjudicated to a second-pass EXECUTE it becomes `decision.rewritten`
+  // — the EXECUTED (rewritten) hash is the one the audit row indexes and the one
+  // that claims a ledger key (replay protection for the bytes that ran).
+  let executedEnvelope: IntentEnvelope = envelope as IntentEnvelope;
+  // 011/T2: auto-derived `rewrite_executed` supersession linking the executed
+  // (rewritten) audit row back to the ORIGINAL benign hash for provenance.
+  let rewriteSupersedes: Supersession | undefined;
   // ConcurrencyReviewer-002: track whether THIS call claimed the ledger key
   // (recordExecution returned "acquired"). Set true only inside the
   // recordExecution block below. Never set on the REPLAY_SUPPRESSED racing
@@ -419,11 +722,38 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     // an appended confirmation:received basis. State/taint/auth guards
     // already ran; only the threshold-style "ask first" step is
     // satisfied by the receipt. Other Decisions flow through unchanged.
+    //
+    // ── 061 monotonic-ceiling carve-out (index §C / invariant #7) ─────
+    // This is the ONE site in the kernel/shell that WEAKENS a Decision
+    // (REQUEST_CONFIRMATION → EXECUTE, friction-DECREASING on the §C
+    // restrictiveness lattice EXECUTE < REWRITE < REQUEST_CONFIRMATION <
+    // DEFER < ESCALATE < REFUSE). §C scopes the monotonicity law to
+    // NON-DETERMINISTIC components (risk/anomaly/compliance/ops). This
+    // substitution is a DETERMINISTIC kernel/shell receipt flow: the
+    // user's confirmation is a deterministic input (a content-addressed
+    // receipt bound to THIS `envelope.intentHash`), not a risk model
+    // lowering a ceiling, so §C does not govern it. It is therefore
+    // EXEMPT from `clampToCeiling`/the monotonic-ceiling lint, and is
+    // explicitly allowlisted there (@adjudicate/eslint-config, rule
+    // `monotonic-ceiling`). Ceiling composition for risk inputs is the
+    // pure `clampToCeiling(deterministic, ceiling)` primitive in
+    // `decision.ts` (`final = min(...)`, friction-only); it is NOT wired
+    // into the pure kernel here — 05x/10x/11x consume it downstream.
     if (
       decision.kind === "REQUEST_CONFIRMATION" &&
       deps.confirmationReceipt !== undefined &&
-      deps.confirmationReceipt.intentHash === envelope.intentHash
+      deps.confirmationReceipt.intentHash === envelope.intentHash &&
+      // 071: when the receipt carries a binding tuple (capability/approver/
+      // channel), EVERY present field whose issued-against `requested` value is
+      // supplied MUST equal its resolved `confirmed` value. `intentHash` above
+      // stays the LOAD-BEARING identity gate (§D-4); this is an ADDITIONAL
+      // fail-closed gate. A mismatch falls through to the original
+      // REQUEST_CONFIRMATION verdict (friction, never bypass — §D-6). An absent
+      // binding (or a field with no `requested`) is vacuously satisfied, so the
+      // pre-071 four-field receipt path is byte-identical.
+      confirmationBindingMatches(deps.confirmationReceipt.binding)
     ) {
+      // eslint-disable-next-line @adjudicate/monotonic-ceiling -- deterministic confirmation-receipt flow, §C carve-out (see block comment above)
       decision = decisionExecute([
         ...decision.basis,
         basis("confirmation", BASIS_CODES.confirmation.RECEIVED, {
@@ -445,6 +775,16 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       //     `at` when the caller did not supply it.
       //   - AuthReviewer-005: token is included only when supplied; an
       //     omitted token leaves the key off the object entirely.
+      //   - 071: when the receipt carries a binding tuple, surface the BOUND
+      //     (confirmed) capability/approver/channel onto the supersession's
+      //     `binding` carrier so the audit chain records exactly which
+      //     (capability, approver, channel) the EXECUTE was tied to. The
+      //     `requested` (issued-against) values are gate inputs, not recorded
+      //     facts. An omitted binding leaves the key off entirely — the
+      //     supersession (and its auditHash) is byte-identical to pre-071.
+      const confirmationBinding = confirmationBindingRecord(
+        deps.confirmationReceipt.binding,
+      );
       confirmationSupersedes = {
         predecessorIntentHash: deps.confirmationReceipt.intentHash,
         predecessorAt:
@@ -453,11 +793,144 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         ...(deps.confirmationReceipt.token !== undefined
           ? { token: deps.confirmationReceipt.token }
           : {}),
+        ...(confirmationBinding !== undefined
+          ? { binding: confirmationBinding }
+          : {}),
       };
     }
 
+    // ── 2a′. Budget substitution (025 — capabilities-as-budgets) ─────
+    // When the impure shell asserts a standing, bounded budget grant for THIS
+    // intent's KIND and the kernel returned REQUEST_CONFIRMATION, substitute
+    // EXECUTE with an appended `budget:satisfied` basis — EXACTLY mirroring the
+    // confirmation-receipt override above (2a). The shell asserts the grant ONLY
+    // after a successful ATOMIC burn-down (`evalIncrCheck` against the grant's
+    // limit), so this branch is reached at-most-`limit` times per window; the
+    // kernel does NOT verify/count the grant. State/taint/auth/business guards
+    // already ran; only the threshold-style "ask first" step is satisfied. Other
+    // Decisions flow through unchanged (REFUSE/REWRITE/ESCALATE/DEFER/EXECUTE) —
+    // monotonicity-preserving (§C), closed 6-outcome algebra (§D #2: no new kind,
+    // no confidence/metadata).
+    //
+    // §C carve-out (index §C / invariant #7): like the confirmation-receipt
+    // substitution, this is the deterministic kernel/shell flow that WEAKENS a
+    // Decision (REQUEST_CONFIRMATION → EXECUTE). §C scopes monotonicity to
+    // NON-DETERMINISTIC components (risk/anomaly/compliance/ops). A budget grant
+    // is a DETERMINISTIC recorded input (a human-granted bounded pre-auth bound
+    // to THIS `envelope.kind`), not a risk model lowering a ceiling, so §C does
+    // not govern it — it is EXEMPT from `clampToCeiling`/the monotonic-ceiling
+    // lint and is explicitly allowlisted at the call site below.
+    //
+    // The gate is `confirmationReceipt`-mutually-exclusive in practice: 2a runs
+    // first and, on a matching receipt, already substituted EXECUTE — so
+    // `decision.kind === "REQUEST_CONFIRMATION"` no longer holds here. When BOTH
+    // are passed (unusual), the receipt wins and the budget is left untouched
+    // (no double burn from the kernel's perspective).
+    if (
+      decision.kind === "REQUEST_CONFIRMATION" &&
+      deps.budgetGrant !== undefined &&
+      deps.budgetGrant.intentKind === envelope.kind
+    ) {
+      // eslint-disable-next-line @adjudicate/monotonic-ceiling -- deterministic capabilities-as-budgets flow, §C carve-out (see block comment above)
+      decision = decisionExecute([
+        ...decision.basis,
+        basis("budget", BASIS_CODES.budget.SATISFIED, {
+          budgetId: deps.budgetGrant.budgetId,
+          intentKind: deps.budgetGrant.intentKind,
+          limit: deps.budgetGrant.limit,
+          windowSeconds: deps.budgetGrant.windowSeconds,
+          originalPrompt: decision.prompt,
+        }),
+      ]);
+      // Auto-derive the `budget_satisfied` supersession linking the budget-
+      // satisfied EXECUTE record back to the original REQUEST_CONFIRMATION row.
+      // `predecessorAt` MUST be the PREDECESSOR row's `at`, threaded by the shell
+      // as `budgetGrant.originalAt` — NOT this call's `clock.nowIso()`, which is
+      // this EXECUTE row's OWN `at` (the predecessor was emitted by a SEPARATE,
+      // earlier `adjudicateAndAudit` call at an earlier wall clock). Using
+      // `clock.nowIso()` here would make `predecessorAt === at`, so
+      // `buildSupersessionChains` (@adjudicate/audit) could not disambiguate the
+      // two records that share `envelope.intentHash` and would report a false
+      // cycle/singleton with `budget_satisfied` invisible in reason analytics
+      // (LogicReviewer, 025). Mirrors `confirmationReceipt.originalAt` (2a). Falls
+      // back to `clock.nowIso()` only when the caller could not supply the
+      // predecessor `at` (legacy/best-effort). `token` carries the grant's
+      // `budgetId` for the forensic trail.
+      budgetSupersedes = {
+        predecessorIntentHash: envelope.intentHash,
+        predecessorAt: deps.budgetGrant.originalAt ?? clock.nowIso(),
+        reason: "budget_satisfied" as const,
+        token: deps.budgetGrant.budgetId,
+      };
+    }
+
+    // ── 2b. REWRITE re-adjudication (011/T2) ─────────────────────────
+    // A kernel REWRITE substitutes a sanitized envelope but is NOT itself
+    // authorization to execute. Re-enter the PURE kernel ONCE on the rewritten
+    // envelope so its intentHash is re-derived fail-closed and the full
+    // state→taint→auth→business→default order runs against the EXECUTED bytes.
+    // Only a second-pass EXECUTE lets the rewritten envelope flow to the
+    // executor (invariant #1); any other second-pass outcome (REFUSE, ESCALATE,
+    // a taint-elevation block, or a second REWRITE) becomes THE decision and the
+    // rewritten envelope never executes.
+    //
+    // Bounded to a SINGLE pass (plan §7 loop risk): the re-adjudication uses the
+    // pure `adjudicate()` with no REWRITE re-entry of its own, so a rewritten
+    // envelope that itself yields REWRITE is collapsed to REFUSE here rather
+    // than recursing.
+    if (decision.kind === "REWRITE") {
+      const original = decision;
+      // REWRITE is scope-restricted to payload sanitization and never changes
+      // `kind` (decision.ts contract), so the rewritten envelope is the same
+      // (K, P) as the original — sound to re-adjudicate against the same policy.
+      const rewritten = original.rewritten as IntentEnvelope<K, P>;
+      const second = adjudicate(rewritten, state, policy);
+      if (second.kind === "EXECUTE") {
+        // The rewritten envelope is authorized. Keep the REWRITE decision so the
+        // adapter executes the rewritten bytes, but switch the recorded/claimed
+        // subject to the EXECUTED (rewritten) envelope and link it back to the
+        // original via a `rewrite_executed` supersession.
+        executedEnvelope = rewritten as IntentEnvelope;
+        rewriteSupersedes = rewriteExecutedSupersession(
+          envelope.intentHash,
+          clock.nowIso(),
+        );
+      } else {
+        // The rewritten envelope failed re-adjudication (incl. a second REWRITE,
+        // collapsed to REFUSE below). Fail closed — the substitution is NOT
+        // executed; the second-pass decision stands, recorded against the
+        // original envelope.
+        decision =
+          second.kind === "REWRITE"
+            ? decisionRefuse(
+                refuse(
+                  "SECURITY",
+                  "guard_panic",
+                  "System is temporarily unavailable.",
+                  "REWRITE re-adjudicated to a second REWRITE; bounded to a single pass (refused)",
+                ),
+                [
+                  ...second.basis,
+                  basis("kernel", BASIS_CODES.kernel.GUARD_PANIC, {
+                    phase: "rewrite",
+                    reason: "rewrite_loop_bounded",
+                  }),
+                ],
+              )
+            : second;
+      }
+    }
+
     // ── 3. EXECUTE-race fix: claim the ledger key ───────────────────
-    if (decision.kind === "EXECUTE" && deps.ledger) {
+    // Lifted (011/T2) to cover the validated-REWRITE path: the claim key is the
+    // EXECUTED (rewritten) hash, not the original. Only ONE hash claims a key
+    // (plan §7 double-claim risk) — for a plain EXECUTE `executedEnvelope` IS the
+    // original; for a REWRITE→EXECUTE it is the rewritten envelope and the
+    // original benign hash is never claimed.
+    const claimsLedger =
+      decision.kind === "EXECUTE" ||
+      (decision.kind === "REWRITE" && executedEnvelope !== (envelope as IntentEnvelope));
+    if (claimsLedger && deps.ledger) {
       const recordStart = clock.nowMs();
       // LogicReviewer-013: `""` is the load-bearing sentinel for "no resolver
       // wired, or resolver returned nothing" — recordExecution stores it as the
@@ -465,19 +938,19 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       // claim. It is NOT a placeholder for a real version; downstream readers
       // distinguish `""` (no version known) from a concrete row version.
       const resourceVersion =
-        deps.resolveResourceVersion?.(envelope as IntentEnvelope, state) ?? "";
+        deps.resolveResourceVersion?.(executedEnvelope, state) ?? "";
       const outcome = await deps.ledger.recordExecution({
-        intentHash: envelope.intentHash,
+        intentHash: executedEnvelope.intentHash,
         resourceVersion,
-        sessionId: envelope.actor.sessionId,
-        kind: envelope.kind,
+        sessionId: executedEnvelope.actor.sessionId,
+        kind: executedEnvelope.kind,
       });
       emitLedgerOp({
         op: "record",
         outcome: outcome === "acquired" ? "ok" : "duplicate",
-        intentKind: envelope.kind,
+        intentKind: executedEnvelope.kind,
         latencyMs: clock.nowMs() - recordStart,
-        intentHash: envelope.intentHash,
+        intentHash: executedEnvelope.intentHash,
       });
       if (outcome === "acquired") {
         // This call won the SET-NX — record that so the audit-emit catch can
@@ -492,10 +965,10 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         const synthetic: LedgerHit = {
           resourceVersion,
           at: clock.nowIso(),
-          sessionId: envelope.actor.sessionId,
-          kind: envelope.kind,
+          sessionId: executedEnvelope.actor.sessionId,
+          kind: executedEnvelope.kind,
         };
-        decision = replaySuppressedRefusal(envelope.intentHash, synthetic);
+        decision = replaySuppressedRefusal(executedEnvelope.intentHash, synthetic);
       }
     }
   }
@@ -556,19 +1029,59 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   }
 
   // ── 6. Audit emission ──────────────────────────────────────────────
-  const supersedes = deps.supersedes ?? confirmationSupersedes;
+  // Supersedes precedence: an explicit `deps.supersedes` always wins; otherwise
+  // the 011/T2 auto-derived `rewrite_executed` link (when the REWRITE executed)
+  // takes priority over the confirmation_resolved / budget_satisfied (025)
+  // auto-derivations. `confirmationSupersedes` and `budgetSupersedes` are mutually
+  // exclusive (both gate on the same single REQUEST_CONFIRMATION outcome; 2a runs
+  // first and, on substitution, the 2a′ gate no longer holds) so only one is ever
+  // set — the `??` order is for completeness, not a real tie-break.
+  const supersedes =
+    deps.supersedes ??
+    rewriteSupersedes ??
+    confirmationSupersedes ??
+    budgetSupersedes;
   const kernelIdentity = ctx?.kernelIdentity
     ? { id: ctx.kernelIdentity.id, version: ctx.kernelIdentity.version }
     : undefined;
+  // 011/T2: the durable audit row's subject is the EXECUTED envelope — for a
+  // validated REWRITE that is the rewritten envelope, so the indexed
+  // `intentHash` equals the bytes that ran (not the original benign hash). The
+  // `rewrite_executed` supersession preserves the original→rewritten provenance.
   const record = applyMeta(
     buildAuditRecord({
-      envelope,
+      envelope: executedEnvelope,
       decision,
       durationMs,
       at: clock.nowIso(),
       ...(planSnapshot ? { plan: planSnapshot } : {}),
       ...(supersedes !== undefined ? { supersedes } : {}),
       ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
+      // 091: bind the injected policy/kernel version snapshots onto the main
+      // (and 011 REWRITE-executed) audit row. `executedEnvelope` is the bytes
+      // that ran, and these versions record the policy/kernel identity they ran
+      // under — part of the auditHash pre-image and the replayable record.
+      // Conditional spread keeps the field omitted (hash-stable) when absent.
+      ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
+      ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
+      // 052: bind the injected aggregate snapshot onto the main (and 011 REWRITE-
+      // executed) audit row. It records the cumulative/velocity inputs the
+      // decision ran against — part of the auditHash pre-image and the replayable
+      // record. The snapshot was injected READ-ONLY (the shell never mutates/
+      // refetches/timestamps it); conditional spread keeps the field omitted
+      // (hash-stable) when the shell injects nothing.
+      ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
+      // 092: attach a real signature over the main (and 011 REWRITE-executed)
+      // row's auditHash — signed in the shell AFTER the pure decision (§D),
+      // excluded from the auditHash pre-image so it never invalidates tamper-
+      // evidence. A throwing signer FAILS CLOSED: it propagates out of
+      // buildAuditRecord here, BEFORE the sink.emit in step 6+7, so no unsigned
+      // record is ever emitted when a signer was configured (§D inv. 6). The
+      // caller's await therefore rejects — the (already-computed) decision is
+      // never returned to the executor and the audit row never lands. This is
+      // friction-only (§C): a signing outage halts the path rather than passing
+      // an unsigned EXECUTE through.
+      ...(deps.signer !== undefined ? { signer: deps.signer } : {}),
     }),
   );
 
@@ -590,13 +1103,15 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     // This is error-path-only cleanup: the success path is untouched, so no
     // Decision / AuditRecord / hash byte moves.
     if (ledgerAcquired && deps.ledger) {
+      // 011/T2: release the EXECUTED hash (the one actually claimed) — for a
+      // validated REWRITE that is the rewritten hash, not the original.
       if (typeof deps.ledger.release === "function") {
         try {
-          await deps.ledger.release(envelope.intentHash);
+          await deps.ledger.release(executedEnvelope.intentHash);
         } catch (releaseErr) {
           emitSinkFailure({
             sink: "ledger",
-            subject: envelope.intentHash,
+            subject: executedEnvelope.intentHash,
             errorClass:
               releaseErr instanceof Error ? releaseErr.name : "Error",
             consecutiveFailures: 1,
@@ -606,7 +1121,7 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         // Ledger does not support release — emit an observable orphan signal.
         emitSinkFailure({
           sink: "ledger",
-          subject: envelope.intentHash,
+          subject: executedEnvelope.intentHash,
           errorClass: "ledger_orphaned",
           consecutiveFailures: 1,
         });
@@ -614,7 +1129,29 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     }
     throw emitErr;
   } finally {
-    if (decision.kind !== "EXECUTE" && deps.rateLimitRollback) {
+    // ── T5 #41 rollback seam (load-bearing, FAIL-CLOSED) ────────────────────
+    // 051/T2: roll the rate-limit counter back for every NON-EXECUTE decision.
+    // This `finally` runs even when `sink.emit` threw above (the success path
+    // returns normally; the throw path rethrows in `catch` AFTER this runs) —
+    // a transient audit-sink failure must NEVER leave a legitimate user's
+    // counter incremented for a request that was not authorized (invariant #6,
+    // §C: failure defaults to friction, never bypass). The pre-fix bug ran the
+    // rollback after a bare `await sink.emit`, so a throwing sink skipped it and
+    // poisoned the counter.
+    //
+    // 011/T2 carve-out: a validated REWRITE executes the rewritten bytes (a real
+    // side effect), so it is "executing" like EXECUTE — do NOT roll back for it.
+    // `rewriteExecuted` is true only on the REWRITE→EXECUTE path (the recorded
+    // subject swapped to the rewritten envelope); a REWRITE that FAILED
+    // re-adjudication collapsed to REFUSE above and rolls back like any other
+    // non-EXECUTE.
+    const rewriteExecuted =
+      decision.kind === "REWRITE" &&
+      executedEnvelope !== (envelope as IntentEnvelope);
+    if (
+      decision.kind !== 'EXECUTE' && deps.rateLimitRollback &&
+      !rewriteExecuted
+    ) {
       try {
         await deps.rateLimitRollback();
       } catch (err) {

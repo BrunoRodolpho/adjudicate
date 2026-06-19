@@ -22,7 +22,7 @@ import type { AuditSink } from "@adjudicate/audit";
  *
  * The reference INSERT statement is exported as `INSERT_AUDIT_SQL` (single
  * source of truth for the row shape), with `auditInsertParams(row)` producing
- * the bound `$1...$24` parameter array in matching column order. A typical
+ * the bound `$1...$28` parameter array in matching column order. A typical
  * `pg`-backed writer is:
  *
  *   insertAudit: (row) => pool.query(INSERT_AUDIT_SQL, [...auditInsertParams(row)])
@@ -117,6 +117,30 @@ export interface IntentAuditRow {
    * Migration `010-add-v5-metadata.sql` adds the underlying column.
    */
   readonly metadata_jsonb: string | null;
+  /**
+   * 093 — the inter-record hash-chain link: the `auditHash` of the immediately-
+   * preceding record in the same stream (the per-stream cryptographic tip). NULL
+   * for genesis records and pre-093 rows. EXCLUDED from the auditHash pre-image
+   * (like signature/metadata), so a NULL on older rows is correct and threading
+   * it never affects tamper-evidence. Migration `012-add-prev-audit-hash.sql`.
+   */
+  readonly prev_audit_hash: string | null;
+  /**
+   * 033 read-path completion (093 / 092-F1). The RECORDED authority-graph
+   * snapshot the decision was injected with, pre-serialized JSON. NULL when the
+   * record injected no snapshot. IS part of the auditHash pre-image — dropping it
+   * on write/read makes a snapshot-bearing record FALSE-tamper on 092 verify-on-
+   * read. Migration `012-add-prev-audit-hash.sql`.
+   */
+  readonly authority_snapshot_jsonb: string | null;
+  /**
+   * 052 read-path completion (093 / 092-F1). The RECORDED aggregate/limit
+   * snapshot the decision was injected with, pre-serialized JSON. NULL when the
+   * record injected no snapshot. IS part of the auditHash pre-image — same
+   * false-tamper hazard as authority_snapshot_jsonb if dropped. Migration
+   * `012-add-prev-audit-hash.sql`.
+   */
+  readonly aggregate_snapshot_jsonb: string | null;
 }
 
 export interface PostgresSinkOptions {
@@ -193,6 +217,17 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
     audit_hash: record.auditHash ?? null,
     signature_jsonb: record.signature ? JSON.stringify(record.signature) : null,
     metadata_jsonb: record.metadata ? JSON.stringify(record.metadata) : null,
+    // 093: the inter-record chain link (NULL for genesis / pre-093 rows).
+    prev_audit_hash: record.prevAuditHash ?? null,
+    // 033/052 read-path completion: persist the recorded snapshots so a
+    // snapshot-bearing record round-trips its auditHash pre-image intact (no
+    // 092 verify-on-read false-tamper). NULL when the record injected none.
+    authority_snapshot_jsonb: record.authoritySnapshot
+      ? JSON.stringify(record.authoritySnapshot)
+      : null,
+    aggregate_snapshot_jsonb: record.aggregateSnapshot
+      ? JSON.stringify(record.aggregateSnapshot)
+      : null,
   };
 }
 
@@ -204,11 +239,12 @@ export function recordToRow(record: AuditRecord): IntentAuditRow {
  * in this package (single source of truth for the row shape), and so a
  * column-order test can pin it against `auditInsertParams`.
  *
- * Column order matches `recordToRow` / `auditInsertParams`. The 25 columns
+ * Column order matches `recordToRow` / `auditInsertParams`. The 28 columns
  * span the base v1 schema (001) plus the additive v2/v3/v4/v5 migrations
  * (002 plan_jsonb, 003 nonce, 005 supersedes_jsonb, 008 kernel_identity_jsonb
  * / policy_version / kernel_version / audit_hash / signature_jsonb,
- * 010 metadata_jsonb). Because the columns are named explicitly, physical
+ * 010 metadata_jsonb, 012 prev_audit_hash / authority_snapshot_jsonb /
+ * aggregate_snapshot_jsonb). Because the columns are named explicitly, physical
  * column order in Postgres is irrelevant — only this list and
  * `auditInsertParams` must agree.
  *
@@ -222,9 +258,10 @@ export const INSERT_AUDIT_SQL = `
      refusal_kind, refusal_code, decision_basis, resource_version,
      envelope_jsonb, decision_jsonb, recorded_at, duration_ms, partition_month,
      record_version, plan_jsonb, nonce, supersedes_jsonb, kernel_identity_jsonb,
-     policy_version, kernel_version, audit_hash, signature_jsonb, metadata_jsonb)
+     policy_version, kernel_version, audit_hash, signature_jsonb, metadata_jsonb,
+     prev_audit_hash, authority_snapshot_jsonb, aggregate_snapshot_jsonb)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
   ON CONFLICT (intent_hash, recorded_at) DO NOTHING
 `.replace(/\s+/g, " ").trim();
 
@@ -260,6 +297,9 @@ export function auditInsertParams(row: IntentAuditRow): readonly unknown[] {
     row.audit_hash,
     row.signature_jsonb,
     row.metadata_jsonb,
+    row.prev_audit_hash,
+    row.authority_snapshot_jsonb,
+    row.aggregate_snapshot_jsonb,
   ];
 }
 

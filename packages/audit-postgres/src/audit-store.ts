@@ -20,7 +20,11 @@
  * trigger).
  */
 
-import type { AuditRecord } from "@adjudicate/core";
+import {
+  verifyAuditRecord,
+  type AuditRecord,
+  type AuditRecordVerification,
+} from "@adjudicate/core";
 import type {
   AuditQuery,
   AuditQueryResult,
@@ -37,7 +41,8 @@ const SELECT_COLUMNS = `
   envelope_jsonb, decision_jsonb, recorded_at, duration_ms,
   partition_month, record_version, plan_jsonb, nonce, supersedes_jsonb,
   kernel_identity_jsonb, policy_version, kernel_version, audit_hash,
-  signature_jsonb, metadata_jsonb
+  signature_jsonb, metadata_jsonb, prev_audit_hash,
+  authority_snapshot_jsonb, aggregate_snapshot_jsonb
 `.trim();
 
 /**
@@ -184,6 +189,19 @@ export function createPostgresAuditStore(
       const slice = hasMore ? rows.slice(0, q.limit) : rows;
       const records = slice.map(rowToRecord);
 
+      // 092 — VERIFY-ON-READ. Re-derive each cold-store row's tamper-evident
+      // auditHash (and verify the hash-bind signature leg) so a row whose bytes
+      // were modified after build, or whose signature is forged, is FLAGGED
+      // rather than rendered as authoritative. `verifyAuditRecord` is pure / no
+      // I/O (audit.ts), so the cost is bounded per row and the read path stays
+      // an O(rows) walk. Verdicts are aligned BY INDEX with `records` (§C: the
+      // read only ADDS friction — it never drops or rewrites a row). Asymmetric
+      // (ed25519) signatures are opaque to this browser-safe verifier; they stay
+      // verified:true on the hash axis until a node-side verifier is wired.
+      const verifications: AuditRecordVerification[] = records.map((r) =>
+        verifyAuditRecord(r),
+      );
+
       // nextCursor encodes the LAST row in the slice (not the n+1-th
       // sentinel). Operators paginating forward see continuous coverage.
       const nextCursor =
@@ -196,11 +214,23 @@ export function createPostgresAuditStore(
 
       return {
         records,
+        verifications,
         ...(nextCursor !== undefined ? { nextCursor } : {}),
       };
     },
 
-    async getByIntentHash(intentHash: string): Promise<AuditRecord | null> {
+    async getByIntentHash(
+      intentHash: string,
+      // 112-T3 — the `AuditStore` contract's host-enforced tenant-isolation
+      // injection point. This reference cold-store is SINGLE-TENANT (one
+      // `intent_audit` table, no tenant column), so it IGNORES `tenantScope` —
+      // accepting the argument keeps the signature contract-compatible so the
+      // SDK's `audit.byHash` seam (which now threads `input.tenantScope`) does
+      // not silently drop it. A genuinely multi-tenant adopter MUST override
+      // this method to add a `WHERE tenant = $2` predicate; ignoring the scope
+      // here is safe only because this store holds one tenant's records.
+      _tenantScope?: string,
+    ): Promise<AuditRecord | null> {
       // ORDER BY recorded_at DESC LIMIT 1 because intent_hash is the
       // partition-aware deduplication key but a hash CAN appear in
       // multiple rows under degenerate replay (two writers race on the
@@ -219,7 +249,55 @@ export function createPostgresAuditStore(
         ...rawRows[0]!,
         recorded_at: normalizeTimestamptz(rawRows[0]!.recorded_at, "intent_audit.recorded_at"),
       };
-      return rowToRecord(row);
+      const record = rowToRecord(row);
+      // 092 — VERIFY-ON-READ for the single-record path. The `AuditStore`
+      // contract returns a bare `AuditRecord`, so the verdict rides as a
+      // non-enumerable `verification` slot read by the standalone helper
+      // `getVerifiedByIntentHash` below; the wire `byHash` output schema strips
+      // it. Single-record consumers (replay via `replayWithIntegrity`, the
+      // approval-chain join) independently re-verify, so verification on this
+      // path is defense-in-depth rather than the surfacing surface (that is the
+      // list `query`'s `verifications`). A hard-tampered/forged row is still
+      // RETURNED (forensics need the bytes) — never silently dropped, never
+      // rendered as authoritative without its verdict.
+      return attachVerification(record, verifyAuditRecord(record));
     },
   };
+}
+
+/**
+ * Symbol slot carrying the verify-on-read verdict alongside a record returned by
+ * `getByIntentHash` (092). A Symbol key keeps the `AuditRecord` structurally
+ * unchanged for every existing consumer (and is stripped by JSON/zod at the wire
+ * boundary), while `getVerifiedByIntentHash` can read the verdict back.
+ */
+const VERIFICATION_SLOT = Symbol("adjudicate.audit.verification");
+
+function attachVerification(
+  record: AuditRecord,
+  verification: AuditRecordVerification,
+): AuditRecord {
+  // Non-enumerable so it never widens the record's JSON / canonical shape — the
+  // record hashes and serializes byte-identically to one with no slot.
+  Object.defineProperty(record, VERIFICATION_SLOT, {
+    value: verification,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  return record;
+}
+
+/**
+ * Read back the verify-on-read verdict attached by `createPostgresAuditStore`'s
+ * `getByIntentHash` (092). Returns `undefined` for a record from a store that
+ * does not verify on read (the in-memory reference) or one that crossed a wire
+ * boundary (the Symbol slot is non-serializable). Re-verifying directly via
+ * `verifyAuditRecord(record)` is always available as the canonical fallback.
+ */
+export function readVerificationSlot(
+  record: AuditRecord,
+): AuditRecordVerification | undefined {
+  const v = (record as unknown as Record<symbol, unknown>)[VERIFICATION_SLOT];
+  return v as AuditRecordVerification | undefined;
 }

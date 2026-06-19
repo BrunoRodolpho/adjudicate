@@ -42,6 +42,39 @@ import { createDriftHistory, type DriftHistory } from "./history.js";
 /** The four risk buckets, low → critical. */
 export type RiskBucket = "low" | "medium" | "high" | "critical";
 
+// ─────────────────────────────────────────────────────────────────────────
+// 061 · never-decrease bucket contract (index §C / invariant #7, telemetry-only)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// `RiskBucket` is a NON-deterministic, off-decision-path risk signal (this whole
+// module is telemetry — the kernel never reads it; RISK_CARRIER is re-labelled to
+// "session.risk"). §C's monotonicity law still applies in spirit: a risk signal
+// may only RAISE friction, never lower it. We make that machine-checkable here
+// with a never-decrease bucket ceiling.
+//
+// This is deliberately a drift-LOCAL 4-value scale, distinct from core's 6-value
+// `DecisionKind` lattice (`clampToCeiling` in @adjudicate/core). Keeping it local
+// means no edge into the kernel decision algebra and, critically, NO core→drift
+// edge (drift→core is the only allowed direction; observer-purity.test.ts pins it).
+
+/** Ordered low → critical; the index is the bucket's friction rank (0..3). */
+const RISK_BUCKET_ORDER: readonly RiskBucket[] = ["low", "medium", "high", "critical"];
+
+/** Friction rank of a risk bucket: 0 = low (least) … 3 = critical (most). */
+export function riskBucketRank(bucket: RiskBucket): number {
+  return RISK_BUCKET_ORDER.indexOf(bucket);
+}
+
+/**
+ * Never-decrease ceiling for the risk-bucket scale: returns whichever bucket is
+ * HIGHER (riskier / more friction). A non-deterministic risk signal may only push
+ * the bucket UP, never down — `clampRiskBucket("high", "low") === "high"`. Pure;
+ * mirrors core's `clampToCeiling` `min`-over-restrictiveness for this off-path scale.
+ */
+export function clampRiskBucket(current: RiskBucket, ceiling: RiskBucket): RiskBucket {
+  return riskBucketRank(ceiling) > riskBucketRank(current) ? ceiling : current;
+}
+
 /** Bucket boundaries on a score in [0,1]. Defaults align with the observability
  *  hallucination buckets (medium ≥ 0.34, high ≥ 0.67). `critical` is opt-in. */
 export interface RiskBucketThresholds {

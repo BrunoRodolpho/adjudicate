@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import {
+  aggregateSnapshotFromRecorded,
   basis,
   BASIS_CODES,
   buildAuditRecord,
@@ -22,7 +23,10 @@ import {
   classify,
   decisionExecute,
   decisionRefuse,
+  recordAggregateSnapshot,
   refuse,
+  verifyAuditRecord,
+  type AggregateSnapshot,
   type Decision,
   type DecisionBasis,
   type IntentEnvelope,
@@ -187,6 +191,128 @@ describe("invariant: replay matches the stored Decision when policy is unchanged
           });
           // Replay through the same policy.
           const replayed = adjudicate(stored.envelope, {}, policy);
+          expect(decisionsMatch(decision, replayed)).toBe(true);
+        },
+      ),
+      { numRuns: 1_000 },
+    );
+  });
+});
+
+// ── 052: replay over the RECORDED aggregate snapshot is bit-identical (§D-5) ──
+// The aggregate/limit snapshot is an INJECTED, recorded immutable input. A pure
+// business guard that decides over the injected snapshot (over-limit → REFUSE,
+// else EXECUTE) must reproduce a byte-identical Decision when re-run over the
+// snapshot RE-DERIVED from its recorded content-address — for any window value,
+// limit, and window-key. Non-vacuous: the property also pins that the decision
+// FLIPS at the limit boundary, so the snapshot value genuinely drives the
+// outcome (a guard ignoring the snapshot would fail the boundary assertion).
+describe("invariant: 052 replay over the recorded aggregate snapshot is bit-identical", () => {
+  const limitBundle = (
+    windowKey: string,
+    limit: number,
+  ): PolicyBundle<string, unknown, { aggregate: AggregateSnapshot }> => ({
+    stateGuards: [],
+    authGuards: [],
+    taint: permissiveTaint,
+    business: [
+      (_e, state) =>
+        (state.aggregate.windows[windowKey] ?? 0) >= limit
+          ? decisionRefuse(
+              refuse("BUSINESS_RULE", "aggregate.limit.exceeded", "over limit"),
+              [basis("business", BASIS_CODES.business.RULE_VIOLATED)],
+            )
+          : decisionExecute([
+              basis("business", BASIS_CODES.business.RULE_SATISFIED),
+            ]),
+    ],
+    default: "REFUSE",
+  });
+
+  it("decisionsMatch(stored, replay-over-recorded-snapshot) for any (committed × limit × key)", () => {
+    fc.assert(
+      fc.property(
+        fc.nat({ max: 1_000_000 }),
+        fc.integer({ min: 1, max: 1_000_000 }),
+        fc.string({ minLength: 1, maxLength: 12 }),
+        (committed, limit, windowKey) => {
+          const policy = limitBundle(windowKey, limit);
+          const snapshot: AggregateSnapshot = {
+            windows: { [windowKey]: committed },
+            at: "2026-04-23T11:59:00.000Z",
+          };
+          const envelope = env("UNTRUSTED", { p: 1 });
+          const decision = adjudicate(envelope, { aggregate: snapshot }, policy);
+
+          // Record the snapshot into the audit-bound shape, then re-derive it from
+          // the recorded content-address (fail-closed integrity) and re-run the
+          // PURE kernel over it — the §D-5 replay round-trip.
+          const recorded = recordAggregateSnapshot(snapshot);
+          const replayedSnapshot = aggregateSnapshotFromRecorded(recorded);
+          const replayed = adjudicate(
+            envelope,
+            { aggregate: replayedSnapshot },
+            policy,
+          );
+          expect(decisionsMatch(decision, replayed)).toBe(true);
+
+          // Non-vacuity: the decision is exactly the limit predicate, so the
+          // snapshot value drives the outcome (flips at the boundary).
+          expect(decision.kind).toBe(committed >= limit ? "REFUSE" : "EXECUTE");
+        },
+      ),
+      { numRuns: 1_000 },
+    );
+  });
+});
+
+// ── 093: byte-identical replay holds with the inter-record chain link present ─
+// `prevAuditHash` is the per-stream cryptographic tip threaded onto the record on
+// the PERSIST side, AFTER the pure decision and AFTER the record hash. It is
+// EXCLUDED from both (a) the decision — the kernel never reads it — and (b) the
+// auditHash pre-image. So for ANY policy/taint/payload: re-running the kernel
+// over the chained record's envelope reproduces a byte-identical Decision, and
+// the record's auditHash is invariant to the chain link (a genesis record and a
+// chained record over identical content share an auditHash, and both verify).
+// This is the constitutional-invariant-5 (byte-identical replay) claim with the
+// 093 chain field present. Non-vacuous: it asserts BOTH the decision match AND
+// the hash-invariance (a chain link leaking into the pre-image would flip the
+// hash-equality assertion).
+describe("invariant: 093 byte-identical replay holds with prevAuditHash present", () => {
+  it("decisionsMatch(stored, replay) AND auditHash invariant to the chain link, for any (taint × default × guard × payload)", () => {
+    fc.assert(
+      fc.property(
+        taintArb,
+        defaultArb,
+        guardArb,
+        jsonSafePayloadArb,
+        fc.hexaString({ minLength: 64, maxLength: 64 }),
+        (taint, def, guard, payload, prevAuditHash) => {
+          const policy = bundle(def, guard);
+          const envelope = env(taint, payload);
+          const decision = adjudicate(envelope, {}, policy);
+          // A genesis record (no chain link) and a chained record over IDENTICAL
+          // content. The chain link must not enter the decision or the hash. A
+          // FIXED `at` is supplied so the only delta between the two records is
+          // `prevAuditHash` (omitting `at` would default to `new Date()`, making
+          // the two `at` values differ and confounding the hash-invariance claim).
+          const at = "2026-04-23T12:00:00.000Z";
+          const genesis = buildAuditRecord({ envelope, decision, durationMs: 1, at });
+          const chained = buildAuditRecord({
+            envelope,
+            decision,
+            durationMs: 1,
+            at,
+            prevAuditHash,
+          });
+          // (a) the chain link rides ON the record but is EXCLUDED from the hash.
+          expect(chained.prevAuditHash).toBe(prevAuditHash);
+          expect(chained.auditHash).toBe(genesis.auditHash);
+          // (b) both records verify (the excluded link never false-tampers).
+          expect(verifyAuditRecord(genesis).verified).toBe(true);
+          expect(verifyAuditRecord(chained).verified).toBe(true);
+          // (c) the kernel never reads the chain link → byte-identical replay.
+          const replayed = adjudicate(chained.envelope, {}, policy);
           expect(decisionsMatch(decision, replayed)).toBe(true);
         },
       ),

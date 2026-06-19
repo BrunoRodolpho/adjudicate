@@ -2,9 +2,9 @@
 // Run `pnpm stats` (or `pnpm prebuild`) to refresh from the live repo.
 
 export const STATS = {
-  packages: 25,
-  adrs: 36,
-  tests: 228,
+  packages: 29,
+  adrs: 44,
+  tests: 316,
   capabilities: 14,
   outcomes: 6,
 } as const;

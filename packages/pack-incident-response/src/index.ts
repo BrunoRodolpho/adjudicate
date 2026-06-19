@@ -31,7 +31,11 @@ export function rehydrateIncidentState(raw: unknown): IncidentState {
 
 export * from "./types.js";
 export { incidentPolicyBundle } from "./policies.js";
-export { INCIDENT_TOOLS, incidentCapabilityPlanner } from "./capabilities.js";
+export {
+  INCIDENT_BUDGET_CAPABLE_INTENTS,
+  INCIDENT_TOOLS,
+  incidentCapabilityPlanner,
+} from "./capabilities.js";
 export { refuseIncidentNotFound, refuseIncidentResolved, refuseInvalidBlastRadius } from "./refusals.js";
 
 export const incidentResponsePack = {

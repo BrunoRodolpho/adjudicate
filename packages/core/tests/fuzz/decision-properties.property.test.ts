@@ -121,6 +121,10 @@ describe("Decision-fuzz: kernel invariants under arbitrary inputs", () => {
   it("Property 2 — replay safety: kernel's envelope intentHash equals sha256Canonical(envelope payload)", () => {
     fc.assert(
       fc.property(envelopeArb(), (env) => {
+        // Mirror of the canonical intentHash recipe (envelope.ts
+        // intentHashInput). 041 added `origin` to the pre-image, so the
+        // independent recomputation MUST include it too — otherwise this
+        // shadow recipe drifts from the kernel's and the property is vacuous.
         const expected = sha256Canonical({
           version: env.version,
           kind: env.kind,
@@ -128,6 +132,7 @@ describe("Decision-fuzz: kernel invariants under arbitrary inputs", () => {
           nonce: env.nonce,
           actor: env.actor,
           taint: env.taint,
+          origin: env.origin,
         });
         expect(env.intentHash).toBe(expected);
       }),

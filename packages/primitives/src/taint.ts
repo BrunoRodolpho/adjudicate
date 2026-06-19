@@ -19,7 +19,57 @@
  *     this intent?" a one-line audit at Pack-installation time.
  */
 
-import type { Taint, TaintPolicy } from "@adjudicate/core";
+import type { Origin, Taint, TaintPolicy } from "@adjudicate/core";
+
+/**
+ * 041 — mirror the core `Origin` provenance source axis into the primitives
+ * surface (alongside the existing `Taint` re-export pattern) so Pack authors
+ * can reference the type without a second core import. Additive; structurally
+ * identical to `@adjudicate/core`'s `Origin`.
+ */
+export type { Origin } from "@adjudicate/core";
+
+/**
+ * 042 — adopter-facing session-contamination policy.
+ *
+ * Contamination (000_index.md §G) makes untrusted *origin* contaminating at the
+ * session level: once a `Retrieved`/`ExternalAPI` datum enters context, the
+ * harness lowers the taint of every subsequently minted LLM intent in that
+ * session via the lattice meet, so the kernel's existing `canPropose` gate sees
+ * the contaminated taint. This is the adopter knob the harness reads; the
+ * mechanism (meet + monotonic fold) lives in `@adjudicate/core`'s taint module
+ * and the adapter shell, never in a kernel guard.
+ *
+ * **Default OFF** (`enabled: false`) so existing deployments are byte-identical
+ * to pre-042 behavior — the non-contaminated path mints exactly the declared
+ * taint. Adopters opt in by passing `{ enabled: true }`.
+ */
+export interface SessionContaminationPolicy {
+  /** When true, the harness folds session contamination into minted intents. */
+  readonly enabled: boolean;
+}
+
+export interface SessionContaminationPolicyOptions {
+  /**
+   * Enable session contamination. Defaults to `false` (OFF) — the safe,
+   * behavior-preserving default. Turning it ON does not weaken any guard; it
+   * can only *add* friction (the lattice meet lowers trust, never raises it).
+   */
+  readonly enabled?: boolean;
+}
+
+/**
+ * 042 — build the canonical adopter-facing contamination policy. Default OFF.
+ * Provided as a factory (mirroring `createSystemTaintPolicy`) so the "is
+ * contamination enabled for this Pack?" decision is a one-line, single-sourced
+ * audit at Pack-installation time rather than an inline boolean scattered across
+ * adapter wiring.
+ */
+export function createSessionContaminationPolicy(
+  options: SessionContaminationPolicyOptions = {},
+): SessionContaminationPolicy {
+  return { enabled: options.enabled ?? false };
+}
 
 export interface SystemTaintPolicyOptions {
   /**
@@ -42,6 +92,38 @@ export interface SystemTaintPolicyOptions {
    * option exists for completeness, not encouragement.
    */
   readonly systemMinimum?: Taint;
+  /**
+   * 041 — provenance SOURCE axis carried for symmetry with the envelope's
+   * new `origin` field. **Metadata-opaque (ADR-105 rule 7): NOT consulted.**
+   * The factory does NOT branch on `origin` — the kernel's taint gate is a
+   * fixed-position step keyed on `kind`, and an origin-based decision belongs
+   * to the contaminating propagation gate (plan 042), never here. Present so
+   * Pack authors can thread the source through their config without a schema
+   * break; carried, not gated.
+   *
+   * NOTE (043): this `origin` is a per-CONFIG default carried for symmetry; it
+   * is NOT the per-ENVELOPE origin the kernel gate reads. The 043 origin-aware
+   * branch keys off the envelope's harness-stamped `origin` and the
+   * `originRequiredKinds` allowlist below — never this field.
+   */
+  readonly origin?: Origin;
+  /**
+   * 043 — intent kinds that must NOT be proposed from a *contaminating* origin
+   * (`Retrieved` / `ExternalAPI`), even when the trust-rank minimum alone would
+   * clear the gate. Populates the policy's optional
+   * `requiresUncontaminatedOrigin` method so the kernel taint gate raises the
+   * effective minimum for these kinds when the harness-stamped envelope origin
+   * is contaminating — catching the `READ`→inject→intent laundering path that an
+   * UNTRUSTED-min mutating kind (`1 >= 1` always-pass) cannot otherwise see.
+   *
+   * **Opt-in / default-OFF (§7 dark-ship flag).** Omit it (or pass `[]`) and the
+   * returned policy carries NO `requiresUncontaminatedOrigin` method — the
+   * kernel gate is byte-identical to pre-043, so existing packs are unaffected.
+   * Listing a kind can only ADD friction (REFUSE a contaminated proposal);
+   * `minimumFor` is unchanged for every kind (the trust-rank floor is
+   * untouched), so this NEVER relaxes a gate.
+   */
+  readonly originRequiredKinds?: ReadonlyArray<string>;
 }
 
 /**
@@ -84,9 +166,27 @@ export function createSystemTaintPolicy(
   const systemOnly = new Set(options.systemOnlyKinds);
   const systemMinimum = options.systemMinimum ?? "TRUSTED";
   const userMinimum = options.userMinimum ?? "UNTRUSTED";
-  return {
+  // 041 — `options.origin` is deliberately NOT read here. The minimum is a
+  // pure function of `kind`; origin is carried metadata, consulted by the
+  // 042 propagation gate, never by this factory (ADR-105 rule 7).
+  //
+  // 043 — `originRequiredKinds` is the OPT-IN origin-aware branch. When at least
+  // one kind is declared, the returned policy ALSO carries
+  // `requiresUncontaminatedOrigin` so the kernel gate refuses a contaminated-
+  // origin proposal of those kinds (raising the effective minimum). When the
+  // list is absent/empty the method is OMITTED entirely, so the policy shape is
+  // byte-identical to pre-043 and the kernel gate behaves exactly as before.
+  const originRequired = new Set(options.originRequiredKinds ?? []);
+  const base: TaintPolicy = {
     minimumFor(kind) {
       return systemOnly.has(kind) ? systemMinimum : userMinimum;
+    },
+  };
+  if (originRequired.size === 0) return base;
+  return {
+    ...base,
+    requiresUncontaminatedOrigin(kind) {
+      return originRequired.has(kind);
     },
   };
 }

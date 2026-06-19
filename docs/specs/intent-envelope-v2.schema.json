@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/BrunoRodolpho/adjudicate/docs/specs/intent-envelope-v2.schema.json",
   "title": "IntentEnvelope v2",
-  "description": "The canonical mutation-proposal envelope adjudicated by @adjudicate/core. Every state-mutating action in an adjudicate-based system crosses the kernel as one of these. The `intentHash` field is content-addressed over (version, kind, payload, nonce, actor, taint) — see canonical-json-hash.md for the normative algorithm. v1 envelopes are REFUSED at runtime with code `schema_version_unsupported`; the only supported version is 2.",
+  "description": "The canonical mutation-proposal envelope adjudicated by @adjudicate/core. Every state-mutating action in an adjudicate-based system crosses the kernel as one of these. The `intentHash` field is content-addressed over (version, kind, payload, nonce, actor, taint, origin) plus `resourceRefs` WHEN PRESENT — see canonical-json-hash.md for the normative algorithm. The `origin` provenance source axis was added in plan 041 (always-present in the pre-image); the OPTIONAL, canonical-drop-safe `resourceRefs` authorization slot was added in plan 031 (bound only when present, so a no-refs envelope hashes identically to its post-041 value). v1 envelopes are REFUSED at runtime with code `schema_version_unsupported`; the only supported version is 2.",
   "type": "object",
   "required": [
     "version",
@@ -12,6 +12,7 @@
     "nonce",
     "actor",
     "taint",
+    "origin",
     "intentHash"
   ],
   "additionalProperties": false,
@@ -60,8 +61,18 @@
       "type": "string",
       "enum": ["SYSTEM", "TRUSTED", "UNTRUSTED"]
     },
+    "origin": {
+      "description": "Harness-stamped provenance SOURCE axis (plan 041). Orthogonal to `taint`: `taint` is how trusted the content is, `origin` is where the proposal came from. Closed, contaminating enum: Human / Retrieved / ExternalAPI / LLM / System. Part of the `intentHash` pre-image so the LLM cannot post-hoc flip the declared source. In 041 it is stamped and hashed but consulted by NO guard; the propagation gate that reads it is plan 042.",
+      "type": "string",
+      "enum": ["Human", "Retrieved", "ExternalAPI", "LLM", "System"]
+    },
+    "resourceRefs": {
+      "description": "Per-kind resource references (plan 031) — the envelope's authorization slot, a map from a role name (`owner`, `account`, `tenant`, `resource`, …) to the resource identifier the kind operates on. OPTIONAL and **canonical-drop-safe**: when absent (or explicitly undefined) the key is dropped from the `intentHash` pre-image, so a no-resource-refs envelope hashes identically to its post-041 value. When PRESENT it is bound into `intentHash` (so the declared owner is tamper-evident). 031 only adds the slot + hash binding; the authority predicate that reads it is plan 034 and the authority-graph resolver is 032/033 — NO guard consults it in 031. Not in `required` precisely because it is optional/drop-safe.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
     "intentHash": {
-      "description": "Lowercase hex SHA-256 over the canonical JSON of the hash-input subset `{version, kind, payload, nonce, actor, taint}` — note the absence of `createdAt` and `intentHash` itself. See `canonical-json-hash.md` for the normative algorithm and golden vectors. Cross-runtime compatibility (Rust/Go/Python re-implementations) depends on this value being byte-stable across implementations.",
+      "description": "Lowercase hex SHA-256 over the canonical JSON of the hash-input subset `{version, kind, payload, nonce, actor, taint, origin}` plus `resourceRefs` WHEN PRESENT — note the absence of `createdAt` and `intentHash` itself, and that `resourceRefs` is canonical-dropped when absent (so no-refs envelopes are byte-stable with post-041). See `canonical-json-hash.md` for the normative algorithm and golden vectors. Cross-runtime compatibility (Rust/Go/Python re-implementations) depends on this value being byte-stable across implementations.",
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     }

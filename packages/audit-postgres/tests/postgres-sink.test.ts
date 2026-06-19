@@ -7,6 +7,8 @@ import {
   buildEnvelope,
   decisionExecute,
   decisionRefuse,
+  recordAggregateSnapshot,
+  recordAuthoritySnapshot,
   refuse,
   verifyAuditRecord,
 } from "@adjudicate/core";
@@ -232,11 +234,18 @@ describe("INSERT_AUDIT_SQL + auditInsertParams (symmetry with governance)", () =
     "audit_hash",
     "signature_jsonb",
     "metadata_jsonb",
+    // 093 (T6): the inter-record chain link + the two recorded-snapshot columns
+    // that complete the 033/052 read-path (so a snapshot-bearing record's
+    // auditHash pre-image round-trips intact under 092 verify-on-read).
+    "prev_audit_hash",
+    "authority_snapshot_jsonb",
+    "aggregate_snapshot_jsonb",
   ] as const;
 
-  it("INSERT_AUDIT_SQL declares all 25 columns with $1..$25 and ON CONFLICT DO NOTHING", () => {
+  it("INSERT_AUDIT_SQL declares all 28 columns with $1..$28 and ON CONFLICT DO NOTHING", () => {
+    expect(COLUMNS).toHaveLength(28);
     expect(INSERT_AUDIT_SQL).toContain(`(${COLUMNS.join(", ")})`);
-    const placeholders = Array.from({ length: 25 }, (_, i) => `$${i + 1}`).join(", ");
+    const placeholders = Array.from({ length: 28 }, (_, i) => `$${i + 1}`).join(", ");
     expect(INSERT_AUDIT_SQL).toContain(`VALUES (${placeholders})`);
     expect(INSERT_AUDIT_SQL).toContain("INSERT INTO intent_audit");
     expect(INSERT_AUDIT_SQL).toContain("ON CONFLICT (intent_hash, recorded_at) DO NOTHING");
@@ -588,6 +597,113 @@ describe("v4 tamper-evidence persistence (RC-K1)", () => {
     const recovered = rowToRecord(coerced);
     expect(recovered.at).toBe(r.at);
     expect(verifyAuditRecord(recovered).verified).toBe(true);
+  });
+});
+
+// ─── 093 (T6/T7): inter-record chain link + recorded-snapshot read-path ──────
+// prev_audit_hash is EXCLUDED from the auditHash pre-image (round-trips, no
+// false-tamper). authority_snapshot_jsonb / aggregate_snapshot_jsonb ARE part of
+// the pre-image: this block proves the new persist + rehydrate closes the 092-F1
+// false-tamper hazard a snapshot-bearing record would otherwise hit on read.
+describe("093 — prev_audit_hash + recorded-snapshot persistence", () => {
+  function chainedRecord() {
+    const env = buildEnvelope({
+      kind: "order.submit",
+      payload: { sku: "Y", qty: 3 },
+      actor: { principal: "llm", sessionId: "s-093" },
+      taint: "UNTRUSTED",
+      nonce: "n-093",
+      createdAt: "2026-06-18T12:00:00.000Z",
+    });
+    return buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]),
+      durationMs: 4,
+      at: "2026-06-18T12:00:01.000Z",
+      prevAuditHash: "a".repeat(64),
+      authoritySnapshot: recordAuthoritySnapshot({
+        edges: [
+          {
+            principal: "user:42",
+            relationship: "owns",
+            resource: "acct:7",
+            permits: { actions: ["transfer"], limits: { perTx: 1000 } },
+          },
+        ],
+      }),
+      aggregateSnapshot: recordAggregateSnapshot({
+        windows: { "acct:7|daily": 250 },
+        at: "2026-06-18T11:59:00.000Z",
+      }),
+    });
+  }
+
+  it("recordToRow binds prev_audit_hash + both snapshot columns", () => {
+    const r = chainedRecord();
+    const row = recordToRow(r);
+    expect(row.prev_audit_hash).toBe("a".repeat(64));
+    expect(row.authority_snapshot_jsonb).not.toBeNull();
+    expect(row.aggregate_snapshot_jsonb).not.toBeNull();
+    expect(JSON.parse(row.authority_snapshot_jsonb!)).toEqual(r.authoritySnapshot);
+    expect(JSON.parse(row.aggregate_snapshot_jsonb!)).toEqual(r.aggregateSnapshot);
+  });
+
+  it("auditInsertParams binds the 3 new columns in declared order", () => {
+    const row = recordToRow(chainedRecord());
+    const params = auditInsertParams(row);
+    expect(params).toHaveLength(28);
+    // Indices 25,26,27 (0-based) per the INSERT column list.
+    expect(params[25]).toBe(row.prev_audit_hash);
+    expect(params[26]).toBe(row.authority_snapshot_jsonb);
+    expect(params[27]).toBe(row.aggregate_snapshot_jsonb);
+  });
+
+  it("round-trips so prevAuditHash + snapshots are preserved AND verifyAuditRecord stays verified (092-F1 false-tamper closure)", () => {
+    const r = chainedRecord();
+    const recovered = rowToRecord(recordToRow(r));
+    expect(recovered.prevAuditHash).toBe("a".repeat(64));
+    expect(recovered.authoritySnapshot).toEqual(r.authoritySnapshot);
+    expect(recovered.aggregateSnapshot).toEqual(r.aggregateSnapshot);
+    expect(recovered.auditHash).toBe(r.auditHash);
+    // THE load-bearing assertion: BEFORE 093, the snapshots were not persisted →
+    // rowToRecord omitted them → re-derived auditHash differed → verify-on-read
+    // FALSELY reported tampered. Now they round-trip, so the record stays intact.
+    expect(verifyAuditRecord(recovered).verified).toBe(true);
+  });
+
+  it("a record WITHOUT a chain link / snapshots round-trips with NULL columns and stays verified (genesis hash-stable)", () => {
+    const r = record(); // no prevAuditHash, no snapshots
+    const row = recordToRow(r);
+    expect(row.prev_audit_hash).toBeNull();
+    expect(row.authority_snapshot_jsonb).toBeNull();
+    expect(row.aggregate_snapshot_jsonb).toBeNull();
+    const recovered = rowToRecord(row);
+    expect(recovered.prevAuditHash).toBeUndefined();
+    expect(recovered.authoritySnapshot).toBeUndefined();
+    expect(recovered.aggregateSnapshot).toBeUndefined();
+    expect(verifyAuditRecord(recovered).verified).toBe(true);
+  });
+});
+
+describe("migration 012 — additive prev_audit_hash + snapshot columns", () => {
+  const sql = readFileSync(
+    new URL("../migrations/012-add-prev-audit-hash.sql", import.meta.url),
+    "utf-8",
+  );
+
+  it("adds prev_audit_hash + both recorded-snapshot columns, all IF NOT EXISTS", () => {
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS prev_audit_hash TEXT/);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS authority_snapshot_jsonb JSONB/);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS aggregate_snapshot_jsonb JSONB/);
+  });
+
+  it("is purely additive — touches NO constraint, index, or arbiter (009/010 intact)", () => {
+    // The migration must not DROP/ADD a CHECK or touch the UNIQUE arbiter, or it
+    // re-introduces the 42P10/23514 activation blockers (plan §7 migration risk).
+    expect(sql).not.toMatch(/DROP CONSTRAINT/);
+    expect(sql).not.toMatch(/ADD CONSTRAINT/);
+    expect(sql).not.toMatch(/CREATE\s+(UNIQUE\s+)?INDEX/);
+    expect(sql).not.toMatch(/DROP INDEX/);
   });
 });
 

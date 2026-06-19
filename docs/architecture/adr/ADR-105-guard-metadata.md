@@ -1,8 +1,9 @@
 # ADR-105 — Guard metadata as a closed semantic-interoperability vocabulary
 
-**Status**: Accepted (2026-05-13)
-**Supersedes**: none
-**Related**: ADR-101 (kernel audit emission), ADR-104 (envelope v2 nonce)
+- **Status:** Accepted
+- **Date:** 2026-05-13
+- **Supersedes:** none
+- **Related:** ADR-101 (kernel audit emission), ADR-104 (envelope v2 nonce)
 
 ## Context
 

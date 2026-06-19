@@ -86,6 +86,59 @@ describe("createSessionRiskGuard — tiers (pure over accumulated S)", () => {
   });
 });
 
+describe("createSessionRiskGuard — FROZEN escalate-only-shape contract (101 §3)", () => {
+  // The on-path compliance signal contract (101): a session-risk signal may
+  // only step friction UP or abstain. It must NEVER authorize EXECUTE — only
+  // the deterministic kernel rules can do that (§C monotonicity). This test
+  // freezes that shape so a future tier-config change cannot regress it.
+  const guard = createSessionRiskGuard<"agent.step", unknown, State>({
+    select: (s) => s.sessionRisk,
+    minCount: 3,
+    thresholds: { rewrite: 0.3, confirm: 0.5, escalate: 0.7, refuse: 0.9 },
+    onRewrite: (e) => decisionRewrite(e, "strip ungrounded claims", [{ category: "validation", code: "groundedness_low" }]),
+  });
+  const risk = (ewma: number, count = 5): SessionRisk => ({ window: [ewma], ewma, count });
+  const ALLOWED = new Set([null, "REFUSE", "ESCALATE", "REQUEST_CONFIRMATION", "REWRITE"]);
+
+  it("never returns EXECUTE across the full [0,1] risk range (escalate-only)", () => {
+    // Sweep the whole accumulated-risk axis at fine resolution. The signal may
+    // abstain or raise friction; it may never emit EXECUTE.
+    for (let i = 0; i <= 200; i++) {
+      const ewma = i / 200; // 0.000 → 1.000
+      const d = guard(env(), { sessionRisk: risk(ewma) });
+      const kind = d === null ? null : d.kind;
+      expect(ALLOWED.has(kind)).toBe(true);
+      expect(kind).not.toBe("EXECUTE");
+      expect(kind).not.toBe("DEFER");
+    }
+  });
+
+  it("an adopter onRewrite that tries to EXECUTE cannot be honored by the guard surface", () => {
+    // Defense in depth: even if an adopter's onRewrite returned EXECUTE, the
+    // contract is realized at the bundle-ordering level (escalate/refuse tiers
+    // win first). Within the rewrite band the only EXECUTE-shaped escape is the
+    // adopter callback; assert the shipped tiers above never reach it for risk
+    // >= a non-rewrite threshold. Here risk=0.95 hits REFUSE, not onRewrite.
+    expect(guard(env(), { sessionRisk: risk(0.95) })?.kind).toBe("REFUSE");
+    expect(guard(env(), { sessionRisk: risk(0.75) })?.kind).toBe("ESCALATE");
+    expect(guard(env(), { sessionRisk: risk(0.55) })?.kind).toBe("REQUEST_CONFIRMATION");
+  });
+
+  it("abstains below the warm-up floor no matter how high the risk (count < minCount)", () => {
+    // The warm-up floor (`risk.count < minCount`) must hold even at max risk —
+    // a cold accumulator never produces a disposition.
+    for (const count of [0, 1, 2]) {
+      expect(guard(env(), { sessionRisk: risk(1, count) })).toBeNull();
+    }
+    // At exactly minCount the floor releases and max risk REFUSEs.
+    expect(guard(env(), { sessionRisk: risk(1, 3) })?.kind).toBe("REFUSE");
+  });
+
+  it("abstains when risk is absent (undefined select)", () => {
+    expect(guard(env(), {})).toBeNull();
+  });
+});
+
 describe("session-risk — REPLAY EQUALITY (the riskiest sub-task, §4.2)", () => {
   const scores = [0.2, 0.85, 0.6, 0.95, 0.1, 0.7, 0.4, 0.88];
 

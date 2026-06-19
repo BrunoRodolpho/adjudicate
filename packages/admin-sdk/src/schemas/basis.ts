@@ -22,6 +22,8 @@ export const BasisCategorySchema = z.enum([
   "kill",
   "deadline",
   "confirmation",
+  // 025 — capabilities-as-budgets adds the `budget` category (budget:satisfied).
+  "budget",
   "kernel",
 ]);
 

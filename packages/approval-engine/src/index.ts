@@ -43,6 +43,8 @@ export {
   createEd25519AttestationVerifier,
   isEscalationDue,
   quorumMet,
+  signCapability,
+  verifyCapabilitySignature,
   type Attestation,
   type AttestationVerifier,
   type QuorumPolicy,

@@ -1,5 +1,18 @@
 import { z } from "zod";
-import type { IntentActor, IntentEnvelope, Taint } from "@adjudicate/core";
+import type {
+  AggregateSnapshot,
+  AuthorityEdge,
+  AuthorityGraph,
+  AuthorityPermits,
+  AuthorityRelationship,
+  IntentActor,
+  IntentEnvelope,
+  Origin,
+  RecordedAggregateSnapshot,
+  RecordedAuthoritySnapshot,
+  ResourceRefs,
+  Taint,
+} from "@adjudicate/core";
 import { IntentHashSchema } from "./common.js";
 
 /**
@@ -14,6 +27,27 @@ import { IntentHashSchema } from "./common.js";
  */
 
 export const TaintSchema = z.enum(["SYSTEM", "TRUSTED", "UNTRUSTED"]);
+
+/**
+ * 041 — provenance SOURCE axis. Mirrors `Origin` in @adjudicate/core; part of
+ * the intentHash recipe. Closed, contaminating enum.
+ */
+export const OriginSchema = z.enum([
+  "Human",
+  "Retrieved",
+  "ExternalAPI",
+  "LLM",
+  "System",
+]);
+
+/**
+ * 031 — per-kind resource references (the envelope's authorization slot).
+ * Mirrors `ResourceRefs` in @adjudicate/core: a string→string map. OPTIONAL on
+ * the envelope and canonical-drop-safe — bound into intentHash only when
+ * present. Tolerated by the wire schema so old (no-refs) and new (with-refs)
+ * envelopes both round-trip without a schema break.
+ */
+export const ResourceRefsSchema = z.record(z.string(), z.string());
 
 export const IntentActorSchema = z.object({
   principal: z.enum(["llm", "user", "system"]),
@@ -41,8 +75,93 @@ export const IntentEnvelopeSchema = z.object({
   nonce: z.string().min(1),
   actor: IntentActorSchema,
   taint: TaintSchema,
+  /** 041 — harness-stamped provenance source axis; part of intentHash. */
+  origin: OriginSchema,
+  /**
+   * 031 — per-kind resource references. Optional + canonical-drop-safe; bound
+   * into intentHash only when present.
+   */
+  resourceRefs: ResourceRefsSchema.optional(),
   /** sha256(canonical(envelope minus intentHash)). Computed by buildEnvelope. */
   intentHash: IntentHashSchema,
+});
+
+/**
+ * 032/033 — authority-graph relationship edge label. Mirrors
+ * `AuthorityRelationship` in @adjudicate/core. Closed union.
+ */
+export const AuthorityRelationshipSchema = z.enum([
+  "owns",
+  "joint",
+  "advisor",
+  "custodian",
+]);
+
+/**
+ * 032/033 — what one authority edge PERMITS. Mirrors `AuthorityPermits`. The
+ * optional `limits` are finite snapshot numbers (the canonical encoder throws on
+ * non-finite). Descriptive snapshot DATA — never a decision.
+ */
+export const AuthorityPermitsSchema = z.object({
+  actions: z.array(z.string()).readonly(),
+  limits: z.record(z.string(), z.number()).optional(),
+});
+
+/**
+ * 032/033 — one directed authority edge
+ * (`principal —relationship→ resource —permits→ {actions, limits}`). Mirrors
+ * `AuthorityEdge`.
+ */
+export const AuthorityEdgeSchema = z.object({
+  principal: z.string(),
+  relationship: AuthorityRelationshipSchema,
+  resource: z.string(),
+  permits: AuthorityPermitsSchema,
+});
+
+/**
+ * 032/033 — the authority-graph SNAPSHOT (immutable set of edges). Mirrors
+ * `AuthorityGraph`. Injected into the kernel decision as state, recorded into
+ * audit for replay — NOT an envelope field, NOT part of intentHash.
+ */
+export const AuthorityGraphSchema = z.object({
+  edges: z.array(AuthorityEdgeSchema).readonly(),
+});
+
+/**
+ * 033 — the RECORDED authority snapshot surfaced on the audit record: the
+ * immutable injected `graph` plus its content-address (`hashAuthorityGraph`).
+ * Mirrors `RecordedAuthoritySnapshot` in @adjudicate/core. Recorded so the
+ * decision replays bit-identically (§D-5, invariant #5). OPTIONAL on the audit
+ * record — absent for decisions that injected no snapshot (hash-stable).
+ */
+export const RecordedAuthoritySnapshotSchema = z.object({
+  graph: AuthorityGraphSchema,
+  snapshotHash: z.string(),
+});
+
+/**
+ * 052 — the aggregate/limit SNAPSHOT (per-window committed aggregates + sample
+ * `at`). Mirrors `AggregateSnapshot` in @adjudicate/core. `windows` is an opaque
+ * adopter-string → committed-aggregate (number) map.
+ */
+export const AggregateSnapshotSchema = z.object({
+  windows: z.record(z.string(), z.number()),
+  at: z.string(),
+});
+
+/**
+ * 052 — the RECORDED aggregate/limit snapshot surfaced on the audit record: the
+ * immutable injected `snapshot` plus its content-address (`hashAggregateSnapshot`).
+ * Mirrors `RecordedAggregateSnapshot` in @adjudicate/core. IS part of the
+ * auditHash pre-image (like `authoritySnapshot`), so the wire schema MUST carry
+ * it — dropping it on the read path makes a snapshot-bearing record re-derive a
+ * different auditHash and 092 verify-on-read FALSELY flags it tampered. OPTIONAL
+ * on the audit record — absent for decisions that injected no snapshot (hash-stable).
+ */
+export const RecordedAggregateSnapshotSchema = z.object({
+  snapshot: AggregateSnapshotSchema,
+  snapshotHash: z.string(),
 });
 
 // ─── Build-time drift guards ────────────────────────────────────────────────
@@ -52,6 +171,16 @@ export const IntentEnvelopeSchema = z.object({
 
 const _taintCoreToSchema = (x: Taint): z.infer<typeof TaintSchema> => x;
 const _taintSchemaToCore = (x: z.infer<typeof TaintSchema>): Taint => x;
+
+const _originCoreToSchema = (x: Origin): z.infer<typeof OriginSchema> => x;
+const _originSchemaToCore = (x: z.infer<typeof OriginSchema>): Origin => x;
+
+const _resourceRefsCoreToSchema = (
+  x: ResourceRefs,
+): z.infer<typeof ResourceRefsSchema> => x;
+const _resourceRefsSchemaToCore = (
+  x: z.infer<typeof ResourceRefsSchema>,
+): ResourceRefs => x;
 
 const _actorCoreToSchema = (x: IntentActor): z.infer<typeof IntentActorSchema> => x;
 const _actorSchemaToCore = (x: z.infer<typeof IntentActorSchema>): IntentActor => x;
@@ -63,11 +192,62 @@ const _envelopeSchemaToCore = (
   x: z.infer<typeof IntentEnvelopeSchema>,
 ): IntentEnvelope => x;
 
+// 032/033 — authority-graph + recorded-snapshot drift guards. Bidirectional:
+// every field is a primitive / closed enum / string→string|number map, so the
+// schema and the core type are structurally interchangeable.
+const _authorityRelationshipCoreToSchema = (
+  x: AuthorityRelationship,
+): z.infer<typeof AuthorityRelationshipSchema> => x;
+const _authorityRelationshipSchemaToCore = (
+  x: z.infer<typeof AuthorityRelationshipSchema>,
+): AuthorityRelationship => x;
+const _authorityPermitsCoreToSchema = (
+  x: AuthorityPermits,
+): z.infer<typeof AuthorityPermitsSchema> => x;
+const _authorityEdgeCoreToSchema = (
+  x: AuthorityEdge,
+): z.infer<typeof AuthorityEdgeSchema> => x;
+const _authorityGraphCoreToSchema = (
+  x: AuthorityGraph,
+): z.infer<typeof AuthorityGraphSchema> => x;
+const _recordedAuthoritySnapshotCoreToSchema = (
+  x: RecordedAuthoritySnapshot,
+): z.infer<typeof RecordedAuthoritySnapshotSchema> => x;
+const _recordedAuthoritySnapshotSchemaToCore = (
+  x: z.infer<typeof RecordedAuthoritySnapshotSchema>,
+): RecordedAuthoritySnapshot => x;
+// 052 — aggregate-snapshot drift guards. Bidirectional: windows is a
+// string→number map and snapshotHash/at are strings, so the schema and core type
+// are structurally interchangeable.
+const _aggregateSnapshotCoreToSchema = (
+  x: AggregateSnapshot,
+): z.infer<typeof AggregateSnapshotSchema> => x;
+const _recordedAggregateSnapshotCoreToSchema = (
+  x: RecordedAggregateSnapshot,
+): z.infer<typeof RecordedAggregateSnapshotSchema> => x;
+const _recordedAggregateSnapshotSchemaToCore = (
+  x: z.infer<typeof RecordedAggregateSnapshotSchema>,
+): RecordedAggregateSnapshot => x;
+
 void [
   _taintCoreToSchema,
   _taintSchemaToCore,
+  _originCoreToSchema,
+  _originSchemaToCore,
+  _resourceRefsCoreToSchema,
+  _resourceRefsSchemaToCore,
   _actorCoreToSchema,
   _actorSchemaToCore,
   _envelopeCoreToSchema,
   _envelopeSchemaToCore,
+  _authorityRelationshipCoreToSchema,
+  _authorityRelationshipSchemaToCore,
+  _authorityPermitsCoreToSchema,
+  _authorityEdgeCoreToSchema,
+  _authorityGraphCoreToSchema,
+  _recordedAuthoritySnapshotCoreToSchema,
+  _recordedAuthoritySnapshotSchemaToCore,
+  _aggregateSnapshotCoreToSchema,
+  _recordedAggregateSnapshotCoreToSchema,
+  _recordedAggregateSnapshotSchemaToCore,
 ];

@@ -10,7 +10,7 @@
       "label": "v1.0-execute-canonical",
       "category": "execute",
       "since": "v1.0",
-      "notes": "the v1-minimal envelope from canonical-hash-vectors.json paired with an EXECUTE decision. Pins the joint contract: same envelope -> same intentHash -> same replayed decision-kind.",
+      "notes": "the v1-minimal envelope paired with an EXECUTE decision. Pins the joint contract: same envelope -> same intentHash -> same replayed decision-kind. RE-PINNED for plan 041: `buildEnvelope` now binds `origin` (default 'LLM') into the intentHash pre-image, so the expectedIntentHash moved from ccaaf1c7… (pre-041 6-field recipe) to dc624bd0… (041 7-field recipe). Authorized by 041 §7 (no cross-version persistence of pre-041 hashes is in scope). The raw canonicalizer golden vector ccaaf1c7… in canonical-hash-vectors.json is UNCHANGED — it hashes a literal {…no origin…} object via sha256Canonical, not the envelope recipe.",
       "envelopeInput": {
         "kind": "order.submit",
         "payload": { "sku": "X", "qty": 1 },
@@ -19,7 +19,7 @@
         "nonce": "n-golden-1",
         "createdAt": "2026-01-01T00:00:00.000Z"
       },
-      "expectedIntentHash": "ccaaf1c710d6956f00b84cbed4fc8a31c148a9e3e1c932d21f377c472c690bc0",
+      "expectedIntentHash": "dc624bd0e0453994c0d6087700a4fa521da64e8aa19df1c00f2900b4d430245c",
       "decision": {
         "kind": "EXECUTE",
         "basis": [

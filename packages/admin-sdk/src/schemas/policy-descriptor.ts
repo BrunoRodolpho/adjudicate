@@ -25,8 +25,17 @@ export const GuardMetadataSchema = z.object({
 });
 
 export const GuardDescriptorSchema = z.union([
-  z.object({ kind: z.literal("named"), metadata: GuardMetadataSchema }),
-  z.object({ kind: z.literal("anonymous") }),
+  z.object({
+    kind: z.literal("named"),
+    metadata: GuardMetadataSchema,
+    // 081: per-guard code-artifact digest (closure caps + predicate body).
+    // Optional — present only for guards that exposed a GuardCodeArtifact.
+    codeDigest: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("anonymous"),
+    codeDigest: z.string().optional(),
+  }),
 ]);
 
 export const PolicyPhaseSchema = z.enum([

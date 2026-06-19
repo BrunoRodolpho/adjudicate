@@ -1,8 +1,9 @@
 # ADR-107 — RefusalMessages externalization
 
-**Status**: Accepted (2026-05-18 — M1 overnight execution)
-**Supersedes**: none
-**Related**: ADR-101 (kernel audit emission), ADR-106 (guard exception isolation)
+- **Status:** Accepted
+- **Date:** 2026-05-18 (M1 overnight execution)
+- **Supersedes:** none
+- **Related:** ADR-101 (kernel audit emission), ADR-106 (guard exception isolation)
 
 ## Context
 

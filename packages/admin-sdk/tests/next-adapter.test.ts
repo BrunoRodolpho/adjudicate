@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toNextRouteHandler } from "../src/adapters/next.js";
 import type { AdminContext, AdminRouter } from "../src/trpc/index.js";
+import { readOnlyAdminRouter } from "../src/trpc/index.js";
 
 // The gate tests reject before the tRPC handler runs, so a dummy router/context
 // suffices — fetchRequestHandler is never reached on the 401 paths.
@@ -84,5 +85,71 @@ describe("toNextRouteHandler — requireAuth gate", () => {
     });
     await POST(new Request("https://x/api/admin/trpc/governance.describePolicy"));
     expect(seen).toEqual(["/api/admin/trpc/governance.describePolicy"]);
+  });
+
+  // 114 — the escalate surface is mounted on the READ-ONLY router (the SOLE
+  // friction-monotone write the observer plane permits). It is a MUTATION, so it
+  // is hittable on the wire; the adapter MUST still refuse to mount it in
+  // production without an auth gate (the forgeable-header mitigation applies to
+  // the escalate write exactly as it does to every other procedure).
+  describe("escalate surface on the read-only plane (114)", () => {
+    it("THROWS at construction in production when requireAuth is absent (read-only router with escalate)", () => {
+      vi.stubEnv("NODE_ENV", "production");
+      expect(() =>
+        toNextRouteHandler({
+          router: readOnlyAdminRouter,
+          endpoint: "/api/admin/trpc",
+          createContext: () => dummyContext,
+        }),
+      ).toThrow(/requireAuth/i);
+    });
+
+    // 115 — the governance VIEWS (kill-switch read-status, dashboards, policy
+    // history) ride the read-only plane. The fail-closed prod mount MUST cover
+    // them too: a governance-views app cannot serve `governance.killSwitchTimeline`
+    // in production without an auth gate (§3 — "a governance-views app cannot
+    // mount in prod without an auth gate").
+    it("runs requireAuth before a governance read (killSwitchTimeline) can reach a resolver", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const seen: string[] = [];
+      const { GET } = toNextRouteHandler({
+        router: readOnlyAdminRouter,
+        endpoint: "/api/admin/trpc",
+        createContext: () => dummyContext,
+        requireAuth: (req) => {
+          seen.push(new URL(req.url).pathname);
+          return new Response("unauth", { status: 401 });
+        },
+      });
+      const res = await GET(
+        new Request("https://x/api/admin/trpc/governance.killSwitchTimeline"),
+      );
+      expect(res.status).toBe(401);
+      // The gate ran BEFORE the governance resolver — no record-level data leaked.
+      expect(seen).toEqual(["/api/admin/trpc/governance.killSwitchTimeline"]);
+    });
+
+    it("runs requireAuth before the escalate.raise mutation can reach a resolver", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const seen: string[] = [];
+      const { POST } = toNextRouteHandler({
+        router: readOnlyAdminRouter,
+        endpoint: "/api/admin/trpc",
+        createContext: () => dummyContext,
+        requireAuth: (req) => {
+          seen.push(new URL(req.url).pathname);
+          return new Response("unauth", { status: 401 });
+        },
+      });
+      const res = await POST(
+        new Request("https://x/api/admin/trpc/escalate.raise", {
+          method: "POST",
+          body: "{}",
+        }),
+      );
+      expect(res.status).toBe(401);
+      // The gate ran BEFORE the escalate resolver — no write reached the sink.
+      expect(seen).toEqual(["/api/admin/trpc/escalate.raise"]);
+    });
   });
 });

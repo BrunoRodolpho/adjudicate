@@ -110,6 +110,18 @@ describe("computePackFingerprint", () => {
       computePackFingerprint(minimal),
     );
   });
+
+  // 081 non-regression: the fingerprint covers ONLY the declarative subset.
+  // `PackFingerprintInput` carries no `policy`, so adding per-guard code-artifact
+  // coverage to the ConfigSeal surface cannot leak into the fingerprint — the two
+  // surfaces stay decoupled (fingerprint = declarative; seal = richer + code).
+  it("081: fingerprint is unaffected by guard-code coverage (no policy in the input)", () => {
+    const before = computePackFingerprint(PACK);
+    // Whatever the seal now binds about guard bodies, the fingerprint over the
+    // same declarative subset is byte-identical.
+    expect(computePackFingerprint({ ...PACK })).toBe(before);
+    expect("policy" in (PACK as Record<string, unknown>)).toBe(false);
+  });
 });
 
 describe("signPackFingerprint + verifyPackSignature (ed25519)", () => {
@@ -277,6 +289,76 @@ describe("verifyPackTrust", () => {
     expect(report.errors[0]).toMatch(/require_signature/);
   });
 
+  // ── 082: the LOAD-PATH defaults (installPack verifyOnLoad) ─────────────────
+  // installPack injects verifyPackTrust with policy:"require_signature" (NOT the
+  // library default best_effort). These tests pin that exact posture for both
+  // signature algorithms over the fingerprint (pack-trust.ts:72).
+  describe("082 load-path defaults — policy: require_signature", () => {
+    it("ed25519: a validly signed Pack is trusted (load-path accept)", () => {
+      const { publicKey, privateKey } = genEd25519();
+      const fp = computePackFingerprint(PACK);
+      const sig = signPackFingerprint({
+        fingerprint: fp,
+        privateKeyPem: privateKey,
+        algorithm: "ed25519",
+        keyId: "load",
+      });
+      const report = verifyPackTrust({
+        pack: PACK,
+        publicKeyPem: publicKey,
+        signature: sig,
+        policy: "require_signature",
+      });
+      expect(report.trusted).toBe(true);
+      expect(report.signatureVerification?.verified).toBe(true);
+    });
+
+    it("rsa-pss-sha256: a validly signed Pack is trusted (load-path accept)", () => {
+      const { publicKey, privateKey } = genRSA();
+      const fp = computePackFingerprint(PACK);
+      const sig = signPackFingerprint({
+        fingerprint: fp,
+        privateKeyPem: privateKey,
+        algorithm: "rsa-pss-sha256",
+        keyId: "load-rsa",
+      });
+      const report = verifyPackTrust({
+        pack: PACK,
+        publicKeyPem: publicKey,
+        signature: sig,
+        policy: "require_signature",
+      });
+      expect(report.trusted).toBe(true);
+      expect(report.signatureVerification?.verified).toBe(true);
+    });
+
+    it("UNSIGNED Pack is REFUSED under require_signature (load-path fail-closed)", () => {
+      // The exact posture installPack relies on: no signature supplied ⇒ not trusted.
+      const report = verifyPackTrust({ pack: PACK, policy: "require_signature" });
+      expect(report.trusted).toBe(false);
+      expect(report.errors.some((e) => /require_signature/.test(e))).toBe(true);
+    });
+
+    it("a Pack signed with the WRONG key is REFUSED (load-path fail-closed)", () => {
+      const signer = genEd25519();
+      const wrong = genEd25519();
+      const fp = computePackFingerprint(PACK);
+      const sig = signPackFingerprint({
+        fingerprint: fp,
+        privateKeyPem: signer.privateKey,
+        algorithm: "ed25519",
+        keyId: "load",
+      });
+      const report = verifyPackTrust({
+        pack: PACK,
+        publicKeyPem: wrong.publicKey,
+        signature: sig,
+        policy: "require_signature",
+      });
+      expect(report.trusted).toBe(false);
+    });
+  });
+
   it("compound failure: bad fingerprint AND bad signature both surfaced", () => {
     const { publicKey, privateKey } = genEd25519();
     const fp = computePackFingerprint(PACK);
@@ -298,5 +380,54 @@ describe("verifyPackTrust", () => {
     });
     expect(report.trusted).toBe(false);
     expect(report.errors.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// 084 — the staged-rollout CANARY stage relies on `verifyPackTrust` under the
+// `require_signature` TrustPolicy as its TRUST precondition: a candidate pack
+// promoted past the canary MUST carry a valid publisher signature, and an
+// unsigned/forged candidate is refused (fail-closed, §D-6) BEFORE the canary's
+// adversarial re-run is even meaningful — an untrusted pack never promotes.
+describe("verifyPackTrust — 084 canary-stage trust precondition (require_signature)", () => {
+  it("a validly signed candidate is TRUSTED under require_signature (canary-stage accept)", () => {
+    const { publicKey, privateKey } = genEd25519();
+    const sig = signPackFingerprint({
+      fingerprint: computePackFingerprint(PACK),
+      privateKeyPem: privateKey,
+      algorithm: "ed25519",
+      keyId: "canary",
+    });
+    const report = verifyPackTrust({
+      pack: PACK,
+      publicKeyPem: publicKey,
+      signature: sig,
+      policy: "require_signature",
+    });
+    expect(report.trusted).toBe(true);
+    expect(report.signatureVerification?.verified).toBe(true);
+  });
+
+  it("an UNSIGNED candidate is REFUSED under require_signature (canary never promotes an untrusted pack)", () => {
+    const report = verifyPackTrust({ pack: PACK, policy: "require_signature" });
+    expect(report.trusted).toBe(false);
+    expect(report.errors.some((e) => /require_signature/.test(e))).toBe(true);
+  });
+
+  it("a candidate signed with the WRONG key is REFUSED (canary-stage fail-closed)", () => {
+    const signer = genEd25519();
+    const wrong = genEd25519();
+    const sig = signPackFingerprint({
+      fingerprint: computePackFingerprint(PACK),
+      privateKeyPem: signer.privateKey,
+      algorithm: "ed25519",
+      keyId: "canary",
+    });
+    const report = verifyPackTrust({
+      pack: PACK,
+      publicKeyPem: wrong.publicKey,
+      signature: sig,
+      policy: "require_signature",
+    });
+    expect(report.trusted).toBe(false);
   });
 });

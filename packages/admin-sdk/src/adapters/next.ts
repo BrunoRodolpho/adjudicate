@@ -1,8 +1,20 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import type { AdminContext, AdminRouter } from "../trpc/index.js";
+import type {
+  AdminContext,
+  AdminRouter,
+  ReadOnlyAdminRouter,
+} from "../trpc/index.js";
 
 export interface NextAdapterOptions {
-  readonly router: AdminRouter;
+  /**
+   * The admin router to mount. Either the full `adminRouter` (operator/approver
+   * planes — has the 4 mutation procedures) or the write-isolated
+   * `readOnlyAdminRouter` (the §B/§G Inspector-General / observer plane — every
+   * authorize/weaken mutation structurally excluded). BOTH share the identical
+   * `AdminContext` (`createContext` below), so the host wiring is unchanged; the
+   * ONLY difference is which procedures exist on the wire.
+   */
+  readonly router: AdminRouter | ReadOnlyAdminRouter;
   readonly endpoint: string;
   readonly createContext: (
     req: Request,

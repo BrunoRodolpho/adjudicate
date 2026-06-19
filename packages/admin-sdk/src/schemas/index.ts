@@ -1,6 +1,13 @@
 export {
+  AggregateSnapshotSchema,
+  AuthorityEdgeSchema,
+  AuthorityGraphSchema,
+  AuthorityPermitsSchema,
+  AuthorityRelationshipSchema,
   IntentActorSchema,
   IntentEnvelopeSchema,
+  RecordedAggregateSnapshotSchema,
+  RecordedAuthoritySnapshotSchema,
   TaintSchema,
 } from "./envelope.js";
 
@@ -10,7 +17,11 @@ export { RefusalKindSchema, RefusalSchema } from "./refusal.js";
 
 export { DecisionKindSchema, DecisionSchema } from "./decision.js";
 
-export { AuditPlanSnapshotSchema, AuditRecordSchema } from "./audit.js";
+export {
+  AuditPlanSnapshotSchema,
+  AuditRecordSchema,
+  AuditRecordVerificationSchema,
+} from "./audit.js";
 
 export {
   AuditQuerySchema,

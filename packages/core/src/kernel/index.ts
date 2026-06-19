@@ -11,9 +11,13 @@ export {
 } from "./adjudicate.js";
 export {
   adjudicateAndAudit,
+  confirmationBindingMatches,
+  confirmationBindingRecord,
   type AdjudicateAndAuditClock,
   type AdjudicateAndAuditDeps,
   type AdjudicateAndAuditResult,
+  type ConfirmationBinding,
+  type ConfirmationBindingField,
 } from "./adjudicate-and-audit.js";
 export {
   adjudicateWithDeadline,
@@ -40,10 +44,14 @@ export {
 } from "./learning-contract.js";
 export { allOf, constant, firstMatch } from "./combinators.js";
 export {
+  attachGuardCodeArtifact,
+  GuardCodeArtifactSymbol,
   GuardMetadataSymbol,
+  readGuardCodeArtifact,
   readGuardMetadata,
   withMetadata,
   type Guard,
+  type GuardCodeArtifact,
   type GuardDescription,
   type GuardMetadata,
   type PolicyBundle,
@@ -100,10 +108,14 @@ export {
 } from "./runtime-context.js";
 export {
   checkRateLimit,
+  createCumulativeVelocityGuard,
   createInMemoryRateLimitStore,
   createRateLimitGuard,
   type CheckRateLimitArgs,
+  type CumulativeVelocityGuardOptions,
   type RateLimitGuardOptions,
   type RateLimitResult,
   type RateLimitStore,
+  type VelocityBreach,
+  type VelocityHorizon,
 } from "./rate-limit.js";

@@ -25,4 +25,5 @@ export {
   assertPlanSubsetOfPack,
   PlanConformanceError,
   safePlan,
+  type PackIntentsSurface,
 } from "./planner-conformance.js";

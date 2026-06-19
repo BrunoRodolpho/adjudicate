@@ -48,4 +48,62 @@ describe("createInMemoryApprovalRegistry", () => {
     expect(await r.get("a")).toBeNull();
     expect((await r.list()).length).toBe(2);
   });
+
+  // ── 072 — separation-of-duty proposer projection ───────────────────────────
+  it("persists requestedBy (proposer) and returns it from get and list", async () => {
+    const r = createInMemoryApprovalRegistry();
+    const withProposer: ApprovalRequest = {
+      ...base,
+      requestedBy: { id: "maker-mallory", displayName: "Mallory" },
+    };
+    await r.put(withProposer, 3600);
+    expect((await r.get("t1"))?.requestedBy).toEqual({
+      id: "maker-mallory",
+      displayName: "Mallory",
+    });
+    const listed = await r.list({ status: "pending" });
+    expect(listed[0]?.requestedBy?.id).toBe("maker-mallory");
+  });
+
+  it("requestedBy is optional — a request without a proposer round-trips with it absent", async () => {
+    const r = createInMemoryApprovalRegistry();
+    await r.put(base, 3600); // base carries no requestedBy
+    const got = await r.get("t1");
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("requestedBy");
+  });
+
+  // ── 073 — out-of-band escalation projection + channel binding round-trip ─────
+  it("round-trips the escalation projection through put/get/list (out-of-band scheduler input)", async () => {
+    const r = createInMemoryApprovalRegistry();
+    const withEscalation: ApprovalRequest = {
+      ...base,
+      escalation: { afterMs: 60_000, to: "supervisor" },
+    };
+    await r.put(withEscalation, 3600);
+    expect((await r.get("t1"))?.escalation).toEqual({ afterMs: 60_000, to: "supervisor" });
+    const listed = await r.list({ status: "pending" });
+    expect(listed[0]?.escalation).toEqual({ afterMs: 60_000, to: "supervisor" });
+  });
+
+  it("escalation is optional — a request without it round-trips with it absent (never read by the kernel)", async () => {
+    const r = createInMemoryApprovalRegistry();
+    await r.put(base, 3600); // base carries no escalation
+    const got = await r.get("t1");
+    expect(got).not.toHaveProperty("escalation");
+  });
+
+  it("preserves the resolving channel + channelRef across put/get/list", async () => {
+    const r = createInMemoryApprovalRegistry();
+    const withChannel: ApprovalRequest = {
+      ...base,
+      channel: "slack",
+      channelRef: "msg-12345",
+    };
+    await r.put(withChannel, 3600);
+    const got = await r.get("t1");
+    expect(got?.channel).toBe("slack");
+    expect(got?.channelRef).toBe("msg-12345");
+    expect((await r.list())[0]?.channelRef).toBe("msg-12345");
+  });
 });

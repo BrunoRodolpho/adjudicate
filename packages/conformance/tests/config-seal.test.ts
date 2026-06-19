@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import { withMetadata, type Guard } from "@adjudicate/core/kernel";
+import { createRewriteGuard } from "@adjudicate/primitives";
 import {
   computeConfigDigest,
   extractSealableSurface,
+  freezeSealableSurface,
   sealPackConfig,
   verifyConfigSeal,
+  verifyConfigSealFrozen,
   type SealablePackInput,
 } from "../src/config-seal.js";
 
@@ -105,6 +108,129 @@ describe("config-seal — tamper detection (adversarial)", () => {
   });
 });
 
+// ── 081: guard CODE bodies are sealed, not just metadata (Critique #27) ──────
+
+/**
+ * The escape this regression closes: a `createRewriteGuard` clamp captures its
+ * cap (here named `AUTO_REMEDIATION_BLAST_CAP`) in the guard CLOSURE and records
+ * only `{ kind: "rewrite", mutatesPayloadFields }` in metadata. Pre-081, editing
+ * the cap 5 → 5000 changed guard behavior but left a byte-identical sealable
+ * surface that verified clean. 081 pins the cap into the per-guard code artifact
+ * digest, so the edit now moves `computeConfigDigest`.
+ */
+function makeRewritePack(cap: number): SealablePackInput {
+  const clampGuard = createRewriteGuard<string, Record<string, unknown>, unknown>({
+    matches: (env) => env.kind === "remediation.apply",
+    extract: (env) => (env.payload as { blast?: number }).blast,
+    cap,
+    mutateField: "blast",
+    reason: "clamped blast radius to the auto-remediation cap",
+  });
+  return {
+    id: "pack-rewrite-cap",
+    version: "1.0.0",
+    contract: "v0",
+    intents: ["remediation.apply"],
+    signals: [],
+    basisCodes: ["business:quantity_capped"],
+    policy: {
+      stateGuards: [],
+      authGuards: [],
+      taint: { minimumFor: () => "UNTRUSTED" },
+      business: [clampGuard as Guard<string, unknown, unknown>],
+      default: "REFUSE",
+    },
+  };
+}
+
+describe("config-seal — guard CODE is sealed (081, Critique #27)", () => {
+  const AUTO_REMEDIATION_BLAST_CAP = 5;
+  const TAMPERED_BLAST_CAP = 5000;
+
+  it("a createRewriteGuard closure cap is surfaced into the sealable surface", () => {
+    const surface = extractSealableSurface(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP));
+    // The cap must be captured as a per-guard code digest — proving the
+    // executable surface (not just metadata) is part of what gets hashed.
+    expect(surface.guardCodeDigests.length).toBeGreaterThan(0);
+    expect(surface.guardCodeDigests[0]!.codeDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("editing AUTO_REMEDIATION_BLAST_CAP 5→5000 CHANGES computeConfigDigest", () => {
+    const baseDigest = computeConfigDigest(
+      extractSealableSurface(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP)),
+    );
+    const tamperedDigest = computeConfigDigest(
+      extractSealableSurface(makeRewritePack(TAMPERED_BLAST_CAP)),
+    );
+    // Pre-081 these were byte-identical (metadata-only seal). They must differ now.
+    expect(tamperedDigest).not.toBe(baseDigest);
+  });
+
+  it("verifyConfigSeal reports a mismatch when the cap is tampered (fail-closed)", () => {
+    const seal = sealPackConfig(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP));
+    const report = verifyConfigSeal(makeRewritePack(TAMPERED_BLAST_CAP), seal);
+    expect(report.digestMatch).toBe("mismatch");
+    expect(report.verified).toBe(false);
+  });
+
+  it("presence-only is NOT sufficient — the SAME cap still verifies clean", () => {
+    // Non-vacuity guard: the mismatch above is caused by the CAP, not by guard
+    // identity/order. Re-sealing the identical cap must still verify.
+    const seal = sealPackConfig(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP));
+    const report = verifyConfigSeal(makeRewritePack(AUTO_REMEDIATION_BLAST_CAP), seal);
+    expect(report.digestMatch).toBe("match");
+    expect(report.verified).toBe(true);
+  });
+});
+
+// ── 082: the LOAD-PATH defaults (installPack verifyOnLoad) ───────────────────
+// installPack injects verifyConfigSeal with policy:"require_signature" (NOT the
+// library default require_digest). The verifier RE-EXTRACTS + RE-HASHES the LIVE
+// pack, so a swapped/drifted surface (or an unsigned seal) fails closed.
+describe("config-seal — 082 load-path defaults (require_signature, re-extract LIVE pack)", () => {
+  it("a matching, signed seal verifies against the re-extracted live pack (accept)", () => {
+    const { publicKeyPem, privateKeyPem } = ed25519Keys();
+    const seal = sealPackConfig(makePack(), { privateKeyPem, algorithm: "ed25519", keyId: "load" });
+    const report = verifyConfigSeal(makePack(), seal, { publicKeyPem, policy: "require_signature" });
+    expect(report.verified).toBe(true);
+    expect(report.digestMatch).toBe("match");
+  });
+
+  it("REFUSES a live pack whose surface drifted from the seal (re-hash mismatch)", () => {
+    const { publicKeyPem, privateKeyPem } = ed25519Keys();
+    // Seal minted over threshold=100; the LIVE pack now has threshold=50.
+    const seal = sealPackConfig(makePack({ threshold: 100 }), {
+      privateKeyPem,
+      algorithm: "ed25519",
+      keyId: "load",
+    });
+    const report = verifyConfigSeal(makePack({ threshold: 50 }), seal, {
+      publicKeyPem,
+      policy: "require_signature",
+    });
+    expect(report.digestMatch).toBe("mismatch");
+    expect(report.verified).toBe(false);
+  });
+
+  it("REFUSES an UNSIGNED seal under require_signature (load-path fail-closed)", () => {
+    const seal = sealPackConfig(makePack()); // no privateKeyPem ⇒ no signature
+    const report = verifyConfigSeal(makePack(), seal, { policy: "require_signature" });
+    expect(report.verified).toBe(false);
+    expect(report.errors.some((e) => /require_signature/.test(e))).toBe(true);
+  });
+
+  it("REFUSES a seal signed by the WRONG key (load-path fail-closed)", () => {
+    const { privateKeyPem } = ed25519Keys();
+    const { publicKeyPem: wrongPub } = ed25519Keys();
+    const seal = sealPackConfig(makePack(), { privateKeyPem, algorithm: "ed25519", keyId: "load" });
+    const report = verifyConfigSeal(makePack(), seal, {
+      publicKeyPem: wrongPub,
+      policy: "require_signature",
+    });
+    expect(report.verified).toBe(false);
+  });
+});
+
 describe("config-seal — registry fields are NOT sealed (non-interference)", () => {
   it("adding sideEffects / executorContract / handlers leaves the digest unchanged", () => {
     const baseDigest = computeConfigDigest(extractSealableSurface(makePack()));
@@ -124,5 +250,48 @@ describe("config-seal — registry fields are NOT sealed (non-interference)", ()
     } as SealablePackInput;
 
     expect(computeConfigDigest(extractSealableSurface(withRegistry))).toBe(baseDigest);
+  });
+});
+
+// 084 — the staged-rollout CANARY stage verifies the seal via the FROZEN cadence
+// (`verifyConfigSealFrozen`) under the strict `require_signature` policy. These
+// assert that the frozen path is the one the canary stage relies on: a clean
+// signed digest gates correctly (verified) and any drift is caught (fail-closed).
+describe("config-seal — 084 canary-stage frozen-cadence path (require_signature)", () => {
+  it("a clean signed digest VERIFIES through verifyConfigSealFrozen under require_signature", () => {
+    const { publicKeyPem, privateKeyPem } = ed25519Keys();
+    const pack = makePack();
+    const frozen = freezeSealableSurface(extractSealableSurface(pack));
+    const seal = sealPackConfig(pack, { privateKeyPem });
+    const report = verifyConfigSealFrozen(frozen, seal, {
+      publicKeyPem,
+      policy: "require_signature",
+    });
+    expect(report.verified).toBe(true);
+    expect(report.digestMatch).toBe("match");
+    // The canary path is the SAME verdict the live path produces for a static pack.
+    expect(verifyConfigSeal(pack, seal, { publicKeyPem, policy: "require_signature" }).verified).toBe(true);
+  });
+
+  it("the frozen canary path is FAIL-CLOSED: an UNSIGNED seal is REFUSED under require_signature", () => {
+    const pack = makePack();
+    const frozen = freezeSealableSurface(extractSealableSurface(pack));
+    const unsignedSeal = sealPackConfig(pack); // digest matches, no signature
+    const report = verifyConfigSealFrozen(frozen, unsignedSeal, { policy: "require_signature" });
+    expect(report.verified).toBe(false);
+    expect(report.errors.some((e) => /require_signature/.test(e))).toBe(true);
+  });
+
+  it("the frozen canary path catches a DRIFTED digest (tampered seal)", () => {
+    const { publicKeyPem, privateKeyPem } = ed25519Keys();
+    const pack = makePack();
+    const frozen = freezeSealableSurface(extractSealableSurface(pack));
+    const seal = { ...sealPackConfig(pack, { privateKeyPem }), digest: "0".repeat(64) };
+    const report = verifyConfigSealFrozen(frozen, seal, {
+      publicKeyPem,
+      policy: "require_signature",
+    });
+    expect(report.verified).toBe(false);
+    expect(report.digestMatch).toBe("mismatch");
   });
 });

@@ -21,11 +21,14 @@
 
 import {
   buildEnvelope,
-  noopAuditSink,
+  contaminateSession,
+  mergeTaint,
   sha256Canonical,
   timingSafeHexEqual,
   type Decision,
   type IntentEnvelope,
+  type SessionContamination,
+  type Taint,
 } from "@adjudicate/core";
 import { adjudicateAndAudit, getDefaultRuntimeContext } from "@adjudicate/core/kernel";
 import {
@@ -44,6 +47,8 @@ import {
 } from "./bridge.js";
 import {
   makeOutOfPlanToolResult,
+  routeReadThroughKernel,
+  runBudgetBurnDown,
   translateDecision,
   type LoopAction,
 } from "./decisions.js";
@@ -63,6 +68,13 @@ import type {
 
 const DEFAULT_MAX_ITERATIONS = 8;
 
+/**
+ * 024 — default capability TTL (seconds). The side effect happens in the SAME
+ * turn, milliseconds after the mint, so a short window is correct: a capability
+ * not redeemed almost immediately is stale. Fail-closed past TTL (§D #6).
+ */
+const DEFAULT_CAPABILITY_TTL_SECONDS = 60;
+
 export function createAdjudicatedAgent<K extends string, P, S, C, H>(
   options: AdjudicatedAgentOptions<K, P, S, C, H>,
 ): AdjudicatedAgent<K, P, S, C, H> {
@@ -72,6 +84,24 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
     options.deriveNonce ?? ((args) => args.toolUseId);
   const bridge = options.bridge;
   const traceSink = options.traceSink ?? noopTraceSink;
+
+  // 013/T1+T2: the AuditSink is REQUIRED — the prior fail-open no-op default is
+  // removed. Thread the supplied sink verbatim to every kernel crossing.
+  const auditSink = options.auditSink;
+  // 013/T3 (adapter seam): the tenant kill-switch must be NON-OPTIONAL — an
+  // omitted RuntimeContext no longer skips the kernel kill-switch check. Resolve
+  // to the process-wide default context (whose killSwitch is non-killed unless an
+  // operator engages it) so the guard is ALWAYS consulted, never bypassed (§C:
+  // failure defaults to friction, never bypass). The config-seal path already
+  // uses this same default to ENGAGE the switch (line ~150).
+  const runtimeContext = options.runtimeContext ?? getDefaultRuntimeContext();
+
+  // 042 — session contamination is OFF unless the adopter opts in. When ON, an
+  // untrusted-origin datum entering the session (an authorized READ result)
+  // lowers the taint of every subsequently minted LLM intent via the lattice
+  // meet. Cleared ONLY by the authenticated resume() path (a fresh runLoop with
+  // no flag), never by an LLM action.
+  const contaminationEnabled = options.contamination?.enabled === true;
 
   // Configuration-integrity seal gate (ADR-121, hardened by ADR-137). Verified at
   // the START of every public entry point (send/resume/confirm) per the `reverify`
@@ -143,8 +173,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
       /* best-effort telemetry */
     }
     if (cfg.engageKillSwitchOnMismatch) {
-      const ctx = options.runtimeContext ?? getDefaultRuntimeContext();
-      ctx.killSwitch.set(true, "config_seal_mismatch");
+      runtimeContext.killSwitch.set(true, "config_seal_mismatch");
     }
     traceSink.onTrace({ phase: "config_seal_violation", sessionId, iteration: 0 });
     options.log?.warn?.({ msg: "config seal mismatch — refusing turn", detail: report.errors.join("; ") });
@@ -235,6 +264,13 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
     const events: AgentEvent[] = [...seedEvents];
     let history = initialHistory;
     let lastDecision: Decision | null = null;
+    // 042 — per-turn session contamination flag. Starts clean (a fresh runLoop
+    // call, including the authenticated resume() path, never inherits a prior
+    // turn's contamination — clearing is structural). Set monotonically when an
+    // authorized READ serves an untrusted datum into context; folded into every
+    // subsequently minted LLM intent's taint. Only consulted when contamination
+    // is enabled, so the OFF path is byte-identical to pre-042.
+    let sessionContamination: SessionContamination | undefined = undefined;
 
     if (seedDecision !== null) {
       const single = await processSingleDecision({
@@ -381,49 +417,81 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         }
 
         if (cls.kind === "read") {
-          let readResult: unknown;
-          try {
-            readResult = await options.executor.invokeRead(
-              cls.name,
-              cls.input,
-              state,
-            );
-          } catch (err) {
-            const message =
-              err instanceof Error ? err.message : "executor read failed";
-            const errResult: ToolResultBlock = {
-              toolUseId: tu.id,
-              content: `Tool failed: ${message}`,
-              isError: true,
-            };
-            toolResults.push(errResult);
-            events.push({
-              kind: "tool_result",
-              toolUseId: tu.id,
-              payload: errResult,
-            });
-            continue;
-          }
-          const result: ToolResultBlock = {
+          // 012: the unadjudicated READ fast-path is GONE. A model-proposed
+          // READ no longer dispatches straight to `invokeRead` — it builds an
+          // envelope and crosses `adjudicateAndAudit` (taint gate + audit sink
+          // + ledger), and `invokeRead` runs ONLY on a kernel EXECUTE. Read-
+          // only-ness is the typed `ToolClassification` (`cls.kind === "read"`),
+          // a structural claim, not a re-derived wire-name guess.
+          const readRouted = await routeReadThroughKernel({
+            classification: cls,
             toolUseId: tu.id,
-            content: JSON.stringify({ ok: true, result: readResult }),
-          };
-          toolResults.push(result);
-          events.push({
-            kind: "handler_result",
-            toolUseId: tu.id,
-            result: readResult,
+            sessionId,
+            state,
+            executor: options.executor,
+            taint: sealedPolicy.taint,
+            auditSink,
+            ...(options.ledger !== undefined ? { ledger: options.ledger } : {}),
+            runtimeContext,
+            plan: () => ({
+              visibleReadTools: plan.visibleReadTools,
+              allowedIntents: plan.allowedIntents,
+            }),
+            nonce: deriveNonce({
+              sessionId,
+              toolUseId: tu.id,
+              payload: cls.input,
+            }),
+            historySnapshot: history,
           });
-          events.push({ kind: "tool_result", toolUseId: tu.id, payload: result });
+          toolResults.push(readRouted.toolResult);
+          events.push(...readRouted.extraEvents);
+          // 042 — the laundering leg: an authorized READ that SERVED a datum
+          // reflected untrusted retrieved content back into the model's
+          // context. Contaminate the session (treating the datum as `Retrieved`
+          // / UNTRUSTED) so the NEXT minted LLM intent inherits the taint via
+          // the lattice meet. Monotonic (`contaminateSession` only lowers
+          // trust) and gated on the adopter opt-in.
+          if (contaminationEnabled && readRouted.served) {
+            sessionContamination = contaminateSession(sessionContamination, {
+              origin: "Retrieved",
+              taint: "UNTRUSTED",
+            });
+          }
           continue;
         }
 
         // cls.kind === "intent"
+        // 041 — stamp the provenance SOURCE axis at the single site where
+        // LLM-proposed `tool_use` bytes become an envelope. These bytes were
+        // proposed by the model, so the DECLARED origin = "LLM" (the harness
+        // default), declared next to taint:"UNTRUSTED".
+        //
+        // 042 — fold the per-turn session contamination flag into the minted
+        // taint via the lattice meet at this single envelope-minting seam,
+        // replacing the former unconditional `"UNTRUSTED"` literal. The meet is
+        // monotonic (`mergeTaint` only lowers trust, never raises it), so a
+        // contaminated session can only ADD friction; a clean session
+        // (`undefined` flag) yields exactly the declared taint, byte-identical
+        // to pre-042. The fold happens BEFORE `buildEnvelopeFromToolUse` hashes,
+        // so the contaminated taint is inside the intentHash pre-image (#4) —
+        // an LLM cannot post-hoc flip it. `buildEnvelopeFromToolUse` also stamps
+        // the contaminating origin (when the flag is set) so a contamination-
+        // lowered refusal is attributed `taint:propagation_violation`.
+        const declaredTaint: Taint = "UNTRUSTED";
+        const mintedTaint = mergeTaint(
+          declaredTaint,
+          sessionContamination?.taint ?? declaredTaint,
+        );
         const envelope = buildEnvelopeFromToolUse({
           intentKind: cls.intentKind,
           payload: cls.payload,
           sessionId,
-          taint: "UNTRUSTED",
+          taint: mintedTaint,
+          origin: "LLM",
+          ...(sessionContamination !== undefined
+            ? { contamination: sessionContamination }
+            : {}),
           nonce: deriveNonce({
             sessionId,
             toolUseId: tu.id,
@@ -432,31 +500,53 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         });
         events.push({ kind: "intent_proposed", envelope });
 
-        const { decision } = await adjudicateAndAudit(
+        const { decision, record: firstRecord } = await adjudicateAndAudit(
           envelope as IntentEnvelope<K, P>,
           state,
           sealedPolicy,
           {
-            sink: options.auditSink ?? noopAuditSink(),
+            sink: auditSink,
             ledger: options.ledger,
-            context: options.runtimeContext,
+            context: runtimeContext,
             plan: () => ({
               visibleReadTools: plan.visibleReadTools,
               allowedIntents: plan.allowedIntents,
             }),
           },
         );
-        lastDecision = decision;
-        events.push({ kind: "decision", decision, envelope });
+        // 025 — capabilities-as-budgets: ONLY when the kernel asked for
+        // confirmation, try to satisfy the threshold from a standing budget
+        // grant. On a successful ATOMIC burn-down the loop re-adjudicates with
+        // the kernel `budgetGrant` asserted, yielding a budget-satisfied EXECUTE
+        // that supersedes the REQUEST_CONFIRMATION audit row. Any other outcome
+        // (or no budget configured / over-limit) leaves `decision` untouched.
+        let effectiveDecision = decision;
+        if (decision.kind === "REQUEST_CONFIRMATION" && options.budget) {
+          const budgeted = await tryBudgetSubstitution(
+            envelope as IntentEnvelope<K, P>,
+            state,
+            sealedPolicy,
+            plan,
+            decision,
+            // 025 (LogicReviewer): the predecessor REQUEST_CONFIRMATION row's
+            // `at`. The budget-satisfied EXECUTE's supersedes.predecessorAt MUST
+            // be this value (NOT the second call's clock), so the audit-chain
+            // walker can JOIN the two records that share the envelope intentHash.
+            firstRecord.at,
+          );
+          if (budgeted !== null) effectiveDecision = budgeted;
+        }
+        lastDecision = effectiveDecision;
+        events.push({ kind: "decision", decision: effectiveDecision, envelope });
         traceSink.onTrace({
           phase: "decision_emitted",
           sessionId,
           iteration: iter + 1,
-          decisionKind: decision.kind,
+          decisionKind: effectiveDecision.kind,
         });
 
         const single = await processSingleDecision({
-          decision,
+          decision: effectiveDecision,
           envelope: envelope as IntentEnvelope<K, P>,
           toolUseId: tu.id,
           sessionId,
@@ -518,6 +608,27 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
       state: S;
       historySnapshot: H;
     }): Promise<ProcessResult> {
+      // 024 — cap-gated executor: mint the kernel-shell-signed, single-use
+      // capability in the IMPURE shell AFTER the pure decision (§D: the kernel
+      // decides; the shell signs + persists). Only EXECUTE / REWRITE reach the
+      // executor (invariant #1), so we mint ONLY for those, keyed by the EFFECTIVE
+      // envelope's nonce (the original for EXECUTE, the rewritten one for REWRITE)
+      // — matching the nonce `runExecute` burns by. We sign over the effective
+      // envelope's `intentHash` (which already content-addresses
+      // kind+payload+taint+nonce+actor+origin, §D #4) and `mint` it into 022's
+      // atomic store first-writer-wins. A failed mint (store error / duplicate
+      // live key) leaves NO grant to burn → `runExecute` fail-closes (§D #6). The
+      // gate is OFF by default, so this whole block is skipped and the seam is
+      // byte-identical to pre-024.
+      if (options.capabilityGate !== undefined) {
+        await mintCapabilityForDecision(
+          options.capabilityGate,
+          args.decision,
+          args.envelope,
+          args.sessionId,
+          args.toolUseId,
+        );
+      }
       const t = await translateDecision({
         decision: args.decision,
         envelope: args.envelope,
@@ -530,12 +641,24 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         historySnapshot: args.historySnapshot,
         rk,
         log: options.log,
+        // 024 — thread the cap gate so runExecute burns + verifies the minted
+        // capability before invokeIntent (fail-closed). Absent → pre-024 seam.
+        ...(options.capabilityGate !== undefined
+          ? { capabilityGate: options.capabilityGate }
+          : {}),
         // Item 1: resolve the per-kind executor output contract (if the Pack
         // declared one) so runExecute can validate the executor's output.
         // REWRITE is scope-restricted to payload sanitization and never changes
         // `kind` (the Decision contract; see core/decision.ts), so resolving by
         // the original envelope's kind is correct for both EXECUTE and REWRITE.
         executorContract: options.pack.executorContract?.[args.envelope.kind],
+        // 023 — thread the resource-binding policy so runExecute re-verifies the
+        // kernel-bound payload at the executor seam before `invokeIntent`
+        // (anti-IDOR; defaults to "strict" inside runExecute). The constant-time
+        // comparator the binding uses (`timingSafeHexEqual`) is wired at this seam.
+        ...(options.resourceBindingPolicy !== undefined
+          ? { resourceBindingPolicy: options.resourceBindingPolicy }
+          : {}),
         // SecurityReviewer-003: the confirmation token is a single-use
         // credential authorizing REQUEST_CONFIRMATION → EXECUTE substitution.
         // Never fall back to Math.random() (V8 xorshift-128+ is reversible) —
@@ -556,6 +679,155 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         toolResult: t.toolResult,
         loopAction: t.loopAction,
       };
+    }
+
+    /**
+     * 024 — mint + sign the single-use capability for an EXECUTE / REWRITE
+     * decision and persist it into 022's atomic burn store, keyed by the EFFECTIVE
+     * envelope's nonce. Non-EXECUTE/REWRITE decisions never reach the executor, so
+     * no capability is minted for them. The signer (`gate.mint`) is the injected
+     * node-side ed25519 `signCapability`; adapter-core never imports
+     * `@adjudicate/approval-engine` (that would be a dependency cycle).
+     *
+     * A throwing signer or store is swallowed here (best-effort mint): the grant
+     * simply isn't present, so `runExecute`'s burn returns null and fail-closes
+     * (§D #6 — no fail-open). We log it so the operator sees the cause.
+     */
+    async function mintCapabilityForDecision(
+      gate: NonNullable<typeof options.capabilityGate>,
+      decision: Decision,
+      envelope: IntentEnvelope<K, P>,
+      sessionId: string,
+      toolUseId: string,
+    ): Promise<void> {
+      let effective: IntentEnvelope<K, P>;
+      if (decision.kind === "EXECUTE") {
+        effective = envelope;
+      } else if (decision.kind === "REWRITE") {
+        effective = decision.rewritten as IntentEnvelope<K, P>;
+      } else {
+        return;
+      }
+      try {
+        const capability = await gate.mint({
+          intentHash: effective.intentHash,
+          kernelId: gate.kernelId,
+        });
+        const minted = await gate.burnStore.mint(
+          effective.nonce,
+          capability,
+          gate.ttlSeconds ?? DEFAULT_CAPABILITY_TTL_SECONDS,
+        );
+        if (!minted) {
+          // First-writer-wins suppressed the mint (a live grant already holds the
+          // key — e.g. a replay within the TTL). `runExecute` will burn the
+          // existing grant; if it doesn't match THIS envelope's intentHash the
+          // bind check fail-closes. Log for visibility.
+          options.log?.warn?.({
+            msg: "[adjudicate] capability mint suppressed (live key); burn will fail-closed if it does not bind",
+            sessionId,
+            toolUseId,
+            intentKind: effective.kind,
+          });
+        }
+      } catch (err) {
+        options.log?.warn?.({
+          msg: "[adjudicate] capability mint/sign failed; executor seam will fail-closed",
+          sessionId,
+          toolUseId,
+          intentKind: effective.kind,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    /**
+     * 025 — capabilities-as-budgets: try to satisfy a REQUEST_CONFIRMATION from a
+     * standing budget grant. The decrement-then-assert-grant authority flow:
+     *   1. resolve the grant for the envelope's kind (host authority; no grant ⇒
+     *      no substitution).
+     *   2. ATOMICALLY burn down ONE unit against the grant's `limit` via the
+     *      `evalIncrCheck` Lua primitive (`runBudgetBurnDown`, decisions.ts). The
+     *      shell asserts the grant ONLY after a successful, in-budget decrement.
+     *   3. RE-adjudicate with `deps.budgetGrant` asserted — the kernel substitutes
+     *      EXECUTE + a `budget:satisfied` basis ONLY because the decision is still
+     *      REQUEST_CONFIRMATION (state/taint/auth/business guards re-run; a state
+     *      change since the first pass that flipped the outcome correctly stands).
+     *      The re-adjudication's audit row supersedes the original via
+     *      `budget_satisfied`.
+     * Returns the substituted Decision, or `null` when no substitution happened
+     * (no grant, over-limit / store error, or the re-adjudication did not EXECUTE
+     * — friction-preserving, fail-closed §C/§D #6).
+     */
+    async function tryBudgetSubstitution(
+      envelope: IntentEnvelope<K, P>,
+      state: S,
+      sealedPolicy: typeof options.pack.policy,
+      plan: { visibleReadTools: ReadonlyArray<string>; allowedIntents: ReadonlyArray<string> },
+      original: Decision,
+      // 025 (LogicReviewer): the `at` of the predecessor REQUEST_CONFIRMATION
+      // audit row (the first-pass `adjudicateAndAudit` record). Threaded into the
+      // kernel as `budgetGrant.originalAt` so the budget-satisfied EXECUTE's
+      // `supersedes.predecessorAt` points at the predecessor's `at`, not the
+      // second call's `clock.nowIso()`. Required for `buildSupersessionChains` to
+      // reconstruct the chain instead of emitting a false cycle/singleton.
+      originalAt: string,
+    ): Promise<Decision | null> {
+      const budget = options.budget;
+      if (!budget) return null;
+      let grant;
+      try {
+        grant = await budget.resolveGrant(envelope.kind);
+      } catch (err) {
+        options.log?.warn?.({
+          msg: "[adjudicate] budget grant resolver threw; leaving REQUEST_CONFIRMATION standing (fail-closed)",
+          intentKind: envelope.kind,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      }
+      // No standing budget covers this kind, or the resolver mis-mapped the kind:
+      // leave the REQUEST_CONFIRMATION (friction-preserving). The kind guard here
+      // mirrors the kernel's own `grant.intentKind === envelope.kind` check.
+      if (grant === undefined || grant.intentKind !== envelope.kind) return null;
+      // Atomic burn-down. Over-limit / no atomic primitive / store error ⇒ false
+      // ⇒ leave the REQUEST_CONFIRMATION standing (fail-closed to friction).
+      const inBudget = await runBudgetBurnDown({
+        store: budget.store,
+        grant,
+        rk,
+        ...(options.log !== undefined ? { log: options.log } : {}),
+      });
+      if (!inBudget) {
+        options.log?.info?.({
+          msg: "[adjudicate] budget exhausted or unavailable; REQUEST_CONFIRMATION stands",
+          intentKind: envelope.kind,
+          budgetId: grant.budgetId,
+        });
+        return null;
+      }
+      // In-budget: re-adjudicate with the grant asserted. The kernel substitutes
+      // EXECUTE + budget basis ONLY if the decision is STILL REQUEST_CONFIRMATION.
+      const { decision: substituted } = await adjudicateAndAudit(
+        envelope,
+        state,
+        sealedPolicy,
+        {
+          sink: auditSink,
+          ledger: options.ledger,
+          context: runtimeContext,
+          plan: () => ({
+            visibleReadTools: plan.visibleReadTools,
+            allowedIntents: plan.allowedIntents,
+          }),
+          // 025 (LogicReviewer): assert the grant AND the predecessor row's `at`
+          // so the auto-derived `budget_satisfied` supersedes.predecessorAt joins
+          // the original REQUEST_CONFIRMATION row (not this EXECUTE row's own at).
+          budgetGrant: { ...grant, originalAt },
+        },
+      );
+      void original;
+      return substituted;
     }
   }
 
@@ -630,9 +902,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         args.state,
         sealedPolicy,
         {
-          sink: options.auditSink ?? noopAuditSink(),
+          sink: auditSink,
           ledger: options.ledger,
-          context: options.runtimeContext,
+          context: runtimeContext,
           plan: () => ({
             visibleReadTools: resumePlan.visibleReadTools,
             allowedIntents: resumePlan.allowedIntents,
@@ -700,6 +972,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
           nonce: pending.envelope.nonce,
           actor: pending.envelope.actor,
           taint: pending.envelope.taint,
+          // 041 — origin joined the intentHash recipe; include it so a clean
+          // (untampered) confirmation blob re-derives byte-identically.
+          origin: pending.envelope.origin,
         });
         // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare
         // leaks via timing how many leading hex chars of a tampered intentHash
@@ -747,9 +1022,9 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         args.state,
         sealedPolicy,
         {
-          sink: options.auditSink ?? noopAuditSink(),
+          sink: auditSink,
           ledger: options.ledger,
-          context: options.runtimeContext,
+          context: runtimeContext,
           plan: () => ({
             visibleReadTools: confirmPlan.visibleReadTools,
             allowedIntents: confirmPlan.allowedIntents,
@@ -763,6 +1038,13 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
             // adapter already verified it above via confirmationStore.take();
             // the kernel does not re-verify.
             token: args.confirmationToken,
+            // 071: forward the bound (capability, approver, channel) tuple the
+            // caller resolved this confirmation with. The pending envelope was
+            // already taken (single-use) and hash-verified above; the kernel
+            // additionally gates the override on (and records into the
+            // supersession) this tuple. Conditionally spread so omitting it is
+            // byte-identical to pre-071 confirm() (§D-5).
+            ...(args.binding !== undefined ? { binding: args.binding } : {}),
           },
         },
       );

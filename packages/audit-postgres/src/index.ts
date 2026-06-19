@@ -18,7 +18,10 @@ export {
   type AuditQueryFnWindow,
 } from "./replay.js";
 
-export { legacyV1ToV2 } from "./legacy-v1-compat.js";
+export {
+  legacyV1ToV2,
+  recordedAuthoritySnapshotFromRow,
+} from "./legacy-v1-compat.js";
 
 // ─── SDK-shape readers (Phase 1.5c) ─────────────────────────────────────────
 // Implement the `@adjudicate/admin-sdk` AuditStore + governance-log
@@ -62,10 +65,16 @@ export type {
 } from "./pg-reader.js";
 
 export {
+  RESERVE_GUARD_STAT_SQL,
   UPSERT_GUARD_STAT_SQL,
   createPostgresGuardFireStatsStore,
+  createPostgresReservationStore,
   type CreatePostgresGuardFireStatsStoreDeps,
+  type CreatePostgresReservationStoreDeps,
   type GuardStatsWriter,
+  type ReservationKey,
+  type ReservationOutcome,
+  type ReservationWriter,
 } from "./guard-stats-store.js";
 
 export {

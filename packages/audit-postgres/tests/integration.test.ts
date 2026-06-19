@@ -45,12 +45,16 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   BASIS_CODES,
   basis,
   buildAuditRecord,
   buildEnvelope,
   decisionExecute,
+  hashBindAuditSigner,
+  recordAggregateSnapshot,
+  recordAuthoritySnapshot,
 } from "@adjudicate/core";
 import type { AuditRecord } from "@adjudicate/core";
 import {
@@ -59,6 +63,17 @@ import {
   createPostgresSink,
   recordToRow,
 } from "../src/postgres-sink.js";
+import {
+  createPostgresAuditStore,
+  readVerificationSlot,
+} from "../src/audit-store.js";
+import type { PostgresReader } from "../src/pg-reader.js";
+import {
+  RESERVE_GUARD_STAT_SQL,
+  UPSERT_GUARD_STAT_SQL,
+  createPostgresReservationStore,
+  type ReservationWriter,
+} from "../src/guard-stats-store.js";
 
 const INTEGRATION = process.env.INTEGRATION_TEST === "1";
 const describeIntegration = INTEGRATION ? describe : describe.skip;
@@ -166,6 +181,17 @@ describeIntegration("integration — audit-postgres sink vs a real migrated DB",
           `Underlying: ${(err as Error).message}`,
       );
     }
+    // 093: apply the ADDITIVE migration 012 (idempotent ADD COLUMN IF NOT EXISTS)
+    // up-front so the whole suite runs against the schema the production sink
+    // (which now binds prev_audit_hash + the snapshot columns) expects — the
+    // migration and the new sink SQL ship together. `ibx kernel migrate` bundles
+    // an older audit-postgres copy that stops at 010, so a checkout-local DB will
+    // not have 012 until this runs. Re-runnable: harmless against a DB already at 012.
+    const migration012 = readFileSync(
+      new URL("../migrations/012-add-prev-audit-hash.sql", import.meta.url),
+      "utf-8",
+    );
+    await pool.query(migration012);
     // Pre-clean any rows left by a prior crashed run.
     await pool.query("DELETE FROM intent_audit WHERE session_id = $1", [TEST_SESSION]);
   });
@@ -321,6 +347,170 @@ describeIntegration("integration — audit-postgres sink vs a real migrated DB",
     expect(await countByHash(rec.intentHash)).toBe(1);
   });
 
+  // ── 5b. 092 VERIFY-ON-READ against the REAL table ─────────────────────────
+  // Write a SIGNED record through the production sink, then read it back via the
+  // production cold-store (createPostgresAuditStore) and assert the verify-on-read
+  // verdict round-trips: an intact signed row verifies, and a row whose audit_hash
+  // is corrupted in-DB is FLAGGED (never returned as authoritative). This pins the
+  // full signature round-trip (signature_jsonb persisted by migration 008 →
+  // rowToRecord rehydration → verifyAuditRecord) end-to-end against Postgres.
+  function readerFor(p: PgPoolLike): PostgresReader {
+    return {
+      async query<R>(sql: string, params: readonly unknown[]): Promise<readonly R[]> {
+        const r = await p.query(sql, params);
+        return r.rows as unknown as readonly R[];
+      },
+    };
+  }
+
+  it("verify-on-read: a signed row round-trips to {verified:true} via the cold store", async () => {
+    const env = buildEnvelope({
+      kind: "order.item.add",
+      payload: { sku: "vor-signed", qty: 1 },
+      actor: { principal: "llm", sessionId: TEST_SESSION },
+      taint: "UNTRUSTED",
+      nonce: "n-vor-signed",
+      createdAt: "2026-06-15T12:00:00.000Z",
+    });
+    const rec = buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]),
+      durationMs: 7,
+      at: "2026-06-15T12:25:00.000Z",
+      signer: hashBindAuditSigner("kms://integration-key"),
+    });
+    expect(rec.signature).toBeDefined();
+    await sinkFor(pool).emit(rec);
+
+    const store = createPostgresAuditStore({ reader: readerFor(pool) });
+
+    // List read carries the verdict, index-aligned.
+    const result = await store.query({ limit: 100, intentHash: rec.intentHash });
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]!.signature).toEqual(rec.signature);
+    expect(result.verifications).toHaveLength(1);
+    expect(result.verifications![0]!.verified).toBe(true);
+
+    // Single-record read carries the verdict slot.
+    const single = await store.getByIntentHash(rec.intentHash);
+    expect(single).not.toBeNull();
+    expect(readVerificationSlot(single!)!.verified).toBe(true);
+  });
+
+  it("verify-on-read: a row corrupted in-DB is FLAGGED tampered, never authoritative", async () => {
+    const env = buildEnvelope({
+      kind: "order.item.add",
+      payload: { sku: "vor-tamper", qty: 1 },
+      actor: { principal: "llm", sessionId: TEST_SESSION },
+      taint: "UNTRUSTED",
+      nonce: "n-vor-tamper",
+      createdAt: "2026-06-15T12:00:00.000Z",
+    });
+    const rec = buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]),
+      durationMs: 7,
+      at: "2026-06-15T12:26:00.000Z",
+    });
+    await sinkFor(pool).emit(rec);
+
+    // Simulate an attacker with store-write access flipping a hashed column
+    // WITHOUT updating audit_hash — the read path must catch it.
+    await pool.query(
+      "UPDATE intent_audit SET duration_ms = 99999 WHERE intent_hash = $1 AND recorded_at = $2",
+      [rec.intentHash, rec.at],
+    );
+
+    const store = createPostgresAuditStore({ reader: readerFor(pool) });
+    const result = await store.query({ limit: 100, intentHash: rec.intentHash });
+    // The row is still RETURNED (forensics) but its verdict is verified:false.
+    expect(result.records).toHaveLength(1);
+    const v = result.verifications![0]!;
+    expect(v.verified).toBe(false);
+    if (v.verified === false) expect(v.reason).toBe("tampered");
+  });
+
+  // ── 5c. 093 — migration 012 applies + chained/snapshot record round-trips ──
+  // Apply the ADDITIVE migration 012 (idempotent ADD COLUMN IF NOT EXISTS) so a
+  // DB migrated only through 011 gains prev_audit_hash + the snapshot columns.
+  // Then write a record carrying a chain link AND both recorded snapshots through
+  // the PRODUCTION sink, read it back via the PRODUCTION cold store, and assert:
+  //   (a) prevAuditHash + both snapshots round-trip losslessly, AND
+  //   (b) verify-on-read stays {verified:true} — the 092-F1 false-tamper closure.
+  // BEFORE 093 the snapshots were unpersisted → rowToRecord omitted them →
+  // re-derived auditHash differed → verify-on-read FALSELY flagged tampered.
+  it("migration 012 applies + a chained/snapshot record round-trips to {verified:true}", async () => {
+    const migration012 = readFileSync(
+      new URL("../migrations/012-add-prev-audit-hash.sql", import.meta.url),
+      "utf-8",
+    );
+    // Idempotent + additive: safe to run against a DB already at 012 or only 011.
+    await pool.query(migration012);
+
+    // Schema guard: the three additive columns now exist on the real table.
+    const cols = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'intent_audit'
+          AND column_name IN ('prev_audit_hash','authority_snapshot_jsonb','aggregate_snapshot_jsonb')`,
+    );
+    expect(cols.rows.map((r) => r.column_name).sort()).toEqual([
+      "aggregate_snapshot_jsonb",
+      "authority_snapshot_jsonb",
+      "prev_audit_hash",
+    ]);
+
+    const env = buildEnvelope({
+      kind: "order.item.add",
+      payload: { sku: "chain-093", qty: 1 },
+      actor: { principal: "llm", sessionId: TEST_SESSION },
+      taint: "UNTRUSTED",
+      nonce: "n-chain-093",
+      createdAt: "2026-06-15T12:00:00.000Z",
+    });
+    const rec = buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]),
+      durationMs: 7,
+      at: "2026-06-15T12:27:00.000Z",
+      prevAuditHash: "a".repeat(64),
+      authoritySnapshot: recordAuthoritySnapshot({
+        edges: [
+          {
+            principal: "user:42",
+            relationship: "owns",
+            resource: "acct:7",
+            permits: { actions: ["transfer"], limits: { perTx: 1000 } },
+          },
+        ],
+      }),
+      aggregateSnapshot: recordAggregateSnapshot({
+        windows: { "acct:7|daily": 250 },
+        at: "2026-06-15T11:59:00.000Z",
+      }),
+    });
+    await sinkFor(pool).emit(rec);
+
+    // Raw column check: prev_audit_hash bound, snapshots persisted as JSONB.
+    const back = await pool.query(
+      `SELECT prev_audit_hash, authority_snapshot_jsonb, aggregate_snapshot_jsonb
+         FROM intent_audit WHERE intent_hash = $1 AND recorded_at = $2`,
+      [rec.intentHash, rec.at],
+    );
+    expect(back.rows).toHaveLength(1);
+    expect(back.rows[0]!.prev_audit_hash).toBe("a".repeat(64));
+
+    // Cold-store read: round-trip fidelity + verify-on-read stays verified.
+    const store = createPostgresAuditStore({ reader: readerFor(pool) });
+    const result = await store.query({ limit: 100, intentHash: rec.intentHash });
+    expect(result.records).toHaveLength(1);
+    const recovered = result.records[0]!;
+    expect(recovered.prevAuditHash).toBe("a".repeat(64));
+    expect(recovered.authoritySnapshot).toEqual(rec.authoritySnapshot);
+    expect(recovered.aggregateSnapshot).toEqual(rec.aggregateSnapshot);
+    expect(recovered.auditHash).toBe(rec.auditHash);
+    expect(result.verifications![0]!.verified).toBe(true);
+  });
+
   // ── 6. MIGRATION 009 IS APPLIED TO THE REAL TABLE (direct schema guard) ───
   // The arbiter the sink's ON CONFLICT depends on must be UNIQUE on the live
   // intent_audit. If 009 regressed, indisunique is false and this fails.
@@ -379,5 +569,287 @@ describeIntegration("integration — audit-postgres sink vs a real migrated DB",
     } finally {
       await pool.query(`DROP TABLE IF EXISTS ${T}`);
     }
+  });
+});
+
+// ── 052: the additive guard-stats upsert against a live migrated table ────────
+// Exercises the PRODUCTION `UPSERT_GUARD_STAT_SQL` against a real table shaped
+// EXACTLY like migration-006 (`pack_id NOT NULL DEFAULT ''` + the 5-column PK).
+// Proves: (a) the additive `ON CONFLICT ... DO UPDATE SET count = count +
+// EXCLUDED.count` arbiter is backed by a REAL PK (no silent 42P10); (b) repeated
+// concurrent delta-writes COALESCE atomically to the exact total (no over-commit,
+// no lost-update, no triangular over-count); (c) the no-pack '' sentinel keys a
+// single row (a NULL would either fail the PK NOT NULL or split into duplicates).
+// Self-contained: builds + drops a throwaway audit_guard_stats-shaped table so it
+// does not depend on migration-006 being applied to the shared DB.
+describeIntegration("integration — 052 additive guard-stats upsert vs a real DB", () => {
+  let pool: PgPoolLike;
+  const T = "__it_052_guard_stats";
+
+  beforeAll(async () => {
+    if (!CONN) {
+      throw new Error(
+        "INTEGRATION_TEST=1 but no PG_TEST_URL/DATABASE_URL set. See header.",
+      );
+    }
+    const pg = (await import("pg")) as unknown as {
+      default?: { Pool: new (cfg: { connectionString: string }) => PgPoolLike };
+      Pool?: new (cfg: { connectionString: string }) => PgPoolLike;
+    };
+    const Pool = (pg.default?.Pool ?? pg.Pool)!;
+    pool = new Pool({ connectionString: CONN });
+    // Build the table EXACTLY as migration-006 declares it (PK + '' sentinel).
+    await pool.query(`DROP TABLE IF EXISTS ${T}`);
+    await pool.query(
+      `CREATE TABLE ${T} (
+        guard_name    TEXT   NOT NULL,
+        guard_phase   TEXT   NOT NULL,
+        decision_kind TEXT   NOT NULL,
+        day           DATE   NOT NULL,
+        pack_id       TEXT   NOT NULL DEFAULT '',
+        count         BIGINT NOT NULL DEFAULT 0,
+        CONSTRAINT ${T}_pk PRIMARY KEY (guard_name, guard_phase, decision_kind, day, pack_id)
+      )`,
+    );
+  });
+
+  afterAll(async () => {
+    if (pool) {
+      await pool.query(`DROP TABLE IF EXISTS ${T}`);
+      await pool.end();
+    }
+  });
+
+  /** Run the PRODUCTION upsert SQL against the throwaway table. */
+  function upsert(packId: string, delta: number): Promise<unknown> {
+    // `UPSERT_GUARD_STAT_SQL` names `audit_guard_stats` TWICE (the INSERT INTO
+    // target AND the `DO UPDATE SET count = audit_guard_stats.count + …`
+    // qualified reference). A single `.replace()` rewrites only the first, so the
+    // second reference points at the real table that is NOT in the statement's
+    // FROM-clause → Postgres "missing FROM-clause entry for table". Use
+    // `replaceAll` so the throwaway table is substituted everywhere. (Pre-existing
+    // 052-suite bug surfaced once the integration gate ran against a live DB.)
+    return pool.query(UPSERT_GUARD_STAT_SQL.replaceAll("audit_guard_stats", T), [
+      "amount-threshold",
+      "business",
+      "EXECUTE",
+      "2026-05-13",
+      packId,
+      delta,
+    ]);
+  }
+
+  async function totalFor(packId: string): Promise<number> {
+    const r = await pool.query(
+      `SELECT count FROM ${T} WHERE pack_id = $1 AND guard_name = $2`,
+      [packId, "amount-threshold"],
+    );
+    return r.rows.length ? Number(r.rows[0]!.count) : 0;
+  }
+
+  it("the additive ON CONFLICT upsert is backed by a real PK (no 42P10) and coalesces", async () => {
+    // First write inserts; subsequent writes on the SAME PK accumulate additively.
+    await upsert("", 1);
+    await upsert("", 1);
+    await upsert("", 1);
+    expect(await totalFor("")).toBe(3);
+    const rows = await pool.query(`SELECT count(*)::int AS n FROM ${T}`);
+    expect(Number(rows.rows[0]!.n)).toBe(1); // one PK row, not 3 duplicates
+  });
+
+  it("N CONCURRENT delta-writes converge on EXACTLY N (atomic accumulate, no over-commit)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const N = 100;
+    await Promise.all(Array.from({ length: N }, () => upsert("", 1)));
+    expect(await totalFor("")).toBe(N);
+  });
+
+  it("the '' pack sentinel keys ONE row (a NULL would split/fail the PK)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    await upsert("", 2);
+    await upsert("pix", 5); // distinct pack → distinct PK row
+    await upsert("", 3);
+    expect(await totalFor("")).toBe(5);
+    expect(await totalFor("pix")).toBe(5);
+    const rows = await pool.query(`SELECT count(*)::int AS n FROM ${T}`);
+    expect(Number(rows.rows[0]!.n)).toBe(2);
+  });
+});
+
+// ── 053: the transactional reservation over-commit guard vs a real DB ─────────
+// Exercises the PRODUCTION `RESERVE_GUARD_STAT_SQL` against a real table shaped
+// EXACTLY like migration-006 (`pack_id NOT NULL DEFAULT ''` + the 5-column PK).
+// Proves the LOAD-BEARING claims of plan 053:
+//   (a) the cap-guarded `ON CONFLICT … DO UPDATE … WHERE` arbiter is backed by a
+//       REAL PK (no silent 42P10 → no unenforced cap, the migration-006 lesson);
+//   (b) two concurrent over-cap reservation decrements do NOT over-commit — one
+//       wins, one refuses (the durable single-statement form closes the park
+//       counter's TOCTOU race);
+//   (c) a fresh-key first claim over the cap inserts ZERO rows (the SELECT…WHERE
+//       fresh-key gate), and the at-cap value is reservable (strict over-cap).
+// Self-contained: builds + drops a throwaway audit_guard_stats-shaped table so it
+// does not depend on migration-006 being applied to the shared DB.
+describeIntegration("integration — 053 reservation over-commit guard vs a real DB", () => {
+  let pool: PgPoolLike;
+  const T = "__it_053_reservation";
+
+  beforeAll(async () => {
+    if (!CONN) {
+      throw new Error(
+        "INTEGRATION_TEST=1 but no PG_TEST_URL/DATABASE_URL set. See header.",
+      );
+    }
+    const pg = (await import("pg")) as unknown as {
+      default?: { Pool: new (cfg: { connectionString: string }) => PgPoolLike };
+      Pool?: new (cfg: { connectionString: string }) => PgPoolLike;
+    };
+    const Pool = (pg.default?.Pool ?? pg.Pool)!;
+    pool = new Pool({ connectionString: CONN });
+    // Build the table EXACTLY as migration-006 declares it (PK + '' sentinel) —
+    // the same shape the reservation arbiter (ON CONFLICT) targets.
+    await pool.query(`DROP TABLE IF EXISTS ${T}`);
+    await pool.query(
+      `CREATE TABLE ${T} (
+        guard_name    TEXT   NOT NULL,
+        guard_phase   TEXT   NOT NULL,
+        decision_kind TEXT   NOT NULL,
+        day           DATE   NOT NULL,
+        pack_id       TEXT   NOT NULL DEFAULT '',
+        count         BIGINT NOT NULL DEFAULT 0,
+        CONSTRAINT ${T}_pk PRIMARY KEY (guard_name, guard_phase, decision_kind, day, pack_id)
+      )`,
+    );
+  });
+
+  afterAll(async () => {
+    if (pool) {
+      await pool.query(`DROP TABLE IF EXISTS ${T}`);
+      await pool.end();
+    }
+  });
+
+  /**
+   * The PRODUCTION reservation store bound to a real pg writer running
+   * `RESERVE_GUARD_STAT_SQL` against the throwaway table. The single-statement
+   * affected-row count IS the over-commit verdict (the store maps 0 → refuse).
+   *
+   * `RESERVE_GUARD_STAT_SQL` names `audit_guard_stats` twice (INSERT target +
+   * the `DO UPDATE SET count = audit_guard_stats.count + …` qualified ref). A
+   * single `.replace()` would rewrite only the first → "missing FROM-clause
+   * entry"; `replaceAll` substitutes the throwaway table everywhere (the same
+   * 052-suite lesson).
+   */
+  function reservationStore() {
+    const writer: ReservationWriter = {
+      async reserveGuardStat(a) {
+        const r = await pool.query(
+          RESERVE_GUARD_STAT_SQL.replaceAll("audit_guard_stats", T),
+          [a.guardName, a.guardPhase, a.decisionKind, a.day, a.packId, a.delta, a.cap],
+        );
+        // The affected-row count from the single atomic statement is the verdict.
+        return r.rowCount ?? 0;
+      },
+    };
+    return createPostgresReservationStore({ writer });
+  }
+
+  function keyFor(cap: number, packId: string | null = null) {
+    return {
+      guardName: "acct_7",
+      guardPhase: "business" as const,
+      decisionKind: "EXECUTE" as const,
+      day: "2026-06-19",
+      packId,
+      cap,
+    };
+  }
+
+  async function reservedTotal(packId = ""): Promise<number> {
+    const r = await pool.query(
+      `SELECT count FROM ${T} WHERE pack_id = $1 AND guard_name = $2`,
+      [packId, "acct_7"],
+    );
+    return r.rows.length ? Number(r.rows[0]!.count) : 0;
+  }
+
+  it("the cap-guarded ON CONFLICT arbiter is backed by a real PK (no 42P10) and reserves up to the cap", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    const cap = 5;
+    // Five single-unit claims fit exactly at the cap. (If the ON CONFLICT
+    // arbiter were not a real PK, the first conflicting claim would 42P10 here.)
+    for (let i = 0; i < cap; i++) {
+      expect(await store.reserve(keyFor(cap), 1)).toEqual({ reserved: true });
+    }
+    expect(await reservedTotal()).toBe(cap);
+    // The 6th claim crosses the cap → fail-closed over_cap; the durable total is
+    // unchanged (the DO UPDATE WHERE matched zero rows).
+    expect(await store.reserve(keyFor(cap), 1)).toEqual({
+      reserved: false,
+      reason: "over_cap",
+    });
+    expect(await reservedTotal()).toBe(cap);
+    // Exactly ONE PK row (the '' sentinel), never duplicates.
+    const rows = await pool.query(`SELECT count(*)::int AS n FROM ${T}`);
+    expect(Number(rows.rows[0]!.n)).toBe(1);
+  });
+
+  it("two CONCURRENT over-cap decrements do NOT over-commit — one wins, one refuses", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    const cap = 5;
+    // Pre-reserve cap−1 = 4 so exactly ONE unit of headroom remains.
+    expect(await store.reserve(keyFor(cap), 4)).toEqual({ reserved: true });
+    expect(await reservedTotal()).toBe(4);
+
+    // Two concurrent claims of 1 each contend for the LAST slot. Against a real
+    // DB the single atomic statement serializes them: exactly ONE wins.
+    const [a, b] = await Promise.all([
+      store.reserve(keyFor(cap), 1),
+      store.reserve(keyFor(cap), 1),
+    ]);
+    const wins = [a, b].filter((o) => o.reserved).length;
+    expect(wins).toBe(1); // NOT 2 — the park-counter TOCTOU race would over-commit
+    expect(await reservedTotal()).toBe(cap); // exactly at cap, never 6
+  });
+
+  it("N concurrent single-unit claims converge on EXACTLY the cap (no over-commit at scale)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    const cap = 50;
+    const attempts = 200; // 4× the cap of contending claims
+    const outcomes = await Promise.all(
+      Array.from({ length: attempts }, () => store.reserve(keyFor(cap), 1)),
+    );
+    const reserved = outcomes.filter((o) => o.reserved).length;
+    expect(reserved).toBe(cap); // exactly `cap` claims win
+    expect(await reservedTotal()).toBe(cap); // durable total is exactly the cap
+  });
+
+  it("a FRESH-KEY first claim over the cap inserts ZERO rows (the SELECT…WHERE gate)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    // No prior row: a first claim of 11 against cap 10 must NOT land a row.
+    expect(await store.reserve(keyFor(10), 11)).toEqual({
+      reserved: false,
+      reason: "over_cap",
+    });
+    const rows = await pool.query(`SELECT count(*)::int AS n FROM ${T}`);
+    expect(Number(rows.rows[0]!.n)).toBe(0); // the fresh-key over-cap hole is closed
+  });
+
+  it("distinct packIds key distinct reservation rows (independent caps)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    expect(await store.reserve(keyFor(3, "pix"), 3)).toEqual({ reserved: true });
+    expect(await store.reserve(keyFor(3, "pix"), 1)).toEqual({
+      reserved: false,
+      reason: "over_cap",
+    }); // pix is at its cap …
+    expect(await store.reserve(keyFor(3, "boleto"), 2)).toEqual({
+      reserved: true,
+    }); // … but boleto has its own headroom
+    expect(await reservedTotal("pix")).toBe(3);
+    expect(await reservedTotal("boleto")).toBe(2);
   });
 });

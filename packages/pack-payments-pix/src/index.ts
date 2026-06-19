@@ -78,6 +78,7 @@ export {
   PIX_DEFAULT_DEFER_TIMEOUT_MS,
   PIX_DEFAULT_EXPIRY_SECONDS,
   pixTaintPolicy,
+  type PixAuthorityContext,
   type PixCharge,
   type PixChargeConfirmPayload,
   type PixChargeCreatePayload,
@@ -106,7 +107,11 @@ export {
   pixPolicyBundle,
 } from "./policies.js";
 
-export { PIX_TOOLS, pixCapabilityPlanner } from "./capabilities.js";
+export {
+  PIX_BUDGET_CAPABLE_INTENTS,
+  PIX_TOOLS,
+  pixCapabilityPlanner,
+} from "./capabilities.js";
 
 export { inMemoryPixHandlers } from "./handlers.js";
 

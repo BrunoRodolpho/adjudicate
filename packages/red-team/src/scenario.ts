@@ -1,10 +1,34 @@
-import type { DecisionKind, PolicyBundle, Taint } from "@adjudicate/core";
+import type { DecisionKind, Origin, PolicyBundle, Taint } from "@adjudicate/core";
 
-/** The three adversarial vectors v0 ships. Additive — new vectors land MINOR. */
+/**
+ * The adversarial vectors red-team ships. Additive — new vectors land MINOR.
+ *
+ * 041 opened the closed seam for the PROVENANCE vector: a proposal whose
+ * contaminating `origin` (e.g. `"Retrieved"` / `"ExternalAPI"`) should be
+ * caught once the origin axis is consumed. 042 LANDS that vector's generator
+ * (`generateProvenanceInjectionEnvelopes`): an UNTRUSTED, system-only-kind
+ * proposal stamped with a contaminating origin, sourced from the planner's
+ * `visibleReadTools` (the READ→inject→intent path). The kernel attributes such a
+ * sub-minimum refusal to `taint:propagation_violation`, so the scenario is
+ * genuinely defended (REFUSE), not a clean EXECUTE.
+ *
+ * 043 LANDS the `read_inject_intent` vector — the laundering case the 042 vector
+ * cannot reach. 042 probes ELEVATED-min kinds (where the trust-rank floor
+ * already short-circuits a sub-minimum proposal); 043 probes an UNTRUSTED-min
+ * MUTATING kind whose `1 >= 1` rank check ALWAYS passes regardless of where the
+ * bytes came from. Pre-043 such a `READ`→inject→intent path re-enters
+ * byte-identical to a user-induced intent and CLEANLY EXECUTEs. The 043 kernel
+ * origin-aware policy branch (when the pack declares the kind origin-required)
+ * raises the effective minimum for the contaminating-origin case, turning that
+ * always-pass into a REFUSE attributed to `taint:propagation_violation` — the
+ * vector proves the branch catches what current packs honestly fail.
+ */
 export type AttackVector =
   | "prompt_injection"
   | "taint_escalation"
-  | "tool_scope_violation";
+  | "tool_scope_violation"
+  | "provenance_injection"
+  | "read_inject_intent";
 
 /** Intent shape (structurally identical to the CLI `Scenario.intent`). */
 export interface ScenarioIntent {
@@ -17,6 +41,23 @@ export interface ScenarioIntent {
   readonly taint: Taint;
   readonly nonce: string;
   readonly createdAt?: string;
+  /**
+   * 042 — optional harness-stamped provenance source axis. Canonical-drop-safe:
+   * omitted on the existing vectors so their envelopes hash and decide EXACTLY
+   * as before (the runner only threads it when present, and `buildEnvelope`
+   * defaults it to the LLM source either way). A provenance-injection vector
+   * supplies a CONTAMINATING origin (`"Retrieved"` / `"ExternalAPI"`) so the
+   * kernel attributes the taint refusal to `propagation_violation`.
+   */
+  readonly origin?: Origin;
+  /**
+   * 031 — optional per-kind resource refs. Canonical-drop-safe: omitted on the
+   * existing vectors so their envelopes hash exactly as before; a vector that
+   * supplies it gets a v3-with-refs envelope (the runner threads it through
+   * `buildEnvelope`). Resource-refs do NOT weaken the taint short-circuit — a
+   * sub-minimum intent is still REFUSEd whether or not it declares an owner.
+   */
+  readonly resourceRefs?: Readonly<Record<string, string>>;
 }
 
 /**

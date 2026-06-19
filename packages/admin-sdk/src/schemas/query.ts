@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AuditRecordSchema } from "./audit.js";
+import { AuditRecordSchema, AuditRecordVerificationSchema } from "./audit.js";
 import { DecisionKindSchema } from "./decision.js";
 import { TaintSchema } from "./envelope.js";
 import { IntentHashSchema, IsoTimestampSchema } from "./common.js";
@@ -51,6 +51,44 @@ export const AuditQuerySchema = z.object({
 export const AuditQueryResultSchema = z.object({
   records: z.array(AuditRecordSchema).readonly(),
   nextCursor: z.string().optional(),
+  /**
+   * 092 — verify-on-read verdicts, ALIGNED BY INDEX with `records` (so
+   * `verifications[i]` is the verdict for `records[i]`). OPTIONAL + additive: a
+   * store that does not verify on read (the in-memory reference) simply omits it,
+   * and existing consumers ignore it. The Postgres cold-store read path
+   * (`createPostgresAuditStore`) populates it by running `verifyAuditRecord` over
+   * each row so the admin UI can flag tampered / forged-signature records rather
+   * than rendering them as authoritative (§C: reads only ADD friction).
+   *
+   * Length invariant: when present, `verifications.length === records.length`.
+   */
+  verifications: z.array(AuditRecordVerificationSchema).readonly().optional(),
+  /**
+   * 093 — inter-record HASH-CHAIN continuity over the returned records, grouped
+   * per stream (session). OPTIONAL + additive: surfaced by the admin handler so
+   * the console can render "chain intact" vs "N broken links" alongside the
+   * per-record tamper verdicts. A `break` is a record whose `prevAuditHash` does
+   * not equal the immediately-preceding record's `auditHash` in the same stream
+   * (a deleted / reordered record) — distinct from a per-record tamper. The
+   * window is read-order-scoped (out-of-window predecessors are not flagged), so
+   * this is a continuity SIGNAL for the rendered page, not a global proof.
+   */
+  chainIntegrity: z
+    .object({
+      /** Records that carried a chain link checkable against an in-window predecessor. */
+      checked: z.number().int(),
+      /** Records whose chain link did NOT match their in-window predecessor. */
+      breaks: z.array(
+        z.object({
+          intentHash: IntentHashSchema,
+          /** The link the record claims. */
+          prevAuditHash: z.string(),
+          /** The in-window predecessor's actual auditHash. */
+          predecessorAuditHash: z.string(),
+        }),
+      ).readonly(),
+    })
+    .optional(),
 });
 
 export type AuditQuery = z.infer<typeof AuditQuerySchema>;

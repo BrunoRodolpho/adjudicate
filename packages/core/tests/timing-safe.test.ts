@@ -9,7 +9,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { timingSafeHexEqual } from "../src/index.js";
+import {
+  bindCapability,
+  capabilityPreimage,
+  timingSafeHexEqual,
+  verifyCapability,
+} from "../src/index.js";
+import { sha256Canonical } from "../src/hash.js";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -59,5 +65,77 @@ describe("timingSafeHexEqual", () => {
     for (const [x, y] of cases) {
       expect(timingSafeHexEqual(x, y)).toBe(x === y);
     }
+  });
+});
+
+describe("021 — verifyCapability (constant-time, fail-safe hash-bind leg)", () => {
+  const body = {
+    intentHash: "a".repeat(64),
+    kernelId: "kernel://prod/us-east-1",
+  };
+  const cap = bindCapability(body, "key-1");
+
+  it("a freshly-bound capability verifies", () => {
+    expect(verifyCapability(cap)).toBe(true);
+  });
+
+  it("the bound signature value IS the hash of the pre-image (non-vacuous)", () => {
+    // Pin that bind/verify are not trivially true: the value equals the genuine
+    // sha256 over the pre-image string, not some constant.
+    expect(cap.signature.value).toBe(sha256Canonical(capabilityPreimage(body)));
+    expect(cap.signature.value).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("a tampered intentHash fails (re-derived pre-image no longer matches)", () => {
+    expect(verifyCapability({ ...cap, intentHash: "b".repeat(64) })).toBe(false);
+  });
+
+  it("a tampered kernelId fails", () => {
+    expect(verifyCapability({ ...cap, kernelId: "kernel://attacker" })).toBe(
+      false,
+    );
+  });
+
+  it("a tampered signature value fails", () => {
+    expect(
+      verifyCapability({
+        ...cap,
+        signature: { ...cap.signature, value: "c".repeat(64) },
+      }),
+    ).toBe(false);
+  });
+
+  it("a tampered FIRST char of the signature still fails (constant-time, no early-exit)", () => {
+    const flipped = "0" + cap.signature.value.slice(1);
+    expect(flipped).not.toBe(cap.signature.value);
+    expect(
+      verifyCapability({ ...cap, signature: { ...cap.signature, value: flipped } }),
+    ).toBe(false);
+  });
+
+  it("length-mismatch / non-string signature value returns false WITHOUT throwing", () => {
+    expect(() =>
+      verifyCapability({ ...cap, signature: { ...cap.signature, value: "short" } }),
+    ).not.toThrow();
+    expect(
+      verifyCapability({ ...cap, signature: { ...cap.signature, value: "short" } }),
+    ).toBe(false);
+    expect(
+      verifyCapability({
+        ...cap,
+        // intentionally malformed shape
+        signature: { ...cap.signature, value: 123 as unknown as string },
+      }),
+    ).toBe(false);
+  });
+
+  it("malformed / missing fields return false without throwing", () => {
+    expect(() => verifyCapability(null)).not.toThrow();
+    expect(verifyCapability(null)).toBe(false);
+    expect(verifyCapability(undefined)).toBe(false);
+    expect(verifyCapability(42)).toBe(false);
+    expect(verifyCapability({})).toBe(false);
+    expect(verifyCapability({ intentHash: "a".repeat(64) })).toBe(false); // no kernelId / sig
+    expect(verifyCapability({ ...body, signature: null })).toBe(false);
   });
 });

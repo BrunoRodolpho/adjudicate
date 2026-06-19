@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { type PackV0 } from "@adjudicate/core";
+import { noopAuditSink, type PackV0 } from "@adjudicate/core";
 import {
   createAdjudicatedAgent,
   createInMemoryConfirmationStore,
@@ -217,8 +217,10 @@ describe("createQuickAgent", () => {
       renderer,
       bridge: bridge(),
       executor: makeExecutor(),
-      // Disable the default sink so the comparison agent (no sink) matches.
-      auditSink: null,
+      // 013/T1: auditSink is required (the old `null`-disable fail-open path is
+      // gone). Wire the SAME explicit no-op into both agents so the
+      // "delegates verbatim" comparison stays valid.
+      auditSink: noopAuditSink(),
     });
 
     const direct = createAdjudicatedAgent<
@@ -235,6 +237,7 @@ describe("createQuickAgent", () => {
       deferStore: createInMemoryDeferStore(),
       confirmationStore: createInMemoryConfirmationStore<string[]>(),
       ledger: createMemoryLedger(),
+      auditSink: noopAuditSink(),
     });
 
     const [a, b] = await Promise.all([

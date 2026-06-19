@@ -51,8 +51,16 @@ export {
 export {
   replayWithIntegrity,
   isReplayIntegrityClean,
+  // 093 — external signed checkpoint over the chain tip.
+  AUDIT_CHECKPOINT_PREIMAGE_VERSION,
+  auditCheckpointPreimage,
+  emitAuditCheckpoint,
+  verifyAuditCheckpoint,
   type IntegrityFailure,
   type ReplayIntegrityReport,
+  type AuditCheckpoint,
+  type AuditCheckpointVerification,
+  type VerifyAuditCheckpointOptions,
 } from "./replay-integrity.js";
 export {
   explainReplayReport,

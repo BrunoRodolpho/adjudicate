@@ -1,7 +1,8 @@
 # ADR-112 — Observability + Migrate package introduction
 
-**Status**: Accepted (2026-05-18 — M3 overnight execution)
-**Related**: ADR-101 (kernel audit emission), ADR-103 (runtime context), ADR-105 (closed vocabulary), ADR-124 (hallucination scoring)
+- **Status:** Accepted
+- **Date:** 2026-05-18 (M3 overnight execution)
+- **Related:** ADR-101 (kernel audit emission), ADR-103 (runtime context), ADR-105 (closed vocabulary), ADR-124 (hallucination scoring)
 
 ## Context
 

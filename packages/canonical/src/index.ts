@@ -70,3 +70,46 @@ export function canonicalJson(value: unknown): string {
 export function sha256Canonical(value: unknown): string {
   return bytesToHex(sha256(utf8ToBytes(canonicalJson(value))));
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// 032 · Injected-snapshot serialization (authority-graph + future snapshots)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// The merged architecture injects IMMUTABLE SNAPSHOTS into the one kernel
+// decision (index §B): authority-graph facts, aggregate/limit snapshots,
+// compliance signals, the signed policy bundle. Each is recorded into the audit
+// record so the pure kernel REPLAYS over the recorded inputs bit-identically
+// (index §D, invariant #5). For that to hold, a snapshot must serialize the
+// SAME way the kernel hashes `intentHash` — RFC 8785 / JCS via THIS encoder,
+// never a fork (index §B canonical-JSON caveat; 032 §3/§7).
+//
+// `canonicalSnapshot` / `sha256SnapshotCanonical` are thin, intent-revealing
+// aliases over `canonicalJson` / `sha256Canonical`: they DELEGATE byte-for-byte
+// (no forked canonicalizer — same NFC normalization, same RangeError on
+// non-finite, same undefined-elision) so a recorded authority-graph snapshot
+// (032) replays exactly. The dedicated names give snapshot call sites (032 T3,
+// 033 inject, 052 aggregate) a self-documenting hook without re-implementing
+// canonicalization. Generic over `unknown` because `@adjudicate/canonical` sits
+// BELOW `@adjudicate/core` in the package graph and cannot import the
+// `AuthorityGraph` type; core passes the typed snapshot in.
+
+/**
+ * Serialize an injected snapshot (e.g. an authority-graph snapshot, 032) to
+ * canonical JSON. Identical bytes to `canonicalJson` — provided as a
+ * self-documenting alias for snapshot serialization call sites so a recorded
+ * snapshot replays bit-identically (invariant #5). No forked canonicalizer.
+ */
+export function canonicalSnapshot(snapshot: unknown): string {
+  return canonicalJson(snapshot);
+}
+
+/**
+ * Content-address an injected snapshot (e.g. an authority-graph snapshot, 032):
+ * sha256 hex over its canonical JSON. Identical bytes to `sha256Canonical` —
+ * the dedicated name pins snapshot hashing to THIS encoder (RFC 8785 / JCS) so
+ * a recorded snapshot replays bit-identically and never drifts from `intentHash`
+ * semantics (NFC, fail-on-non-finite). No forked canonicalizer.
+ */
+export function sha256SnapshotCanonical(snapshot: unknown): string {
+  return sha256Canonical(snapshot);
+}

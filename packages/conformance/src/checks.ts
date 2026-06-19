@@ -13,7 +13,9 @@ import { basisVocabularyPurityCheck } from "./checks/basis-vocabulary-purity.js"
 import { defaultPolarityCheck } from "./checks/default-polarity.js";
 import { guardOrderingCheck } from "./checks/guard-ordering.js";
 import { intentHashDeterministicCheck } from "./checks/intent-hash-deterministic.js";
+import { noPayloadSelfConfirmationCheck } from "./checks/no-payload-self-confirmation.js";
 import { replayDeterminismCheck } from "./checks/replay-determinism.js";
+import { untrustedMutatingNeedsOwnerCheck } from "./checks/untrusted-mutating-needs-owner.js";
 import { untrustedNeverExecutesCheck } from "./checks/untrusted-never-executes.js";
 import type { ConformanceCheck } from "./types.js";
 
@@ -24,4 +26,8 @@ export const DEFAULT_CHECKS: ReadonlyArray<ConformanceCheck> = [
   basisVocabularyPurityCheck,
   guardOrderingCheck,
   defaultPolarityCheck,
+  // AC-007 (035) — mutating UNTRUSTED-min kinds must carry an owner predicate
+  // (§D #8). Static/structural, sampling-free, seed-free — like AC-006.
+  untrustedMutatingNeedsOwnerCheck,
+  noPayloadSelfConfirmationCheck,
 ];

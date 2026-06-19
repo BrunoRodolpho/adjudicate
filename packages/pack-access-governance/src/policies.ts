@@ -6,10 +6,12 @@ import {
   decisionRefuse,
   decisionRequestConfirmation,
   refuse,
+  resolveOwnership,
   type PolicyBundle,
 } from "@adjudicate/core";
 import { nameGuard, type Guard } from "@adjudicate/core/kernel";
 import {
+  createAuthorityGuard,
   createDataClassificationGuard,
   createRewriteGuard,
   createStateDeferGuard,
@@ -258,15 +260,19 @@ const deferPendingReview: AccessGuard = nameGuard(
   }),
 );
 
+// confirmRevoke is a REQUEST_CONFIRMATION-only producer. A valid revoke (it has
+// passed the state guards: known resource, an active, non-expired grant) always
+// asks for confirmation. The REQUEST_CONFIRMATION→EXECUTE transition is owned
+// SOLELY by the kernel's intentHash-bound `confirmationReceipt` path
+// (adjudicate-and-audit.ts, `receipt.intentHash === envelope.intentHash`) — never
+// by a model-supplied payload token. Without a bound receipt the revoke falls
+// through to the default REFUSE (the intended fail-closed posture, plan 014).
 const confirmRevoke: AccessGuard = nameGuard("confirmRevoke", (envelope) => {
   if (envelope.kind !== "access.revoke") return null;
   const p = rev(envelope.payload);
-  if (!p.confirmationToken) {
-    return decisionRequestConfirmation(`Revoke ${p.principal}'s access to ${p.resourceId}?`, [
-      basis("business", BASIS_CODES.business.RULE_VIOLATED, { rule: "revoke_confirm" }),
-    ]);
-  }
-  return null;
+  return decisionRequestConfirmation(`Revoke ${p.principal}'s access to ${p.resourceId}?`, [
+    basis("business", BASIS_CODES.business.RULE_VIOLATED, { rule: "revoke_confirm" }),
+  ]);
 });
 
 const executeApprovedRequest: AccessGuard = nameGuard("executeApprovedRequest", (envelope, state) => {
@@ -277,13 +283,6 @@ const executeApprovedRequest: AccessGuard = nameGuard("executeApprovedRequest", 
     return decisionExecute([basis("business", BASIS_CODES.business.RULE_SATISFIED, { rule: "approved_grant" })]);
   }
   return null;
-});
-
-const executeConfirmedRevoke: AccessGuard = nameGuard("executeConfirmedRevoke", (envelope) => {
-  if (envelope.kind !== "access.revoke") return null;
-  return rev(envelope.payload).confirmationToken
-    ? decisionExecute([basis("business", BASIS_CODES.business.RULE_SATISFIED, { rule: "confirmed_revoke" })])
-    : null;
 });
 
 // ── access sub-gap guards (WS-F) ──────────────────────────────────────────────
@@ -377,9 +376,61 @@ const requirePeerReviewForAdmin: AccessGuard = nameGuard("requirePeerReviewForAd
   return null;
 });
 
+// ── Authority guard (034/035) ──────────────────────────────────────────────
+
+/**
+ * Mutating, UNTRUSTED-min kinds the constitutional authority guard (034) gates:
+ * `access.request` (mints/raises a grant) and `access.revoke` (mutates a grant).
+ * `access.review.resolve` and `access.breakglass` are TRUSTED-only (taint-gated),
+ * so they are not owner-predicate candidates.
+ */
+const ACCESS_AUTHORITY_GATED_KINDS: ReadonlySet<AccessIntentKind> = new Set<AccessIntentKind>(
+  ["access.request", "access.revoke"],
+);
+
+/**
+ * 035 — wire the constitutional authority guard (034) into access-governance
+ * `authGuards`, closing the §D #8 violation that all authz-shaped logic
+ * previously sat in `stateGuards`/`business` with `authGuards: []` (no owner /
+ * IDOR predicate). The guard reads its authority context from the INJECTED
+ * `state.authority` (032/033).
+ *
+ * Engagement is gated on the host having injected `state.authority` (documented
+ * seam — see `AccessAuthorityContext`). When present the guard is BINDING and
+ * fail-closed: it resolves ownership of the target resource from the injected
+ * store via `envelope.resourceRefs` (the host/planner stamps
+ * `resourceRefs: { owner: <principal>, resource: <resourceId> }` for the
+ * request/revoke), REFUSEs (SECURITY/tenant_binding_violation, basis
+ * auth.SCOPE_INSUFFICIENT) when the declared owner is unbound / absent / — via
+ * the `principalOf` seam — when the AUTHENTICATED actor is not that owner, and on
+ * any resolver throw. Absent authority ⇒ inert (`null`), the pre-035 posture the
+ * conformance/scenario tests use. See `AccessAuthorityContext` for the IDOR
+ * residual (no production authenticated-identity model — 034-F1).
+ */
+const enforceResourceOwnership: AccessGuard = createAuthorityGuard<
+  AccessIntentKind,
+  unknown,
+  AccessState
+>(
+  (envelope, state) => resolveOwnership(state.authority!.store, envelope),
+  {
+    matches: (envelope, state) =>
+      state.authority !== undefined &&
+      ACCESS_AUTHORITY_GATED_KINDS.has(envelope.kind),
+    // Fail-closed identity seam (see PIX policies for the rationale): a host that
+    // injects authority but no `principalOf` yields `null` ⇒ REFUSE, never a
+    // bare declared-owner fallback that would not close IDOR.
+    authenticatedPrincipal: (envelope, state) =>
+      state.authority?.principalOf?.(envelope.actor.sessionId) ?? null,
+  },
+);
+
 export const accessPolicyBundle: PolicyBundle<AccessIntentKind, unknown, AccessState> = {
   stateGuards: [validateResource, validatePrivilegeLevel, requireActiveGrantForRevoke, refuseExpiredGrant],
-  authGuards: [],
+  // 035 — constitutional authority guard (034) gating mutating UNTRUSTED kinds
+  // (§D #8). After taint, before business. Inert without injected authority;
+  // binding + fail-closed when the host injects it.
+  authGuards: [enforceResourceOwnership],
   taint: accessTaintPolicy,
   business: [
     redactJustificationPii,
@@ -394,7 +445,6 @@ export const accessPolicyBundle: PolicyBundle<AccessIntentKind, unknown, AccessS
     confirmRevoke,
     requirePeerReviewForAdmin,
     executeApprovedRequest,
-    executeConfirmedRevoke,
   ],
   default: "REFUSE",
 };

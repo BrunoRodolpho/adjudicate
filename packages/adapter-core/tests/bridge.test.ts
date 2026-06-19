@@ -56,6 +56,54 @@ describe("classifyIncomingToolUse", () => {
     );
     expect(result.kind).toBe("out_of_plan");
   });
+
+  it("012: fail-closed on the wire-name collision ('a.b' intent vs 'a_b' read)", () => {
+    // intentKindToApiName('a.b') === 'a_b' === the read tool name. The incoming
+    // 'a_b' matches BOTH a visible read tool and an allowed intent. The typed
+    // discriminant is the authority — scan order must NOT silently pick the read
+    // arm. The collision is ambiguous → out_of_plan (fail-closed).
+    const collidingPlan: Plan = {
+      visibleReadTools: ["a_b"],
+      allowedIntents: ["a.b"],
+    };
+    const result = classifyIncomingToolUse(
+      { name: "a_b", input: { x: 1 } },
+      collidingPlan,
+    );
+    expect(result.kind).toBe("out_of_plan");
+  });
+
+  it("012: no collision → the read tool still classifies as read", () => {
+    // Sanity: the collision guard only fires when BOTH match. A read tool with
+    // no colliding intent classifies as read as before.
+    const plan2: Plan = {
+      visibleReadTools: ["a_b"],
+      allowedIntents: ["c.d"],
+    };
+    const result = classifyIncomingToolUse({ name: "a_b", input: {} }, plan2);
+    expect(result.kind).toBe("read");
+  });
+
+  it("024: a name in BOTH visibleReadTools and allowedIntents does NOT resolve to READ (cap-gate bypass closed)", () => {
+    // 024 T3: a READ never crosses the cap-gated `invokeIntent` seam (it routes
+    // to `invokeRead`, which is intentionally NOT cap-gated). If a colliding
+    // wire-name could resolve to READ, an attacker could pick the un-cap-gated
+    // arm for an intent that should be cap-gated. The disjointness guard forbids
+    // that: when the SAME name matches a read tool AND an intent, it is
+    // out_of_plan, NOT read — so it can never bypass the cap gate via the READ
+    // path. Non-vacuous: the asserted kind is explicitly not "read".
+    const collidingPlan: Plan = {
+      // The intent that SHOULD be cap-gated; its wire form collides with a read.
+      allowedIntents: ["pix.charge.refund"],
+      visibleReadTools: ["pix_charge_refund"],
+    };
+    const result = classifyIncomingToolUse(
+      { name: "pix_charge_refund", input: { amountCentavos: 1 } },
+      collidingPlan,
+    );
+    expect(result.kind).not.toBe("read");
+    expect(result.kind).toBe("out_of_plan");
+  });
 });
 
 describe("buildEnvelopeFromToolUse", () => {
@@ -65,6 +113,7 @@ describe("buildEnvelopeFromToolUse", () => {
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-abc-123",
     });
     expect(envelope.kind).toBe("pix.charge.create");
@@ -74,12 +123,43 @@ describe("buildEnvelopeFromToolUse", () => {
     expect(envelope.intentHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("041: stamps the supplied origin onto the constructed envelope", () => {
+    const envelope = buildEnvelopeFromToolUse({
+      intentKind: "pix.charge.create",
+      payload: { amountCentavos: 5000 },
+      sessionId: "s-1",
+      taint: "UNTRUSTED",
+      origin: "LLM",
+      nonce: "tu-abc-123",
+    });
+    expect(envelope.origin).toBe("LLM");
+  });
+
+  it("041: origin is bound into the intentHash (different origin → different hash)", () => {
+    const common = {
+      intentKind: "pix.charge.create",
+      payload: { amountCentavos: 5000 },
+      sessionId: "s-1",
+      taint: "UNTRUSTED" as const,
+      nonce: "tu-origin",
+    };
+    const fromLlm = buildEnvelopeFromToolUse({ ...common, origin: "LLM" });
+    const fromRetrieved = buildEnvelopeFromToolUse({
+      ...common,
+      origin: "Retrieved",
+    });
+    expect(fromLlm.origin).toBe("LLM");
+    expect(fromRetrieved.origin).toBe("Retrieved");
+    expect(fromLlm.intentHash).not.toBe(fromRetrieved.intentHash);
+  });
+
   it("produces a stable intentHash across retries with the same nonce", () => {
     const a = buildEnvelopeFromToolUse({
       intentKind: "pix.charge.create",
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-stable",
     });
     const b = buildEnvelopeFromToolUse({
@@ -87,6 +167,7 @@ describe("buildEnvelopeFromToolUse", () => {
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-stable",
     });
     expect(a.intentHash).toBe(b.intentHash);
@@ -98,6 +179,7 @@ describe("buildEnvelopeFromToolUse", () => {
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-nonce-a",
     });
     const b = buildEnvelopeFromToolUse({
@@ -105,8 +187,82 @@ describe("buildEnvelopeFromToolUse", () => {
       payload: { amountCentavos: 5000 },
       sessionId: "s-1",
       taint: "UNTRUSTED",
+      origin: "LLM",
       nonce: "tu-nonce-b",
     });
     expect(a.intentHash).not.toBe(b.intentHash);
+  });
+
+  // ── 042 — session contamination fold at the minting seam ──────────────────
+
+  it("042: no contamination flag → byte-identical to the pre-042 path (same hash)", () => {
+    const base = {
+      intentKind: "order.submit",
+      payload: { id: 1 },
+      sessionId: "s-1",
+      taint: "TRUSTED" as const,
+      origin: "LLM" as const,
+      nonce: "tu-clean",
+    };
+    const withoutFlag = buildEnvelopeFromToolUse(base);
+    const withUndefinedFlag = buildEnvelopeFromToolUse({
+      ...base,
+      contamination: undefined,
+    });
+    expect(withoutFlag.taint).toBe("TRUSTED");
+    expect(withoutFlag.origin).toBe("LLM");
+    expect(withUndefinedFlag.intentHash).toBe(withoutFlag.intentHash);
+  });
+
+  it("042: a contamination flag LOWERS the minted taint via the lattice meet", () => {
+    const envelope = buildEnvelopeFromToolUse({
+      intentKind: "order.submit",
+      payload: { id: 1 },
+      sessionId: "s-1",
+      // Declared TRUSTED, but the session is UNTRUSTED-contaminated.
+      taint: "TRUSTED",
+      origin: "LLM",
+      contamination: { taint: "UNTRUSTED", origin: "Retrieved" },
+      nonce: "tu-contam",
+    });
+    // Meet of TRUSTED and UNTRUSTED → UNTRUSTED (friction added, never removed).
+    expect(envelope.taint).toBe("UNTRUSTED");
+    // The contaminating source is stamped so the kernel attributes the cause.
+    expect(envelope.origin).toBe("Retrieved");
+  });
+
+  it("042: contamination NEVER raises trust above the declared taint", () => {
+    // Declared UNTRUSTED with a (nonsensically) higher contamination taint must
+    // still mint UNTRUSTED — the meet floor holds, no laundering.
+    const envelope = buildEnvelopeFromToolUse({
+      intentKind: "order.submit",
+      payload: { id: 1 },
+      sessionId: "s-1",
+      taint: "UNTRUSTED",
+      origin: "LLM",
+      contamination: { taint: "SYSTEM", origin: "ExternalAPI" },
+      nonce: "tu-floor",
+    });
+    expect(envelope.taint).toBe("UNTRUSTED");
+    expect(envelope.origin).toBe("ExternalAPI");
+  });
+
+  it("042: the folded taint/origin are inside the intentHash pre-image (hash differs)", () => {
+    const common = {
+      intentKind: "order.submit",
+      payload: { id: 1 },
+      sessionId: "s-1",
+      taint: "TRUSTED" as const,
+      origin: "LLM" as const,
+      nonce: "tu-preimage",
+    };
+    const clean = buildEnvelopeFromToolUse(common);
+    const contaminated = buildEnvelopeFromToolUse({
+      ...common,
+      contamination: { taint: "UNTRUSTED", origin: "Retrieved" },
+    });
+    // The fold happens before hashing, so a contaminated mint hashes
+    // differently — an LLM cannot post-hoc flip taint without breaking the hash.
+    expect(contaminated.intentHash).not.toBe(clean.intentHash);
   });
 });

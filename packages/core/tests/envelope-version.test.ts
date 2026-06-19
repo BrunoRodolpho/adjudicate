@@ -73,6 +73,31 @@ describe("IntentEnvelope — version gating", () => {
     expect(isIntentEnvelope(noPayload)).toBe(false);
   });
 
+  // 031 — the OPTIONAL resourceRefs key is admitted but not required.
+  it("isIntentEnvelope accepts a v3 envelope WITH resourceRefs (10 keys)", () => {
+    const env = buildEnvelope({ ...baseline, resourceRefs: { owner: "u1", account: "a1" } });
+    expect("resourceRefs" in env).toBe(true);
+    expect(isIntentEnvelope(env)).toBe(true);
+  });
+
+  it("isIntentEnvelope still accepts a no-refs envelope (9 keys — drop-safe)", () => {
+    const env = buildEnvelope(baseline);
+    expect("resourceRefs" in env).toBe(false);
+    expect(isIntentEnvelope(env)).toBe(true);
+  });
+
+  it("isIntentEnvelope rejects a malformed resourceRefs (non-string value / array)", () => {
+    const env = buildEnvelope(baseline);
+    expect(isIntentEnvelope({ ...env, resourceRefs: { owner: 42 } })).toBe(false);
+    expect(isIntentEnvelope({ ...env, resourceRefs: ["owner"] })).toBe(false);
+    expect(isIntentEnvelope({ ...env, resourceRefs: "owner=u1" })).toBe(false);
+  });
+
+  it("isIntentEnvelope still rejects unknown extra keys alongside resourceRefs", () => {
+    const env = buildEnvelope({ ...baseline, resourceRefs: { owner: "u1" } });
+    expect(isIntentEnvelope({ ...env, debug: "extra" })).toBe(false);
+  });
+
   it("hasUnknownEnvelopeVersion identifies version-shaped objects with wrong version", () => {
     expect(hasUnknownEnvelopeVersion({ version: 999 })).toBe(true);
     expect(hasUnknownEnvelopeVersion({ version: 1 })).toBe(true); // v1 envelopes are now legacy

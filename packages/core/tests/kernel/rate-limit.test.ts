@@ -2,19 +2,49 @@
  * Rate-limit primitives — store + helper + guard composition.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   basis,
   BASIS_CODES,
   buildEnvelope,
   decisionEscalate,
+  decisionRefuse,
+  refuse,
   type Decision,
 } from "../../src/index.js";
 import {
   checkRateLimit,
+  createCumulativeVelocityGuard,
   createInMemoryRateLimitStore,
   createRateLimitGuard,
+  type RateLimitStore,
+  type VelocityBreach,
 } from "../../src/kernel/rate-limit.js";
+import {
+  _resetMetricsSink,
+  setMetricsSink,
+  type MetricsSink,
+  type SinkFailureEvent,
+} from "../../src/kernel/metrics.js";
+import {
+  aggregateSnapshotFromRecorded,
+  recordAggregateSnapshot,
+  type AggregateSnapshot,
+} from "../../src/index.js";
+
+/** Spy MetricsSink that records sink failures for assertions (053). */
+function spyMetricsSink(failures: SinkFailureEvent[]): MetricsSink {
+  return {
+    recordLedgerOp() {},
+    recordDecision() {},
+    recordRefusal() {},
+    recordSinkFailure(e) {
+      failures.push(e);
+    },
+    recordShadowDivergence() {},
+    recordResourceLimit() {},
+  };
+}
 
 describe("createInMemoryRateLimitStore", () => {
   it("starts at 1 and increments per call within a window", async () => {
@@ -149,6 +179,10 @@ describe("createRateLimitGuard", () => {
 });
 
 describe("RateLimitResult.rollback (T5 #41)", () => {
+  afterEach(() => {
+    _resetMetricsSink();
+  });
+
   it("decrements the counter when called once", async () => {
     const store = createInMemoryRateLimitStore();
     const r1 = await checkRateLimit({ store, key: "u", windowMs: 1000, max: 5 });
@@ -186,4 +220,270 @@ describe("RateLimitResult.rollback (T5 #41)", () => {
     await expect(r.rollback()).resolves.toBeUndefined();
     expect(counts.get("u")).toBe(1); // unchanged
   });
+
+  it("a decrement FAILURE routes to recordSinkFailure({sink:'rate-limit'}) without throwing (053)", async () => {
+    // 053 — a refused reservation's rollback runs through THIS closure. When the
+    // store's decrement rejects, the inflated counter cannot be fixed, but the
+    // rollback MUST NOT throw (it would crash the kernel shell) — it surfaces the
+    // swallowed failure to metrics so operators see the leak.
+    const failures: SinkFailureEvent[] = [];
+    setMetricsSink(spyMetricsSink(failures));
+    const store: RateLimitStore = {
+      async incrementAndGet() {
+        return 1;
+      },
+      async decrement() {
+        throw new TypeError("redis DECR failed");
+      },
+    };
+    const r = await checkRateLimit({ store, key: "u-fail", windowMs: 1000, max: 5 });
+    // The rollback resolves (does NOT throw) even though decrement rejected.
+    await expect(r.rollback()).resolves.toBeUndefined();
+    // The swallowed failure is observable: routed to the rate-limit sink.
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.sink).toBe("rate-limit");
+    expect(failures[0]!.subject).toBe("u-fail");
+    expect(failures[0]!.errorClass).toBe("TypeError");
+  });
+
+  it("the decrement-failure rollback stays idempotent (a second call is a no-op)", async () => {
+    const failures: SinkFailureEvent[] = [];
+    setMetricsSink(spyMetricsSink(failures));
+    const decrement = vi.fn(async () => {
+      throw new Error("DECR boom");
+    });
+    const store: RateLimitStore = {
+      async incrementAndGet() {
+        return 1;
+      },
+      decrement,
+    };
+    const r = await checkRateLimit({ store, key: "u-idem", windowMs: 1000, max: 5 });
+    await r.rollback();
+    await r.rollback(); // second call short-circuits via the rolledBack flag
+    // decrement was attempted exactly ONCE; the second rollback never re-entered.
+    expect(decrement).toHaveBeenCalledTimes(1);
+    expect(failures).toHaveLength(1);
+  });
 });
+
+// ── 051: multi-horizon cumulative/velocity guard ───────────────────────────
+describe("createCumulativeVelocityGuard (051)", () => {
+  function envFixture() {
+    return buildEnvelope({
+      kind: "payment.transfer",
+      payload: { amount: 100 },
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "UNTRUSTED",
+      nonce: "n-test",
+      createdAt: "2026-04-23T12:00:00.000Z",
+    });
+  }
+
+  function snap(windows: Record<string, number>): AggregateSnapshot {
+    return { windows, at: "2026-04-23T11:59:00.000Z" };
+  }
+
+  type S = { aggregate?: AggregateSnapshot };
+
+  it("returns null when the projected count is under the cap (EXECUTE path)", () => {
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [{ windowKey: "acct|daily", max: 5 }],
+    });
+    // committed 3 + increment 1 = 4 <= 5 → under limit.
+    expect(guard(envFixture(), { aggregate: snap({ "acct|daily": 3 }) })).toBe(
+      null,
+    );
+  });
+
+  it("boundary: projected exactly AT the cap is allowed (count > max, cap allowed)", () => {
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [{ windowKey: "acct|daily", max: 5 }],
+    });
+    // committed 4 + increment 1 = 5 == max → ALLOWED (strict greater-than).
+    expect(guard(envFixture(), { aggregate: snap({ "acct|daily": 4 }) })).toBe(
+      null,
+    );
+  });
+
+  it("boundary: projected one OVER the cap fires (REFUSE)", () => {
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [{ windowKey: "acct|daily", max: 5 }],
+    });
+    // committed 5 + increment 1 = 6 > 5 → over limit.
+    const d = guard(envFixture(), { aggregate: snap({ "acct|daily": 5 }) });
+    expect(d).not.toBeNull();
+    expect(d!.kind).toBe("REFUSE");
+    if (d!.kind !== "REFUSE") return;
+    expect(d!.refusal.kind).toBe("BUSINESS_RULE");
+    expect(d!.refusal.code).toBe("cumulative_limit_exceeded");
+    // The basis carries the breach arithmetic for the audit row.
+    const b = d!.basis.find((x) => x.category === "business");
+    expect(b?.detail).toMatchObject({
+      windowKey: "acct|daily",
+      committed: 5,
+      increment: 1,
+      projected: 6,
+      max: 5,
+    });
+  });
+
+  it("never authorizes EXECUTE — under-limit returns null, it does not grant (§C)", () => {
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [{ windowKey: "acct|daily", max: 5 }],
+    });
+    // The guard returns null (defer to the rest of the pipeline), NOT a
+    // friction-decreasing EXECUTE.
+    const d = guard(envFixture(), { aggregate: snap({ "acct|daily": 1 }) });
+    expect(d).toBe(null);
+  });
+
+  it("multi-horizon: fires on the FIRST breaching window in declared order", () => {
+    const breaches: VelocityBreach[] = [];
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [
+        { windowKey: "acct|daily", max: 10 }, // 8+1=9 ok
+        { windowKey: "acct|monthly", max: 50 }, // 50+1=51 > 50 BREACH
+        { windowKey: "acct|yearly", max: 1000 }, // would also breach but second wins
+      ],
+      onExceeded: (breach) => {
+        breaches.push(breach);
+        return defaultRefuseFromBreach(breach);
+      },
+    });
+    const d = guard(
+      envFixture(),
+      {
+        aggregate: snap({
+          "acct|daily": 8,
+          "acct|monthly": 50,
+          "acct|yearly": 1001,
+        }),
+      },
+    );
+    expect(d).not.toBeNull();
+    expect(d!.kind).toBe("REFUSE");
+    // Declared-order precedence: monthly breaches before yearly is evaluated.
+    expect(breaches).toHaveLength(1);
+    expect(breaches[0]!.windowKey).toBe("acct|monthly");
+  });
+
+  it("treats an absent window key as committed 0", () => {
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [{ windowKey: "acct|daily", max: 1 }],
+    });
+    // window not present → committed 0 + 1 = 1 == max → allowed.
+    expect(guard(envFixture(), { aggregate: snap({}) })).toBe(null);
+  });
+
+  it("returns null when no snapshot is injected (skips the check)", () => {
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [{ windowKey: "acct|daily", max: 0 }],
+    });
+    expect(guard(envFixture(), {})).toBe(null);
+  });
+
+  it("honors a custom increment (velocity weight per decision)", () => {
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [{ windowKey: "acct|daily", max: 100 }],
+      resolveIncrement: (env) => env.payload.amount, // 100
+    });
+    // committed 1 + increment 100 = 101 > 100 → breach.
+    const d = guard(envFixture(), { aggregate: snap({ "acct|daily": 1 }) });
+    expect(d).not.toBeNull();
+    expect(d!.kind).toBe("REFUSE");
+  });
+
+  it("clamps a malformed (negative / non-finite) increment to 0 — never fabricates headroom", () => {
+    const guardNeg = createCumulativeVelocityGuard<string, { amount: number }, S>(
+      {
+        resolveSnapshot: (_e, s) => s.aggregate,
+        horizons: [{ windowKey: "acct|daily", max: 5 }],
+        resolveIncrement: () => -100, // attempt to undercut the committed count
+      },
+    );
+    // committed 5 + clamped-0 = 5 == max → allowed (the negative is clamped to
+    // 0, so it can NOT pull a 6-over-limit account back under the cap).
+    expect(
+      guardNeg(envFixture(), { aggregate: snap({ "acct|daily": 5 }) }),
+    ).toBe(null);
+    // committed 6 with clamped-0 increment = 6 > 5 → still a breach.
+    const d = guardNeg(envFixture(), { aggregate: snap({ "acct|daily": 6 }) });
+    expect(d).not.toBeNull();
+    expect(d!.kind).toBe("REFUSE");
+
+    const guardNaN = createCumulativeVelocityGuard<string, { amount: number }, S>(
+      {
+        resolveSnapshot: (_e, s) => s.aggregate,
+        horizons: [{ windowKey: "acct|daily", max: 5 }],
+        resolveIncrement: () => Number.NaN,
+      },
+    );
+    // NaN → clamped 0 → 5 + 0 = 5 == max → allowed.
+    expect(
+      guardNaN(envFixture(), { aggregate: snap({ "acct|daily": 5 }) }),
+    ).toBe(null);
+  });
+
+  it("respects a custom onExceeded (ESCALATE) — still friction-RAISING", () => {
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [{ windowKey: "acct|daily", max: 5 }],
+      onExceeded: (breach) =>
+        decisionEscalate("supervisor", `over ${breach.windowKey}`, [
+          basis("business", BASIS_CODES.business.RULE_VIOLATED, {
+            projected: breach.projected,
+          }),
+        ]),
+    });
+    const d = guard(envFixture(), { aggregate: snap({ "acct|daily": 9 }) });
+    expect(d).not.toBeNull();
+    expect(d!.kind).toBe("ESCALATE");
+  });
+
+  it("is deterministic & pure — same snapshot ⇒ same decision (replayable)", () => {
+    const guard = createCumulativeVelocityGuard<string, { amount: number }, S>({
+      resolveSnapshot: (_e, s) => s.aggregate,
+      horizons: [{ windowKey: "acct|daily", max: 5 }],
+    });
+    const env = envFixture();
+    const snapshot = snap({ "acct|daily": 5 });
+    const first = guard(env, { aggregate: snapshot });
+    const second = guard(env, { aggregate: snapshot });
+    expect(first).toEqual(second);
+    expect(first!.kind).toBe("REFUSE");
+
+    // Round-trip the snapshot through the 052 record/replay primitives (the
+    // recorded content-address path) and re-run the guard — identical decision.
+    const recorded = recordAggregateSnapshot(snapshot);
+    const replayedSnapshot = aggregateSnapshotFromRecorded(recorded);
+    const replayed = guard(env, { aggregate: replayedSnapshot });
+    expect(replayed).toEqual(first);
+  });
+});
+
+// Local REFUSE builder so the multi-horizon precedence test can record the
+// breach detail without depending on the factory's internal default.
+function defaultRefuseFromBreach(breach: VelocityBreach): Decision {
+  return decisionRefuse(
+    refuse(
+      "BUSINESS_RULE",
+      "cumulative_limit_exceeded",
+      "over limit",
+      `window=${breach.windowKey}`,
+    ),
+    [
+      basis("business", BASIS_CODES.business.RULE_VIOLATED, {
+        windowKey: breach.windowKey,
+      }),
+    ],
+  );
+}

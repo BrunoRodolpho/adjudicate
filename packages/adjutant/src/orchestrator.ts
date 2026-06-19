@@ -18,10 +18,11 @@
  *     (incident now terminal), the kernel REFUSEs and nothing executes.
  */
 
-import { buildEnvelope } from "@adjudicate/core";
+import { buildEnvelope, verifyResourceBinding } from "@adjudicate/core";
 import type {
   AuditRecord,
   AuditSink,
+  ConfirmationBinding,
   Decision,
   IntentActor,
   IntentEnvelope,
@@ -45,6 +46,13 @@ import type { PendingAction, RemediationOutcome, RemediationSignal } from "./typ
 
 const DEFAULT_MAX_PASSES = 4;
 const APPROVAL_TTL_SECONDS = 24 * 60 * 60;
+/**
+ * Channel a REVIEW proposal is issued on. The ops plane has exactly one
+ * confirmation channel; stamped into the ApprovalRequest at proposal time and
+ * bound into the kernel receipt at resolve time (071) so a resolve cannot
+ * retroactively claim a different channel.
+ */
+const ADJUTANT_CHANNEL = "adjutant" as const;
 /** No-op sink — telemetry only; never gates a decision. */
 const noopSink: AuditSink = { emit: async () => {} };
 
@@ -55,6 +63,31 @@ function defaultGenerateToken(): string {
     );
   }
   return globalThis.crypto.randomUUID();
+}
+
+/**
+ * 023 — resource-binding fence at the Adjutant executor seam. Adjutant invokes
+ * the adopter's `invokeIntent` DIRECTLY (it has no `runExecute`), so the same
+ * binding the adapter-core loop enforces must hold here: the executor honors ONLY
+ * the kernel-bound payload. Re-derive the envelope's `intentHash` from its own
+ * content and constant-time-compare it (`verifyResourceBinding`); a mismatch —
+ * a `payload` / `resourceRefs` swapped after the kernel decided (anti-IDOR) —
+ * THROWS before the side effect so the executor is never reached (invariants #1,
+ * #6). The envelopes Adjutant executes are always the kernel-returned ones
+ * (the original on EXECUTE, `decision.rewritten` folded into `envelope` on
+ * REWRITE), so a well-formed flow always passes; this fences a forged/swapped one.
+ */
+function assertResourceBound(
+  envelope: IntentEnvelope<IncidentIntentKind>,
+): void {
+  const binding = verifyResourceBinding(envelope as IntentEnvelope);
+  if (!binding.bound) {
+    throw new Error(
+      `[adjutant] resource-binding mismatch — refusing to execute ` +
+        `(intentHash ${binding.stored} does not re-derive from the envelope content; ` +
+        `derived ${binding.derived || "<uncanonicalizable>"}). Anti-IDOR fence (023).`,
+    );
+  }
 }
 
 export interface RemediationOrchestratorOptions {
@@ -187,7 +220,20 @@ export function createRemediationOrchestrator(
           intentKind: finalEnvelope.kind,
           prompt: pending.prompt ?? "Confirm remediation?",
           taint: finalEnvelope.taint,
-          channel: "adjutant",
+          channel: ADJUTANT_CHANNEL,
+          // 072 — separation-of-duty proposer binding. Captured from the
+          // PROPOSING envelope's actor (the maker): the stable `sessionId` is the
+          // proposer id, with the provenance `principal` carried as a display
+          // label. Display/governance projection ONLY — this is NOT threaded into
+          // the kernel `confirmationReceipt` below (the ops-plane resolve() still
+          // binds only {approver, channel} into the receipt, never the proposer),
+          // and NOT into the intentHash, so §D-4 and the additive-determinism
+          // fence are untouched. It lets a downstream four-eyes check compare the
+          // resolving approver against the proposer engine-side.
+          requestedBy: {
+            id: finalEnvelope.actor.sessionId,
+            displayName: finalEnvelope.actor.principal,
+          },
           status: "pending",
           requestedAt: at,
         };
@@ -249,6 +295,8 @@ export function createRemediationOrchestrator(
           continue;
         }
         if (decision.kind === "EXECUTE") {
+          // 023 — honor only the kernel-bound payload (anti-IDOR).
+          assertResourceBound(envelope);
           executorResult = await options.executor.invokeIntent(envelope, state);
           executed = true;
           executedEnvelope = envelope;
@@ -307,12 +355,35 @@ export function createRemediationOrchestrator(
         // Re-adjudicate the SAME envelope with a confirmation receipt — the
         // kernel substitutes EXECUTE for the prior REQUEST_CONFIRMATION. We mint
         // no EXECUTE ourselves; the kernel remains the authority.
+        // 071 — bind the post-confirmation EXECUTE to the (approver, channel) the
+        // ops plane resolved it with, not just the bare intentHash + token. The
+        // approver is `args.by` (the operator who approved); the channel is the
+        // single ops-plane channel the proposal was issued on (stamped into the
+        // ApprovalRequest above, so it is BOTH the issued-against `requested` and
+        // the resolved `confirmed` value). `intentHash` stays the load-bearing
+        // identity gate; the binding is an additional fail-closed gate + forensic
+        // record. The capability is not modeled in the ops plane. Each sub-field
+        // is conditionally spread so an approve with no `args.by` is byte-identical
+        // to pre-071 (§D-5).
+        const binding: ConfirmationBinding = {
+          ...(args.by?.id !== undefined
+            ? { approver: { confirmed: args.by.id } }
+            : {}),
+          channel: { confirmed: ADJUTANT_CHANNEL, requested: ADJUTANT_CHANNEL },
+        };
         const res = await adjudicateAndAudit(env, state, incidentPolicyBundle, {
           ...deps,
-          confirmationReceipt: { intentHash: env.intentHash, at: args.at, token: args.token },
+          confirmationReceipt: {
+            intentHash: env.intentHash,
+            at: args.at,
+            token: args.token,
+            binding,
+          },
         });
         decision = res.decision;
         if (decision.kind === "EXECUTE") {
+          // 023 — honor only the kernel-bound payload (anti-IDOR).
+          assertResourceBound(env);
           executorResult = await options.executor.invokeIntent(env, state);
           executed = true;
         }

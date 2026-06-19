@@ -16,7 +16,8 @@
  *       * REWRITE production ramp > MAX_PRODUCTION_RAMP_PERCENT down to
  *         the cap.
  *       * ESCALATE production deploys without a prior approval.
- *       * REQUEST_CONFIRMATION rollback when no confirmationToken.
+ *       * REQUEST_CONFIRMATION on every production rollback (the kernel's
+ *         intentHash-bound receipt path owns the EXECUTE transition).
  *       * EXECUTE every other valid request.
  *
  * Production-ready rollout patterns (canary, blue/green) are out of scope
@@ -35,13 +36,14 @@ import {
   decisionRequestConfirmation,
   decisionRewrite,
   refuse,
+  resolveOwnership,
 } from "@adjudicate/core";
 import {
   nameGuard,
   type Guard,
   type PolicyBundle,
 } from "@adjudicate/core/kernel";
-import { createEscalateGuard } from "@adjudicate/primitives";
+import { createAuthorityGuard, createEscalateGuard } from "@adjudicate/primitives";
 import {
   approvalKey,
   deploymentTaintPolicy,
@@ -216,12 +218,18 @@ const escalateProductionWithoutApproval: DeploymentGuard = nameGuard(
   },
 );
 
+// confirmDestructiveRollback is a REQUEST_CONFIRMATION-only producer. A production
+// rollback is destructive, so it always asks for confirmation. The
+// REQUEST_CONFIRMATION→EXECUTE transition is owned SOLELY by the kernel's
+// intentHash-bound `confirmationReceipt` path (adjudicate-and-audit.ts,
+// `receipt.intentHash === envelope.intentHash`) — never by a model-supplied
+// payload token. Without a bound receipt the rollback falls through to the
+// default REFUSE (the intended fail-closed posture, plan 014).
 const confirmDestructiveRollback: DeploymentGuard = nameGuard(
   "confirmDestructiveRollback",
   (envelope) => {
     if (envelope.kind !== "deployment.rollback.execute") return null;
     const p = envelope.payload as DeploymentRollbackExecutePayload;
-    if (p.confirmationToken && p.confirmationToken.length > 0) return null;
     if (p.environment !== "production") return null;
     return decisionRequestConfirmation(
       `Confirm rollback of production to ${p.toGitSha.slice(0, 8)}? This is destructive.`,
@@ -270,19 +278,6 @@ const allowApprovedProduction: DeploymentGuard = nameGuard(
       basis("business", BASIS_CODES.business.RULE_SATISFIED, {
         approver: approval.approver,
       }),
-    ]);
-  },
-);
-
-const allowConfirmedRollback: DeploymentGuard = nameGuard(
-  "allowConfirmedRollback",
-  (envelope) => {
-    if (envelope.kind !== "deployment.rollback.execute") return null;
-    const p = envelope.payload as DeploymentRollbackExecutePayload;
-    if (!p.confirmationToken) return null;
-    return decisionExecute([
-      basis("state", BASIS_CODES.state.TRANSITION_VALID),
-      basis("business", BASIS_CODES.business.RULE_SATISFIED),
     ]);
   },
 );
@@ -352,6 +347,49 @@ const confirmModelOrPromptChange: DeploymentGuard = nameGuard(
   },
 );
 
+// ── Authority guard (034/035) ─────────────────────────────────────────────
+
+/**
+ * Mutating, UNTRUSTED-min kinds the constitutional authority guard (034) gates:
+ * `deployment.approval.request` and `deployment.rollback.execute`.
+ * `deployment.approval.resolve` is TRUSTED-only (taint-gated) — not a candidate.
+ */
+const DEPLOYMENT_AUTHORITY_GATED_KINDS: ReadonlySet<DeploymentIntentKind> =
+  new Set<DeploymentIntentKind>([
+    "deployment.approval.request",
+    "deployment.rollback.execute",
+  ]);
+
+/**
+ * 035 — wire the constitutional authority guard (034) into deployments-approval
+ * `authGuards` (§D #8). The pack previously shipped `authGuards: []` ("adopter
+ * wires identity gating"); 035 makes the owner predicate constitutional. The
+ * guard reads the INJECTED `state.authority` (032/033); engagement is gated on
+ * the host injecting it (documented seam — see `DeploymentAuthorityContext`).
+ * When present it is BINDING + fail-closed: it resolves ownership of the deploy
+ * target from the injected store via `envelope.resourceRefs` (the host stamps
+ * `resourceRefs: { owner: <team/service-owner>, resource: <service> }`) and
+ * REFUSEs an unbound declared owner / an absent ref / — via `principalOf` — an
+ * authenticated actor who is not that owner, and on any resolver throw. Absent
+ * authority ⇒ inert (`null`), the pre-035 posture the scenario/gate tests use.
+ */
+const enforceDeployOwnership: DeploymentGuard = createAuthorityGuard<
+  DeploymentIntentKind,
+  unknown,
+  DeploymentState
+>(
+  (envelope, state) => resolveOwnership(state.authority!.store, envelope),
+  {
+    matches: (envelope, state) =>
+      state.authority !== undefined &&
+      DEPLOYMENT_AUTHORITY_GATED_KINDS.has(envelope.kind),
+    // Fail-closed identity seam (see pix policies): a host that injects authority
+    // but no `principalOf` yields `null` ⇒ REFUSE (no bare-binding fallback).
+    authenticatedPrincipal: (envelope, state) =>
+      state.authority?.principalOf?.(envelope.actor.sessionId) ?? null,
+  },
+);
+
 // ── The PolicyBundle ────────────────────────────────────────────────────
 
 export const deploymentPolicyBundle: PolicyBundle<
@@ -360,7 +398,10 @@ export const deploymentPolicyBundle: PolicyBundle<
   DeploymentState
 > = {
   stateGuards: [refuseUnknownEnvironment, refuseEmptyGitSha],
-  authGuards: [],
+  // 035 — constitutional authority guard (034) gating mutating UNTRUSTED kinds
+  // (§D #8). After taint, before business. Inert without injected authority;
+  // binding + fail-closed when the host injects it.
+  authGuards: [enforceDeployOwnership],
   taint: deploymentTaintPolicy,
   business: [
     allowResolve,
@@ -375,7 +416,6 @@ export const deploymentPolicyBundle: PolicyBundle<
     confirmDestructiveRollback,
     allowStagingNoRampOrLowRamp,
     allowApprovedProduction,
-    allowConfirmedRollback,
   ],
   default: "REFUSE",
 };

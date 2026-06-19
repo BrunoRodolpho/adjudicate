@@ -2,11 +2,14 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import chalk from "chalk";
 import {
+  computeConfigDigest,
   computePackFingerprint,
+  extractSealableSurface,
   validatePackManifest,
   verifyPackTrust,
   type PackSignature,
   type PackSignatureAlgorithm,
+  type SealablePackInput,
   type TrustPolicy,
 } from "@adjudicate/conformance";
 import { loadPackFromModule } from "../lib/pack-loader.js";
@@ -15,6 +18,15 @@ export interface PackVerifyOptions {
   readonly cwd?: string;
   /** Expected SHA-256 hex fingerprint. When supplied, mismatch fails. */
   readonly expect?: string;
+  /**
+   * Expected SHA-256 hex of the ConfigSeal sealable surface (081). When
+   * supplied, the command re-extracts the live pack's *extended* surface —
+   * which now binds per-guard CODE artifacts (closure-captured caps +
+   * predicate bodies), not just declared metadata — and fails on mismatch.
+   * This is what catches a behavior-changing edit to a guard's closure cap
+   * that the fingerprint (declarative subset only) cannot see.
+   */
+  readonly expectSeal?: string;
   /** Path to a PEM-encoded public key. */
   readonly publicKey?: string;
   /** Path to a JSON file containing the signature. */
@@ -55,6 +67,18 @@ interface SignatureFile {
  *   adjudicate pack verify              # local dev — fingerprint only
  *   adjudicate pack verify --expect <hex>           # CI gate
  *   adjudicate pack verify --public-key <pem> --signature <json> --policy require_signature   # prod
+ *
+ * 082 — LOAD-PATH ALIGNMENT. The in-process load gate
+ * (`installPack({ verifyOnLoad })`) enforces `policy:"require_signature"` on
+ * BOTH trust and config-seal by default. CI/adopters running this command as a
+ * pre-install gate should pass the SAME strict posture
+ * (`--policy require_signature --public-key <pem> --signature <json>`, plus
+ * `--expect-seal <hex>` to bind the guard-code surface) so the command and the
+ * runtime load path agree — a Pack the CLI passes is exactly a Pack
+ * `installPack` would accept, and vice versa. The runtime `--policy` default
+ * stays `best_effort` for backwards-compatible local dev (an unsigned local
+ * Pack still fingerprints), but the production wiring above is the one that
+ * mirrors the strict load defaults.
  */
 export async function runPackVerify(
   packPath?: string,
@@ -121,7 +145,36 @@ export async function runPackVerify(
     intents: ReadonlyArray<string>;
     signals?: ReadonlyArray<string>;
     basisCodes?: ReadonlyArray<string>;
+    policy?: SealablePackInput["policy"];
   };
+
+  // 3a. Optional ConfigSeal verification over the EXTENDED surface (081). The
+  //     fingerprint above pins only the declarative subset; the config-seal
+  //     digest additionally binds per-guard CODE artifacts, so this is the
+  //     axis that catches a closure-captured cap edit. Requires `policy` on the
+  //     loaded pack (every PackV0 carries it).
+  let sealDigest: string | undefined;
+  let sealMatch: "match" | "mismatch" | undefined;
+  if (options.expectSeal !== undefined) {
+    if (p.policy === undefined) {
+      console.error(
+        chalk.red("✗"),
+        "--expect-seal requires a Pack that exposes `policy` (PackV0 shape).",
+      );
+      process.exit(1);
+    }
+    const surface = extractSealableSurface({
+      id: p.id,
+      version: p.version,
+      contract: p.contract,
+      intents: p.intents,
+      ...(p.signals !== undefined ? { signals: p.signals } : {}),
+      ...(p.basisCodes !== undefined ? { basisCodes: p.basisCodes } : {}),
+      policy: p.policy,
+    });
+    sealDigest = computeConfigDigest(surface);
+    sealMatch = sealDigest === options.expectSeal ? "match" : "mismatch";
+  }
 
   // 3. Trust verification.
   let signature: PackSignature | undefined;
@@ -168,7 +221,7 @@ export async function runPackVerify(
   });
 
   if (options.quiet) {
-    if (!report.trusted) process.exit(1);
+    if (!report.trusted || sealMatch === "mismatch") process.exit(1);
     process.stdout.write(report.fingerprint + "\n");
     return;
   }
@@ -180,6 +233,14 @@ export async function runPackVerify(
   } else if (report.fingerprintMatch === "mismatch") {
     console.log(chalk.red("✗"), "expected fingerprint MISMATCH");
   }
+  if (sealDigest !== undefined) {
+    console.log(chalk.bold("Config seal:"), sealDigest);
+    if (sealMatch === "match") {
+      console.log(chalk.green("✓"), "expected config seal matches (guard code bodies pinned)");
+    } else {
+      console.log(chalk.red("✗"), "expected config seal MISMATCH (guard code or config drifted)");
+    }
+  }
   if (report.signatureVerification?.verified === true) {
     console.log(chalk.green("✓"), "signature verified");
   } else if (report.signatureVerification?.verified === false) {
@@ -188,8 +249,13 @@ export async function runPackVerify(
       `signature verification failed: ${report.signatureVerification.reason}`,
     );
   }
-  if (!report.trusted) {
+  if (!report.trusted || sealMatch === "mismatch") {
     for (const e of report.errors) console.error(chalk.dim(`  - ${e}`));
+    if (sealMatch === "mismatch") {
+      console.error(
+        chalk.dim(`  - config seal mismatch: expected ${options.expectSeal}, got ${sealDigest}`),
+      );
+    }
     process.exit(1);
   }
   console.log(chalk.green("✓"), "trust policy satisfied");

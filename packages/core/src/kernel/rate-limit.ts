@@ -29,7 +29,7 @@
 
 import { basis, BASIS_CODES } from "../basis-codes.js";
 import { decisionRefuse, type Decision } from "../decision.js";
-import type { IntentEnvelope } from "../envelope.js";
+import type { AggregateSnapshot, IntentEnvelope } from "../envelope.js";
 import { refuse } from "../refusal.js";
 import { recordSinkFailure } from "./metrics.js";
 import type { Guard } from "./policy.js";
@@ -207,5 +207,175 @@ export function createInMemoryRateLimitStore(now: () => number = Date.now): Rate
       entry.count = Math.max(0, entry.count - 1);
       return entry.count;
     },
+  };
+}
+
+// ── Multi-horizon cumulative/velocity guard (051) ───────────────────────────
+//
+// The single-scalar `createRateLimitGuard` above reads ONE pre-resolved count
+// (a single window). 051's velocity/cumulative guard family reads the
+// multi-horizon `AggregateSnapshot` that plan 052 INJECTS into the kernel
+// decision (read-only): a `windows` map keyed by an opaque adopter horizon
+// string (e.g. `"acct_7|daily"`, `"acct_7|monthly"`) to the already-committed
+// aggregate count for that window. The guard fires (raises friction) when the
+// decision's projected contribution would push ANY configured horizon over its
+// limit — `committed + increment > limit` (the cap value itself is allowed,
+// matching `checkRateLimit`'s strict `count > max` semantics).
+//
+// PURITY (§D, invariant #5): this is a SYNCHRONOUS business-layer predicate. It
+// reads ONLY the injected snapshot via `resolveSnapshot(envelope, state)` plus
+// its own static config — NO Date.now / Math.random / IO / process.env. The
+// snapshot is recorded into the audit row by the 052 shell, so re-running this
+// guard over the recorded snapshot reproduces a byte-identical decision (the
+// replayability proof in `replay-determinism.property.test.ts`).
+//
+// MONOTONICITY (§C, invariant #7): on breach the guard can ONLY increase
+// friction (default `onExceeded` ⇒ REFUSE `cumulative_limit_exceeded`, basis
+// `business/RULE_VIOLATED`). It never lowers a ceiling, never authorizes
+// EXECUTE — under-limit it returns `null` and lets adjudication continue, it
+// does not affirmatively grant.
+//
+// 052 OWNS the counting substrate (`GuardFireStats` delta-write + the additive
+// Postgres upsert) the snapshot is computed from; 051 CONSUMES the snapshot
+// READ-ONLY here — it never mutates, refetches, or timestamps it, and it never
+// enters `intentHash` (the snapshot rides injected state, invariant #4).
+
+/** One configured horizon: which window in the snapshot, and its cap. */
+export interface VelocityHorizon {
+  /**
+   * Key into `AggregateSnapshot.windows`. Opaque adopter string identifying a
+   * (resource, horizon) view — e.g. `"acct_7|daily"`. A key absent from the
+   * snapshot is treated as a committed count of 0 (no traffic recorded yet).
+   */
+  readonly windowKey: string;
+  /**
+   * Inclusive cap for this horizon. The guard fires when
+   * `committed + increment > max` (the cap value itself is allowed — strict
+   * greater-than, identical to `checkRateLimit`'s `count > max`).
+   */
+  readonly max: number;
+}
+
+/** Details of the first horizon that breached, passed to `onExceeded`. */
+export interface VelocityBreach {
+  readonly windowKey: string;
+  /** The already-committed aggregate read from the snapshot for this window. */
+  readonly committed: number;
+  /** The projected contribution of THIS decision (default 1). */
+  readonly increment: number;
+  /** The configured cap for this window. */
+  readonly max: number;
+  /** `committed + increment` — the projected post-decision count. */
+  readonly projected: number;
+}
+
+export interface CumulativeVelocityGuardOptions<K extends string, P, S> {
+  /**
+   * Read the injected `AggregateSnapshot` (the 052 multi-horizon counter view)
+   * for this envelope+state. Returning `undefined` skips the check (the guard
+   * returns null) — e.g. when the shell did not inject a snapshot for this kind.
+   */
+  readonly resolveSnapshot: (
+    envelope: IntentEnvelope<K, P>,
+    state: S,
+  ) => AggregateSnapshot | undefined;
+  /**
+   * The horizons this guard enforces. ALL are checked; the FIRST (in array
+   * order) that breaches drives the emitted Decision. Order is the adopter's
+   * declared precedence — evaluation is deterministic and does not depend on
+   * snapshot iteration order.
+   */
+  readonly horizons: ReadonlyArray<VelocityHorizon>;
+  /**
+   * The count this decision would add to each window if it executed. Defaults
+   * to 1 (one intent of this kind). Pure — derived from the envelope/state
+   * only; MUST be deterministic (no clock/RNG). A non-finite or negative value
+   * is clamped to 0 so a malformed resolver cannot fabricate headroom.
+   */
+  readonly resolveIncrement?: (
+    envelope: IntentEnvelope<K, P>,
+    state: S,
+  ) => number;
+  /**
+   * Decision factory called with the first breaching horizon. Adopters
+   * typically return REFUSE; some return ESCALATE/DEFER for higher-trust
+   * paths. §C: it MUST raise friction — the lint/monotonic-ceiling invariants
+   * forbid returning EXECUTE.
+   */
+  readonly onExceeded?: (breach: VelocityBreach) => Decision;
+}
+
+const defaultVelocityExceeded = (breach: VelocityBreach): Decision =>
+  decisionRefuse(
+    refuse(
+      "BUSINESS_RULE",
+      "cumulative_limit_exceeded",
+      "This action exceeds an account limit. Please try again later.",
+      `window=${breach.windowKey} projected=${breach.projected} max=${breach.max}`,
+    ),
+    [
+      basis("business", BASIS_CODES.business.RULE_VIOLATED, {
+        rule: "cumulative_limit_exceeded",
+        windowKey: breach.windowKey,
+        committed: breach.committed,
+        increment: breach.increment,
+        projected: breach.projected,
+        max: breach.max,
+      }),
+    ],
+  );
+
+/**
+ * Normalize the projected increment: a non-finite or negative value is clamped
+ * to 0 so a malformed resolver can never fabricate headroom (fail toward MORE
+ * friction, never less — §C). The default increment is 1.
+ */
+function normalizeIncrement(raw: number | undefined): number {
+  if (raw === undefined) return 1;
+  if (!Number.isFinite(raw) || raw < 0) return 0;
+  return raw;
+}
+
+/**
+ * Build a synchronous, PURE multi-horizon cumulative/velocity Guard usable in
+ * any `policy.business[]`. Reads the injected `AggregateSnapshot` (052) and
+ * fires the configured Decision when the decision's projected contribution
+ * would push ANY configured horizon over its cap (`committed + increment > max`,
+ * cap allowed). Otherwise returns null and lets adjudication continue.
+ *
+ * Deterministic & side-effect-free (§D / invariant #5): given the same injected
+ * snapshot + envelope + state it returns the same Decision, so the recorded
+ * decision replays bit-identically. It never authorizes EXECUTE (§C / invariant
+ * #7) — under-limit it returns null; over-limit it only raises friction.
+ */
+export function createCumulativeVelocityGuard<K extends string, P, S>(
+  options: CumulativeVelocityGuardOptions<K, P, S>,
+): Guard<K, P, S> {
+  const onExceeded = options.onExceeded ?? defaultVelocityExceeded;
+  return (envelope, state) => {
+    const snapshot = options.resolveSnapshot(envelope, state);
+    if (snapshot === undefined) return null;
+    const increment = normalizeIncrement(
+      options.resolveIncrement?.(envelope, state),
+    );
+    // Deterministic precedence: iterate the configured horizons in declared
+    // array order (NOT snapshot key order) so the FIRST breaching horizon is
+    // stable and replay-faithful.
+    for (const horizon of options.horizons) {
+      const committed = snapshot.windows[horizon.windowKey] ?? 0;
+      const projected = committed + increment;
+      // Strict greater-than: the cap value itself is allowed, mirroring
+      // `checkRateLimit`'s `count > max` exceeded semantics.
+      if (projected > horizon.max) {
+        return onExceeded({
+          windowKey: horizon.windowKey,
+          committed,
+          increment,
+          max: horizon.max,
+          projected,
+        });
+      }
+    }
+    return null;
   };
 }

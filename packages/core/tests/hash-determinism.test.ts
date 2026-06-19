@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { canonicalJson, sha256Canonical } from "../src/hash.js";
-import { buildEnvelope } from "../src/envelope.js";
+import { buildEnvelope, deriveIntentHash } from "../src/envelope.js";
+import { DEFAULT_ORIGIN, type Origin } from "../src/taint.js";
+import { capabilityPreimage } from "../src/capability.js";
 
 describe("canonicalJson", () => {
   it("produces identical output regardless of key order", () => {
@@ -126,5 +128,195 @@ describe("buildEnvelope — intentHash determinism", () => {
       nonce: "n-test", createdAt: "2026-04-23T12:00:00.000Z",
     });
     expect(a.intentHash).not.toBe(b.intentHash);
+  });
+});
+
+describe("021 — capabilityPreimage binds the authorizing intentHash", () => {
+  const env = buildEnvelope({
+    kind: "pix.charge.create",
+    payload: { chargeId: "chg_1", amount: 100 },
+    actor: { principal: "llm", sessionId: "s-1" },
+    taint: "UNTRUSTED",
+    nonce: "n-cap",
+    createdAt: "2026-04-23T12:00:00.000Z",
+  });
+  const kernelId = "kernel://prod/us-east-1";
+
+  it("is deterministic for the same unsigned body (golden-vector-locked bytes)", () => {
+    expect(capabilityPreimage({ intentHash: env.intentHash, kernelId })).toBe(
+      capabilityPreimage({ intentHash: env.intentHash, kernelId }),
+    );
+  });
+
+  it("changing the bound intentHash CHANGES the pre-image (§D #4 binding)", () => {
+    const a = capabilityPreimage({ intentHash: env.intentHash, kernelId });
+    const other = buildEnvelope({
+      kind: "pix.charge.create",
+      payload: { chargeId: "chg_2", amount: 100 }, // different payload → different intentHash
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "UNTRUSTED",
+      nonce: "n-cap",
+      createdAt: "2026-04-23T12:00:00.000Z",
+    });
+    expect(other.intentHash).not.toBe(env.intentHash);
+    const b = capabilityPreimage({ intentHash: other.intentHash, kernelId });
+    expect(a).not.toBe(b);
+  });
+
+  it("changing the kernelId CHANGES the pre-image", () => {
+    expect(capabilityPreimage({ intentHash: env.intentHash, kernelId })).not.toBe(
+      capabilityPreimage({ intentHash: env.intentHash, kernelId: "kernel://other" }),
+    );
+  });
+
+  it("a descriptive field (the original envelope's createdAt) does NOT enter the pre-image", () => {
+    // The capability binds the intentHash, and intentHash already EXCLUDES
+    // createdAt. Rebuilding the authorizing envelope with a wildly different
+    // createdAt (same nonce/payload/etc.) yields the SAME intentHash → the SAME
+    // capability pre-image. createdAt-style metadata cannot drift cap bytes.
+    const sameIntentDifferentClock = buildEnvelope({
+      kind: "pix.charge.create",
+      payload: { chargeId: "chg_1", amount: 100 },
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "UNTRUSTED",
+      nonce: "n-cap",
+      createdAt: "2029-12-31T23:59:59.999Z",
+    });
+    expect(sameIntentDifferentClock.intentHash).toBe(env.intentHash);
+    expect(
+      capabilityPreimage({ intentHash: sameIntentDifferentClock.intentHash, kernelId }),
+    ).toBe(capabilityPreimage({ intentHash: env.intentHash, kernelId }));
+  });
+});
+
+describe("041 — origin is bound into the intentHash pre-image", () => {
+  const base = {
+    kind: "order.tool.propose" as const,
+    payload: { toolName: "add_item", input: { sku: "XYZ" } },
+    actor: { principal: "llm" as const, sessionId: "s-1" },
+    taint: "UNTRUSTED" as const,
+    nonce: "n-origin",
+    createdAt: "2026-04-23T12:00:00.000Z",
+  };
+
+  it("stamps the supplied origin onto the envelope", () => {
+    const env = buildEnvelope({ ...base, origin: "Retrieved" });
+    expect(env.origin).toBe("Retrieved");
+  });
+
+  it("defaults origin to DEFAULT_ORIGIN ('LLM') when omitted", () => {
+    const env = buildEnvelope(base);
+    expect(env.origin).toBe(DEFAULT_ORIGIN);
+    expect(env.origin).toBe("LLM");
+  });
+
+  it("changing origin changes the intentHash (origin is INSIDE the pre-image)", () => {
+    const origins: Origin[] = ["Human", "Retrieved", "ExternalAPI", "LLM", "System"];
+    const hashes = origins.map(
+      (origin) => buildEnvelope({ ...base, origin }).intentHash,
+    );
+    // Every distinct origin produces a distinct hash — none collide.
+    expect(new Set(hashes).size).toBe(origins.length);
+  });
+
+  it("createdAt stays EXCLUDED even with origin in the recipe", () => {
+    const a = buildEnvelope({ ...base, origin: "Human", createdAt: "2026-01-01T00:00:00.000Z" });
+    const b = buildEnvelope({ ...base, origin: "Human", createdAt: "2029-12-31T23:59:59.999Z" });
+    expect(a.createdAt).not.toBe(b.createdAt);
+    expect(a.intentHash).toBe(b.intentHash);
+  });
+
+  it("deriveIntentHash re-derives the SAME hash (binds origin, fail-closed on a flipped origin)", () => {
+    const env = buildEnvelope({ ...base, origin: "System" });
+    // Faithful re-derivation matches.
+    expect(deriveIntentHash(env)).toBe(env.intentHash);
+    // An LLM that post-hoc flips the declared origin no longer re-derives the
+    // stored hash — §D #4 binding holds for the origin axis.
+    const forged = { ...env, origin: "Human" as const };
+    expect(deriveIntentHash(forged)).not.toBe(env.intentHash);
+  });
+
+  it("the intentHash recipe is exactly {version,kind,payload,nonce,actor,taint,origin} — createdAt + intentHash excluded", () => {
+    const env = buildEnvelope({ ...base, origin: "ExternalAPI" });
+    const recomputed = sha256Canonical({
+      version: env.version,
+      kind: env.kind,
+      payload: env.payload,
+      nonce: env.nonce,
+      actor: env.actor,
+      taint: env.taint,
+      origin: env.origin,
+    });
+    expect(env.intentHash).toBe(recomputed);
+  });
+});
+
+describe("031 — resourceRefs is canonical-drop-safe in the intentHash pre-image", () => {
+  const base = {
+    kind: "pix.charge.refund" as const,
+    payload: { chargeId: "chg_1", amount: 100 },
+    actor: { principal: "llm" as const, sessionId: "s-1" },
+    taint: "UNTRUSTED" as const,
+    nonce: "n-refs",
+    createdAt: "2026-04-23T12:00:00.000Z",
+    origin: "LLM" as const,
+  };
+
+  it("a no-resource-refs envelope omits the key and hashes as the post-041 recipe (DROP-SAFETY)", () => {
+    const env = buildEnvelope(base);
+    expect("resourceRefs" in env).toBe(false);
+    expect(Object.keys(env)).toHaveLength(9);
+    // Byte-identical to the explicit post-041 7-field recipe (no resourceRefs key).
+    const post041 = sha256Canonical({
+      version: env.version,
+      kind: env.kind,
+      payload: env.payload,
+      nonce: env.nonce,
+      actor: env.actor,
+      taint: env.taint,
+      origin: env.origin,
+    });
+    expect(env.intentHash).toBe(post041);
+  });
+
+  it("explicit `resourceRefs: undefined` hashes identically and carries no key", () => {
+    const withUndef = buildEnvelope({ ...base, resourceRefs: undefined });
+    const without = buildEnvelope(base);
+    expect("resourceRefs" in withUndef).toBe(false);
+    expect(withUndef.intentHash).toBe(without.intentHash);
+  });
+
+  it("present resourceRefs change the hash and are attached to the envelope", () => {
+    const env = buildEnvelope({ ...base, resourceRefs: { owner: "user_42", account: "acct_7" } });
+    expect(env.resourceRefs).toEqual({ owner: "user_42", account: "acct_7" });
+    expect(env.intentHash).not.toBe(buildEnvelope(base).intentHash);
+  });
+
+  it("resourceRefs key order does not affect the hash (recursive canonical sort)", () => {
+    const a = buildEnvelope({ ...base, resourceRefs: { owner: "user_42", account: "acct_7" } });
+    const b = buildEnvelope({ ...base, resourceRefs: { account: "acct_7", owner: "user_42" } });
+    expect(a.intentHash).toBe(b.intentHash);
+  });
+
+  it("deriveIntentHash binds resourceRefs — a flipped owner no longer re-derives (§D #4)", () => {
+    const env = buildEnvelope({ ...base, resourceRefs: { owner: "user_42", account: "acct_7" } });
+    expect(deriveIntentHash(env)).toBe(env.intentHash);
+    const forged = { ...env, resourceRefs: { owner: "user_99", account: "acct_7" } };
+    expect(deriveIntentHash(forged)).not.toBe(env.intentHash);
+  });
+
+  it("the v3-with-refs recipe is exactly {version,…,origin,resourceRefs}", () => {
+    const env = buildEnvelope({ ...base, resourceRefs: { owner: "user_42" } });
+    const recomputed = sha256Canonical({
+      version: env.version,
+      kind: env.kind,
+      payload: env.payload,
+      nonce: env.nonce,
+      actor: env.actor,
+      taint: env.taint,
+      origin: env.origin,
+      resourceRefs: env.resourceRefs,
+    });
+    expect(env.intentHash).toBe(recomputed);
   });
 });

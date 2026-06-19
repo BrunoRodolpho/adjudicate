@@ -43,7 +43,7 @@ export function GuidedCaseRunner({
   // StepStrip phase tracks the active step through the spine as it runs:
   //   idle, no result   → 1 "AI acts" (the AI's proposal is on screen)
   //   in flight          → 2 "Guard decides" (kernel computing; chip pulses)
-  //   result in hand     → 3 "Receipt saved" (a signed receipt now exists)
+  //   result in hand     → 3 "Receipt saved" (a tamper-evident receipt now exists)
   const stripPhase = running ? 2 : activeResult ? 3 : 1;
 
   const isLastStep = activeIndex === steps.length - 1;
@@ -121,7 +121,7 @@ export function GuidedCaseRunner({
       {isLastStep && activeResult ? (
         <div className="rounded-xl border border-edge bg-canvas/60 px-4 py-3 text-[13px] text-muted">
           That&apos;s the whole story. Every step above ran the real kernel and
-          produced a signed receipt — pick{" "}
+          produced a tamper-evident receipt — pick{" "}
           <button
             type="button"
             onClick={onBack}

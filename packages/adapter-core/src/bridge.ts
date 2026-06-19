@@ -14,8 +14,16 @@
  * TRUSTED intents (e.g. webhook confirmations) come from elsewhere.
  */
 
-import { buildEnvelope, type IntentEnvelope, type Taint } from "@adjudicate/core";
+import {
+  applySessionContamination,
+  buildEnvelope,
+  type IntentEnvelope,
+  type Origin,
+  type SessionContamination,
+  type Taint,
+} from "@adjudicate/core";
 import type { Plan } from "@adjudicate/core/llm";
+import type { ToolClassification } from "./types.js";
 
 /**
  * Translate an intent-kind / READ-tool name to its wire-API form.
@@ -33,14 +41,15 @@ export function intentKindToApiName(name: string): string {
   return name.replaceAll(".", "_");
 }
 
-export type ToolUseClassification =
-  | { readonly kind: "read"; readonly name: string; readonly input: unknown }
-  | {
-      readonly kind: "intent";
-      readonly intentKind: string;
-      readonly payload: unknown;
-    }
-  | { readonly kind: "out_of_plan"; readonly name: string };
+/**
+ * 012 — the bridge classification union IS the typed `ToolClassification`
+ * discriminant from the adapter-facing contracts. Aliasing them keeps a single
+ * source of truth: the structural claim the executor surface is documented
+ * against (`types.ts`) and the value `classifyIncomingToolUse` produces are the
+ * same type, so the loop checks the discriminant rather than re-deriving
+ * read-only-ness from a wire name downstream.
+ */
+export type ToolUseClassification = ToolClassification;
 
 /**
  * Decide whether an incoming `tool_use` is a READ tool execution, an
@@ -55,6 +64,15 @@ export type ToolUseClassification =
  * `tool_use`. We compare both raw and translated against each candidate
  * so mocked-test paths (which skip the renderer translation) and
  * live-API paths (which round-trip through translation) both work.
+ *
+ * 012 — wire-name collision (`'a.b'` intent vs `'a_b'` read tool both map to
+ * `'a_b'`): the typed discriminant is the classification authority, so a
+ * collision is NOT resolved by silently preferring whichever set we happened
+ * to scan first. When the SAME incoming name matches BOTH a visible read tool
+ * and an allowed intent, the classification is ambiguous and the tool use is
+ * rejected as `out_of_plan` — fail-closed, never letting an attacker pick the
+ * arm by exploiting scan order. Adopters who hit this rename one of the two
+ * (the Pack-conformance disjointness check surfaces it at install time).
  */
 export function classifyIncomingToolUse(
   toolUse: { readonly name: string; readonly input: unknown },
@@ -65,10 +83,17 @@ export function classifyIncomingToolUse(
     intentKindToApiName(candidate) === toolUse.name;
 
   const readMatch = plan.visibleReadTools.find(matchesName);
+  const intentMatch = plan.allowedIntents.find(matchesName);
+
+  // Fail-closed on the documented wire-name collision: an incoming name that
+  // resolves to BOTH a read tool and an intent is ambiguous; do not let scan
+  // order decide which kernel arm runs. Refuse it as out_of_plan.
+  if (readMatch !== undefined && intentMatch !== undefined) {
+    return { kind: "out_of_plan", name: toolUse.name };
+  }
   if (readMatch !== undefined) {
     return { kind: "read", name: readMatch, input: toolUse.input };
   }
-  const intentMatch = plan.allowedIntents.find(matchesName);
   if (intentMatch !== undefined) {
     return {
       kind: "intent",
@@ -89,6 +114,23 @@ export interface BuildEnvelopeFromToolUseArgs {
    * `buildEnvelope` and to keep the boundary explicit.
    */
   readonly taint: Taint;
+  /**
+   * 041 — harness-stamped provenance SOURCE axis. The loop stamps a concrete
+   * literal next to `taint:"UNTRUSTED"` at the single LLM-bytes site. Carried
+   * here so the source is explicit at the harness boundary; bound into the
+   * `intentHash` by `buildEnvelope`, but consulted by no kernel guard in 041.
+   */
+  readonly origin: Origin;
+  /**
+   * 042 — the per-session contamination flag (set in the loop when an
+   * untrusted-origin datum entered the session), folded into the minted taint
+   * via the lattice meet BEFORE the envelope is hashed. `undefined` (a clean
+   * session, or contamination disabled) leaves the declared taint untouched —
+   * the non-contaminated path is byte-identical to pre-042. When present, the
+   * envelope's `origin` is replaced with the contaminating source so the kernel
+   * can attribute a contamination-lowered refusal (`propagation_violation`).
+   */
+  readonly contamination?: SessionContamination;
   readonly nonce: string;
 }
 
@@ -96,16 +138,30 @@ export interface BuildEnvelopeFromToolUseArgs {
  * Construct an IntentEnvelope from a provider-neutral tool_use. Wraps
  * `buildEnvelope` from @adjudicate/core with adapter-specific defaults:
  * principal = `"llm"`, taint as supplied (always `"UNTRUSTED"` from the
- * loop).
+ * loop), and `origin` as supplied (the loop stamps `"LLM"` — the model
+ * proposed the bytes). `origin` joins the `intentHash` pre-image.
+ *
+ * 042 — when a session contamination flag is supplied, the minted taint is the
+ * lattice meet of the declared taint and the contamination taint
+ * (`applySessionContamination`), and the stamped `origin` is replaced with the
+ * contaminating source. Both are folded BEFORE `buildEnvelope` hashes, so the
+ * contaminated taint/origin sit inside the `intentHash` pre-image (invariant
+ * #4) — an LLM cannot post-hoc flip them. The meet is monotonic (never raises
+ * trust), preserving the bridge invariant that LLM-derived envelopes are never
+ * raised above UNTRUSTED.
  */
 export function buildEnvelopeFromToolUse(
   args: BuildEnvelopeFromToolUseArgs,
 ): IntentEnvelope<string, unknown> {
+  const taint = applySessionContamination(args.taint, args.contamination);
+  const origin =
+    args.contamination !== undefined ? args.contamination.origin : args.origin;
   return buildEnvelope({
     kind: args.intentKind,
     payload: args.payload,
     actor: { principal: "llm", sessionId: args.sessionId },
-    taint: args.taint,
+    taint,
+    origin,
     nonce: args.nonce,
   });
 }

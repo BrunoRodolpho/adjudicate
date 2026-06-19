@@ -81,7 +81,7 @@ describe("pack-access-governance — grant expiry (ADR-142)", () => {
   it("REFUSE: revoking a grant whose expiresAt is before createdAt → GRANT_EXPIRED", () => {
     const d = run(
       "access.revoke",
-      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      { principal: "alice", resourceId: "db.prod" },
       "TRUSTED",
       { grants: grant("2026-05-01T11:00:00.000Z"), createdAt: at },
     );
@@ -92,7 +92,7 @@ describe("pack-access-governance — grant expiry (ADR-142)", () => {
   it("boundary: createdAt == expiresAt counts as expired", () => {
     const d = run(
       "access.revoke",
-      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      { principal: "alice", resourceId: "db.prod" },
       "TRUSTED",
       { grants: grant(at), createdAt: at },
     );
@@ -100,32 +100,37 @@ describe("pack-access-governance — grant expiry (ADR-142)", () => {
     expect(d.basis.some((b) => b.code === "grant_expired")).toBe(true);
   });
 
-  it("a non-expired grant revokes normally (not GRANT_EXPIRED)", () => {
+  // Plan 014: a valid (non-expired) revoke no longer self-confirms into EXECUTE —
+  // it REQUEST_CONFIRMATIONs. The point of this test is that the expiry state guard
+  // does NOT fire (no grant_expired) for a live grant; the revoke then reaches
+  // confirmRevoke and asks for confirmation rather than refusing as expired.
+  it("a non-expired grant is NOT treated as expired (asks confirmation, not GRANT_EXPIRED)", () => {
     const d = run(
       "access.revoke",
-      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      { principal: "alice", resourceId: "db.prod" },
       "TRUSTED",
       { grants: grant("2026-05-01T13:00:00.000Z"), createdAt: at },
     );
-    expect(d.kind).toBe("EXECUTE");
+    expect(d.kind).toBe("REQUEST_CONFIRMATION");
     expect(d.basis.some((b) => b.code === "grant_expired")).toBe(false);
   });
 
-  it("a grant with no expiresAt never expires", () => {
+  it("a grant with no expiresAt never expires (asks confirmation, not GRANT_EXPIRED)", () => {
     const d = run(
       "access.revoke",
-      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      { principal: "alice", resourceId: "db.prod" },
       "TRUSTED",
       { grants: grant(undefined), createdAt: at },
     );
-    expect(d.kind).toBe("EXECUTE");
+    expect(d.kind).toBe("REQUEST_CONFIRMATION");
+    expect(d.basis.some((b) => b.code === "grant_expired")).toBe(false);
   });
 
   it("fail-closed: a malformed expiresAt REFUSES (never falls through as a live grant)", () => {
     for (const bad of ["", "garbage", "2026-13-45", "not-a-date"]) {
       const d = run(
         "access.revoke",
-        { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+        { principal: "alice", resourceId: "db.prod" },
         "TRUSTED",
         { grants: grant(bad), createdAt: at },
       );
@@ -137,7 +142,7 @@ describe("pack-access-governance — grant expiry (ADR-142)", () => {
   it("fail-closed: a malformed envelope.createdAt REFUSES the revoke", () => {
     const d = run(
       "access.revoke",
-      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      { principal: "alice", resourceId: "db.prod" },
       "TRUSTED",
       { grants: grant("2026-05-01T13:00:00.000Z"), createdAt: "garbage" },
     );
@@ -150,7 +155,7 @@ describe("pack-access-governance — grant expiry (ADR-142)", () => {
     // the EXECUTE/REFUSE decision would differ by host TZ. Treated as malformed → REFUSE.
     const d = run(
       "access.revoke",
-      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      { principal: "alice", resourceId: "db.prod" },
       "TRUSTED",
       { grants: grant("2026-05-01T13:00:00"), createdAt: at },
     );
@@ -161,10 +166,14 @@ describe("pack-access-governance — grant expiry (ADR-142)", () => {
   it("an offset-bearing (non-Z) future expiry is honored deterministically", () => {
     const d = run(
       "access.revoke",
-      { principal: "alice", resourceId: "db.prod", confirmationToken: "t" },
+      { principal: "alice", resourceId: "db.prod" },
       "TRUSTED",
       { grants: grant("2026-05-01T13:00:00+00:00"), createdAt: at },
     );
-    expect(d.kind).toBe("EXECUTE"); // 13:00Z is after the 12:00Z createdAt → not expired
+    // 13:00+00:00 is after the 12:00Z createdAt → not expired, so the expiry state
+    // guard passes and the revoke reaches confirmRevoke (REQUEST_CONFIRMATION).
+    // Plan 014: a non-expired revoke no longer self-confirms into EXECUTE.
+    expect(d.kind).toBe("REQUEST_CONFIRMATION");
+    expect(d.basis.some((b) => b.code === "grant_expired")).toBe(false);
   });
 });

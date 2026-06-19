@@ -9,6 +9,8 @@
     { "name": "unicode-string", "input": { "name": "café", "emoji": "🔒" }, "sha256": "68538aa053751b78601d00cd05ad9b985f4a84283090a8572c89fe62277c400b" },
     { "name": "nested-deep", "input": { "a": { "b": { "c": [{ "d": 1 }, { "e": 2 }] } } }, "sha256": "f4d56347ab6275f25c1cb4359ff9d5871dd464d9ffeaf3875b7069c5e0174d2e" },
     { "name": "grounding-proof-five-tuple", "input": { "chunkText": "hello world", "modelId": "text-embedding-3-small", "recordId": "rec_42", "recordVersion": "v3", "source": "kb://faq/1" }, "sha256": "ef3064e011a5909cfeefe3366542e8eed4229dff3a2eb811092189a29275cf72" },
-    { "name": "envelope-hash-recipe", "input": { "version": 2, "kind": "order.submit", "payload": { "sku": "X", "qty": 2 }, "nonce": "n-1", "actor": { "principal": "llm", "sessionId": "s-1" }, "taint": "UNTRUSTED" }, "sha256": "cd017dd347b4a8c4c748f7a064788f82eb30fd240d6667873b16cefeb4ed4bc0" }
+    { "name": "envelope-hash-recipe", "input": { "version": 2, "kind": "order.submit", "payload": { "sku": "X", "qty": 2 }, "nonce": "n-1", "actor": { "principal": "llm", "sessionId": "s-1" }, "taint": "UNTRUSTED" }, "sha256": "cd017dd347b4a8c4c748f7a064788f82eb30fd240d6667873b16cefeb4ed4bc0" },
+    { "name": "envelope-with-resource-refs", "input": { "version": 2, "kind": "order.submit", "payload": { "sku": "X", "qty": 2 }, "nonce": "n-1", "actor": { "principal": "llm", "sessionId": "s-1" }, "taint": "UNTRUSTED", "resourceRefs": { "account": "acct_7", "owner": "user_42" } }, "sha256": "8368d0df30f07c8624f36eb26d2edbbd19364b0293f595e958e99e44135add40" },
+    { "name": "capability-preimage-body", "input": { "intentHash": "cd017dd347b4a8c4c748f7a064788f82eb30fd240d6667873b16cefeb4ed4bc0", "kernelId": "kernel://prod/us-east-1" }, "sha256": "3d99814d8a4f9be65fa840116d21e786180c9a72927e18ef2f9cf1724a03bf04" }
   ]
 }

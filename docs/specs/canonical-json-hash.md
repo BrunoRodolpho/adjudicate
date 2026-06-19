@@ -90,6 +90,25 @@ Notably **excluded** from the hash:
   `nonce` (idempotency key).
 - `intentHash` itself — recursive inclusion would be ill-defined.
 
+**Plan 041 — `origin` (always-present).** The harness-stamped provenance
+*source* axis `origin` (`"Human" | "Retrieved" | "ExternalAPI" | "LLM" |
+"System"`) joins the pre-image unconditionally (defaulting to `"LLM"` at
+construction). Every post-041 envelope hashes its `origin`.
+
+**Plan 031 — `resourceRefs` (canonical-drop-safe).** The per-kind
+authorization slot `resourceRefs` (a string→string map of role → resource id,
+e.g. `{ "account": "acct_7", "owner": "user_42" }`) is bound into the
+pre-image **only when present**. It is OPTIONAL and is canonical-dropped when
+absent — exactly like an `undefined` object property (§2.2): an envelope
+without resource-refs (or with the field explicitly `undefined`) omits the key
+entirely and hashes IDENTICALLY to its post-041 no-refs value, so no
+historical / cross-version hash drifts. When present, the refs ARE bound, so
+the declared owner is tamper-evident (the LLM cannot post-hoc flip it). See the
+`v10-resource-refs-dropped` / `v11-resource-refs-bound` golden vectors in
+[`canonical-hash-vectors.json`](./canonical-hash-vectors.json) and
+`envelope-with-resource-refs` in
+[`packages/canonical/golden-vectors.json`](../../packages/canonical/golden-vectors.json).
+
 ### 2.4 Digest
 
 The output is **lowercase hexadecimal SHA-256** over the UTF-8 bytes of the

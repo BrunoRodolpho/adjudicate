@@ -135,7 +135,8 @@ function makeParkedStore() {
     createdAt: "2026-05-31T00:00:00.000Z",
   });
   const parkedAt = "2026-05-31T00:00:01.000Z";
-  // Serialise like parkDeferredIntent: include T-005 hash-verification fields.
+  // Serialise like parkDeferredIntent: include T-005 hash-verification fields
+  // plus the 041 `origin` field (now part of the intentHash recipe).
   const blob = JSON.stringify({
     envelope: {
       intentHash: parkedEnvelope.intentHash,
@@ -146,6 +147,7 @@ function makeParkedStore() {
       nonce: parkedEnvelope.nonce,
       taint: parkedEnvelope.taint,
       actorPrincipal: parkedEnvelope.actor.principal,
+      origin: parkedEnvelope.origin,
     },
     signal: SIGNAL,
     parkedAt,

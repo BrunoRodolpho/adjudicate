@@ -239,6 +239,10 @@ pack
     "--expect <hex>",
     "Expected SHA-256 fingerprint. Mismatch is a hard failure.",
   )
+  .option(
+    "--expect-seal <hex>",
+    "Expected SHA-256 of the ConfigSeal surface (081: pins guard code bodies). Mismatch is a hard failure.",
+  )
   .option("--public-key <pem-path>", "Path to a PEM-encoded public key")
   .option(
     "--signature <json-path>",
@@ -246,7 +250,7 @@ pack
   )
   .option(
     "--policy <policy>",
-    'Trust policy: none | best_effort | require_fingerprint | require_signature. Defaults to best_effort.',
+    'Trust policy: none | best_effort | require_fingerprint | require_signature. Defaults to best_effort; use require_signature to match the strict installPack load-time gate (082).',
     "best_effort",
   )
   .option("--quiet", "Print only the fingerprint on stdout; exit 1 on failure", false)
@@ -255,6 +259,7 @@ pack
       packPath: string | undefined,
       options: {
         expect?: string;
+        expectSeal?: string;
         publicKey?: string;
         signature?: string;
         policy?: string;
@@ -276,6 +281,7 @@ pack
       }
       await runPackVerify(packPath, {
         ...(options.expect !== undefined ? { expect: options.expect } : {}),
+        ...(options.expectSeal !== undefined ? { expectSeal: options.expectSeal } : {}),
         ...(options.publicKey !== undefined
           ? { publicKey: options.publicKey }
           : {}),
@@ -357,7 +363,21 @@ program
   .option("--per-intent <n>", "Attack variants per eligible intent kind. Defaults to 3")
   .option(
     "--vectors <csv>",
-    "Comma list of vectors: prompt_injection,taint_escalation,tool_scope_violation. Defaults to all",
+    "Comma list of vectors: prompt_injection,taint_escalation,tool_scope_violation,provenance_injection. Defaults to all",
+  )
+  .option(
+    "--canary",
+    "084 — run the FROZEN adversarial-canary GATE (all vectors + ownership/IDOR). Exit 2 = ROLLBACK / 0 = PROMOTE. Ignores --vectors.",
+    false,
+  )
+  .option(
+    "--canary-policy <strict|execute-escape>",
+    "084 — canary failure policy. strict (default): non-acceptable decision/error/vacuous taint pass rolls back. execute-escape: roll back ONLY on a reached EXECUTE or error (§D-1 privilege-escalation gate, for a heterogeneous shipped catalog).",
+    "strict",
+  )
+  .option(
+    "--baseline <file>",
+    "084 — the CI/publish gate. Run the STRICT canary and gate it against a COMMITTED baseline JSON: PROMOTE iff no-worse-than-baseline; ROLLBACK on any NEW escape/error/IDOR/vacuity OR any §C friction regression (e.g. an IDOR REFUSE→DEFER). Documents the pre-existing 035-F1 gaps without blinding the gate. Implies --canary; overrides --canary-policy.",
   )
   .option("--format <text|json>", "Output format. Defaults to text", "text")
   .action(
@@ -366,6 +386,9 @@ program
       seed?: string;
       perIntent?: string;
       vectors?: string;
+      canary?: boolean;
+      canaryPolicy?: string;
+      baseline?: string;
       format?: string;
     }) => {
       const format = (options.format ?? "text") as "text" | "json";
@@ -373,7 +396,19 @@ program
         console.error(`✗ Unknown --format value "${options.format}". Use text or json.`);
         process.exit(1);
       }
-      const VALID = ["prompt_injection", "taint_escalation", "tool_scope_violation"] as const;
+      const canaryPolicy = (options.canaryPolicy ?? "strict") as "strict" | "execute-escape";
+      if (canaryPolicy !== "strict" && canaryPolicy !== "execute-escape") {
+        console.error(`✗ Unknown --canary-policy value "${options.canaryPolicy}". Use strict or execute-escape.`);
+        process.exit(1);
+      }
+      // 041 — `provenance_injection` is an accepted vector key (its generator
+      // lands in 042/043; requesting it today yields zero scenarios).
+      const VALID = [
+        "prompt_injection",
+        "taint_escalation",
+        "tool_scope_violation",
+        "provenance_injection",
+      ] as const;
       type Vector = (typeof VALID)[number];
       let vectors: ReadonlyArray<Vector> | undefined;
       if (options.vectors !== undefined) {
@@ -386,11 +421,15 @@ program
         }
         vectors = parts as ReadonlyArray<Vector>;
       }
+      // --baseline implies canary mode (the baseline-anchored STRICT gate).
+      const canaryMode = options.canary === true || options.baseline !== undefined;
       await runRedTeamCommand({
         pack: options.pack,
         ...(options.seed !== undefined ? { seed: Number(options.seed) } : {}),
         ...(options.perIntent !== undefined ? { perIntent: Number(options.perIntent) } : {}),
         ...(vectors !== undefined ? { vectors } : {}),
+        ...(canaryMode ? { canary: true, canaryPolicy } : {}),
+        ...(options.baseline !== undefined ? { baseline: options.baseline } : {}),
         format,
       });
     },

@@ -20,6 +20,7 @@ export { DecisionKindSchema, DecisionSchema } from "./schemas/decision.js";
 export {
   AuditPlanSnapshotSchema,
   AuditRecordSchema,
+  AuditRecordVerificationSchema,
   SupersessionReasonSchema,
   SupersessionSchema,
 } from "./schemas/audit.js";
@@ -39,13 +40,38 @@ export {
   EmergencyStatusSchema,
   EmergencyUpdateInputSchema,
   GovernanceEventSchema,
+  // 114 — escalate / recommend surface (escalate-only, rate-limited).
+  EscalateRecommendationSchema,
+  EscalateInputSchema,
+  RecordedEscalationSchema,
   type Actor,
   type EmergencyHistoryQuery,
   type EmergencyState,
   type EmergencyStatus,
   type EmergencyUpdateInput,
   type GovernanceEvent,
+  type EscalateRecommendation,
+  type EscalateInput,
+  type RecordedEscalation,
 } from "./schemas/emergency.js";
+
+// ─── Escalation sink (114) ──────────────────────────────────────────────────
+export {
+  type EscalationSink,
+  type EscalationRecordRequest,
+  type InMemoryEscalationSinkOptions,
+  DEFAULT_MAX_ESCALATIONS,
+  createInMemoryEscalationSink,
+} from "./store/escalation-store.js";
+
+// ─── Escalate rate limiter (114) ────────────────────────────────────────────
+export {
+  type EscalateRateLimiter,
+  type EscalateRateLimitOptions,
+  DEFAULT_ESCALATE_MAX_PER_WINDOW,
+  DEFAULT_ESCALATE_WINDOW_MS,
+  createEscalateRateLimiter,
+} from "./trpc/escalate-rate-limit.js";
 
 // ─── Audit store ────────────────────────────────────────────────────────────
 export {

@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { AuditQuery } from "@adjudicate/admin-sdk";
 import {
+  buildAuditRecord,
+  buildEnvelope,
+  decisionExecute,
+  hashBindAuditSigner,
+} from "@adjudicate/core";
+import {
   InvalidCursorError,
   buildWhereClauses,
   createPostgresAuditStore,
   decodeCursor,
   encodeCursor,
+  readVerificationSlot,
 } from "../src/audit-store.js";
+import { recordToRow } from "../src/postgres-sink.js";
 import type { IntentAuditRow } from "../src/postgres-sink.js";
 import type { PostgresReader } from "../src/pg-reader.js";
 
@@ -380,6 +388,27 @@ describe("AuditStore.getByIntentHash", () => {
     const result = await store.getByIntentHash("nope");
     expect(result).toBeNull();
   });
+
+  // 112-T3 — the `AuditStore` contract's `getByIntentHash(intentHash,
+  // tenantScope?)` second arg. This SINGLE-TENANT reference cold-store IGNORES
+  // it (one `intent_audit` table, no tenant column), so accepting a tenantScope
+  // must NOT regress behaviour and must NOT widen the query params (no spurious
+  // `$2` / WHERE tenant predicate). The arg exists only so the SDK seam (which
+  // now threads `input.tenantScope`) is signature-compatible; a multi-tenant
+  // adopter overrides this method to add the predicate.
+  it("accepts a tenantScope argument and ignores it without regression (single-tenant)", async () => {
+    const row = makeRow({ intent_hash: "target" });
+    const { reader, calls } = createMockReader([row]);
+    const store = createPostgresAuditStore({ reader });
+    const result = await store.getByIntentHash("target", "tenant-99");
+    // Same record resolves — the scope did not filter it out.
+    expect(result?.intentHash).toBe("target");
+    // Params are NOT widened: still a single-bind by intent_hash. The scope is
+    // ignored (no `$2`, no tenant predicate) — single-tenant reference contract.
+    expect(calls[0]!.params).toEqual(["target"]);
+    expect(calls[0]!.sql).not.toContain("$2");
+    expect(calls[0]!.sql.toLowerCase()).not.toContain("tenant");
+  });
 });
 
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -403,5 +432,142 @@ describe("AuditStore — TIMESTAMPTZ normalization", () => {
     const store = createPostgresAuditStore({ reader });
     const result = await store.query(q());
     expect(result.records[0]!.at).toBe("2026-04-28T20:00:00.000Z");
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* G. 092 — verify-on-read                                                    */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function makeRealRow(opts: {
+  marker: string;
+  signed?: boolean;
+  tamperAuditHash?: boolean;
+  forgeSignature?: boolean;
+}): IntentAuditRow {
+  const env = buildEnvelope({
+    kind: "test.intent",
+    payload: { marker: opts.marker },
+    actor: { principal: "llm", sessionId: "sess-1" },
+    taint: "UNTRUSTED",
+    nonce: `n-${opts.marker}`,
+    createdAt: "2026-04-28T20:00:00.000Z",
+  });
+  const record = buildAuditRecord({
+    envelope: env,
+    decision: decisionExecute([]),
+    durationMs: 5,
+    at: "2026-04-28T20:00:00.000Z",
+    ...(opts.signed ? { signer: hashBindAuditSigner("kms://read-key") } : {}),
+  });
+  const row = recordToRow(record);
+  if (opts.tamperAuditHash) {
+    // Same-length wrong hash → the re-derived (correct) hash differs → tampered.
+    return { ...row, audit_hash: "a".repeat(64) };
+  }
+  if (opts.forgeSignature) {
+    return {
+      ...row,
+      signature_jsonb: JSON.stringify({
+        keyId: "kms://read-key",
+        alg: "sha256-hashbind",
+        value: "0".repeat(64),
+      }),
+    };
+  }
+  return row;
+}
+
+describe("AuditStore.query — 092 verify-on-read", () => {
+  it("attaches a verifications array index-aligned with records", async () => {
+    const rows = [
+      makeRealRow({ marker: "a", signed: true }),
+      makeRealRow({ marker: "b", signed: true }),
+    ];
+    const { reader } = createMockReader(rows);
+    const store = createPostgresAuditStore({ reader });
+    const result = await store.query(q({ limit: 100 }));
+    expect(result.records).toHaveLength(2);
+    expect(result.verifications).toBeDefined();
+    expect(result.verifications).toHaveLength(2);
+    // Both intact + validly signed → verified true.
+    expect(result.verifications!.every((v) => v.verified === true)).toBe(true);
+  });
+
+  it("flags a row with a tampered audit_hash (verified:false / tampered), still returned", async () => {
+    const rows = [
+      makeRealRow({ marker: "ok" }),
+      makeRealRow({ marker: "bad", tamperAuditHash: true }),
+    ];
+    const { reader } = createMockReader(rows);
+    const store = createPostgresAuditStore({ reader });
+    const result = await store.query(q({ limit: 100 }));
+    // The bad row is NOT dropped — it is flagged.
+    expect(result.records).toHaveLength(2);
+    const verdicts = result.verifications!;
+    const bad = verdicts.find((v) => v.verified === false);
+    expect(bad).toBeDefined();
+    if (bad && bad.verified === false) expect(bad.reason).toBe("tampered");
+  });
+
+  it("flags a row with a forged signature (verified:false / invalid_signature)", async () => {
+    const rows = [makeRealRow({ marker: "forged", forgeSignature: true })];
+    const { reader } = createMockReader(rows);
+    const store = createPostgresAuditStore({ reader });
+    const result = await store.query(q({ limit: 100 }));
+    const v = result.verifications![0]!;
+    expect(v.verified).toBe(false);
+    if (v.verified === false) expect(v.reason).toBe("invalid_signature");
+  });
+
+  it("verifications align with the sliced page (limit honored, not the +1 sentinel)", async () => {
+    const rows = [
+      makeRealRow({ marker: "1" }),
+      makeRealRow({ marker: "2" }),
+      makeRealRow({ marker: "3" }),
+      makeRealRow({ marker: "sentinel" }), // the +1 row
+    ];
+    const { reader } = createMockReader(rows);
+    const store = createPostgresAuditStore({ reader });
+    const result = await store.query(q({ limit: 3 }));
+    expect(result.records).toHaveLength(3);
+    expect(result.verifications).toHaveLength(3);
+  });
+});
+
+describe("AuditStore.getByIntentHash — 092 verify-on-read", () => {
+  it("attaches the verdict slot to a returned record (intact → verified:true)", async () => {
+    const row = makeRealRow({ marker: "single", signed: true });
+    const { reader } = createMockReader([row]);
+    const store = createPostgresAuditStore({ reader });
+    const record = await store.getByIntentHash(row.intent_hash);
+    expect(record).not.toBeNull();
+    const v = readVerificationSlot(record!);
+    expect(v).toBeDefined();
+    expect(v!.verified).toBe(true);
+  });
+
+  it("the verdict slot reflects a forged signature without dropping the record", async () => {
+    const row = makeRealRow({ marker: "single-forged", forgeSignature: true });
+    const { reader } = createMockReader([row]);
+    const store = createPostgresAuditStore({ reader });
+    const record = await store.getByIntentHash(row.intent_hash);
+    // Forensics need the bytes — the row is RETURNED, never silently dropped.
+    expect(record).not.toBeNull();
+    const v = readVerificationSlot(record!);
+    expect(v!.verified).toBe(false);
+    if (v && v.verified === false) expect(v.reason).toBe("invalid_signature");
+  });
+
+  it("the verdict slot is non-enumerable (record JSON shape unchanged)", async () => {
+    const row = makeRealRow({ marker: "shape", signed: true });
+    const { reader } = createMockReader([row]);
+    const store = createPostgresAuditStore({ reader });
+    const record = await store.getByIntentHash(row.intent_hash);
+    // The Symbol slot must not widen the serialized/canonical shape of the record.
+    expect(Object.keys(record!)).not.toContain("verification");
+    expect(JSON.parse(JSON.stringify(record))).toEqual(
+      JSON.parse(JSON.stringify(record)),
+    );
   });
 });

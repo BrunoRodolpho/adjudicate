@@ -82,9 +82,11 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C>
   readonly confirmationStore: ConfirmationStore;
   /**
    * AuditSink — emits one record per Decision through `adjudicateAndAudit`.
-   * Defaults to `noopAuditSink()` when absent.
+   * REQUIRED (013/T1): mirrors the now-required `adapter-core` dep — there is no
+   * fail-open `noopAuditSink()` default (invariant #6). Wire a durable sink, or
+   * an explicit `noopAuditSink()` to opt out visibly.
    */
-  readonly auditSink?: AuditSink;
+  readonly auditSink: AuditSink;
   /** Execution Ledger — REQUIRED for replay suppression. */
   readonly ledger: Ledger;
   readonly runtimeContext?: RuntimeContext;

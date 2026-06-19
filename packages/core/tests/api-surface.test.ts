@@ -110,6 +110,8 @@ const KERNEL_FROZEN: ReadonlyArray<string> = [
   "checkRateLimit",
   "createInMemoryRateLimitStore",
   "createRateLimitGuard",
+  // 051: deterministic multi-horizon cumulative/velocity guard family.
+  "createCumulativeVelocityGuard",
 ];
 
 const LLM_FROZEN: ReadonlyArray<string> = [
@@ -158,6 +160,8 @@ describe("@adjudicate/core public API surface — v1 freeze matrix", () => {
   it("BASIS_CODES categories are stable", () => {
     const expected = [
       "auth",
+      // 025 — capabilities-as-budgets adds the `budget` category (budget:satisfied).
+      "budget",
       "business",
       "confirmation",
       "deadline",
@@ -178,5 +182,50 @@ describe("@adjudicate/core public API surface — v1 freeze matrix", () => {
 
   it("AUDIT_RECORD_VERSION is 5", () => {
     expect(root.AUDIT_RECORD_VERSION).toBe(5);
+  });
+
+  // 052: lock the aggregate-snapshot inject/record/replay surface so a removal
+  // is a release-blocker. These ride the root barrel via decision.ts/envelope.ts.
+  it("052 aggregate-snapshot inject/record/replay helpers are exported", () => {
+    const exported = new Set(exportedNames(root));
+    for (const s of [
+      "recordAggregateSnapshot",
+      "hashAggregateSnapshot",
+      "aggregateSnapshotFromRecorded",
+    ]) {
+      expect(exported.has(s), `missing 052 export: ${s}`).toBe(true);
+    }
+    // The record/replay round-trip is callable off the public barrel.
+    const recorded = root.recordAggregateSnapshot({
+      windows: { "k|daily": 7 },
+      at: "2026-04-23T00:00:00.000Z",
+    });
+    expect(recorded.snapshotHash).toBe(
+      root.hashAggregateSnapshot(recorded.snapshot),
+    );
+    expect(root.aggregateSnapshotFromRecorded(recorded)).toEqual(
+      recorded.snapshot,
+    );
+  });
+
+  // 051: lock the cumulative/velocity guard surface so a removal/rename is a
+  // release-blocker. The factory rides both the root barrel and the /kernel
+  // subpath (re-exported from kernel/rate-limit.ts).
+  it("051 cumulative/velocity guard factory is exported on root and /kernel", () => {
+    const rootExports = new Set(exportedNames(root));
+    const kernelExports = new Set(exportedNames(kernel));
+    expect(rootExports.has("createCumulativeVelocityGuard")).toBe(true);
+    expect(kernelExports.has("createCumulativeVelocityGuard")).toBe(true);
+    expect(typeof root.createCumulativeVelocityGuard).toBe("function");
+    // The factory builds a usable Guard (a function) — a smoke check that the
+    // public surface is callable, not just present.
+    const guard = root.createCumulativeVelocityGuard({
+      resolveSnapshot: () => ({
+        windows: { "acct|daily": 0 },
+        at: "2026-04-23T00:00:00.000Z",
+      }),
+      horizons: [{ windowKey: "acct|daily", max: 5 }],
+    });
+    expect(typeof guard).toBe("function");
   });
 });

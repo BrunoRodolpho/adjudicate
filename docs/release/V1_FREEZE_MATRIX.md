@@ -103,6 +103,7 @@ For each public surface we record:
 | `PackHandler` | F | core | none | hand-edit | medium | closed | none | Side-effect callback signature; tightening is MAJOR. |
 | `InstalledPack` / `InstallPackOptions` | F | core | none | additive | medium | additive | scheduled | Wrap helper for `installPack`. |
 | `installPack` | F | core | none | additive | medium | additive | scheduled | Composes withBasisAudit + freeze; signature is the bind point for Pack registries. |
+| `VerifyOnLoadOptions` / `LoadTrustReport` / `LoadSealReport` / `PackFingerprintLike` / `PackLoadVerificationError` | F | core | none | additive | medium | additive | scheduled | 082 — fail-closed load-time provenance gate on `installPack` (injected `verifyPackTrust`/`verifyConfigSeal`; core takes no conformance dep). New optional `verifyOnLoad` is additive. |
 | `assertPackConformance` / `PackConformanceError` | F | core | none | additive | medium | additive | scheduled | Eager invariant check; matches `runConformance` from conformance pkg. |
 | `withBasisAudit` | F | core | basis-only | additive | medium | additive | scheduled | Audit instrumentation wrapper; intentionally idempotent. |
 | `AssertPackConformanceOptions` | F | core | none | additive | low | additive | scheduled | Options struct; new optional keys are MINOR. |

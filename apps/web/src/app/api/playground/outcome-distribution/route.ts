@@ -21,6 +21,13 @@ interface Bucket {
  * embedded outcome-distribution wrapper can render the same shape the console
  * dashboard does. Bucket granularity is fixed to "hour" — the playground's
  * record volume doesn't justify a day mode.
+ *
+ * Source-of-truth note: `recentRecords()` reads the module-level in-memory
+ * sink that `runPlayground` writes to. These records are NOT persisted, NOT
+ * hash-chained, and NOT signed (the playground wires no ledger/signer/store) —
+ * they carry an `auditHash` only and reset on process restart. This endpoint
+ * mirrors the console's chart SHAPE for the demo; it is not a persisted audit
+ * feed.
  */
 export async function GET(_req: NextRequest) {
   const records = recentRecords(500);

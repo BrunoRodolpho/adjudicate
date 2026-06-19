@@ -114,6 +114,111 @@ describe("createEscalateGuard", () => {
   });
 });
 
+describe("createEscalateGuard — FROZEN escalate-only-shape contract (101 §3)", () => {
+  // 101 freezes createEscalateGuard as a thin escalate-only alias: it abstains
+  // (null) unless the predicate matches AND the value crosses the threshold,
+  // and the ONLY non-null Decision it can emit is ESCALATE. This forbids the
+  // accidental introduction of an EXECUTE/allow disposition on a compliance
+  // signal (§C monotonicity: a signal raises friction, never authorizes).
+  const guard = createEscalateGuard<K, unknown, S>({
+    matches: (env) => env.kind === "test.action",
+    extract: (env) => (env.payload as { amount?: number }).amount ?? null,
+    threshold: 1000,
+    to: "human",
+    reason: (value) => `Amount ${value} crossed.`,
+  });
+
+  it("abstains (null) when matches is false", () => {
+    const wrongKind = buildEnvelope({
+      kind: "other.kind",
+      payload: { amount: 9999 },
+      actor: { principal: "llm", sessionId: "s-1" },
+      taint: "UNTRUSTED",
+      nonce: "fixed-nonce",
+    });
+    expect(guard(wrongKind as IntentEnvelope<K, unknown>, baseState)).toBeNull();
+  });
+
+  it("abstains (null) when extract returns null/undefined", () => {
+    expect(guard(baseEnvelope({}), baseState)).toBeNull();
+  });
+
+  it("abstains (null) below threshold, ESCALATEs at/above — never any other kind", () => {
+    // Sweep across the threshold boundary; the only two outcomes the alias may
+    // ever produce are `null` (abstain) and ESCALATE. No EXECUTE/REFUSE/REWRITE/
+    // REQUEST_CONFIRMATION/DEFER can leak out of the escalate alias.
+    for (let amount = 0; amount <= 2000; amount += 50) {
+      const d = guard(baseEnvelope({ amount }), baseState);
+      if (amount < 1000) {
+        expect(d).toBeNull();
+      } else {
+        expect(d).not.toBeNull();
+        expect(d!.kind).toBe("ESCALATE");
+      }
+    }
+  });
+
+  it("the only non-null disposition is ESCALATE regardless of comparator/route", () => {
+    for (const comparator of ["<", "<=", ">", ">="] as const) {
+      for (const to of ["human", "supervisor"] as const) {
+        const g = createEscalateGuard<K, unknown, S>({
+          matches: () => true,
+          extract: () => 50,
+          threshold: 50,
+          comparator,
+          to,
+          reason: () => "x",
+        });
+        const d = g(baseEnvelope({}), baseState);
+        // Either it abstained (comparator didn't cross) or it ESCALATEd.
+        if (d !== null) {
+          expect(d.kind).toBe("ESCALATE");
+          if (d.kind === "ESCALATE") expect(d.to).toBe(to);
+        }
+      }
+    }
+  });
+});
+
+describe("createEscalateGuard — escalate-only conjunction the 103 providers rely on (103 §4 T5)", () => {
+  // 103's suitability/Reg-BI (`aiEvalScore`) and KYC sanctions-match-score
+  // providers both ride `createEscalateGuard`. They depend on its CONJUNCTION
+  // contract — escalate iff `matches` is true AND the comparator crosses — to
+  // (a) escalate-only (never authorize EXECUTE) and (b) ABSTAIN (return null,
+  // letting the deterministic score path run) when the predicate matches but the
+  // value is sub-threshold. If `matches`-true-but-below-threshold leaked a
+  // non-null Decision, a weak sanctions correlation / a passing eval score would
+  // wrongly raise friction. These pin the exact seam those providers depend on.
+  const guard = createEscalateGuard<K, unknown, S>({
+    matches: (env) => env.kind === "test.action",
+    extract: (env) => (env.payload as { aml?: number }).aml ?? null,
+    threshold: 80,
+    comparator: ">=",
+    to: "human",
+    reason: (value, threshold) => `match ${value} ≥ ${threshold}`,
+  });
+
+  it("matches=true but value BELOW threshold → abstains (null), so the deterministic path runs", () => {
+    // The KYC sanctions branch must NOT escalate a 79% correlation (< 80); it
+    // abstains and the verification-score guards decide.
+    expect(guard(baseEnvelope({ aml: 79 }), baseState)).toBeNull();
+  });
+
+  it("matches=true and value AT/ABOVE threshold → ESCALATE to the configured route only", () => {
+    const d = guard(baseEnvelope({ aml: 80 }), baseState);
+    expect(d).not.toBeNull();
+    expect(d!.kind).toBe("ESCALATE");
+    if (d!.kind === "ESCALATE") expect(d!.to).toBe("human");
+  });
+
+  it("matches=true but value ABSENT → abstains (null): the FLAGGED-only/no-score case is carried by a sibling guard", () => {
+    // This is precisely why the KYC FLAGGED branch is a STANDALONE inline guard:
+    // createEscalateGuard abstains when extract() is null/undefined, so a
+    // score-independent escalate cannot be folded into the score guard.
+    expect(guard(baseEnvelope({}), baseState)).toBeNull();
+  });
+});
+
 describe("createIdempotencyGuard", () => {
   const guard = createIdempotencyGuard<K, unknown, S>({
     matches: (env) => env.kind === "test.action",

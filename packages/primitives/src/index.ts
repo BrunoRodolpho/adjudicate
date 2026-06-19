@@ -59,6 +59,7 @@ export {
   type SessionRiskGuardOptions,
 } from "./session-risk.js";
 export {
+  createAuthorityGuard,
   createCommandRiskGuard,
   createConfirmGuard,
   createDataClassificationGuard,
@@ -71,7 +72,9 @@ export {
   createStateDeferGuard,
   createThresholdGuard,
   createTokenBudgetGuard,
+  ownershipBindingPredicate,
   requireTenantBinding,
+  type AuthorityGuardOptions,
   type ConfirmGuardOptions,
   type DataClassificationGuardOptions,
   type DataClassificationPattern,
@@ -91,6 +94,10 @@ export {
 } from "./guards.js";
 
 export {
+  createSessionContaminationPolicy,
   createSystemTaintPolicy,
+  type Origin,
+  type SessionContaminationPolicy,
+  type SessionContaminationPolicyOptions,
   type SystemTaintPolicyOptions,
 } from "./taint.js";

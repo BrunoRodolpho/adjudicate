@@ -18,7 +18,7 @@
 // has no `@ibatexas/tools` dependency and is testable at the framework level.
 
 import { createHash } from "node:crypto"
-import type { IntentActor, Taint } from "@adjudicate/core"
+import type { IntentActor, Origin, Taint } from "@adjudicate/core"
 import { sha256Canonical, timingSafeHexEqual } from "@adjudicate/core"
 
 export const DEFER_PENDING_TTL_GRACE_SECONDS = 14 * 24 * 60 * 60 // 14d resume-token retention
@@ -37,8 +37,9 @@ export interface ParkedEnvelope {
      * T-005 hash-verification fields (additive).
      *
      * When present, `resumeDeferredIntent` re-derives the intentHash via
-     * `sha256Canonical({version, kind, payload, nonce, actor, taint})` and
-     * asserts byte-equality with the stored `intentHash` field.
+     * `sha256Canonical({version, kind, payload, nonce, actor, taint, origin})`
+     * (041 added `origin` to the recipe) and asserts byte-equality with the
+     * stored `intentHash` field.
      *
      * Absence is back-compat for v0.1-shaped blobs; v0.5+ first-party
      * adapters always populate these.
@@ -47,6 +48,13 @@ export interface ParkedEnvelope {
     readonly nonce?: string
     readonly taint?: Taint
     readonly actorPrincipal?: IntentActor["principal"]
+    /**
+     * 041 hash-verification field. Part of the intentHash recipe since plan
+     * 041, so post-041 parked blobs MUST carry it for verification to
+     * re-derive byte-identically. Absence (alongside the other fields) puts
+     * the blob on the legacy `missing_fields` path.
+     */
+    readonly origin?: Origin
   }
   readonly signal: string
   readonly parkedAt: string
@@ -66,13 +74,26 @@ export type ParkVerificationResult =
   | { readonly verified: false; readonly reason: "tampered"; readonly derived: string; readonly stored: string }
   | { readonly verified: null; readonly reason: "missing_fields" }
 
+/**
+ * 023 cross-drift note (T4): the resource-binding pre-image
+ * (`verifyResourceBinding` / `deriveIntentHash` in `@adjudicate/core`) and the
+ * parked-envelope pre-image below are the SAME canonical recipe —
+ * `sha256Canonical({version, kind, payload, nonce, actor, taint, origin[,
+ * resourceRefs]})` — and the SAME `timingSafeHexEqual` comparator. They re-derive
+ * the SAME `intentHash` for the SAME envelope, so the executor-seam binding and
+ * the resume-time park check cannot disagree (no drift; invariant #4/#5). A
+ * golden-vector lock in `@adjudicate/canonical` pins the shared pre-image.
+ */
 export function verifyParkedEnvelopeHash(parked: ParkedEnvelope): ParkVerificationResult {
   const e = parked.envelope
   if (
     typeof e.version !== "number" ||
     typeof e.nonce !== "string" ||
     typeof e.taint !== "string" ||
-    typeof e.actorPrincipal !== "string"
+    typeof e.actorPrincipal !== "string" ||
+    // 041 — origin is part of the recipe; a post-041 blob without it cannot
+    // re-derive its stored hash. Treat as a legacy missing-fields blob.
+    typeof e.origin !== "string"
   ) {
     return { verified: null, reason: "missing_fields" }
   }
@@ -83,6 +104,7 @@ export function verifyParkedEnvelopeHash(parked: ParkedEnvelope): ParkVerificati
     nonce: e.nonce,
     actor: { principal: e.actorPrincipal, sessionId: e.actor.sessionId },
     taint: e.taint,
+    origin: e.origin,
   })
   // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare leaks
   // via timing how many leading hex chars of a tampered intentHash matched the

@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
+import {
+  buildAuditRecord,
+  buildEnvelope,
+  decisionExecute,
+  basis,
+  type AuditRecord,
+} from "@adjudicate/core";
 import { createInMemoryAuditStore } from "../src/store/index.js";
 import { createInMemoryEmergencyStateStore } from "../src/store/emergency-store.js";
-import { createAdminCaller } from "../src/trpc/index.js";
+import {
+  adminRouter,
+  createAdminCaller,
+  createReadOnlyAdminCaller,
+  readOnlyAdminRouter,
+} from "../src/trpc/index.js";
+import type { AuditStore } from "../src/store/index.js";
 import type { Actor } from "../src/schemas/emergency.js";
 import { ALL, fixtureExecute, fixtureRefuse } from "./fixtures.js";
 
@@ -85,6 +98,158 @@ describe("adminRouter — audit.byHash", () => {
   });
 });
 
+// ─── 112-T2 — tenantScope threading on the by-hash read seam ─────────────────
+// The 111-residual `audit.byHash` cross-tenant isolation defect: the SDK called
+// `getByIntentHash(intentHash)` with ONE argument, so the `AuditStore`
+// contract's host-enforced tenant-isolation slot was UNREACHABLE from the wire.
+// 112 threads `input.tenantScope` through to the second argument. The reference
+// stores ignore it, but a tenant-aware host store now RECEIVES it.
+describe("adminRouter — audit.byHash threads tenantScope to the store (112-T2)", () => {
+  // A spy store records the exact (intentHash, tenantScope) args it was called
+  // with so we can assert the seam threads the scope through verbatim.
+  function spyStore(): {
+    store: AuditStore;
+    calls: { intentHash: string; tenantScope?: string }[];
+  } {
+    const calls: { intentHash: string; tenantScope?: string }[] = [];
+    const inner = createInMemoryAuditStore({ records: ALL });
+    const store: AuditStore = {
+      query: inner.query.bind(inner),
+      async getByIntentHash(intentHash, tenantScope) {
+        calls.push({ intentHash, tenantScope });
+        return inner.getByIntentHash(intentHash, tenantScope);
+      },
+    };
+    return { store, calls };
+  }
+
+  it("passes input.tenantScope as the SECOND argument to getByIntentHash", async () => {
+    const { store, calls } = spyStore();
+    const c = createAdminCaller({ store, emergencyStore, actor: operator });
+    await c.audit.byHash({
+      intentHash: fixtureRefuse.intentHash,
+      tenantScope: "tenant-42",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.intentHash).toBe(fixtureRefuse.intentHash);
+    expect(calls[0]!.tenantScope).toBe("tenant-42");
+  });
+
+  it("threads undefined tenantScope when the caller omits it (single-tenant)", async () => {
+    const { store, calls } = spyStore();
+    const c = createAdminCaller({ store, emergencyStore, actor: operator });
+    await c.audit.byHash({ intentHash: fixtureRefuse.intentHash });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.tenantScope).toBeUndefined();
+  });
+});
+
+// ─── 112-T2/T4 — audit.query / audit.byHash stay .query (no mutation added) ──
+describe("auditRouter — read procedures are .query, never .mutation (112-T2/T4)", () => {
+  const auditProcType = (name: string): string | undefined =>
+    (
+      adminRouter._def.procedures as Record<string, { _def: { type: string } }>
+    )[name]?._def.type;
+
+  it("audit.query is a query", () => {
+    expect(auditProcType("audit.query")).toBe("query");
+  });
+  it("audit.byHash is a query", () => {
+    expect(auditProcType("audit.byHash")).toBe("query");
+  });
+  it("audit.byHashVerified (112-T4 integrity-on-read) is a query, not a mutation", () => {
+    expect(auditProcType("audit.byHashVerified")).toBe("query");
+  });
+});
+
+// ─── 112-T4 — integrity-on-read DTO: verifyAuditRecord verdict on the read path
+// The Audit Explorer must render a tampered record with a tamper BADGE rather
+// than as authoritative (§C: a read only ADDS friction). `audit.byHashVerified`
+// returns the record alongside a `verifyAuditRecord` verdict; a tampered record
+// is STILL returned (forensics need the bytes) but carries `verified:false`.
+describe("auditRouter — byHashVerified surfaces a verifyAuditRecord verdict (112-T4)", () => {
+  const cleanEnv = buildEnvelope({
+    kind: "test.integrity",
+    payload: { amount: 100 },
+    actor: { principal: "llm", sessionId: "sess-integrity" },
+    taint: "UNTRUSTED",
+    nonce: "n-integrity",
+    createdAt: "2026-06-19T00:00:00.000Z",
+  });
+  const cleanRecord: AuditRecord = buildAuditRecord({
+    envelope: cleanEnv,
+    decision: decisionExecute([basis("state", "transition_valid")]),
+    durationMs: 1,
+    at: "2026-06-19T00:00:00.000Z",
+  });
+  // A tampered record: mutate a recorded field AFTER the auditHash was bound, so
+  // re-derivation no longer matches the stored auditHash.
+  const tamperedRecord: AuditRecord = {
+    ...cleanRecord,
+    decision_basis: [basis("auth", "scope_sufficient")],
+  };
+
+  const verifiedCaller = (records: readonly AuditRecord[]) =>
+    createAdminCaller({
+      store: createInMemoryAuditStore({ records }),
+      emergencyStore,
+      actor: operator,
+    });
+
+  it("returns { verified: true } for an intact record", async () => {
+    const result = await verifiedCaller([cleanRecord]).audit.byHashVerified({
+      intentHash: cleanRecord.intentHash,
+    });
+    expect(result).not.toBeNull();
+    expect(result!.record.intentHash).toBe(cleanRecord.intentHash);
+    expect(result!.verification.verified).toBe(true);
+  });
+
+  it("STILL returns a tampered record but flags verified:false reason:tampered", async () => {
+    const result = await verifiedCaller([tamperedRecord]).audit.byHashVerified({
+      intentHash: tamperedRecord.intentHash,
+    });
+    // The bytes are returned (forensics) — never silently dropped.
+    expect(result).not.toBeNull();
+    expect(result!.record.intentHash).toBe(tamperedRecord.intentHash);
+    // …but the explorer gets a deny-by-default tamper badge.
+    expect(result!.verification.verified).toBe(false);
+    if (result!.verification.verified === false) {
+      expect(result!.verification.reason).toBe("tampered");
+    }
+  });
+
+  it("returns null for an unknown hash", async () => {
+    const result = await verifiedCaller([cleanRecord]).audit.byHashVerified({
+      intentHash: "e".repeat(64),
+    });
+    expect(result).toBeNull();
+  });
+
+  it("requires an authenticated actor", async () => {
+    const unauth = createAdminCaller({
+      store: createInMemoryAuditStore({ records: [cleanRecord] }),
+      emergencyStore,
+      actor: null,
+    });
+    await expect(
+      unauth.audit.byHashVerified({ intentHash: cleanRecord.intentHash }),
+    ).rejects.toThrow(/actor-id header required/i);
+  });
+
+  it("is reachable on the read-only plane (the Inspector-General explorer DTO)", async () => {
+    const roCaller = createReadOnlyAdminCaller({
+      store: createInMemoryAuditStore({ records: [cleanRecord] }),
+      emergencyStore,
+      actor: operator,
+    });
+    const result = await roCaller.audit.byHashVerified({
+      intentHash: cleanRecord.intentHash,
+    });
+    expect(result!.verification.verified).toBe(true);
+  });
+});
+
 describe("adminRouter — audit read actor guard (AuthReviewer-004)", () => {
   const unauthCaller = createAdminCaller({
     store,
@@ -102,6 +267,142 @@ describe("adminRouter — audit read actor guard (AuthReviewer-004)", () => {
     await expect(
       unauthCaller.audit.byHash({ intentHash: fixtureRefuse.intentHash }),
     ).rejects.toThrow(/actor-id header required/i);
+  });
+});
+
+// ─── 111 — Write-isolation seam (router-level) ──────────────────────────────
+// The read-only plane = `adminRouter` MINUS the 4 AUTHORIZE/WEAKEN mutations,
+// PLUS (114) the ONE friction-monotone `escalate.raise` write. The invariant is
+// "reads + friction-monotone writes only": a console mounting
+// `readOnlyAdminRouter` physically cannot authorize, weaken, or replay-mutate a
+// decision (those 4 mutations are structurally absent), but it CAN raise a
+// friction-increasing escalation (which records a FACT, never a Decision).
+describe("readOnlyAdminRouter — router-level write isolation (111 + 114)", () => {
+  const procType = (router: typeof adminRouter | typeof readOnlyAdminRouter) =>
+    router._def.procedures as Record<string, { _def: { type: string } }>;
+
+  const namesByType = (
+    router: typeof adminRouter | typeof readOnlyAdminRouter,
+    type: "query" | "mutation",
+  ): string[] =>
+    Object.entries(procType(router))
+      .filter(([, p]) => p._def.type === type)
+      .map(([k]) => k)
+      .sort();
+
+  // The full router's 4 AUTHORIZE/WEAKEN mutations (emergency.update,
+  // replay.run, governance.recordOutcome, approval.resolve) — all EXCLUDED from
+  // the read plane.
+  const AUTHORIZE_WEAKEN_MUTATIONS = [
+    "approval.resolve",
+    "emergency.update",
+    "governance.recordOutcome",
+    "replay.run",
+  ];
+
+  // 114 — the ONE friction-monotone write the read plane PERMITS.
+  const FRICTION_MONOTONE_MUTATION = "escalate.raise";
+
+  // The full router today (the contract): the 4 authorize/weaken mutations PLUS
+  // the friction-monotone escalate. Asserted so this test fails LOUDLY if a
+  // future plan adds a 6th mutation without consciously deciding whether it is
+  // friction-monotone and whether it belongs on the read plane.
+  const FULL_MUTATIONS = [
+    ...AUTHORIZE_WEAKEN_MUTATIONS,
+    FRICTION_MONOTONE_MUTATION,
+  ].sort();
+
+  it("the FULL router exposes exactly the 5 known mutations", () => {
+    expect(namesByType(adminRouter, "mutation")).toEqual(FULL_MUTATIONS);
+  });
+
+  it("the read-only plane exposes EXACTLY the one friction-monotone escalate mutation", () => {
+    expect(namesByType(readOnlyAdminRouter, "mutation")).toEqual([
+      FRICTION_MONOTONE_MUTATION,
+    ]);
+  });
+
+  it("ALL of the full router's AUTHORIZE/WEAKEN mutations are EXCLUDED from the read plane", () => {
+    const roNames = Object.keys(procType(readOnlyAdminRouter));
+    for (const mutation of AUTHORIZE_WEAKEN_MUTATIONS) {
+      expect(roNames).not.toContain(mutation);
+    }
+  });
+
+  it("the read plane preserves EVERY query procedure of the full router (reads are unaffected)", () => {
+    // Write-isolation must subtract ONLY authorize/weaken mutations — never a
+    // read. The read plane's query set must equal the full router's query set.
+    expect(namesByType(readOnlyAdminRouter, "query")).toEqual(
+      namesByType(adminRouter, "query"),
+    );
+  });
+
+  it("the read-only caller has NO callable AUTHORIZE/WEAKEN mutation at runtime", async () => {
+    const store = createInMemoryAuditStore({ records: ALL });
+    const emergencyStore = createInMemoryEmergencyStateStore();
+    const roCaller = createReadOnlyAdminCaller({
+      store,
+      emergencyStore,
+      actor: operator,
+    });
+
+    // The four authorize/weaken mutations do not exist on the read-only plane.
+    // The tRPC caller is a lazy Proxy (every property access returns a
+    // callable), so presence is proven by BEHAVIOUR: invoking the absent
+    // procedure rejects with tRPC's "No procedure" NOT_FOUND — it never reaches
+    // a mutation resolver. The STATIC type already lacks these members (a direct
+    // call is a compile error), so we go through the dynamic shape to probe the
+    // wire surface.
+    const dyn = roCaller as unknown as Record<
+      string,
+      Record<string, (input: unknown) => Promise<unknown>>
+    >;
+    // Each call uses input that WOULD be valid on the full router — so a
+    // rejection proves the procedure is ABSENT, not merely input-rejected.
+    await expect(
+      dyn.emergency!.update!({
+        newStatus: "DENY_ALL",
+        reason: "should never reach a resolver on the read plane",
+        confirmationPhrase: "DENY_ALL",
+      }),
+    ).rejects.toThrow(/No .*procedure|not found|No "?mutation"?-procedure/i);
+    await expect(
+      dyn.replay!.run!({ intentHash: "a".repeat(64) }),
+    ).rejects.toThrow(/No .*procedure|not found|No "?mutation"?-procedure/i);
+    await expect(
+      dyn.governance!.recordOutcome!({
+        intentHash: "a".repeat(64),
+        observed: "succeeded",
+        at: "2026-06-18T00:00:00.000Z",
+      }),
+    ).rejects.toThrow(/No .*procedure|not found|No "?mutation"?-procedure/i);
+    await expect(
+      dyn.approval!.resolve!({ token: "tok-0", accepted: true }),
+    ).rejects.toThrow(/No .*procedure|not found|No "?mutation"?-procedure/i);
+  });
+
+  it("the read-only caller DOES expose escalate.raise (the ONE friction-monotone write)", () => {
+    // Static guarantee: escalate.raise IS a member of the read-only client's
+    // type (compiles). It is a mutation on the read plane by design (114).
+    const roMutations = namesByType(readOnlyAdminRouter, "mutation");
+    expect(roMutations).toContain(FRICTION_MONOTONE_MUTATION);
+  });
+
+  it("the read-only caller STILL serves reads (e.g. audit.query, emergency.state)", async () => {
+    const store = createInMemoryAuditStore({ records: ALL });
+    const emergencyStore = createInMemoryEmergencyStateStore();
+    const roCaller = createReadOnlyAdminCaller({
+      store,
+      emergencyStore,
+      actor: operator,
+    });
+    const audit = await roCaller.audit.query({ limit: 3 });
+    expect(audit.records).toHaveLength(3);
+    // The read plane shows kill-switch READ status only (no update).
+    const state = await roCaller.emergency.state();
+    expect(state.status).toBe("NORMAL");
+    const history = await roCaller.emergency.history({ limit: 10 });
+    expect(history).toHaveLength(0);
   });
 });
 

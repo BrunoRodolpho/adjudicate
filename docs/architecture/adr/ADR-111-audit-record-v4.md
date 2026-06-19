@@ -1,8 +1,9 @@
 # ADR-111 — AuditRecord v4 additive fields + verifyAuditRecord
 
-**Status**: Accepted (2026-05-18 — M3 overnight execution)
-**Supersedes**: none
-**Related**: ADR-101 (kernel audit emission), ADR-104 (envelope v2), ADR-105 (closed vocabulary), ADR-124 (v5 `metadata`)
+- **Status:** Accepted
+- **Date:** 2026-05-18 (M3 overnight execution)
+- **Supersedes:** none
+- **Related:** ADR-101 (kernel audit emission), ADR-104 (envelope v2), ADR-105 (closed vocabulary), ADR-124 (v5 `metadata`)
 
 > The current `AUDIT_RECORD_VERSION` is **5** (ADR-124 added an optional
 > `metadata` field additively on top of v4). This ADR records the v4 design;

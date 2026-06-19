@@ -16,6 +16,7 @@ import {
   buildAuditRecord,
   buildEnvelope,
   type Decision,
+  hashBindAuditSigner,
   sha256Canonical,
   type IntentEnvelope,
   type Taint,
@@ -23,17 +24,44 @@ import {
 import {
   isReplayIntegrityClean,
   replayWithIntegrity,
+  emitAuditCheckpoint,
+  verifyAuditCheckpoint,
+  type AuditCheckpoint,
 } from "../src/replay-integrity.js";
 
-function envelopeWith(overrides: { kind?: string; taint?: Taint; payload?: unknown; nonce?: string } = {}): IntentEnvelope {
+function envelopeWith(overrides: { kind?: string; taint?: Taint; payload?: unknown; nonce?: string; sessionId?: string } = {}): IntentEnvelope {
   return buildEnvelope({
     kind: overrides.kind ?? "test.intent",
     payload: overrides.payload ?? { amount: 100 },
-    actor: { principal: "user", sessionId: "s-1" },
+    actor: { principal: "user", sessionId: overrides.sessionId ?? "s-1" },
     taint: overrides.taint ?? "UNTRUSTED",
     nonce: overrides.nonce ?? "n-1",
     createdAt: "2026-05-20T00:00:00.000Z",
   });
+}
+
+/**
+ * Build an N-record hash chain for one stream (session). Each record after the
+ * first carries `prevAuditHash = <previous record's auditHash>`, exactly as the
+ * persist side would thread it. Returns the records in chain (input) order.
+ */
+function buildChain(n: number, sessionId = "stream-A"): AuditRecord[] {
+  const decision = executeDecision();
+  const records: AuditRecord[] = [];
+  let prev: string | undefined = undefined;
+  for (let i = 0; i < n; i++) {
+    const env = envelopeWith({ sessionId, nonce: `n-${sessionId}-${i}` });
+    const record = buildAuditRecord({
+      envelope: env,
+      decision,
+      durationMs: 1,
+      at: `2026-05-20T00:0${i}:00.000Z`,
+      ...(prev !== undefined ? { prevAuditHash: prev } : {}),
+    });
+    records.push(record);
+    prev = record.auditHash;
+  }
+  return records;
 }
 
 function executeDecision(): Decision {
@@ -199,6 +227,45 @@ describe("replayWithIntegrity", () => {
     expect(JSON.stringify(r1)).toBe(JSON.stringify(r2));
   });
 
+  it("envelope forged but auditHash consistent → EXACTLY ONE INTENT_HASH_MISMATCH, NO spurious AUDIT_HASH_TAMPERED (T4 double-count fix)", () => {
+    // Build a record, then forge ONLY the envelope's content (payload) so the
+    // stored `envelope.intentHash` no longer re-derives — AND rebuild the record
+    // so its `auditHash` is CONSISTENT with the forged envelope (i.e. the whole
+    // record's bytes are internally self-consistent; only the intentHash recipe
+    // is violated). This is the case the masking gap at the old :90-109 hid:
+    // `verifyAuditRecord` checks envelope-intent FIRST and returns
+    // `{verified:false, reason:"envelope_intent_mismatch"}`, which the pre-T4 code
+    // mislabeled as a SECOND, spurious `AUDIT_HASH_TAMPERED`.
+    const env = envelopeWith({ payload: { amount: 100 } });
+    const decision = executeDecision();
+    // Forge the envelope's payload WITHOUT recomputing intentHash — the stored
+    // envelope.intentHash is now inconsistent with the payload.
+    const forgedEnvelope: IntentEnvelope = { ...env, payload: { amount: 7777 } };
+    // Build the audit record OVER the forged envelope so its auditHash is
+    // self-consistent (computed over the forged bytes). The only inconsistency is
+    // the envelope intentHash recipe — exactly the "forged envelope, consistent
+    // auditHash" case.
+    const record = buildAuditRecord({
+      envelope: forgedEnvelope,
+      decision,
+      durationMs: 1,
+      at: "2026-05-20T00:00:01.000Z",
+    });
+
+    const report = replayWithIntegrity([record], () => decision);
+
+    // EXACTLY ONE integrity failure — the correct INTENT_HASH_MISMATCH.
+    expect(report.integrityFailures).toHaveLength(1);
+    expect(report.integrityFailures[0]!.kind).toBe("INTENT_HASH_MISMATCH");
+    // ABSENCE of the spurious mislabeled AUDIT_HASH_TAMPERED (the T4 fix).
+    expect(
+      report.integrityFailures.some((f) => f.kind === "AUDIT_HASH_TAMPERED"),
+    ).toBe(false);
+    // Still not matched — a forged envelope is never counted as intact.
+    expect(report.matched).toBe(0);
+    expect(isReplayIntegrityClean(report)).toBe(false);
+  });
+
   it("malformed envelope payload (post-build tamper) is caught by intentHash check", () => {
     const env = envelopeWith({ payload: { amount: 100 } });
     const record = buildAuditRecord({
@@ -219,6 +286,9 @@ describe("replayWithIntegrity", () => {
       nonce: env.nonce,
       actor: env.actor,
       taint: env.taint,
+      // 041 — origin joined the intentHash recipe; the shadow re-derivation
+      // must include it or it drifts from the kernel's derived hash.
+      origin: env.origin,
     });
     const report = replayWithIntegrity([stale], () => executeDecision());
     const intentFailure = report.integrityFailures.find(
@@ -226,5 +296,237 @@ describe("replayWithIntegrity", () => {
     );
     expect(intentFailure).toBeDefined();
     expect(intentFailure!.detail.derived).toBe(expected);
+  });
+});
+
+// ─── 092: the harness reflects the signature verdict ────────────────────────
+// A record whose auditHash is intact but whose signature is forged surfaces as
+// a distinct AUDIT_SIGNATURE_INVALID integrity failure (not AUDIT_HASH_TAMPERED).
+describe("replayWithIntegrity — 092 signature verdict", () => {
+  it("a valid signature does NOT add an integrity failure (matched, intact)", () => {
+    const env = envelopeWith();
+    const decision = executeDecision();
+    const record = buildAuditRecord({
+      envelope: env,
+      decision,
+      durationMs: 1,
+      at: "2026-05-20T00:00:01.000Z",
+      signer: hashBindAuditSigner("kms://harness-key"),
+    });
+    const report = replayWithIntegrity([record], () => decision);
+    expect(report.matched).toBe(1);
+    expect(report.integrityFailures).toHaveLength(0);
+    expect(isReplayIntegrityClean(report)).toBe(true);
+  });
+
+  it("a forged signature surfaces AUDIT_SIGNATURE_INVALID (auditHash intact)", () => {
+    const env = envelopeWith();
+    const decision = executeDecision();
+    const record = buildAuditRecord({
+      envelope: env,
+      decision,
+      durationMs: 1,
+      at: "2026-05-20T00:00:01.000Z",
+      signer: hashBindAuditSigner("kms://harness-key"),
+    });
+    // Forge ONLY the signature value; the auditHash (over the record sans
+    // signature) is untouched, so the tamper axis passes and the signature axis
+    // fails — a distinct kind, NOT AUDIT_HASH_TAMPERED.
+    const forged: AuditRecord = {
+      ...record,
+      signature: { ...record.signature!, value: "0".repeat(64) },
+    };
+    const report = replayWithIntegrity([forged], () => decision);
+    expect(report.matched).toBe(0);
+    expect(report.integrityFailures).toHaveLength(1);
+    const failure = report.integrityFailures[0]!;
+    expect(failure.kind).toBe("AUDIT_SIGNATURE_INVALID");
+    // The detail carries the offending keyId + alg (not a hash pair).
+    expect(failure.detail.stored).toBe("kms://harness-key");
+    expect(failure.detail.derived).toBe("sha256-hashbind");
+    expect(isReplayIntegrityClean(report)).toBe(false);
+  });
+
+  it("auditHash tamper still surfaces AUDIT_HASH_TAMPERED even on a signed record", () => {
+    const env = envelopeWith();
+    const decision = executeDecision();
+    const record = buildAuditRecord({
+      envelope: env,
+      decision,
+      durationMs: 1,
+      at: "2026-05-20T00:00:01.000Z",
+      signer: hashBindAuditSigner("kms://harness-key"),
+    });
+    // Mutate a hashed field — the auditHash axis fails BEFORE the signature axis,
+    // so the kind is AUDIT_HASH_TAMPERED (the bytes were modified).
+    const tampered: AuditRecord = { ...record, durationMs: 99999 };
+    const report = replayWithIntegrity([tampered], () => decision);
+    expect(report.integrityFailures).toHaveLength(1);
+    expect(report.integrityFailures[0]!.kind).toBe("AUDIT_HASH_TAMPERED");
+  });
+});
+
+// ─── 093 (T2): inter-record HASH-CHAIN continuity ───────────────────────────
+// A record whose `prevAuditHash` does not equal its predecessor's `auditHash`
+// (because an interior record was deleted or reordered) surfaces a distinct
+// AUDIT_CHAIN_BROKEN integrity failure — orthogonal to AUDIT_HASH_TAMPERED (each
+// record's OWN bytes are intact; the LINK between them is wrong).
+describe("replayWithIntegrity — 093 chain continuity", () => {
+  it("an intact chain produces no integrity failure (all matched)", () => {
+    const chain = buildChain(4);
+    const report = replayWithIntegrity(chain, (r) => r.decision);
+    expect(report.matched).toBe(4);
+    expect(report.integrityFailures).toHaveLength(0);
+    expect(isReplayIntegrityClean(report)).toBe(true);
+  });
+
+  it("a DELETED interior record breaks the chain → AUDIT_CHAIN_BROKEN", () => {
+    const chain = buildChain(4); // [0,1,2,3]
+    // Delete record index 2: the survivor at index 3 still links to record 2's
+    // auditHash, but the immediately-preceding record now seen is record 1.
+    const withGap = [chain[0]!, chain[1]!, chain[3]!];
+    const report = replayWithIntegrity(withGap, (r) => r.decision);
+    const broken = report.integrityFailures.filter(
+      (f) => f.kind === "AUDIT_CHAIN_BROKEN",
+    );
+    expect(broken).toHaveLength(1);
+    // The survivor (record 3) is the one flagged; its prevAuditHash points at
+    // the DELETED record 2, not the surviving predecessor record 1.
+    expect(broken[0]!.intentHash).toBe(chain[3]!.intentHash);
+    expect(broken[0]!.detail.stored).toBe(chain[3]!.prevAuditHash);
+    expect(broken[0]!.detail.derived).toBe(chain[1]!.auditHash);
+    expect(isReplayIntegrityClean(report)).toBe(false);
+  });
+
+  it("a REORDERED record breaks the chain → AUDIT_CHAIN_BROKEN", () => {
+    const chain = buildChain(3); // [0,1,2]
+    // Swap records 1 and 2: now record 2 (linking to record 1) appears before
+    // record 1 (linking to record 0). After genesis record 0, the next record is
+    // record 2 whose link points at record 1 (not the cursor = record 0).
+    const reordered = [chain[0]!, chain[2]!, chain[1]!];
+    const report = replayWithIntegrity(reordered, (r) => r.decision);
+    const broken = report.integrityFailures.filter(
+      (f) => f.kind === "AUDIT_CHAIN_BROKEN",
+    );
+    expect(broken.length).toBeGreaterThanOrEqual(1);
+    expect(isReplayIntegrityClean(report)).toBe(false);
+  });
+
+  it("a genesis record (no prevAuditHash) opening a stream is NOT a break", () => {
+    const chain = buildChain(1);
+    expect(chain[0]!.prevAuditHash).toBeUndefined();
+    const report = replayWithIntegrity(chain, (r) => r.decision);
+    expect(report.integrityFailures).toHaveLength(0);
+    expect(report.matched).toBe(1);
+  });
+
+  it("two independent streams interleaved each maintain their own chain", () => {
+    const a = buildChain(3, "stream-A");
+    const b = buildChain(3, "stream-B");
+    // Interleave: a0, b0, a1, b1, a2, b2 — distinct sessions, distinct cursors.
+    const interleaved = [a[0]!, b[0]!, a[1]!, b[1]!, a[2]!, b[2]!];
+    const report = replayWithIntegrity(interleaved, (r) => r.decision);
+    expect(report.integrityFailures).toHaveLength(0);
+    expect(report.matched).toBe(6);
+  });
+
+  it("a record linking into a stream whose predecessor is OUT OF WINDOW is not falsely flagged", () => {
+    // Partial window: drop the genesis. The first in-window record carries a
+    // prevAuditHash pointing at an out-of-window predecessor; with no prior
+    // record for this stream in the window, that is NOT a detectable break.
+    const chain = buildChain(3);
+    const partial = [chain[1]!, chain[2]!]; // starts mid-chain
+    const report = replayWithIntegrity(partial, (r) => r.decision);
+    const broken = report.integrityFailures.filter(
+      (f) => f.kind === "AUDIT_CHAIN_BROKEN",
+    );
+    expect(broken).toHaveLength(0);
+    expect(report.matched).toBe(2);
+  });
+});
+
+// ─── 093 (T4): external signed checkpoint over the chain tip ─────────────────
+// A deleted TAIL leaves the surviving prefix internally consistent (no dangling
+// successor), so the chain-continuity axis alone cannot catch it. The signed
+// checkpoint closes the gap: a truncated segment no longer reproduces the signed
+// (tip, count), and the signature stops a forged checkpoint from matching.
+describe("audit checkpoint — 093 external signed anchor", () => {
+  const signer = hashBindAuditSigner("kms://checkpoint-key");
+
+  it("a checkpoint validates against the intact segment it was signed over", () => {
+    const chain = buildChain(5);
+    const checkpoint = emitAuditCheckpoint(chain, signer, 1);
+    expect(checkpoint.count).toBe(5);
+    expect(checkpoint.tipAuditHash).toBe(chain[4]!.auditHash);
+    expect(verifyAuditCheckpoint(chain, checkpoint)).toEqual({ valid: true });
+  });
+
+  it("a DELETED TAIL is caught by checkpoint validation (count_mismatch)", () => {
+    const chain = buildChain(5);
+    const checkpoint = emitAuditCheckpoint(chain, signer, 1);
+    // Truncate the last two records (the prefix is internally chain-consistent).
+    const truncated = chain.slice(0, 3);
+    // The prefix alone passes the per-record chain-continuity axis...
+    const report = replayWithIntegrity(truncated, (r) => r.decision);
+    expect(report.integrityFailures).toHaveLength(0);
+    // ...but the signed checkpoint catches the missing tail.
+    const result = verifyAuditCheckpoint(truncated, checkpoint);
+    expect(result.valid).toBe(false);
+    expect(result).toMatchObject({ reason: "count_mismatch", expected: 5, actual: 3 });
+  });
+
+  it("a tail deletion that preserves count is caught by tip_mismatch", () => {
+    const chain = buildChain(4);
+    const checkpoint = emitAuditCheckpoint(chain, signer, 7);
+    // Replace the last record with a DIFFERENT record (same count, different tip)
+    // — e.g. an attacker swaps the tail for a forged-but-self-consistent record.
+    const swapped = buildChain(4, "other-stream");
+    const tampered = [chain[0]!, chain[1]!, chain[2]!, swapped[3]!];
+    const result = verifyAuditCheckpoint(tampered, checkpoint);
+    expect(result.valid).toBe(false);
+    expect(result).toMatchObject({ reason: "tip_mismatch" });
+  });
+
+  it("a FORGED checkpoint (re-signed to match a truncated set with the wrong key) fails invalid_signature", () => {
+    const chain = buildChain(5);
+    const honest = emitAuditCheckpoint(chain, signer, 1);
+    // An attacker truncates the chain AND forges a checkpoint over the truncated
+    // tip — but cannot produce a valid signature without the real signing key.
+    const truncated = chain.slice(0, 3);
+    const forged: AuditCheckpoint = {
+      sequence: honest.sequence,
+      tipAuditHash: truncated[2]!.auditHash ?? null,
+      count: truncated.length,
+      // Forged value: not a real signature over this checkpoint's pre-image.
+      signature: { keyId: "kms://checkpoint-key", alg: "sha256-hashbind", value: "0".repeat(64) },
+    };
+    const result = verifyAuditCheckpoint(truncated, forged);
+    expect(result.valid).toBe(false);
+    expect(result).toMatchObject({ reason: "invalid_signature" });
+  });
+
+  it("an honest checkpoint over a re-signed truncation: the signature is valid but the prefix it is checked against still mismatches if count differs", () => {
+    // Sanity: re-signing over the SHORTER set with the REAL key produces a valid
+    // checkpoint for THAT set — verification then passes for the truncated set.
+    // This proves the mechanism does not over-flag a legitimately re-checkpointed
+    // segment; truncation is caught only relative to the EARLIER signed anchor.
+    const chain = buildChain(5);
+    const truncated = chain.slice(0, 3);
+    const reCheckpoint = emitAuditCheckpoint(truncated, signer, 2);
+    expect(verifyAuditCheckpoint(truncated, reCheckpoint)).toEqual({ valid: true });
+    // But the ORIGINAL (count=5) anchor still catches the truncation.
+    const original = emitAuditCheckpoint(chain, signer, 1);
+    expect(verifyAuditCheckpoint(truncated, original).valid).toBe(false);
+  });
+
+  it("checkpoint signature binds the sequence — replaying at a different sequence fails", () => {
+    const chain = buildChain(3);
+    const checkpoint = emitAuditCheckpoint(chain, signer, 1);
+    // Move the checkpoint to sequence 2 without re-signing: the pre-image now
+    // differs, so the bound signature no longer verifies.
+    const moved: AuditCheckpoint = { ...checkpoint, sequence: 2 };
+    const result = verifyAuditCheckpoint(chain, moved);
+    expect(result.valid).toBe(false);
+    expect(result).toMatchObject({ reason: "invalid_signature" });
   });
 });

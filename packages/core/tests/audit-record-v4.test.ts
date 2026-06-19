@@ -353,3 +353,77 @@ describe("verifyAuditRecord — field-level tamper detection (parametric)", () =
     }
   });
 });
+
+// 091: explicit round-trip coverage for the bound policy/kernel version pair.
+// A record built with BOTH policyVersion AND kernelVersion populated must
+// verify as {verified:true}, and the two fields must be part of the auditHash
+// pre-image — tampering EITHER (or both) flips verify to {verified:false,
+// reason:'tampered'}. This is the unit-level mirror of the kernel-path test in
+// adjudicate-and-audit.test.ts (which proves the kernel call sites supply them).
+describe("AuditRecord 091 — policyVersion + kernelVersion bound into auditHash", () => {
+  it("round-trips {verified:true} with both versions populated", () => {
+    const r = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+      policyVersion: "1.2.3",
+      kernelVersion: "0.4.0",
+    });
+    expect(r.policyVersion).toBe("1.2.3");
+    expect(r.kernelVersion).toBe("0.4.0");
+    expect(verifyAuditRecord(r).verified).toBe(true);
+  });
+
+  it("tampering policyVersion flips verify to tampered", () => {
+    const r = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+      policyVersion: "1.2.3",
+      kernelVersion: "0.4.0",
+    });
+    const v = verifyAuditRecord({ ...r, policyVersion: "9.9.9" });
+    expect(v.verified).toBe(false);
+    if (v.verified === false) expect(v.reason).toBe("tampered");
+  });
+
+  it("tampering kernelVersion flips verify to tampered", () => {
+    const r = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+      policyVersion: "1.2.3",
+      kernelVersion: "0.4.0",
+    });
+    const v = verifyAuditRecord({ ...r, kernelVersion: "9.9.9" });
+    expect(v.verified).toBe(false);
+    if (v.verified === false) expect(v.reason).toBe("tampered");
+  });
+
+  it("a record built WITHOUT the versions differs in auditHash from one WITH them", () => {
+    const without = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+    });
+    const withVersions = buildAuditRecord({
+      envelope: ENV,
+      decision: decisionExecute([]),
+      durationMs: 5,
+      at: "2026-05-18T00:00:01.000Z",
+      policyVersion: "1.2.3",
+      kernelVersion: "0.4.0",
+    });
+    // Proves the versions enter the pre-image (binding changes the hash) AND
+    // that the omitting record carries no version keys (hash-stable for
+    // non-injecting adopters).
+    expect("policyVersion" in without).toBe(false);
+    expect("kernelVersion" in without).toBe(false);
+    expect(without.auditHash).not.toBe(withVersions.auditHash);
+    expect(verifyAuditRecord(without).verified).toBe(true);
+  });
+});

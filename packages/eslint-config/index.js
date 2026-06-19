@@ -6,6 +6,15 @@
 import eslint from "@eslint/js";
 import importPlugin from "eslint-plugin-import";
 import tseslint from "typescript-eslint";
+import monotonicCeiling from "./monotonic-ceiling-rule.js";
+
+// 061 · the custom @adjudicate plugin hosting the `monotonic-ceiling` rule
+// (index §C / invariant #7). Registered below as `@adjudicate/monotonic-ceiling`.
+const adjudicatePlugin = {
+  rules: {
+    "monotonic-ceiling": monotonicCeiling,
+  },
+};
 
 export default tseslint.config(
   // Global ignores — apply before any rule blocks so they short-circuit.
@@ -29,6 +38,8 @@ export default tseslint.config(
     files: ["**/*.{ts,tsx}"],
     plugins: {
       import: importPlugin,
+      // 061: the @adjudicate plugin namespace hosting the monotonic-ceiling rule.
+      "@adjudicate": adjudicatePlugin,
     },
     rules: {
       "@typescript-eslint/no-unused-vars": [
@@ -36,6 +47,11 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "error",
+      // 061: monotonic-ceiling — forbid weakening a `decision` binding to EXECUTE
+      // (friction-decreasing composition; index §C / invariant #7). The one
+      // deterministic carve-out (confirmation-receipt) is allowlisted at its
+      // call site with an eslint-disable-next-line directive.
+      "@adjudicate/monotonic-ceiling": "error",
       "import/order": [
         "warn",
         {

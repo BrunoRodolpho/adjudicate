@@ -1,8 +1,9 @@
 # ADR-108 — `@adjudicate/primitives` Layer 2 expansion
 
-**Status**: Accepted (2026-05-18 — M2 overnight execution)
-**Supersedes**: none
-**Related**: ADR-105 (guard metadata closed vocabulary), `docs/concepts.md §9` (architectural direction)
+- **Status:** Accepted
+- **Date:** 2026-05-18 (M2 overnight execution)
+- **Supersedes:** none
+- **Related:** ADR-105 (guard metadata closed vocabulary), `docs/concepts.md §9` (architectural direction)
 
 ## Context
 

@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import {
   createApprovalEngine,
   createConsoleLogChannel,
   createInMemoryApprovalRegistry,
+  isEscalationDue,
 } from "../src/index.js";
 import { attestationMessage, createEd25519AttestationVerifier } from "../src/governance.js";
 import { fakeAgent, baseRequest } from "./helpers.js";
@@ -31,7 +32,7 @@ function attest(approverId: string, privateKeyPem: string, accepted: boolean) {
   return { approverId, signature: cryptoSign(null, msg, privateKeyPem).toString("base64") };
 }
 
-function makeEngine() {
+function makeEngine(quorumPolicy?: { minApprovals: number; distinctApprovers?: boolean }) {
   const alice = key();
   const bob = key();
   const { agent, confirmCalls } = fakeAgent();
@@ -46,7 +47,7 @@ function makeEngine() {
       alice: alice.publicKey,
       bob: bob.publicKey,
     }),
-    quorum: { minApprovals: 2, distinctApprovers: true },
+    quorum: quorumPolicy ?? { minApprovals: 2, distinctApprovers: true },
   });
   return { engine, confirmCalls, alice, bob };
 }
@@ -101,5 +102,98 @@ describe("reference wiring — attestation + quorum", () => {
         attestation: { approverId: "alice", signature: attest("bob", bob.privateKey, true).signature },
       }),
     ).rejects.toThrow();
+  });
+
+  // ── 071 — end-to-end: the bound approver is the CRYPTOGRAPHICALLY-VERIFIED
+  // attestation.approverId, never the unauthenticated `input.by`, and the
+  // request's channel is bound. Pinned with a 1-of-1 quorum so a single attested
+  // resolve fires confirm() and we can inspect the forwarded receipt binding.
+  it("071: threads the verified approver + channel binding tuple into the forwarded receipt", async () => {
+    const { engine, confirmCalls, alice } = makeEngine({ minApprovals: 1 });
+    await engine.request(baseRequest); // channel routed to "console-log"
+
+    const res = await engine.resolve({
+      token: baseRequest.token,
+      accepted: true,
+      // The forgeable display claim says "mallory" — it must NOT become the
+      // bound approver; only the verified attestation.approverId may.
+      by: { id: "mallory", displayName: "Mallory" },
+      attestation: attest("alice", alice.privateKey, true),
+    });
+
+    expect(res.request.status).toBe("approved");
+    expect(confirmCalls).toHaveLength(1);
+    expect(confirmCalls[0]!.binding).toEqual({
+      approver: { confirmed: "alice" }, // verified id, NOT "mallory"
+      channel: { confirmed: "console-log", requested: "console-log" },
+    });
+  });
+});
+
+// ── 073 — end-to-end reference wiring: channel → registry → resolve ───────────
+//
+// The recommended zero-dependency reference wiring: a single console-log channel,
+// the in-memory registry, an out-of-band escalation projection, and a resolve
+// that drives agent.confirm() and re-notifies the channel. No transport, no
+// secret, fully deterministic.
+describe("reference wiring — channel → registry → resolve (073)", () => {
+  it("delivers to the console-log channel, records the projection (with escalation), resolves, and re-notifies", async () => {
+    const { agent, confirmCalls } = fakeAgent();
+    const channel = createConsoleLogChannel();
+    const notifyResolved = vi.fn(async () => {});
+    // Wrap the reference channel so we can also observe notifyResolved while
+    // keeping the zero-dep delivery recorder.
+    const observed = {
+      id: channel.id,
+      request: channel.request.bind(channel),
+      notifyResolved,
+    };
+    const registry = createInMemoryApprovalRegistry({
+      nowMs: () => Date.parse("2026-06-19T12:00:00.000Z"),
+      nowIso: () => "2026-06-19T12:00:00.000Z",
+    });
+    const engine = createApprovalEngine<unknown, unknown, string[]>({
+      agent,
+      registry,
+      channels: [observed],
+      resolveStateContext: async () => ({ state: {}, context: {} }),
+      now: () => "2026-06-19T12:00:00.000Z",
+    });
+
+    // 1) request → channel delivery + registry projection (carrying escalation).
+    const req = await engine.request({
+      ...baseRequest,
+      escalation: { afterMs: 30 * 60_000, to: "supervisor" },
+    });
+    expect(req.channel).toBe("console-log");
+    expect(channel.delivered.map((d) => d.token)).toEqual(["tok-1"]);
+    expect(req.escalation).toEqual({ afterMs: 30 * 60_000, to: "supervisor" });
+
+    // The projection is enumerable for an out-of-band scheduler.
+    const pending = await registry.list({ status: "pending" });
+    expect(pending.map((p) => p.token)).toEqual(["tok-1"]);
+
+    // Escalation scheduler input: not due yet, due after the deadline.
+    const requestedMs = Date.parse(req.requestedAt);
+    expect(isEscalationDue(pending[0]!, requestedMs + 30 * 60_000 - 1)).toBe(false);
+    expect(isEscalationDue(pending[0]!, requestedMs + 30 * 60_000)).toBe(true);
+
+    // 2) resolve → confirm() runs once, projection flips to approved, channel re-notified.
+    const { request, turn } = await engine.resolve({
+      token: "tok-1",
+      accepted: true,
+      by: { id: "alice", displayName: "Alice" },
+    });
+    expect(turn).not.toBeNull();
+    expect(confirmCalls).toHaveLength(1);
+    expect(request.status).toBe("approved");
+    expect(request.resolvedBy?.id).toBe("alice");
+    expect(notifyResolved).toHaveBeenCalledTimes(1);
+    expect(notifyResolved.mock.calls[0]![1]).toMatchObject({ status: "approved" });
+
+    // The registry reflects the resolution; once resolved, escalation no longer fires.
+    const stored = await registry.get("tok-1");
+    expect(stored?.status).toBe("approved");
+    expect(isEscalationDue(stored!, requestedMs + 1e12)).toBe(false);
   });
 });

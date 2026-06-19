@@ -1,0 +1,159 @@
+{
+  "packId": "pack-payments-pix",
+  "escaped": 0,
+  "errors": 0,
+  "ownershipEscaped": 0,
+  "taintVacuous": true,
+  "scenarios": [
+    {
+      "name": "ownership_violation.pix.charge.create.forged_unbound.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.create.forged_unbound.1",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.create.forged_unbound.2",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.create.impersonation.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.create.impersonation.1",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.create.impersonation.2",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.refund.forged_unbound.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.refund.forged_unbound.1",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.refund.forged_unbound.2",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.refund.impersonation.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.refund.impersonation.1",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "ownership_violation.pix.charge.refund.impersonation.2",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "prompt_injection.pix.charge.confirm.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "prompt_injection.pix.charge.confirm.1",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "prompt_injection.pix.charge.confirm.2",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "prompt_injection.pix.charge.create.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "prompt_injection.pix.charge.create.1",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "prompt_injection.pix.charge.create.2",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "prompt_injection.pix.charge.refund.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "prompt_injection.pix.charge.refund.1",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "prompt_injection.pix.charge.refund.2",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "provenance_injection.pix.charge.confirm.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "provenance_injection.pix.charge.confirm.1",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "provenance_injection.pix.charge.confirm.2",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "taint_escalation.pix.charge.confirm.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "taint_escalation.pix.charge.confirm.1",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "taint_escalation.pix.charge.confirm.2",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "taint_escalation.pix.charge.confirm.with_resource_refs",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "tool_scope_violation.pix.charge.confirm.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    },
+    {
+      "name": "tool_scope_violation.pix.charge.refund.0",
+      "status": "defended",
+      "decision": "REFUSE"
+    }
+  ]
+}

@@ -9,7 +9,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { legacyV1ToV2 } from "../src/legacy-v1-compat.js";
+import {
+  legacyV1ToV2,
+  recordedAuthoritySnapshotFromRow,
+} from "../src/legacy-v1-compat.js";
 import type { IntentAuditRow } from "../src/postgres-sink.js";
 
 function v1Row(overrides?: Partial<IntentAuditRow>): IntentAuditRow {
@@ -103,6 +106,50 @@ describe("legacyV1ToV2", () => {
     const env2 = legacyV1ToV2(row);
     expect(env2.intentHash).toBe(env.intentHash);
   });
+
+  // 031 — v3 resource-refs threading.
+  it("reconstructs a no-resource-refs row with NO resourceRefs key (drop-safe)", () => {
+    const env = legacyV1ToV2(v1Row());
+    expect("resourceRefs" in env).toBe(false);
+  });
+
+  it("threads stored resourceRefs through faithfully for a v3 row", () => {
+    const row = v1Row({
+      record_version: 4,
+      nonce: "real-nonce",
+      envelope_jsonb: JSON.stringify({
+        version: 2,
+        kind: "pix.charge.refund",
+        payload: { chargeId: "chg_1" },
+        actor: { principal: "llm", sessionId: "s-1" },
+        taint: "TRUSTED",
+        createdAt: "2026-04-01T10:00:00.000Z",
+        nonce: "real-nonce",
+        origin: "LLM",
+        resourceRefs: { account: "acct_7", owner: "user_42" },
+        intentHash: "h",
+      }),
+    });
+    const env = legacyV1ToV2(row);
+    expect(env.resourceRefs).toEqual({ account: "acct_7", owner: "user_42" });
+    // The refs are bound into the recomputed hash: dropping them changes it.
+    const noRefsRow = v1Row({
+      record_version: 4,
+      nonce: "real-nonce",
+      envelope_jsonb: JSON.stringify({
+        version: 2,
+        kind: "pix.charge.refund",
+        payload: { chargeId: "chg_1" },
+        actor: { principal: "llm", sessionId: "s-1" },
+        taint: "TRUSTED",
+        createdAt: "2026-04-01T10:00:00.000Z",
+        nonce: "real-nonce",
+        origin: "LLM",
+        intentHash: "h",
+      }),
+    });
+    expect(legacyV1ToV2(noRefsRow).intentHash).not.toBe(env.intentHash);
+  });
 });
 
 describe("legacyV1ToV2 — v2+ nonce integrity guard (DataReviewer-010)", () => {
@@ -178,5 +225,64 @@ describe("legacyV1ToV2 — v2+ nonce integrity guard (DataReviewer-010)", () => 
     // so genuine pre-T8 v1 rows keep synthesizing nonce from createdAt.
     const env = legacyV1ToV2(v1Row());
     expect(env.nonce).toBe("2026-04-01T10:00:00.000Z");
+  });
+});
+
+// 033 — degrade-safe read of the recorded authority snapshot from a stored row.
+describe("recordedAuthoritySnapshotFromRow — 033 degrade-safe legacy read", () => {
+  it("returns undefined for a legacy row that carries no recorded snapshot", () => {
+    // The recorded snapshot is record-level and 033-new; older rows lack it.
+    expect(recordedAuthoritySnapshotFromRow(v1Row())).toBeUndefined();
+  });
+
+  it("returns undefined for unreadable/garbage envelope JSON (never throws)", () => {
+    const row = v1Row({ envelope_jsonb: "{not-json" });
+    expect(() => recordedAuthoritySnapshotFromRow(row)).not.toThrow();
+    expect(recordedAuthoritySnapshotFromRow(row)).toBeUndefined();
+  });
+
+  it("returns a structurally-valid recorded snapshot when one is present", () => {
+    const snapshot = {
+      graph: {
+        edges: [
+          { principal: "user_42", relationship: "owns", resource: "acct_7", permits: { actions: ["pix.charge.refund"] } },
+        ],
+      },
+      snapshotHash: "a".repeat(64),
+    };
+    const row = v1Row({
+      record_version: 5,
+      nonce: "real-nonce",
+      envelope_jsonb: JSON.stringify({
+        version: 2,
+        kind: "pix.charge.refund",
+        payload: {},
+        actor: { principal: "llm", sessionId: "s-1" },
+        taint: "TRUSTED",
+        createdAt: "2026-04-01T10:00:00.000Z",
+        nonce: "real-nonce",
+        intentHash: "h",
+        // A future writer may carry the recorded snapshot in the persisted JSON;
+        // the degrade-safe reader extracts it verbatim.
+        authoritySnapshot: snapshot,
+      }),
+    });
+    expect(recordedAuthoritySnapshotFromRow(row)).toEqual(snapshot);
+  });
+
+  it("degrades to undefined on a malformed snapshot blob (missing graph.edges / snapshotHash)", () => {
+    const row = v1Row({
+      envelope_jsonb: JSON.stringify({
+        version: 1,
+        kind: "x",
+        payload: {},
+        actor: { principal: "llm", sessionId: "s" },
+        taint: "TRUSTED",
+        createdAt: "2026-04-01T10:00:00.000Z",
+        intentHash: "h",
+        authoritySnapshot: { graph: { notEdges: [] } }, // wrong shape
+      }),
+    });
+    expect(recordedAuthoritySnapshotFromRow(row)).toBeUndefined();
   });
 });

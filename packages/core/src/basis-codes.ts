@@ -20,6 +20,7 @@ export type BasisCategory =
   | "kill"
   | "deadline"
   | "confirmation"
+  | "budget"
   | "kernel";
 
 export const BASIS_CODES = {
@@ -41,6 +42,14 @@ export const BASIS_CODES = {
   taint: {
     LEVEL_PERMITTED: "level_permitted",
     LEVEL_INSUFFICIENT: "level_insufficient",
+    // Provenance-propagation refusal. Emitted by the kernel taint gate in two
+    // cases, both still a REFUSE (no new outcome): (042) ATTRIBUTION — a
+    // sub-minimum proposal that would fail the trust-rank floor anyway carries a
+    // contaminating origin, so the refusal is attributed to propagation rather
+    // than a bare declared-untrusted one; (043) ORIGIN-BRANCH — the policy
+    // declares the kind origin-required and a contaminating-origin proposal that
+    // CLEARED the trust-rank floor is refused (`detail.branch === "origin_required"`),
+    // the laundering case the rank gate alone cannot see.
     PROPAGATION_VIOLATION: "propagation_violation",
   },
   ledger: {
@@ -117,6 +126,22 @@ export const BASIS_CODES = {
    */
   confirmation: {
     RECEIVED: "received",
+  },
+  /**
+   * Capabilities-as-budgets (025) — emitted by `adjudicateAndAudit` when an
+   * `AdjudicateAndAuditDeps.budgetGrant` is asserted by the impure shell for an
+   * envelope that would otherwise have produced REQUEST_CONFIRMATION. The shell
+   * asserts the grant ONLY after a successful atomic burn-down (a
+   * single-use-counted decrement against the grant's limit), so this basis
+   * records "a standing, human-granted budget satisfied the ask-first threshold
+   * for THIS bounded substitution". Mirrors `confirmation.RECEIVED`: a
+   * deterministic §C carve-out (a bounded pre-authorization, not a risk model
+   * lowering a ceiling) — it ONLY ever substitutes EXECUTE for the
+   * threshold-style outcome and NEVER weakens any state/taint/auth/business
+   * guard. The grant's `budgetId` rides in `DecisionBasis.detail`.
+   */
+  budget: {
+    SATISFIED: "satisfied",
   },
   /**
    * Kernel-internal — emitted when the kernel itself produces a decision

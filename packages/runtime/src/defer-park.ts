@@ -12,7 +12,7 @@
 // On successful resume, defer-resume.ts DECRs the counter back; the TTL
 // guarantees zero-counter cleanup even if a resume was missed.
 
-import type { IntentActor, Taint } from "@adjudicate/core"
+import type { IntentActor, Origin, Taint } from "@adjudicate/core"
 import { recordResourceLimit } from "@adjudicate/core"
 import { DEFER_PENDING_TTL_GRACE_SECONDS } from "./defer-resume.js"
 
@@ -104,9 +104,9 @@ export interface ParkDeferredIntentArgs {
      *
      * When supplied, the parked blob carries enough envelope fields for
      * `resumeDeferredIntent` to re-derive the `intentHash` via
-     * `sha256Canonical({version, kind, payload, nonce, actor, taint})` and
-     * assert byte-equality with the stored `intentHash` — detecting blob
-     * tampering at resume time.
+     * `sha256Canonical({version, kind, payload, nonce, actor, taint, origin})`
+     * (041 added `origin` to the recipe) and assert byte-equality with the
+     * stored `intentHash` — detecting blob tampering at resume time.
      *
      * Optional for back-compat with v0.1-shaped park calls. v0.5 promotes
      * this to required for first-party adapters; legacy blobs without the
@@ -117,6 +117,8 @@ export interface ParkDeferredIntentArgs {
     readonly nonce?: string
     readonly taint?: Taint
     readonly actorPrincipal?: IntentActor["principal"]
+    /** 041 — provenance source axis; part of the intentHash recipe. */
+    readonly origin?: Origin
   }
   readonly signal: string
   /** TTL for the parked envelope blob — typically `signal.timeoutMs / 1000 + grace`. */
@@ -168,6 +170,32 @@ export type ParkDeferredIntentResult =
  * Counter TTL: set via EXPIRE NX so the lifetime equals the grace window
  * regardless of how many envelopes are parked. Once all parked envelopes
  * for a session expire, the counter expires naturally.
+ *
+ * ── 052/T7 + 053 — over-commit race: EPHEMERAL park counter vs DURABLE reservation ──
+ * This per-session park quota is an EPHEMERAL Redis counter. Its default
+ * `INCR → EXPIRE → check → DECR` sequence has a documented TOCTOU over-commit
+ * race (two concurrent parks at `quota − 1` can both pass before either rolls
+ * back); the optional `evalIncrCheck` Lua seam closes it race-free for the
+ * ephemeral store. This is a DIFFERENT atomicity mechanism from the DURABLE
+ * aggregate-counting substrate plan 052 OWNS: the additive Postgres upsert
+ * (`audit-postgres` `UPSERT_GUARD_STAT_SQL`: `ON CONFLICT (...) DO UPDATE SET
+ * count = count + EXCLUDED.count`, arbitrated by the migration-006 PK) is
+ * inherently atomic/coalescing in a SINGLE statement — no read-modify-write, no
+ * `INCR→check→DECR` window.
+ *
+ * 053 DELIVERED the durable transactional reservation store on exactly that
+ * template: `audit-postgres` `RESERVE_GUARD_STAT_SQL` extends the additive
+ * `ON CONFLICT … DO UPDATE SET count = count + EXCLUDED.count` upsert with an
+ * over-commit guard — a `SELECT … WHERE $delta <= $cap` fresh-key gate plus a
+ * `WHERE table.count + EXCLUDED.count <= $cap` `DO UPDATE` predicate — so an
+ * over-cap claim affects ZERO rows (`rowCount === 0` ⇒ REFUSE) in ONE
+ * statement, against the same migration-006 PK arbiter (no new migration).
+ * Concurrent over-cap claims cannot both win: one updates/inserts, the other's
+ * `WHERE` matches zero rows. This is the DURABLE answer to the over-commit race;
+ * the ephemeral `INCR→EXPIRE→check→DECR` (Lua-seamed) counter here is the
+ * EPHEMERAL answer. Copying THIS park sequence into the durable reservation
+ * would re-introduce the over-commit race against the authoritative limit —
+ * 053 deliberately did NOT; it used the single-statement `ON CONFLICT` form.
  */
 export async function parkDeferredIntent(
   args: ParkDeferredIntentArgs,

@@ -1,3 +1,4 @@
+import type { AuthorityGraphStore } from "@adjudicate/core";
 import { createSystemTaintPolicy } from "@adjudicate/primitives";
 
 export type AccessIntentKind =
@@ -27,7 +28,6 @@ export interface AccessReviewResolvePayload {
 export interface AccessRevokePayload {
   readonly principal: string;
   readonly resourceId: string;
-  readonly confirmationToken?: string;
 }
 
 /**
@@ -66,11 +66,47 @@ export interface AccessGrant {
   readonly expiresAt?: string;
 }
 
+/**
+ * Host-supplied authority context the constitutional authority guard (034) reads
+ * from `state` (the kernel never passes identity to a guard — auth facts flow
+ * through `state`). INJECTED immutable snapshot (index §B/§D): the authority-graph
+ * store (032/033) plus the IDOR-closing host-identity seam.
+ *
+ * OPTIONAL (035 wiring contract). Absent ⇒ the authority guard is inert (the
+ * pre-035 posture the conformance/scenario tests use); present ⇒ the guard is
+ * binding + fail-closed for the mutating UNTRUSTED kinds (`access.request`,
+ * `access.revoke`). See `PixAuthorityContext` for the identical IDOR residual:
+ * `principalOf` MUST resolve the AUTHENTICATED principal from `actor.sessionId`
+ * (a trusted host session→identity map) — NEVER from the payload — and its
+ * namespace MUST match the authority-graph principal names (034-F2).
+ */
+export interface AccessAuthorityContext {
+  /** The injected authority-graph snapshot store (032/033). */
+  readonly store: AuthorityGraphStore;
+  /**
+   * IDOR-closing host-identity seam: AUTHENTICATED principal for a sessionId, or
+   * `null` for an unknown/unauthenticated session (the guard then REFUSEs,
+   * fail-closed). NEVER read from the payload.
+   */
+  readonly principalOf?: (sessionId: string) => string | null;
+}
+
 export interface AccessState {
   readonly reviews: ReadonlyMap<string, AccessReview>;
   readonly grants: ReadonlyMap<string, AccessGrant>;
+  /**
+   * OPTIONAL injected authority context (032/033/034). Present ⇒ the authority
+   * guard in `authGuards` is binding for mutating UNTRUSTED kinds; absent ⇒
+   * inert. See `AccessAuthorityContext` for the IDOR residual.
+   */
+  readonly authority?: AccessAuthorityContext;
 }
 
+/**
+ * Read-only context the planner consumes. `requesterId` is the host's view of
+ * the requesting principal at plan time; it is NOT an authenticated-identity
+ * source for the kernel auth guard (which reads `state.authority`, not context).
+ */
 export interface AccessContext {
   readonly requesterId: string;
 }

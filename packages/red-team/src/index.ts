@@ -26,14 +26,34 @@ export {
 } from "./scenario.js";
 
 export { generatePromptInjectionEnvelopes } from "./vectors/prompt-injection.js";
-export { generateTaintEscalationEnvelopes } from "./vectors/taint-escalation.js";
+export { generateProvenanceInjectionEnvelopes } from "./vectors/provenance-injection.js";
+export {
+  generateOwnershipViolationEnvelopes,
+  generateReadInjectIntentEnvelopes,
+  generateTaintEscalationEnvelopes,
+  OWNERSHIP_VICTIM_PRINCIPAL,
+  OWNERSHIP_VICTIM_RESOURCE,
+} from "./vectors/taint-escalation.js";
 export { generateToolScopeViolationEnvelopes } from "./vectors/tool-scope-violation.js";
 
 export {
   computeRedTeamExitCode,
+  deriveCanaryBaseline,
+  frozenCanaryScenarios,
+  runBaselinedCanaryGate,
+  runCanaryGate,
+  runConfigSealCapEditRegression,
   runRedTeam,
   taintEscalationCausality,
   TAINT_GATE_BASIS,
+  type BaselinedCanaryGateResult,
+  type CanaryBaseline,
+  type CanaryBaselineScenario,
+  type CanaryExitCode,
+  type CanaryGateResult,
+  type CanaryPolicy,
+  type CanaryStage,
+  type CapEditRegressionResult,
   type RedTeamReport,
   type RedTeamResult,
   type RedTeamStatus,
@@ -49,12 +69,14 @@ export {
   createInMemoryRedTeamHistoryStore,
   digestRedTeamReport,
   runRedTeamAcrossPacks,
+  runStagedCanaryRollout,
   type RedTeamHistoryOptions,
   type RedTeamHistoryQuery,
   type RedTeamHistoryStore,
   type RedTeamHistoryView,
   type RedTeamRunRecord,
   type RedTeamTrendPoint,
+  type StagedCanaryRolloutResult,
 } from "./history.js";
 
 export {

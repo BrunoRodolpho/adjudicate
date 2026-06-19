@@ -24,15 +24,25 @@
 export { createAdjudicatedAgent } from "./loop.js";
 export { createQuickAgent } from "./quick-agent.js";
 export type { QuickAgentOptions } from "./quick-agent.js";
+// 084 — fail-closed CANARY-stage config-seal posture builder (require_signature
+// + engageKillSwitchOnMismatch + every_turn). Runtime helper.
+export { canaryStageConfigSeal } from "./types.js";
 export type {
   AdjudicatedAgent,
   AdjudicatedAgentOptions,
   AdopterExecutor,
   AgentEvent,
+  // 084 — the named config-seal options shape the canary-stage helper returns.
+  AgentConfigSealOptions,
   AgentLogger,
   AgentOutcome,
   AgentTurnResult,
   AssistantTurn,
+  // 025 — capabilities-as-budgets loop configuration (store + grant resolver).
+  BudgetConfig,
+  // 024 — cap-gated executor contract (kernel-shell-minted, single-use,
+  // resource-bound capability gate honored at the executor seam).
+  CapabilityGate,
   ConfirmArgs,
   ProviderBridge,
   ProviderRequest,
@@ -55,6 +65,7 @@ export type {
 
 export {
   makeOutOfPlanToolResult,
+  runBudgetBurnDown,
   translateDecision,
 } from "./decisions.js";
 export type {
@@ -64,11 +75,15 @@ export type {
 } from "./decisions.js";
 
 export {
+  createBudgetStore,
+  createInMemoryBurnStore,
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
   createInMemoryMemoryStore,
 } from "./persistence.js";
 export type {
+  BudgetStore,
+  BurnStore,
   ConfirmationStore,
   CreateInMemoryMemoryStoreOptions,
   DeferRedis,
@@ -86,6 +101,42 @@ export {
   type ConfirmationRedisClient,
   type CreateRedisConfirmationStoreOptions,
 } from "./persistence-redis.js";
+// 022 — single-use capability burn store + nonce reconciliation seam.
+// The Redis `burn` is an ATOMIC Lua EVAL get-and-delete (BURN_CLAIM_AND_BURN_LUA)
+// — no non-atomic GET+DEL double-spend race. `reconcileBurnedCapability`
+// re-derives the nonce-bound intentHash (untouched recipe) and compares it
+// constant-time before a redemption is honored (fail-closed, §D #6).
+export {
+  BURN_CLAIM_AND_BURN_LUA,
+  createRedisBurnStore,
+  reconcileBurnedCapability,
+  type BurnRedisClient,
+  type CreateRedisBurnStoreOptions,
+} from "./persistence-redis.js";
+// 022 — re-export the canonical hashing source of truth + nonce-reconciliation
+// primitive so the burn-store seam pins ONE hash path (@adjudicate/canonical via
+// core's hash.ts re-export, NOT the conformance fork). `reconcileNonceHash`
+// re-derives via the kernel's `intentHashInput` recipe (untouched) and compares
+// constant-time via `timingSafeHexEqual`.
+export {
+  reconcileNonceHash,
+  sha256Canonical,
+  timingSafeHexEqual,
+} from "@adjudicate/core";
+// 023 — resource-binding verifier surfaced at the executor-seam package so the
+// binding gate (`runExecute`) and adopters pin ONE recipe: `verifyResourceBinding`
+// re-derives the envelope's `intentHash` via the untouched `intentHashInput`
+// recipe (`deriveIntentHash`) and compares constant-time via `timingSafeHexEqual`.
+// The executor honors ONLY the kernel-bound payload (anti-IDOR / anti-resource-swap).
+export {
+  DEFAULT_RESOURCE_BINDING_POLICY,
+  deriveIntentHash,
+  verifyResourceBinding,
+} from "@adjudicate/core";
+export type {
+  ResourceBindingPolicy,
+  ResourceBindingResult,
+} from "@adjudicate/core";
 export {
   createPostgresMemoryStore,
   type CreatePostgresMemoryStoreOptions,

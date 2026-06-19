@@ -150,7 +150,7 @@ export const GUIDED_CASES: ReadonlyArray<GuidedCase> = [
         expectedKind: "EXECUTE",
         narrateByOutcome: {
           EXECUTE:
-            "Execute. The refund is small and valid, so the kernel runs it and writes a signed receipt.",
+            "Execute. The refund is small and valid, so the kernel runs it and writes a tamper-evident receipt.",
         },
       },
     ],
@@ -234,9 +234,9 @@ export const GUIDED_CASES: ReadonlyArray<GuidedCase> = [
       {
         id: "deploy-prod-overshoot",
         aiProposes:
-          "The AI tries to send 100% of production traffic to the new build immediately.",
+          "The AI tries to send 100% of production traffic to the new build immediately — with no human approval on file.",
         whatToWatch:
-          "Production at full blast is too aggressive — watch the kernel clamp the ramp instead of refusing.",
+          "Production at full blast is too aggressive AND unapproved — watch the kernel clamp the ramp and then route the still-unapproved deploy to a human.",
         intentKind: "deployment.approval.request",
         payload: {
           service: "api",
@@ -244,10 +244,15 @@ export const GUIDED_CASES: ReadonlyArray<GuidedCase> = [
           gitSha: "feedfacefeedface",
           rampPercent: 100,
         },
-        expectedKind: "REWRITE",
+        // The kernel first REWRITEs the 100% ramp down to the 25% production
+        // cap, then RE-ADJUDICATES the corrected request (011 REWRITE
+        // re-adjudication). The clamped production deploy still has no recorded
+        // approval, so the final, audited decision is ESCALATE — not the
+        // first-pass REWRITE. The literal here pins the audited outcome.
+        expectedKind: "ESCALATE",
         narrateByOutcome: {
-          REWRITE:
-            "Rewrite. Rather than blocking the release, the kernel returns a corrected request clamped to the 25% maximum production ramp.",
+          ESCALATE:
+            "Escalate. The kernel first trimmed the 100% ramp down to the 25% production cap, then re-checked the corrected request — and since there is still no approval on file, it handed the decision to a human rather than shipping.",
         },
       },
       {

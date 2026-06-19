@@ -12,6 +12,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   installPack,
+  noopAuditSink,
   type Decision,
   type DecisionKind,
 } from "@adjudicate/core";
@@ -148,6 +149,12 @@ async function main(): Promise<void> {
     // (or any backing store with SET-NX, EX, INCR, DECR) from
     // `@adjudicate/audit`.
     ledger: createMemoryLedger(),
+    // 013/T1: auditSink is REQUIRED — the durable governance trail is no longer
+    // optional (no silent fail-open default). This demo uses an explicit no-op so
+    // the transcript stays terse; PRODUCTION adopters MUST wire a durable sink
+    // (e.g. `createConsoleSink` for dev receipts, or a NATS/Postgres-backed sink
+    // from `@adjudicate/audit`) — emission with the no-op is silent by design.
+    auditSink: noopAuditSink(),
     executor: createPixExecutor(),
   });
 

@@ -1,4 +1,15 @@
 import { describe, expect, it } from "vitest";
+import {
+  basis,
+  BASIS_CODES,
+  buildAuditRecord,
+  buildEnvelope,
+  decisionExecute,
+  recordAggregateSnapshot,
+  recordAuthoritySnapshot,
+  verifyAuditRecord,
+  type AuditRecord,
+} from "@adjudicate/core";
 import { AuditRecordSchema } from "../src/schemas/audit.js";
 import { DecisionSchema } from "../src/schemas/decision.js";
 import { IntentHashSchema, IsoTimestampSchema } from "../src/schemas/common.js";
@@ -32,6 +43,82 @@ describe("AuditRecordSchema accepts every kernel-emitted fixture", () => {
       expect(result.success).toBe(true);
     });
   }
+});
+
+// ── 093 read-path-owner: the wire schema CARRIES every auditHash-pre-image field
+// (Supersession.binding 071-F1, authoritySnapshot 033, aggregateSnapshot 052) so
+// a record round-tripped THROUGH the wire schema still verifies. Zod .object()
+// STRIPS unknown keys by default; before this fix the schema omitted `binding`
+// and `aggregateSnapshot`, so a record carrying either would re-derive a
+// DIFFERENT auditHash after a wire round-trip → 092 verify-on-read FALSELY
+// reports tampered. These tests pin that the strip no longer happens.
+describe("AuditRecordSchema carries every auditHash-pre-image field (092-F1 false-tamper closure)", () => {
+  function recordWithPreimageFields(): AuditRecord {
+    const env = buildEnvelope({
+      kind: "order.submit",
+      payload: { sku: "Z", qty: 1 },
+      actor: { principal: "llm", sessionId: "s-wire" },
+      taint: "UNTRUSTED",
+      nonce: "n-wire",
+      createdAt: "2026-06-18T12:00:00.000Z",
+    });
+    return buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]),
+      durationMs: 3,
+      at: "2026-06-18T12:00:01.000Z",
+      // 071-F1 — binding IS in the auditHash pre-image.
+      supersedes: {
+        predecessorIntentHash: "b".repeat(64),
+        predecessorAt: "2026-06-18T11:59:00.000Z",
+        reason: "confirmation_resolved",
+        token: "cr-1",
+        binding: { capability: "cap-1", approver: "ops@x", channel: "console" },
+      },
+      // 033 / 052 — both snapshots ARE in the auditHash pre-image.
+      authoritySnapshot: recordAuthoritySnapshot({
+        edges: [
+          {
+            principal: "user:1",
+            relationship: "owns",
+            resource: "acct:1",
+            permits: { actions: ["transfer"] },
+          },
+        ],
+      }),
+      aggregateSnapshot: recordAggregateSnapshot({
+        windows: { "acct:1|daily": 100 },
+        at: "2026-06-18T11:58:00.000Z",
+      }),
+      prevAuditHash: "c".repeat(64),
+    });
+  }
+
+  it("the record verifies BEFORE the wire round-trip (control)", () => {
+    expect(verifyAuditRecord(recordWithPreimageFields()).verified).toBe(true);
+  });
+
+  it("parses through the wire schema WITHOUT stripping binding / snapshots / prevAuditHash", () => {
+    const r = recordWithPreimageFields();
+    const parsed = AuditRecordSchema.parse(r);
+    // The wire-validated object must still carry the pre-image fields.
+    expect(parsed.supersedes!.binding).toEqual({
+      capability: "cap-1",
+      approver: "ops@x",
+      channel: "console",
+    });
+    expect(parsed.authoritySnapshot).toEqual(r.authoritySnapshot);
+    expect(parsed.aggregateSnapshot).toEqual(r.aggregateSnapshot);
+    expect(parsed.prevAuditHash).toBe("c".repeat(64));
+  });
+
+  it("verifyAuditRecord STAYS verified after the wire round-trip (no false-tamper)", () => {
+    const r = recordWithPreimageFields();
+    // Parse then re-narrow to core (the documented one-directional widening).
+    const parsed = AuditRecordSchema.parse(r) as unknown as AuditRecord;
+    expect(parsed.auditHash).toBe(r.auditHash);
+    expect(verifyAuditRecord(parsed).verified).toBe(true);
+  });
 });
 
 describe("IsoTimestampSchema — unified wire timestamp validation (APIReviewer-004/-010)", () => {

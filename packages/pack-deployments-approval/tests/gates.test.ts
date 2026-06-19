@@ -106,3 +106,42 @@ describe("release gates", () => {
     expect(flat(adjudicate(env, state, deploymentPolicyBundle))).toBe(flat(adjudicate(env, state, deploymentPolicyBundle)));
   });
 });
+
+describe("regression-escalate signal — FROZEN escalate-only contract (101 §3)", () => {
+  // The deployment regression-score guard is the on-path escalate-only signal:
+  // a sub-threshold score escalates and is structurally NON-DOWNGRADABLE — the
+  // kernel's first-non-null short-circuit means no later clamp/allow guard can
+  // turn the ESCALATE into EXECUTE/REWRITE/REQUEST_CONFIRMATION (§C monotonicity).
+  it("a sub-threshold score ESCALATEs even when a REWRITE (dirty region) is also present", () => {
+    const d = run({ service: "api", environment: "staging", gitSha: "abc12345", aiEvalScore: 79, region: "us-east-1", rampPercent: 10 });
+    expect(d.kind).toBe("ESCALATE"); // beats clampToGreenestRegion REWRITE
+  });
+
+  it("a sub-threshold score ESCALATEs even when a REQUEST_CONFIRMATION (model change) is also present", () => {
+    const approvals = {
+      "staging/api/old1234": {
+        service: "api",
+        environment: "staging" as const,
+        gitSha: "old1234",
+        approver: "bob",
+        decision: "approved" as const,
+        at: "2026-06-01T00:00:00.000Z",
+        modelId: "m@1",
+      },
+    };
+    // Both the regression-escalate AND the model-change-confirm guards would fire;
+    // the escalate signal is ordered first, so the signal wins.
+    const d = run({ service: "api", environment: "staging", gitSha: "new5678", modelId: "m@2", aiEvalScore: 50, rampPercent: 10 }, approvals);
+    expect(d.kind).toBe("ESCALATE");
+  });
+
+  it("the signal escalates and never authorizes EXECUTE across the sub-threshold band", () => {
+    // Sweep the entire failing-eval band; every sub-threshold score must ESCALATE
+    // (with a dirty region present that would otherwise REWRITE), and never EXECUTE.
+    for (let score = 0; score < 80; score += 5) {
+      const d = run({ service: "api", environment: "staging", gitSha: "abc12345", aiEvalScore: score, region: "us-east-1", rampPercent: 10 });
+      expect(d.kind).toBe("ESCALATE");
+      expect(d.kind).not.toBe("EXECUTE");
+    }
+  });
+});

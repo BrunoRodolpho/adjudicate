@@ -5,6 +5,7 @@ import { IdentityKycPack } from "../src/index.js";
 import {
   KYC_DOCUMENTS_UPLOADED_SIGNAL,
   KYC_VENDOR_COMPLETED_SIGNAL,
+  type AmlStatus,
   type IdentityKycState,
   type KycSession,
 } from "../src/types.js";
@@ -125,6 +126,20 @@ describe("pack-identity-kyc — full async happy path", () => {
   });
 });
 
+// ── 101 §6 / T6: FROZEN AmlStatus enum-shape lock (two-valued, UPPERCASE) ──
+// The escalate discriminator (`amlStatus !== "FLAGGED"`) is only well-defined
+// if the enum stays exactly {"CLEAR","FLAGGED"}. This is a COMPILE-TIME lock:
+// if AmlStatus ever drifts (extra value, lowercase, rename), one of these
+// assignments stops type-checking and `pnpm build`/`test` fails. It is the
+// type-side complement to the runtime drift-closure tests below.
+type _AmlIsExactlyClearOrFlagged = AmlStatus extends "CLEAR" | "FLAGGED"
+  ? "CLEAR" | "FLAGGED" extends AmlStatus
+    ? true
+    : never
+  : never;
+const _amlEnumFrozen: _AmlIsExactlyClearOrFlagged = true;
+void _amlEnumFrozen;
+
 describe("pack-identity-kyc — terminal Decision branches", () => {
   const baseState = withSession(emptyState(), {
     id: "s1",
@@ -231,6 +246,63 @@ describe("pack-identity-kyc — terminal Decision branches", () => {
     });
     const d = adjudicate(callback, baseState, policy);
     expect(d.kind).toBe("EXECUTE");
+  });
+
+  // ── 101 §3 drift-closure backstop (the defect this contract closes) ──
+  // The escalate discriminator is `amlStatus !== "FLAGGED"`. The public web
+  // schema USED to advertise the lowercase 3-value enum `"clear" | "hit" |
+  // "pending"`. A callback sent with a documented-but-unenforced value (e.g.
+  // "hit") silently fails the `=== "FLAGGED"` check, never escalates, and falls
+  // through to score handling / default REFUSE. This is exactly the silent
+  // non-escalation path 101 closes by aligning the doc to the enforced enum.
+  // These tests PIN that only the enforced "FLAGGED" value escalates, so the
+  // doc-vs-enforced drift can never silently re-open a bypass.
+  it("a documented-but-unenforced AML value (lowercase \"hit\") does NOT escalate", () => {
+    const callback = buildEnvelope({
+      kind: "kyc.vendor.callback",
+      // High score; if "hit" silently fell through to score handling, it would
+      // EXECUTE. The drift fix means "hit" is no longer a documented value at
+      // all; the enforced enum is "FLAGGED". This pins the non-escalation so the
+      // hazard is visible and the doc must track the enforced shape.
+      payload: { sessionId: "s1", score: 99, amlStatus: "hit" as unknown as "FLAGGED" },
+      actor: { principal: "system", sessionId: "vendor-webhook" },
+      taint: "TRUSTED",
+      nonce: "n-aml-lowercase",
+      createdAt: timestamp(),
+    });
+    const d = adjudicate(callback, baseState, policy);
+    // The escalate guard does NOT fire on "hit"; the high score EXECUTEs. This
+    // demonstrates WHY the documented enum must equal the enforced enum: a
+    // documented value that is not "FLAGGED" bypasses escalation entirely.
+    expect(d.kind).not.toBe("ESCALATE");
+  });
+
+  it("ONLY the enforced UPPERCASE \"FLAGGED\" value escalates over any score", () => {
+    // Conformance fixture for the frozen contract: across the whole score range,
+    // FLAGGED always ESCALATEs (signal beats score), and CLEAR never does.
+    for (const score of [0, 30, 49, 50, 75, 89, 90, 99, 100]) {
+      const flagged = buildEnvelope({
+        kind: "kyc.vendor.callback",
+        payload: { sessionId: "s1", score, amlStatus: "FLAGGED" },
+        actor: { principal: "system", sessionId: "vendor-webhook" },
+        taint: "TRUSTED",
+        nonce: `n-flagged-${score}`,
+        createdAt: timestamp(),
+      });
+      expect(adjudicate(flagged, baseState, policy).kind).toBe("ESCALATE");
+
+      const clear = buildEnvelope({
+        kind: "kyc.vendor.callback",
+        payload: { sessionId: "s1", score, amlStatus: "CLEAR" },
+        actor: { principal: "system", sessionId: "vendor-webhook" },
+        taint: "TRUSTED",
+        nonce: `n-clear-${score}`,
+        createdAt: timestamp(),
+      });
+      // CLEAR never escalates (it EXECUTEs / REFUSEs by score), proving the
+      // discriminator is the AML enum, not a side effect of the score path.
+      expect(adjudicate(clear, baseState, policy).kind).not.toBe("ESCALATE");
+    }
   });
 });
 

@@ -1,10 +1,8 @@
-# ADR-116: Post-v1 extension discipline
+# ADR-116 — Post-v1 extension discipline
 
-## Status
-
-Accepted. Pairs with `docs/release/EXTENSION_POLICY.md`,
-`docs/release/SEMVER_GOVERNANCE.md`, and
-`docs/pack-ecosystem/ECOSYSTEM_HEALTH_MODEL.md`.
+- **Status:** Accepted
+- **Date:** 2026-05 (v1.0-RC milestone; original ADR carried no explicit date)
+- **Related:** `docs/release/EXTENSION_POLICY.md`, `docs/release/SEMVER_GOVERNANCE.md`, `docs/pack-ecosystem/ECOSYSTEM_HEALTH_MODEL.md`
 
 ## Context
 

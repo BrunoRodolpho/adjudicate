@@ -1,7 +1,8 @@
 # ADR-110 — `@adjudicate/conformance` shipped package
 
-**Status**: Accepted (2026-05-18 — M3 overnight execution)
-**Related**: ADR-105 (closed metadata vocabulary), ADR-106 (guard exception isolation), ADR-109 (analyzer architecture)
+- **Status:** Accepted
+- **Date:** 2026-05-18 (M3 overnight execution)
+- **Related:** ADR-105 (closed metadata vocabulary), ADR-106 (guard exception isolation), ADR-109 (analyzer architecture)
 
 > Scope note: this ADR covers the original six-check conformance slice
 > (`runConformance` / AC-001..AC-006). The package has since matured

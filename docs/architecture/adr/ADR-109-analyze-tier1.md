@@ -1,8 +1,9 @@
 # ADR-109 — `@adjudicate/analyze` Tier 1 architecture + diagnostic catalog
 
-**Status**: Accepted (2026-05-18 — M2 overnight execution)
-**Supersedes**: none
-**Related**: ADR-105 (guard metadata closed vocabulary), ADR-108 (primitives expansion)
+- **Status:** Accepted
+- **Date:** 2026-05-18 (M2 overnight execution)
+- **Supersedes:** none
+- **Related:** ADR-105 (guard metadata closed vocabulary), ADR-108 (primitives expansion)
 
 ## Context
 

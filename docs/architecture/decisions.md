@@ -113,7 +113,9 @@ against. (ADR-104 moved taint ahead of auth for exactly this reason.)
 ## 4. ADR index (fine-grained decisions)
 
 Individual decisions live as numbered ADRs in
-[`docs/architecture/adr/`](./adr/). Representative entries:
+[`docs/architecture/adr/`](./adr/); the directory's
+[`README.md`](./adr/README.md) carries the header template and the
+authoritative index. Representative entries:
 
 | ADR | Decision |
 |---|---|
@@ -126,9 +128,12 @@ Individual decisions live as numbered ADRs in
 | ADR-114 | Distributed kill switch v2 (Redis pub/sub + polling fallback) |
 | ADR-115 | Pack trust primitives (fingerprinting + signature verification) |
 | ADR-116 | Post-v1 extension discipline |
+| ADR-143 | Smart Approval Engine — channels, quorum, escalation, attestation |
+| ADR-144 | Documentation-as-truth reconciliation discipline |
 
-The ADR directory is authoritative for the full list (ADR-101..ADR-143;
-highest is `ADR-143-approval-engine-governance.md`).
+The ADR directory is authoritative for the full list (ADR-101..ADR-144;
+highest is `ADR-144-doc-truth-reconciliation.md`). See
+[`adr/README.md`](./adr/README.md) for the complete index.
 
 ---
 

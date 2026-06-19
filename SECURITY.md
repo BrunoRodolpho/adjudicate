@@ -16,16 +16,43 @@ We aim to acknowledge reports within 72 hours and to provide a fix or workaround
 
 ## Scope
 
+The package-level threat model — what the architecture is built to resist, and
+the ADR that encodes each mitigation — lives in
+[`docs/security/threat-model.md`](docs/security/threat-model.md); the
+constitutional invariants it leans on are catalogued in
+[`docs/architecture/decisions.md` §5](docs/architecture/decisions.md) and the
+ADR index ([`docs/architecture/adr/README.md`](docs/architecture/adr/README.md)).
+The list below is a summary; the threat model is authoritative.
+
 **In scope:**
-- Kernel decision invariants (intentHash determinism, taint monotonicity, basis vocabulary purity, schema-version gate)
-- Audit ledger consistency (replay safety, dedup correctness, content-addressed deduplication)
-- Capability planner (visible-tools leakage, cross-state contamination, tool classification correctness)
-- Build-time supply chain (signing, SBOM provenance, package fingerprinting)
+- **Kernel decision invariants** — `intentHash` determinism (RFC 8785 JCS,
+  re-derived fail-closed before any guard), the closed 6-outcome `Decision`
+  algebra, the `state → taint → auth → business → default` guard order with
+  taint short-circuiting before auth, basis-vocabulary purity, and the
+  schema-version gate.
+- **Monotonicity / fail-closed semantics** — every non-deterministic component
+  may only raise friction, never lower it (only deterministic rules authorize
+  `EXECUTE`); a throwing guard becomes a `SECURITY`/`GUARD_PANIC` `REFUSE` and
+  an I/O error on the write path aborts `EXECUTE` (no fail-open default).
+- **Audit ledger consistency** — replay safety (re-running the pure kernel over
+  recorded snapshots reproduces the decision), content-addressed dedup, the
+  `auditHash` chain, and `verifyAuditRecord` tamper-evidence on read. Note:
+  `policyVersion` / `kernelVersion` are bound into the record **only when the
+  host supplies them** (see threat-model R2).
+- **Capability & authority surface** — capability planner visible-tools
+  leakage and tool classification, signed/single-use/resource-bound
+  capabilities, and the ownership/authority guard. Real IDOR closure on the
+  authority guard requires the host to inject an authenticated principal
+  (see the threat model's E-series and ADR-143).
+- **Build-time supply chain** — guard-code signing, config-integrity seal,
+  SBOM/AI-BOM provenance, and package fingerprinting.
 
 **Out of scope:**
-- Adopter-side misconfigurations (bugs in your own `PolicyBundle`, `CapabilityPlanner`, or tool handlers)
-- Vulnerabilities in upstream dependencies — please report those to the upstream maintainer
-- Issues that require an attacker to already control the kernel host
+- Adopter-side misconfigurations (bugs in your own `PolicyBundle`,
+  `CapabilityPlanner`, tool handlers, or a host that never injects
+  `state.authority` / an authenticated principal — see threat-model §9.1).
+- Vulnerabilities in upstream dependencies — please report those to the upstream maintainer.
+- Issues that require an attacker to already control the kernel host.
 
 ## Versions
 

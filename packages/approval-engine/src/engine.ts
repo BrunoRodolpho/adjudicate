@@ -49,6 +49,33 @@ export interface ApprovalEngineOptions<S, C, H> {
    * forgeable `resolvedBy` claim. Verification failure rejects the resolve.
    */
   readonly attestationVerifier?: AttestationVerifier;
+  /**
+   * 072 — separation-of-duty (four-eyes / maker-checker) enforcement. When
+   * `true`, an accepted `resolve` is REJECTED (fail-closed, `ApprovalError`
+   * code `SELF_APPROVAL_FORBIDDEN`) if the resolving approver is the same
+   * identity that PROPOSED the intent (`request.requestedBy.id`) or maps to the
+   * configured `agentIdentity` — a maker cannot self-approve, and the agent
+   * cannot approve itself.
+   *
+   * Fail-closed by design (§C, §D-6): when enforcement is ON, the resolve is
+   * rejected unless the approver identity can be ESTABLISHED as distinct from the
+   * proposer. A missing/unresolvable approver id, or a request that never
+   * captured a `requestedBy`, rejects — it never falls open to an approve. The
+   * guard runs in the impure engine shell, never the pure kernel.
+   *
+   * Defaults to `false` (rollback flag, §7): leaving it off reverts to the
+   * pre-072 behavior so the field addition is additive and persisted data stays
+   * backward-compatible. Operators enabling four-eyes MUST populate
+   * `request.requestedBy` (and the resolver's `by`/attestation identity).
+   */
+  readonly enforceSeparationOfDuty?: boolean;
+  /**
+   * 072 — the agent's own identity, for the `approver != agent` leg of
+   * separation-of-duty. When `enforceSeparationOfDuty` is on and the resolving
+   * approver id equals this value, the resolve is rejected (the agent cannot
+   * approve its own proposal). Optional: omit when the agent never resolves.
+   */
+  readonly agentIdentity?: string;
 }
 
 export interface ApprovalEngine<S, C, H> {
@@ -60,6 +87,13 @@ export interface ApprovalEngine<S, C, H> {
     prompt: string;
     taint: Taint;
     escalation?: { afterMs: number; to: "human" | "supervisor" };
+    /**
+     * 072 — the proposer (maker) identity, captured at request-creation. Stamped
+     * onto the projection as `requestedBy` and compared engine-side at resolve
+     * time so the same identity cannot self-approve. Display/governance only —
+     * never enters the kernel receipt or intentHash.
+     */
+    requestedBy?: { id: string; displayName?: string };
   }): Promise<ApprovalRequest>;
   resolve(input: {
     token: string;
@@ -144,6 +178,7 @@ export function createApprovalEngine<S, C, H>(
               prompt: input.prompt,
               taint: input.taint,
               channel: id,
+              ...(input.requestedBy ? { requestedBy: input.requestedBy } : {}),
               status: "pending",
               requestedAt: now(),
             };
@@ -164,6 +199,7 @@ export function createApprovalEngine<S, C, H>(
         taint: input.taint,
         channel: channelUsed,
         ...(channelRef !== undefined ? { channelRef } : {}),
+        ...(input.requestedBy ? { requestedBy: input.requestedBy } : {}),
         status: "pending",
         requestedAt: now(),
         ...(input.escalation ? { escalation: input.escalation } : {}),
@@ -211,6 +247,62 @@ export function createApprovalEngine<S, C, H>(
           }
         }
 
+        // The resolving approver id — the cryptographically-verified
+        // attestation id wins when attestation is ENFORCED (it must NOT be the
+        // forgeable `input.by.id`), otherwise the claimed `input.by.id`. Computed
+        // ONCE here so the SoD guard and the recorded approver key off the same
+        // identity. Deliberately fail-closed: an attestation id supplied WITHOUT
+        // an attestation verifier configured is NOT a trustworthy approver
+        // identity, so it is treated as absent here (→ SoD rejects below) rather
+        // than trusted for the four-eyes comparison.
+        const approverId =
+          opts.attestationVerifier && input.attestation
+            ? input.attestation.approverId
+            : input.by?.id;
+
+        // 072 — separation-of-duty (four-eyes / maker-checker). Only gates an
+        // accepted resolve (a decline never authorizes, so self-declining is fine
+        // and must stay possible). Runs BEFORE quorum accumulation and BEFORE
+        // agent.confirm(), so a maker self-vote never even counts toward quorum.
+        //
+        // Fail-closed (§C, §D-6): when enforcement is on we reject unless the
+        // approver identity can be ESTABLISHED as DISTINCT from the proposer:
+        //   - a missing/unresolvable approver id rejects (cannot prove distinct);
+        //   - an approver id equal to the captured proposer id rejects;
+        //   - an approver id equal to the configured agent identity rejects.
+        // A request that never captured `requestedBy` provides no proposer to
+        // compare against — under enforcement that is treated as unresolvable and
+        // rejects, never falls open to an approve.
+        if (opts.enforceSeparationOfDuty && input.accepted) {
+          if (approverId === undefined) {
+            throw new ApprovalError(
+              "SELF_APPROVAL_FORBIDDEN",
+              `approval ${input.token}: separation-of-duty requires an identified approver distinct from the proposer`,
+            );
+          }
+          if (existing.requestedBy?.id === undefined) {
+            throw new ApprovalError(
+              "SELF_APPROVAL_FORBIDDEN",
+              `approval ${input.token}: separation-of-duty requires a recorded proposer (requestedBy) to compare against the approver`,
+            );
+          }
+          if (approverId === existing.requestedBy.id) {
+            throw new ApprovalError(
+              "SELF_APPROVAL_FORBIDDEN",
+              `approval ${input.token}: the proposer (${existing.requestedBy.id}) cannot approve their own request`,
+            );
+          }
+          if (
+            opts.agentIdentity !== undefined &&
+            approverId === opts.agentIdentity
+          ) {
+            throw new ApprovalError(
+              "SELF_APPROVAL_FORBIDDEN",
+              `approval ${input.token}: the agent identity (${opts.agentIdentity}) cannot approve its own proposal`,
+            );
+          }
+        }
+
         // Quorum (ADR-143): an accepted vote under quorum accumulates and returns
         // turn:null until minApprovals is reached. A decline resolves immediately.
         if (opts.quorum && input.accepted) {
@@ -243,7 +335,13 @@ export function createApprovalEngine<S, C, H>(
                       : {}),
                   },
                 ];
-          if (!quorumMet(approvals, opts.quorum)) {
+          // 072 — a proposer self-vote does not count toward minApprovals: the
+          // accumulated approvals are deduped against `requestedBy.id` as well as
+          // against each other. This holds INDEPENDENTLY of
+          // `enforceSeparationOfDuty` (which rejects a self-approve outright);
+          // here it guarantees that even when the hard guard is off, a maker who
+          // also votes cannot count toward their own four-eyes quorum.
+          if (!quorumMet(approvals, opts.quorum, existing.requestedBy?.id)) {
             const updated: ApprovalRequest = { ...existing, approvals };
             await opts.registry.put(updated, ttl);
             return { request: updated, turn: null };

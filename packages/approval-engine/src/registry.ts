@@ -17,6 +17,21 @@ export interface ApprovalRequest {
   readonly taint: Taint;
   readonly channel: string;
   readonly channelRef?: string;
+  /**
+   * 072 — separation-of-duty (four-eyes / maker-checker) proposer binding. The
+   * identity that PROPOSED the intent (the maker), captured at request-creation
+   * from the proposing `sessionId` actor. This is a DISPLAY / GOVERNANCE
+   * PROJECTION field only — it is deliberately NOT carried on the kernel
+   * `confirmationReceipt` (071's optional capability/approver/channel bindings
+   * stay byte-identical when omitted) and NOT in the `intentHash` pre-image, so
+   * §D-4 (intentHash recipe) and the additive-determinism fence are preserved.
+   * It is compared engine-side at resolve time against the resolving approver so
+   * a maker cannot self-approve their own request (`approver != proposer`). The
+   * comparison is fail-closed: an unresolvable / missing identity rejects, never
+   * approves (§C, §D-6). Optional/additive so persisted data stays
+   * backward-compatible when the SoD guard is reverted.
+   */
+  readonly requestedBy?: { readonly id: string; readonly displayName?: string };
   readonly status: ApprovalStatus;
   readonly requestedAt: string;
   readonly resolvedAt?: string;

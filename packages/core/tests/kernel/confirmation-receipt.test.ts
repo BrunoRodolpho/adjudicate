@@ -27,6 +27,7 @@
 import { describe, expect, it } from "vitest";
 import {
   adjudicateAndAudit,
+  type ConfirmationBinding,
   type Guard,
 } from "../../src/kernel/index.js";
 import {
@@ -518,6 +519,40 @@ describe("071 confirmationReceipt binding (capability, approver, channel)", () =
     });
 
     expect(result.decision.kind).toBe("REQUEST_CONFIRMATION");
+  });
+
+  // ── 072 — separation-of-duty stays ENGINE-SIDE, never on the kernel receipt ──
+  it("072: the SoD proposer identity is NOT carried on the kernel receipt/binding (enforced engine-side)", async () => {
+    const env = envOf("test.confirm.bind", "n-sod-no-proposer");
+    const { sink, records } = captureSink();
+
+    // A receipt may bind {capability, approver, channel} — there is NO
+    // proposer/requestedBy slot on ConfirmationBinding. The proposer surface that
+    // would let SoD be enforced (approver != proposer) lives ONLY engine-side on
+    // ApprovalRequest.requestedBy (plan 072); the kernel records/gates the
+    // APPROVER, never the proposer. The explicit `ConfirmationBinding` annotation
+    // is a TYPE-LEVEL assertion: this would not compile if `proposer`/
+    // `requestedBy` were valid binding keys.
+    const binding: ConfirmationBinding = {
+      approver: { requested: "alice", confirmed: "alice" },
+    };
+
+    const result = await adjudicateAndAudit(env, {}, policy071, {
+      sink,
+      confirmationReceipt: {
+        intentHash: env.intentHash,
+        at: "2026-05-13T12:00:01.000Z",
+        binding,
+      },
+    });
+
+    expect(result.decision.kind).toBe("EXECUTE");
+    const sup = records[0]!.supersedes!;
+    // The recorded forensic binding carries ONLY the approver here — no proposer
+    // key is, or can be, recorded on the kernel-side supersession.
+    expect(sup.binding).toEqual({ approver: "alice" });
+    expect(sup.binding).not.toHaveProperty("proposer");
+    expect(sup.binding).not.toHaveProperty("requestedBy");
   });
 
   it("DETERMINISM FENCE: omitting binding is byte-identical to pre-071 (same auditHash + supersedes)", async () => {

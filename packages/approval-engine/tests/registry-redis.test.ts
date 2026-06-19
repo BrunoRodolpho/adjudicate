@@ -61,6 +61,25 @@ describe("createRedisApprovalRegistry", () => {
     expect(await r.get("missing")).toBeNull();
   });
 
+  // ── 072 — separation-of-duty proposer projection round-trips through Redis ──
+  it("round-trips the requestedBy (proposer) projection field", async () => {
+    const { client, store } = fakeRedis();
+    const r = createRedisApprovalRegistry({ redis: client });
+    await r.put(
+      { ...base, requestedBy: { id: "maker-mallory", displayName: "Mallory" } },
+      3600,
+    );
+    // Persisted in the JSON blob...
+    const raw = [...store.values()][0]!;
+    expect(JSON.parse(raw).requestedBy).toEqual({
+      id: "maker-mallory",
+      displayName: "Mallory",
+    });
+    // ...and rehydrated on read.
+    expect((await r.get("t1"))?.requestedBy?.id).toBe("maker-mallory");
+    expect((await r.list())[0]?.requestedBy?.displayName).toBe("Mallory");
+  });
+
   it("never persists an envelope blob — only display fields round-trip", async () => {
     const { client, store } = fakeRedis();
     const r = createRedisApprovalRegistry({ redis: client });

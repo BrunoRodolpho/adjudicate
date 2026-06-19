@@ -14,7 +14,8 @@
  * NEVER stores the authoritative envelope blob — that stays in adapter-core's
  * single-use `ConfirmationStore` (`put`/`take`). The registry only persists the
  * `ApprovalRequest` *display* fields (token, sessionId, intentHash, intentKind,
- * prompt, taint, channel, status, timestamps, resolvedBy). Resolving a token in
+ * prompt, taint, channel, status, timestamps, resolvedBy, and — 072 — the
+ * separation-of-duty proposer projection `requestedBy`). Resolving a token in
  * the registry does NOT authorize anything; authorization lives entirely in
  * `agent.confirm()` (single-use take + timing-safe hash verify + kernel
  * re-adjudication). See ADR-122 / ADR-136.

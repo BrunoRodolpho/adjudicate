@@ -203,3 +203,45 @@ describe("replay.run — REFUSAL_CODE_DRIFT mismatch", () => {
     expect(result.classification!.kind).toBe("REFUSAL_CODE_DRIFT");
   });
 });
+
+// ─── 112-T4 — live replay uses the ReplayInvoker path; integrity badge is a
+// SEPARATE read-DTO concern (verifyAuditRecord), never replayWithIntegrity ────
+//
+// The plan draws a hard line: `replay.run` is LIVE single-record replay via the
+// injected `ReplayInvoker` + `classify()` (it surfaces `stateSource`, which only
+// the invoker can produce — `replayWithIntegrity` does NO I/O and yields no
+// stateSource). The INTEGRITY badge for the explorer is a distinct read concern:
+// `audit.byHashVerified` runs the pure `verifyAuditRecord` over the stored DTO.
+// These must not be conflated (batch/CI chain-verify is the only `replayWithIntegrity`
+// consumer, and it lives in @adjudicate/audit, not on this live read path).
+describe("replay.run — ReplayInvoker path + integrity-on-read DTO (112-T4)", () => {
+  it("surfaces stateSource straight from the ReplayInvoker (the live-replay path, not replayWithIntegrity)", async () => {
+    // A bespoke invoker proves the SDK reads stateSource from the invoker's
+    // return — a value `replayWithIntegrity` (no-I/O, array-in) cannot supply.
+    const taggingInvoker: ReplayInvoker = {
+      async replay(record) {
+        return { decision: record.decision, stateSource: "adopter" };
+      },
+    };
+    const caller = callerWithReplayer(taggingInvoker);
+    const result = await caller.replay.run({
+      intentHash: fixtureExecute.intentHash,
+    });
+    // The invoker path produced stateSource; classification is null (reproduced).
+    expect(result.stateSource).toBe("adopter");
+    expect(result.classification).toBeNull();
+  });
+
+  it("exposes the integrity badge on the read DTO via verifyAuditRecord (byHashVerified)", async () => {
+    const store = createInMemoryAuditStore({ records: ALL });
+    const emergencyStore = createInMemoryEmergencyStateStore();
+    const caller = createAdminCaller({ store, emergencyStore, actor: operator });
+    const verified = await caller.audit.byHashVerified({
+      intentHash: fixtureExecute.intentHash,
+    });
+    expect(verified).not.toBeNull();
+    // The DTO carries the verifier verdict — an intact fixture verifies true.
+    expect(verified!.verification.verified).toBe(true);
+    expect(verified!.record.intentHash).toBe(fixtureExecute.intentHash);
+  });
+});

@@ -1,4 +1,11 @@
 import { describe, expect, it } from "vitest";
+import {
+  buildAuditRecord,
+  buildEnvelope,
+  decisionExecute,
+  basis,
+  type AuditRecord,
+} from "@adjudicate/core";
 import { createInMemoryAuditStore } from "../src/store/index.js";
 import { createInMemoryEmergencyStateStore } from "../src/store/emergency-store.js";
 import {
@@ -7,6 +14,7 @@ import {
   createReadOnlyAdminCaller,
   readOnlyAdminRouter,
 } from "../src/trpc/index.js";
+import type { AuditStore } from "../src/store/index.js";
 import type { Actor } from "../src/schemas/emergency.js";
 import { ALL, fixtureExecute, fixtureRefuse } from "./fixtures.js";
 
@@ -87,6 +95,158 @@ describe("adminRouter — audit.byHash", () => {
     await expect(
       caller.audit.byHash({ intentHash: "0xdeadbeef" }),
     ).rejects.toThrow();
+  });
+});
+
+// ─── 112-T2 — tenantScope threading on the by-hash read seam ─────────────────
+// The 111-residual `audit.byHash` cross-tenant isolation defect: the SDK called
+// `getByIntentHash(intentHash)` with ONE argument, so the `AuditStore`
+// contract's host-enforced tenant-isolation slot was UNREACHABLE from the wire.
+// 112 threads `input.tenantScope` through to the second argument. The reference
+// stores ignore it, but a tenant-aware host store now RECEIVES it.
+describe("adminRouter — audit.byHash threads tenantScope to the store (112-T2)", () => {
+  // A spy store records the exact (intentHash, tenantScope) args it was called
+  // with so we can assert the seam threads the scope through verbatim.
+  function spyStore(): {
+    store: AuditStore;
+    calls: { intentHash: string; tenantScope?: string }[];
+  } {
+    const calls: { intentHash: string; tenantScope?: string }[] = [];
+    const inner = createInMemoryAuditStore({ records: ALL });
+    const store: AuditStore = {
+      query: inner.query.bind(inner),
+      async getByIntentHash(intentHash, tenantScope) {
+        calls.push({ intentHash, tenantScope });
+        return inner.getByIntentHash(intentHash, tenantScope);
+      },
+    };
+    return { store, calls };
+  }
+
+  it("passes input.tenantScope as the SECOND argument to getByIntentHash", async () => {
+    const { store, calls } = spyStore();
+    const c = createAdminCaller({ store, emergencyStore, actor: operator });
+    await c.audit.byHash({
+      intentHash: fixtureRefuse.intentHash,
+      tenantScope: "tenant-42",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.intentHash).toBe(fixtureRefuse.intentHash);
+    expect(calls[0]!.tenantScope).toBe("tenant-42");
+  });
+
+  it("threads undefined tenantScope when the caller omits it (single-tenant)", async () => {
+    const { store, calls } = spyStore();
+    const c = createAdminCaller({ store, emergencyStore, actor: operator });
+    await c.audit.byHash({ intentHash: fixtureRefuse.intentHash });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.tenantScope).toBeUndefined();
+  });
+});
+
+// ─── 112-T2/T4 — audit.query / audit.byHash stay .query (no mutation added) ──
+describe("auditRouter — read procedures are .query, never .mutation (112-T2/T4)", () => {
+  const auditProcType = (name: string): string | undefined =>
+    (
+      adminRouter._def.procedures as Record<string, { _def: { type: string } }>
+    )[name]?._def.type;
+
+  it("audit.query is a query", () => {
+    expect(auditProcType("audit.query")).toBe("query");
+  });
+  it("audit.byHash is a query", () => {
+    expect(auditProcType("audit.byHash")).toBe("query");
+  });
+  it("audit.byHashVerified (112-T4 integrity-on-read) is a query, not a mutation", () => {
+    expect(auditProcType("audit.byHashVerified")).toBe("query");
+  });
+});
+
+// ─── 112-T4 — integrity-on-read DTO: verifyAuditRecord verdict on the read path
+// The Audit Explorer must render a tampered record with a tamper BADGE rather
+// than as authoritative (§C: a read only ADDS friction). `audit.byHashVerified`
+// returns the record alongside a `verifyAuditRecord` verdict; a tampered record
+// is STILL returned (forensics need the bytes) but carries `verified:false`.
+describe("auditRouter — byHashVerified surfaces a verifyAuditRecord verdict (112-T4)", () => {
+  const cleanEnv = buildEnvelope({
+    kind: "test.integrity",
+    payload: { amount: 100 },
+    actor: { principal: "llm", sessionId: "sess-integrity" },
+    taint: "UNTRUSTED",
+    nonce: "n-integrity",
+    createdAt: "2026-06-19T00:00:00.000Z",
+  });
+  const cleanRecord: AuditRecord = buildAuditRecord({
+    envelope: cleanEnv,
+    decision: decisionExecute([basis("state", "transition_valid")]),
+    durationMs: 1,
+    at: "2026-06-19T00:00:00.000Z",
+  });
+  // A tampered record: mutate a recorded field AFTER the auditHash was bound, so
+  // re-derivation no longer matches the stored auditHash.
+  const tamperedRecord: AuditRecord = {
+    ...cleanRecord,
+    decision_basis: [basis("auth", "scope_sufficient")],
+  };
+
+  const verifiedCaller = (records: readonly AuditRecord[]) =>
+    createAdminCaller({
+      store: createInMemoryAuditStore({ records }),
+      emergencyStore,
+      actor: operator,
+    });
+
+  it("returns { verified: true } for an intact record", async () => {
+    const result = await verifiedCaller([cleanRecord]).audit.byHashVerified({
+      intentHash: cleanRecord.intentHash,
+    });
+    expect(result).not.toBeNull();
+    expect(result!.record.intentHash).toBe(cleanRecord.intentHash);
+    expect(result!.verification.verified).toBe(true);
+  });
+
+  it("STILL returns a tampered record but flags verified:false reason:tampered", async () => {
+    const result = await verifiedCaller([tamperedRecord]).audit.byHashVerified({
+      intentHash: tamperedRecord.intentHash,
+    });
+    // The bytes are returned (forensics) — never silently dropped.
+    expect(result).not.toBeNull();
+    expect(result!.record.intentHash).toBe(tamperedRecord.intentHash);
+    // …but the explorer gets a deny-by-default tamper badge.
+    expect(result!.verification.verified).toBe(false);
+    if (result!.verification.verified === false) {
+      expect(result!.verification.reason).toBe("tampered");
+    }
+  });
+
+  it("returns null for an unknown hash", async () => {
+    const result = await verifiedCaller([cleanRecord]).audit.byHashVerified({
+      intentHash: "e".repeat(64),
+    });
+    expect(result).toBeNull();
+  });
+
+  it("requires an authenticated actor", async () => {
+    const unauth = createAdminCaller({
+      store: createInMemoryAuditStore({ records: [cleanRecord] }),
+      emergencyStore,
+      actor: null,
+    });
+    await expect(
+      unauth.audit.byHashVerified({ intentHash: cleanRecord.intentHash }),
+    ).rejects.toThrow(/actor-id header required/i);
+  });
+
+  it("is reachable on the read-only plane (the Inspector-General explorer DTO)", async () => {
+    const roCaller = createReadOnlyAdminCaller({
+      store: createInMemoryAuditStore({ records: [cleanRecord] }),
+      emergencyStore,
+      actor: operator,
+    });
+    const result = await roCaller.audit.byHashVerified({
+      intentHash: cleanRecord.intentHash,
+    });
+    expect(result!.verification.verified).toBe(true);
   });
 });
 

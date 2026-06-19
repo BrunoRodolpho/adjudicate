@@ -388,6 +388,27 @@ describe("AuditStore.getByIntentHash", () => {
     const result = await store.getByIntentHash("nope");
     expect(result).toBeNull();
   });
+
+  // 112-T3 — the `AuditStore` contract's `getByIntentHash(intentHash,
+  // tenantScope?)` second arg. This SINGLE-TENANT reference cold-store IGNORES
+  // it (one `intent_audit` table, no tenant column), so accepting a tenantScope
+  // must NOT regress behaviour and must NOT widen the query params (no spurious
+  // `$2` / WHERE tenant predicate). The arg exists only so the SDK seam (which
+  // now threads `input.tenantScope`) is signature-compatible; a multi-tenant
+  // adopter overrides this method to add the predicate.
+  it("accepts a tenantScope argument and ignores it without regression (single-tenant)", async () => {
+    const row = makeRow({ intent_hash: "target" });
+    const { reader, calls } = createMockReader([row]);
+    const store = createPostgresAuditStore({ reader });
+    const result = await store.getByIntentHash("target", "tenant-99");
+    // Same record resolves — the scope did not filter it out.
+    expect(result?.intentHash).toBe("target");
+    // Params are NOT widened: still a single-bind by intent_hash. The scope is
+    // ignored (no `$2`, no tenant predicate) — single-tenant reference contract.
+    expect(calls[0]!.params).toEqual(["target"]);
+    expect(calls[0]!.sql).not.toContain("$2");
+    expect(calls[0]!.sql.toLowerCase()).not.toContain("tenant");
+  });
 });
 
 /* ────────────────────────────────────────────────────────────────────────── */

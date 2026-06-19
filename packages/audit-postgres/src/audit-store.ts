@@ -219,7 +219,18 @@ export function createPostgresAuditStore(
       };
     },
 
-    async getByIntentHash(intentHash: string): Promise<AuditRecord | null> {
+    async getByIntentHash(
+      intentHash: string,
+      // 112-T3 — the `AuditStore` contract's host-enforced tenant-isolation
+      // injection point. This reference cold-store is SINGLE-TENANT (one
+      // `intent_audit` table, no tenant column), so it IGNORES `tenantScope` —
+      // accepting the argument keeps the signature contract-compatible so the
+      // SDK's `audit.byHash` seam (which now threads `input.tenantScope`) does
+      // not silently drop it. A genuinely multi-tenant adopter MUST override
+      // this method to add a `WHERE tenant = $2` predicate; ignoring the scope
+      // here is safe only because this store holds one tenant's records.
+      _tenantScope?: string,
+    ): Promise<AuditRecord | null> {
       // ORDER BY recorded_at DESC LIMIT 1 because intent_hash is the
       // partition-aware deduplication key but a hash CAN appear in
       // multiple rows under degenerate replay (two writers race on the

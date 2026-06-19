@@ -1,13 +1,17 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { classify } from "@adjudicate/core";
+import { classify, verifyAuditRecord } from "@adjudicate/core";
 import type {
+  AuditRecord,
   GuardFireStats,
   InMemoryOutcomeSink,
   OutcomeSink,
   PolicyBundleDescriptor,
 } from "@adjudicate/core";
-import { AuditRecordSchema } from "../schemas/audit.js";
+import {
+  AuditRecordSchema,
+  AuditRecordVerificationSchema,
+} from "../schemas/audit.js";
 import {
   EmergencyHistoryQuerySchema,
   EmergencyStateSchema,
@@ -387,7 +391,22 @@ const auditRouter = t.router({
       return handler(input);
     }),
   byHash: t.procedure
-    .input(z.object({ intentHash: IntentHashSchema }))
+    .input(
+      z.object({
+        intentHash: IntentHashSchema,
+        // 112-T2 — host-enforced tenant-isolation injection point. When the
+        // route handler resolves a `tenantScope` (e.g. from `ctx.actor.tenantId`
+        // or an explicit query param) it is THREADED through to the store's
+        // `getByIntentHash(intentHash, tenantScope)` per the `AuditStore`
+        // contract (store/index.ts). The single-tenant reference stores ignore
+        // it; a multi-tenant store MUST NOT return a record outside the scope.
+        // Closes the 111-residual `audit.byHash` cross-tenant isolation seam:
+        // before this, the SDK called `getByIntentHash(intentHash)` with one
+        // argument, so the contract's isolation slot was UNREACHABLE from the
+        // wire even for a tenant-aware host store.
+        tenantScope: z.string().optional(),
+      }),
+    )
     .output(AuditRecordSchema.nullable())
     .query(async ({ input, ctx }) => {
       if (!ctx.actor) {
@@ -396,7 +415,58 @@ const auditRouter = t.router({
           message: "x-adjudicate-actor-id header required for audit queries",
         });
       }
-      return ctx.store.getByIntentHash(input.intentHash);
+      return ctx.store.getByIntentHash(input.intentHash, input.tenantScope);
+    }),
+
+  // 112-T4 — INTEGRITY-ON-READ for the Audit Explorer's single-record DTO.
+  //
+  // `byHash` returns a BARE record (the store contract). The Audit Explorer
+  // must render a tampered/forged record with a tamper BADGE rather than as
+  // authoritative (§C: a read only ever ADDS friction), so this companion
+  // read procedure runs the pure verifier `verifyAuditRecord` over the record
+  // and returns the record alongside its verdict. It is a `.query` (no
+  // mutation — the read-only plane mounts it unchanged) and is additive: the
+  // existing `byHash` is untouched, so the console gateway keeps its bare-record
+  // shape. The verifier is pure / no-I/O (browser-safe hash + envelope-intent
+  // re-derivation), so this never weakens or mutates a record.
+  //
+  // `tenantScope` is threaded identically to `byHash` so the explorer's
+  // integrity view is tenant-isolated at the same seam.
+  byHashVerified: t.procedure
+    .input(
+      z.object({
+        intentHash: IntentHashSchema,
+        tenantScope: z.string().optional(),
+      }),
+    )
+    .output(
+      z
+        .object({
+          record: AuditRecordSchema,
+          verification: AuditRecordVerificationSchema,
+        })
+        .nullable(),
+    )
+    .query(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "x-adjudicate-actor-id header required for audit queries",
+        });
+      }
+      const record = await ctx.store.getByIntentHash(
+        input.intentHash,
+        input.tenantScope,
+      );
+      if (record === null) return null;
+      // A hard-tampered / forged-signature record is STILL returned (forensics
+      // need the bytes) — never silently dropped — but it rides WITH its verdict
+      // so the explorer renders a tamper/forgery badge instead of presenting it
+      // as an authoritative decision. `verifyAuditRecord` re-derives the
+      // auditHash + envelope intentHash + (hash-bind) signature; asymmetric
+      // signatures it cannot check stay fail-SAFE (verified on the hash axis).
+      const verification = verifyAuditRecord(record as unknown as AuditRecord);
+      return { record, verification };
     }),
 });
 

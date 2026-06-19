@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, LayoutDashboard, ShieldCheck } from "lucide-react";
+import { Eye, LayoutDashboard, ScrollText, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
@@ -16,6 +16,8 @@ interface NavItem {
 // Governance views. NONE of these is a write surface.
 const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
+  // 112 — the read-only Audit Explorer (browse / by-hash / integrity / chain).
+  { href: "/audit", label: "Audit Explorer", icon: ScrollText },
 ] as const;
 
 /**

@@ -38,7 +38,12 @@
  */
 
 import { basis, BASIS_CODES, type DecisionBasis } from "../basis-codes.js";
-import { canPropose, isContaminatingOrigin, taintRank } from "../taint.js";
+import {
+  canPropose,
+  canProposeWithOrigin,
+  isContaminatingOrigin,
+  taintRank,
+} from "../taint.js";
 import {
   decisionExecute,
   decisionRefuse,
@@ -299,30 +304,53 @@ function _adjudicateImpl<K extends string, P, S>(
 
   // 3. Taint gate (T8 reorder: now BEFORE auth, so UNTRUSTED inputs
   //    short-circuit before any auth-guard side effect runs).
-  //    Declarative, driven by policy.taint. `canPropose()` is the single
-  //    call — do not walk payload fields by inspection. Field-level taint
+  //    Declarative, driven by policy.taint. `canProposeWithOrigin()` is the
+  //    single call — do not walk payload fields by inspection. Field-level taint
   //    (v1.1) gains precision transparently through this call.
+  //
+  //    043 — the gate consults the harness-stamped `origin` axis (041) so the
+  //    policy may RAISE the effective minimum for a kind it declares
+  //    origin-required when the proposal traces to contaminating provenance
+  //    (`Retrieved` / `ExternalAPI`). This catches the laundering case the
+  //    trust-rank floor alone cannot: an UNTRUSTED-min mutating kind whose
+  //    `1 >= 1` rank check always passes regardless of where the bytes came
+  //    from. The branch is opt-in per policy (default-absent ⇒ byte-identical to
+  //    pre-043) and MONOTONIC — it only ever flips a rank-PASS to a REFUSE,
+  //    never the reverse (§C / invariant #7).
   let taintAllowed: boolean;
+  let rankAllowed: boolean;
   try {
-    taintAllowed = canPropose(envelope.taint, envelope.kind, policy.taint);
+    // The trust-rank floor (042/pre-043 behavior) and the origin-aware gate.
+    // `rankAllowed` lets us attribute the refusal: a rank failure keeps the 042
+    // attribution, while a rank PASS that the origin branch flipped is a genuine
+    // propagation violation (the proposal cleared the trust gate but laundered
+    // its provenance).
+    rankAllowed = canPropose(envelope.taint, envelope.kind, policy.taint);
+    taintAllowed = canProposeWithOrigin(
+      envelope.taint,
+      envelope.kind,
+      envelope.origin,
+      policy.taint,
+    );
   } catch (err) {
-    // policy.taint.minimumFor() threw. Treat as guard panic in the taint
-    // phase — fail-closed with kernel.GUARD_PANIC.
+    // policy.taint.minimumFor()/requiresUncontaminatedOrigin() threw. Treat as
+    // guard panic in the taint phase — fail-closed with kernel.GUARD_PANIC.
     if (traceOut) traceOut.push({ phase: "taint", outcome: "match" });
     return guardPanicRefusal("taint", null, null, err, accumulated);
   }
   if (!taintAllowed) {
     if (traceOut) traceOut.push({ phase: "taint", outcome: "match" });
-    // 042 — distinguish a contamination-LOWERED refusal from a bare
-    // declared-untrusted one. The envelope's harness-stamped `origin` (041,
-    // already in the intentHash pre-image) is the pure, read-only signal: when
-    // the sub-minimum proposal carries a CONTAMINATING origin (Retrieved /
-    // ExternalAPI — untrusted data fed back into context), the refusal is
-    // attributed to provenance propagation, populating the previously-UNUSED
-    // `taint:propagation_violation` basis so audit can tell the two apart. This
-    // is NOT a new outcome (still REFUSE), NOT a new guard phase, and reads no
-    // new input — it only chooses the basis CODE on the existing taint refusal.
-    const propagationCaused = isContaminatingOrigin(envelope.origin);
+    // 043 — the origin-aware policy branch fired: the proposal cleared the
+    // trust-rank floor (`rankAllowed`) but the policy declares this kind
+    // origin-required AND the proposal carries a contaminating origin. This is a
+    // genuine provenance-propagation refusal (a decision the rank gate would
+    // have PASSED), so it is attributed to `taint:propagation_violation` with a
+    // distinct message and the kind's effective-minimum elevation recorded.
+    const originBranchFired = rankAllowed; // !taintAllowed && rankAllowed
+    // 042 — for a rank-floor refusal, distinguish a contamination-LOWERED
+    // refusal from a bare declared-untrusted one via the read-only `origin`.
+    const propagationCaused =
+      originBranchFired || isContaminatingOrigin(envelope.origin);
     const code = propagationCaused
       ? BASIS_CODES.taint.PROPAGATION_VIOLATION
       : BASIS_CODES.taint.LEVEL_INSUFFICIENT;
@@ -331,9 +359,11 @@ function _adjudicateImpl<K extends string, P, S>(
         "SECURITY",
         "taint_level_insufficient",
         "I can't perform this action with the information available.",
-        propagationCaused
-          ? `Contaminated proposal (origin ${envelope.origin}) lowered taint ${envelope.taint} below the minimum for intent kind ${envelope.kind}`
-          : `Taint ${envelope.taint} insufficient for intent kind ${envelope.kind}`,
+        originBranchFired
+          ? `Origin-required intent kind ${envelope.kind} refused: proposal traces to contaminating origin ${envelope.origin}`
+          : propagationCaused
+            ? `Contaminated proposal (origin ${envelope.origin}) lowered taint ${envelope.taint} below the minimum for intent kind ${envelope.kind}`
+            : `Taint ${envelope.taint} insufficient for intent kind ${envelope.kind}`,
       ),
       [
         ...accumulated,
@@ -341,6 +371,7 @@ function _adjudicateImpl<K extends string, P, S>(
           actual: envelope.taint,
           kind: envelope.kind,
           ...(propagationCaused ? { origin: envelope.origin } : {}),
+          ...(originBranchFired ? { branch: "origin_required" } : {}),
         }),
       ],
     );

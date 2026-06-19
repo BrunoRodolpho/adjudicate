@@ -6,6 +6,7 @@ import { runRedTeamCommand } from "../src/commands/red-team.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const PIX_INDEX = path.join(REPO_ROOT, "packages", "pack-payments-pix", "src", "index.ts");
+const ORIGIN_REQUIRED_PACK = path.join(__dirname, "fixtures", "origin-required-pack.ts");
 
 function capture() {
   const lines: string[] = [];
@@ -59,5 +60,48 @@ describe("adjudicate red-team (CLI)", () => {
     // are defended upstream of the taint gate. The taint-gate propagation path
     // itself is proven non-vacuously by the red-team generators suite against a
     // pack whose state guards do not pre-empt the taint gate.
+  });
+
+  it("043: the read_inject_intent vector is wired into the CLI and runs cleanly for PIX (no escapes)", async () => {
+    // PIX declares no origin-required kind, so the 043 vector is a no-op for it —
+    // but the CLI must accept the vector key and run without error / escapes.
+    const cap = capture();
+    await runRedTeamCommand({
+      pack: PIX_INDEX,
+      stdout: cap.write,
+      format: "json",
+      vectors: ["read_inject_intent"],
+    });
+    const parsed = JSON.parse(cap.lines.join("\n"));
+    expect(parsed.summary.escaped).toBe(0);
+    expect(parsed.summary.errors).toBe(0);
+    expect(process.exitCode === 0 || process.exitCode === undefined).toBe(true);
+  });
+
+  it("043: the read_inject_intent vector FIRES and is DEFENDED for an origin-required pack (laundering caught at the kernel)", async () => {
+    const cap = capture();
+    await runRedTeamCommand({
+      pack: ORIGIN_REQUIRED_PACK,
+      stdout: cap.write,
+      format: "json",
+      vectors: ["read_inject_intent"],
+    });
+    const parsed = JSON.parse(cap.lines.join("\n"));
+    // The generator actually fires for the fixture (memo.write is origin-required)
+    // and every laundered proposal is DEFENDED via the 043 origin branch.
+    expect(parsed.summary.total).toBeGreaterThan(0);
+    expect(parsed.summary.escaped).toBe(0);
+    const results = parsed.results.filter(
+      (r: { vector: string }) => r.vector === "read_inject_intent",
+    );
+    expect(results.length).toBeGreaterThan(0);
+    for (const r of results) {
+      expect(r.status).toBe("defended");
+      expect(r.decision).toBe("REFUSE");
+      // The defense came from the 043 origin branch (propagation_violation), not
+      // the trust-rank floor (level_insufficient).
+      expect(r.basisCodes).toContain("taint:propagation_violation");
+      expect(r.basisCodes).not.toContain("taint:level_insufficient");
+    }
   });
 });

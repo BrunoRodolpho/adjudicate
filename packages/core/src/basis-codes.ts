@@ -42,6 +42,14 @@ export const BASIS_CODES = {
   taint: {
     LEVEL_PERMITTED: "level_permitted",
     LEVEL_INSUFFICIENT: "level_insufficient",
+    // Provenance-propagation refusal. Emitted by the kernel taint gate in two
+    // cases, both still a REFUSE (no new outcome): (042) ATTRIBUTION — a
+    // sub-minimum proposal that would fail the trust-rank floor anyway carries a
+    // contaminating origin, so the refusal is attributed to propagation rather
+    // than a bare declared-untrusted one; (043) ORIGIN-BRANCH — the policy
+    // declares the kind origin-required and a contaminating-origin proposal that
+    // CLEARED the trust-rank floor is refused (`detail.branch === "origin_required"`),
+    // the laundering case the rank gate alone cannot see.
     PROPAGATION_VIOLATION: "propagation_violation",
   },
   ledger: {

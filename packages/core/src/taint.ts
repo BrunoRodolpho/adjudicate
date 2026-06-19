@@ -98,6 +98,31 @@ export function mergeTaint(a: Taint, b: Taint): Taint {
 /** Policy interface — adopters declare the minimum taint level per intent kind. */
 export interface TaintPolicy {
   minimumFor(intentKind: string): Taint;
+  /**
+   * 043 — OPTIONAL origin-aware branch. When present and it returns `true` for
+   * an intent kind, that kind may NOT be proposed from a *contaminating* origin
+   * (`Retrieved` / `ExternalAPI` — per `isContaminatingOrigin`) even when the
+   * taint trust rank alone (`minimumFor`) would otherwise clear the gate.
+   *
+   * This closes the laundering gap the single `minimumFor` axis cannot see: a
+   * mutating intent whose declared minimum is UNTRUSTED satisfies `canPropose`
+   * (`1 >= 1`, always-pass) regardless of where the proposal came from — so a
+   * `READ`→inject→intent path re-enters byte-identical to a user-induced intent.
+   * Declaring the kind origin-required raises the effective minimum for the
+   * contaminated case, turning that always-pass into a REFUSE (attributed to
+   * `taint:propagation_violation`).
+   *
+   * **Default-absent is byte-identical to pre-043.** A policy that does not
+   * implement this method gates EXACTLY as before — the origin branch is opt-in
+   * per adopter (the §7 dark-ship flag), so default packs and every existing
+   * `{ minimumFor }` policy are unaffected.
+   *
+   * **Monotonic (§C / invariant #7).** The branch can ONLY add friction: it is
+   * consulted *after* `canPropose` already passed, and can only flip a pass to a
+   * refuse — never the reverse. It NEVER lowers the trust-rank minimum and NEVER
+   * authorizes a proposal `canPropose` rejects.
+   */
+  requiresUncontaminatedOrigin?(intentKind: string): boolean;
 }
 
 /**
@@ -119,6 +144,51 @@ export function canPropose(
 ): boolean {
   const required = policy.minimumFor(intentKind);
   return RANK[taint] >= RANK[required];
+}
+
+/**
+ * 043 — origin-aware gate. The single taint-gate call the kernel makes, evolved
+ * to consult the harness-stamped `origin` provenance axis (041) WITHOUT a new
+ * guard phase or any IO. Semantics, in order:
+ *
+ *   1. The trust-rank floor is unchanged: if `canPropose(taint, kind, policy)`
+ *      is `false`, this is `false`. The origin branch NEVER authorizes a
+ *      proposal the rank gate already rejects (monotonic — never more permissive
+ *      than `canPropose`, §C / invariant #7).
+ *   2. The origin branch only ever ADDS friction: when the rank gate passed but
+ *      the policy declares this `kind` origin-required
+ *      (`requiresUncontaminatedOrigin(kind) === true`) AND the proposal carries
+ *      a CONTAMINATING origin (`isContaminatingOrigin(origin)`), the effective
+ *      minimum is raised and the gate REFUSEs (returns `false`).
+ *
+ * **Byte-identical to `canPropose` when the branch is dormant.** A policy that
+ * does not implement `requiresUncontaminatedOrigin` (or returns `false` for the
+ * kind), or a non-contaminating origin, falls straight through to the
+ * `canPropose` result — so default packs and every existing `{ minimumFor }`
+ * policy behave exactly as pre-043.
+ *
+ * Pure: a function of `(taint, kind, origin, policy)` only — no clock, RNG, or
+ * IO. The kernel calls this once per envelope at the existing taint gate.
+ */
+export function canProposeWithOrigin(
+  taint: Taint,
+  intentKind: string,
+  origin: Origin,
+  policy: TaintPolicy,
+): boolean {
+  // (1) Trust-rank floor — identical to the pre-043 gate. The origin branch can
+  //     never relax this; a rank failure is a refusal regardless of origin.
+  if (!canPropose(taint, intentKind, policy)) return false;
+  // (2) Origin branch (opt-in, friction-only). Dormant unless the policy
+  //     declares the kind origin-required.
+  if (
+    typeof policy.requiresUncontaminatedOrigin === "function" &&
+    policy.requiresUncontaminatedOrigin(intentKind) &&
+    isContaminatingOrigin(origin)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**

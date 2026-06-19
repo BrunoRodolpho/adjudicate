@@ -8,15 +8,27 @@ import type { DecisionKind, Origin, PolicyBundle, Taint } from "@adjudicate/core
  * caught once the origin axis is consumed. 042 LANDS that vector's generator
  * (`generateProvenanceInjectionEnvelopes`): an UNTRUSTED, system-only-kind
  * proposal stamped with a contaminating origin, sourced from the planner's
- * `visibleReadTools` (the READ→inject→intent path). The kernel now attributes
- * such a sub-minimum refusal to `taint:propagation_violation`, so the scenario
- * is genuinely defended (REFUSE), not a clean EXECUTE.
+ * `visibleReadTools` (the READ→inject→intent path). The kernel attributes such a
+ * sub-minimum refusal to `taint:propagation_violation`, so the scenario is
+ * genuinely defended (REFUSE), not a clean EXECUTE.
+ *
+ * 043 LANDS the `read_inject_intent` vector — the laundering case the 042 vector
+ * cannot reach. 042 probes ELEVATED-min kinds (where the trust-rank floor
+ * already short-circuits a sub-minimum proposal); 043 probes an UNTRUSTED-min
+ * MUTATING kind whose `1 >= 1` rank check ALWAYS passes regardless of where the
+ * bytes came from. Pre-043 such a `READ`→inject→intent path re-enters
+ * byte-identical to a user-induced intent and CLEANLY EXECUTEs. The 043 kernel
+ * origin-aware policy branch (when the pack declares the kind origin-required)
+ * raises the effective minimum for the contaminating-origin case, turning that
+ * always-pass into a REFUSE attributed to `taint:propagation_violation` — the
+ * vector proves the branch catches what current packs honestly fail.
  */
 export type AttackVector =
   | "prompt_injection"
   | "taint_escalation"
   | "tool_scope_violation"
-  | "provenance_injection";
+  | "provenance_injection"
+  | "read_inject_intent";
 
 /** Intent shape (structurally identical to the CLI `Scenario.intent`). */
 export interface ScenarioIntent {

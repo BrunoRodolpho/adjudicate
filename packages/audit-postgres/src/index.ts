@@ -65,10 +65,16 @@ export type {
 } from "./pg-reader.js";
 
 export {
+  RESERVE_GUARD_STAT_SQL,
   UPSERT_GUARD_STAT_SQL,
   createPostgresGuardFireStatsStore,
+  createPostgresReservationStore,
   type CreatePostgresGuardFireStatsStoreDeps,
+  type CreatePostgresReservationStoreDeps,
   type GuardStatsWriter,
+  type ReservationKey,
+  type ReservationOutcome,
+  type ReservationWriter,
 } from "./guard-stats-store.js";
 
 export {

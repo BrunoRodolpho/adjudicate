@@ -21,9 +21,13 @@ import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { GuardFireStats } from "@adjudicate/core";
 import {
+  RESERVE_GUARD_STAT_SQL,
   UPSERT_GUARD_STAT_SQL,
   createPostgresGuardFireStatsStore,
+  createPostgresReservationStore,
   type GuardStatsWriter,
+  type ReservationKey,
+  type ReservationWriter,
 } from "../src/guard-stats-store.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -216,5 +220,254 @@ describe("write-through delta + additive double — no over-count (052 T3/T4)", 
     const out = await stats.queryAsync({ since: "2026-05-13T00:00:00.000Z" });
     expect(out).toHaveLength(1);
     expect(out[0]!.count).toBe(2); // NOT 3 (triangular) and NOT 4 (memory+store).
+  });
+});
+
+// ── 053 — transactional reservation store (over-commit guard) ───────────────
+//
+// The integration suite proves `RESERVE_GUARD_STAT_SQL` against a LIVE DB and
+// the real migration-006 PK arbiter. This unit suite covers the over-commit
+// LOGIC that does not require a live DB (per the run-state note: the
+// non-integration test MUST still cover the over-commit logic):
+//   - the SQL is the additive ON CONFLICT template EXTENDED with the cap WHERE
+//     guards (fresh-key SELECT…WHERE and conflict-path DO UPDATE…WHERE);
+//   - `reserve` maps a 0-affected-row count to a fail-closed over_cap refusal;
+//   - a non-positive / non-finite delta is refused locally (never fabricates
+//     headroom) before any DB round-trip;
+//   - against a FAITHFUL in-memory double of the exact single-statement
+//     semantics, the cap is never over-committed — at the boundary, under
+//     concurrency, and on a fresh-key over-cap first claim.
+describe("RESERVE_GUARD_STAT_SQL — over-commit guard contract (053 T1)", () => {
+  it("extends the additive ON CONFLICT template with the cap WHERE guards", () => {
+    const sql = RESERVE_GUARD_STAT_SQL.replace(/\s+/g, " ").trim();
+    // Same additive arbiter + DO UPDATE as the guard-stats template.
+    expect(sql).toContain(
+      "ON CONFLICT (guard_name, guard_phase, decision_kind, day, pack_id)",
+    );
+    expect(sql).toContain(
+      "DO UPDATE SET count = audit_guard_stats.count + EXCLUDED.count",
+    );
+    // The over-commit guard on the CONFLICT path: refuse crossing the cap.
+    expect(sql).toContain(
+      "WHERE audit_guard_stats.count + EXCLUDED.count <= $7::bigint",
+    );
+    // The over-commit guard on the FRESH-KEY path: a first claim over the cap
+    // selects no source row (a plain VALUES insert would skip the cap check).
+    expect(sql).toContain(
+      "SELECT $1, $2, $3, $4, $5, $6::bigint WHERE $6::bigint <= $7::bigint",
+    );
+    // Single-statement additive — NOT a SELECT-current-then-UPDATE RMW.
+    expect(sql).not.toMatch(/SELECT count .* FROM audit_guard_stats/i);
+  });
+});
+
+describe("createPostgresReservationStore — verdict mapping (053 T1)", () => {
+  function keyFor(cap: number, packId: string | null = null): ReservationKey {
+    return {
+      guardName: "acct_7",
+      guardPhase: "business",
+      decisionKind: "EXECUTE",
+      day: "2026-06-19",
+      packId,
+      cap,
+    };
+  }
+
+  it("maps a 1-row affected count to reserved:true", async () => {
+    const reserveGuardStat = vi.fn<ReservationWriter["reserveGuardStat"]>(
+      async () => 1,
+    );
+    const store = createPostgresReservationStore({
+      writer: { reserveGuardStat },
+    });
+    const out = await store.reserve(keyFor(10), 3);
+    expect(out).toEqual({ reserved: true });
+    // The cap + delta + '' sentinel reach the writer verbatim.
+    expect(reserveGuardStat).toHaveBeenCalledTimes(1);
+    const arg = reserveGuardStat.mock.calls[0]![0]!;
+    expect(arg.cap).toBe(10);
+    expect(arg.delta).toBe(3);
+    expect(arg.packId).toBe(""); // 052 no-pack PK sentinel
+  });
+
+  it("maps a 0-row affected count to a fail-closed over_cap refusal", async () => {
+    const reserveGuardStat = vi.fn<ReservationWriter["reserveGuardStat"]>(
+      async () => 0,
+    );
+    const store = createPostgresReservationStore({
+      writer: { reserveGuardStat },
+    });
+    const out = await store.reserve(keyFor(10), 3);
+    expect(out).toEqual({ reserved: false, reason: "over_cap" });
+  });
+
+  it("refuses a non-positive / non-finite delta LOCALLY (never fabricates headroom, §C)", async () => {
+    const reserveGuardStat = vi.fn<ReservationWriter["reserveGuardStat"]>(
+      async () => 1,
+    );
+    const store = createPostgresReservationStore({
+      writer: { reserveGuardStat },
+    });
+    for (const bad of [0, -1, -100, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const out = await store.reserve(keyFor(10), bad);
+      expect(out).toEqual({ reserved: false, reason: "invalid_delta" });
+    }
+    // None of those reached the DB — the over-commit guard is fail-closed even
+    // before the round-trip.
+    expect(reserveGuardStat).not.toHaveBeenCalled();
+  });
+
+  it("passes a real packId through unchanged", async () => {
+    const reserveGuardStat = vi.fn<ReservationWriter["reserveGuardStat"]>(
+      async () => 1,
+    );
+    const store = createPostgresReservationStore({
+      writer: { reserveGuardStat },
+    });
+    await store.reserve(keyFor(10, "pix"), 1);
+    expect(reserveGuardStat.mock.calls[0]![0]!.packId).toBe("pix");
+  });
+
+  it("a store/IO error on the write path PROPAGATES (aborts EXECUTE, never fails open §D-#6)", async () => {
+    const reserveGuardStat = vi.fn<ReservationWriter["reserveGuardStat"]>(
+      async () => {
+        throw new Error("connection reset");
+      },
+    );
+    const store = createPostgresReservationStore({
+      writer: { reserveGuardStat },
+    });
+    // The store does NOT swallow the error into a phantom reserved:true — a
+    // write-path failure must abort, not silently grant the reservation.
+    await expect(store.reserve(keyFor(10), 1)).rejects.toThrow(
+      "connection reset",
+    );
+  });
+});
+
+describe("reservation over-commit — faithful single-statement double (053 T1)", () => {
+  /**
+   * Faithful in-memory double of `RESERVE_GUARD_STAT_SQL`'s EXACT single-
+   * statement semantics — no read-modify-write window the way one atomic
+   * Postgres statement has none:
+   *   - fresh key: insert `delta` ONLY when `delta <= cap` (the SELECT…WHERE);
+   *   - existing key: add `delta` ONLY when `count + delta <= cap`
+   *     (the DO UPDATE…WHERE);
+   *   - returns the affected-row count (1 on success, 0 on refusal).
+   * Because JS is single-threaded and each `reserveGuardStat` runs its
+   * read-and-write synchronously start-to-finish (no `await` between the cap
+   * check and the mutation), interleaved Promise.all calls cannot observe a
+   * stale total — exactly the atomicity the single Postgres statement provides.
+   */
+  function reservationDouble() {
+    interface Row {
+      count: number;
+    }
+    const rows = new Map<string, Row>();
+    const writer: ReservationWriter = {
+      // NOT async-bodied across the check/mutate: the whole verdict+write is one
+      // synchronous critical section (mirrors the single SQL statement).
+      reserveGuardStat(a) {
+        const packId = a.packId ?? "";
+        const k = `${a.guardName}|${a.guardPhase}|${a.decisionKind}|${a.day}|${packId}`;
+        const prior = rows.get(k);
+        if (prior === undefined) {
+          // Fresh-key path: SELECT $6 WHERE $6 <= $7.
+          if (a.delta > a.cap) return Promise.resolve(0);
+          rows.set(k, { count: a.delta });
+          return Promise.resolve(1);
+        }
+        // Conflict path: DO UPDATE … WHERE count + delta <= cap.
+        if (prior.count + a.delta > a.cap) return Promise.resolve(0);
+        prior.count += a.delta;
+        return Promise.resolve(1);
+      },
+    };
+    return {
+      store: createPostgresReservationStore({ writer }),
+      total: (cap: number, packId = ""): number =>
+        rows.get(`acct_7|business|EXECUTE|2026-06-19|${packId}`)?.count ?? 0,
+      keyFor: (cap: number, packId: string | null = null): ReservationKey => ({
+        guardName: "acct_7",
+        guardPhase: "business",
+        decisionKind: "EXECUTE",
+        day: "2026-06-19",
+        packId,
+        cap,
+      }),
+    };
+  }
+
+  it("reserves up to and including the cap, then refuses the next claim (boundary)", async () => {
+    const { store, total, keyFor } = reservationDouble();
+    const cap = 5;
+    // Claim 1 unit five times → exactly at the cap.
+    for (let i = 0; i < 5; i++) {
+      expect(await store.reserve(keyFor(cap), 1)).toEqual({ reserved: true });
+    }
+    expect(total(cap)).toBe(5);
+    // The 6th claim would cross the cap → fail-closed over_cap, total unchanged.
+    expect(await store.reserve(keyFor(cap), 1)).toEqual({
+      reserved: false,
+      reason: "over_cap",
+    });
+    expect(total(cap)).toBe(5);
+  });
+
+  it("a multi-unit claim that would cross the cap is refused atomically (no partial reserve)", async () => {
+    const { store, total, keyFor } = reservationDouble();
+    const cap = 10;
+    expect(await store.reserve(keyFor(cap), 7)).toEqual({ reserved: true });
+    expect(total(cap)).toBe(7);
+    // 7 + 5 = 12 > 10 → refused; the store does NOT partially reserve 3.
+    expect(await store.reserve(keyFor(cap), 5)).toEqual({
+      reserved: false,
+      reason: "over_cap",
+    });
+    expect(total(cap)).toBe(7);
+    // 7 + 3 = 10 == cap → allowed (the cap value itself is reservable).
+    expect(await store.reserve(keyFor(cap), 3)).toEqual({ reserved: true });
+    expect(total(cap)).toBe(10);
+  });
+
+  it("a FRESH-KEY first claim over the cap is refused (the SELECT…WHERE gate)", async () => {
+    const { store, total, keyFor } = reservationDouble();
+    // No prior row — a first claim of 11 against cap 10 must NOT land a row.
+    expect(await store.reserve(keyFor(10), 11)).toEqual({
+      reserved: false,
+      reason: "over_cap",
+    });
+    expect(total(10)).toBe(0); // nothing reserved — the fresh-key over-cap hole is closed
+  });
+
+  it("N concurrent single-unit claims never over-commit a cap of N (one wins per unit)", async () => {
+    const { store, total, keyFor } = reservationDouble();
+    const cap = 50;
+    const attempts = 200; // 4× the cap of contending claims
+    const outcomes = await Promise.all(
+      Array.from({ length: attempts }, () => store.reserve(keyFor(cap), 1)),
+    );
+    const reserved = outcomes.filter((o) => o.reserved).length;
+    const refused = outcomes.filter((o) => !o.reserved).length;
+    // EXACTLY `cap` claims win; the rest are refused — no over-commit.
+    expect(reserved).toBe(cap);
+    expect(refused).toBe(attempts - cap);
+    expect(total(cap)).toBe(cap); // the durable total is exactly the cap, never over
+  });
+
+  it("two concurrent claims at cap−1 do NOT both win (the TOCTOU race the durable form closes)", async () => {
+    const { store, total, keyFor } = reservationDouble();
+    const cap = 5;
+    // Pre-reserve cap−1 = 4.
+    expect(await store.reserve(keyFor(cap), 4)).toEqual({ reserved: true });
+    expect(total(cap)).toBe(4);
+    // Two concurrent claims of 1 each: only ONE can fit in the last slot.
+    const [a, b] = await Promise.all([
+      store.reserve(keyFor(cap), 1),
+      store.reserve(keyFor(cap), 1),
+    ]);
+    const wins = [a, b].filter((o) => o.reserved).length;
+    expect(wins).toBe(1); // the park-counter TOCTOU race would let BOTH win
+    expect(total(cap)).toBe(5); // exactly at cap, never 6
   });
 });

@@ -420,6 +420,155 @@ describe("pack-identity-kyc — terminal Decision branches", () => {
   });
 });
 
+describe("pack-identity-kyc — KYC-status escalate-only precedence (103 §3/§4 T2-T3)", () => {
+  // 103 hardens the KYC-status path: it CONSUMES 102's escalate-only AML UNION
+  // (FLAGGED OR amlMatchScore ≥ threshold) and pins escalate-only precedence so
+  // a compliance signal can only ever STEP FRICTION UP (§C `final = min(
+  // deterministic, risk_ceiling)`, §D inv-7). The 102 tests above pin the union's
+  // shape; the 103-anchored cases pin that BOTH union branches beat the kernel's
+  // single EXECUTE *allow* guard (`executeOnHighScore`) at an EXECUTE-grade score —
+  // the strictest precedence — and that the enforced enum is the single source of
+  // truth (an unrecognized value fails closed, never lowers friction).
+  const baseState = withSession(emptyState(), {
+    id: "s1",
+    userId: "u1",
+    status: "VENDOR_PENDING",
+    documents: [],
+    createdAt: timestamp(),
+  });
+
+  it("FLAGGED branch escalates OVER executeOnHighScore at an EXECUTE-grade score (≥ 90)", () => {
+    // executeOnHighScore would EXECUTE on score=95 alone; the FLAGGED branch is
+    // ordered first, so the union sets a ceiling the EXECUTE allow guard cannot
+    // breach.
+    const d = adjudicate(
+      buildEnvelope({
+        kind: "kyc.vendor.callback",
+        payload: { sessionId: "s1", score: 95, amlStatus: "FLAGGED" },
+        actor: { principal: "system", sessionId: "vendor-webhook" },
+        taint: "TRUSTED",
+        nonce: "n103-flagged-execgrade",
+        createdAt: timestamp(),
+      }),
+      baseState,
+      policy,
+    );
+    expect(d.kind).toBe("ESCALATE");
+    expect(d.kind).not.toBe("EXECUTE");
+  });
+
+  it("score branch escalates OVER executeOnHighScore at an EXECUTE-grade score (≥ 90, CLEAR)", () => {
+    // amlMatchScore ≥ threshold escalates even when amlStatus is CLEAR and the
+    // verification score is EXECUTE-grade — the additive friction branch of the
+    // union also beats the EXECUTE allow guard.
+    const d = adjudicate(
+      buildEnvelope({
+        kind: "kyc.vendor.callback",
+        payload: { sessionId: "s1", score: 95, amlStatus: "CLEAR", amlMatchScore: 85 },
+        actor: { principal: "system", sessionId: "vendor-webhook" },
+        taint: "TRUSTED",
+        nonce: "n103-score-execgrade",
+        createdAt: timestamp(),
+      }),
+      baseState,
+      policy,
+    );
+    expect(d.kind).toBe("ESCALATE");
+    expect(d.kind).not.toBe("EXECUTE");
+  });
+
+  it("a compliance signal can ONLY raise friction: across the EXECUTE band a union hit never authorizes EXECUTE", () => {
+    // Sweep EXECUTE-grade scores; with EITHER union branch active the decision is
+    // ESCALATE, never EXECUTE — the signal is a friction ceiling, never a floor.
+    for (const score of [90, 92, 95, 99, 100]) {
+      const flagged = adjudicate(
+        buildEnvelope({
+          kind: "kyc.vendor.callback",
+          payload: { sessionId: "s1", score, amlStatus: "FLAGGED" },
+          actor: { principal: "system", sessionId: "vendor-webhook" },
+          taint: "TRUSTED",
+          nonce: `n103-band-flagged-${score}`,
+          createdAt: timestamp(),
+        }),
+        baseState,
+        policy,
+      );
+      expect(flagged.kind).toBe("ESCALATE");
+      expect(flagged.kind).not.toBe("EXECUTE");
+
+      const scoreHit = adjudicate(
+        buildEnvelope({
+          kind: "kyc.vendor.callback",
+          payload: { sessionId: "s1", score, amlStatus: "CLEAR", amlMatchScore: 90 },
+          actor: { principal: "system", sessionId: "vendor-webhook" },
+          taint: "TRUSTED",
+          nonce: `n103-band-score-${score}`,
+          createdAt: timestamp(),
+        }),
+        baseState,
+        policy,
+      );
+      expect(scoreHit.kind).toBe("ESCALATE");
+      expect(scoreHit.kind).not.toBe("EXECUTE");
+    }
+  });
+
+  it("T6: AML escalate uses the CLOSED business basis code `rule_violated` with aml_screening as a detail string only (no new code)", () => {
+    // 103 §3 / §4 T6: the AML signal continues to emit the existing closed-
+    // vocabulary business code `rule_violated`; `aml_screening` rides as a
+    // `detail.rule` STRING, never a new basis code. Pins that 103 added nothing
+    // to the closed basis vocabulary.
+    for (const payload of [
+      { sessionId: "s1", score: 95, amlStatus: "FLAGGED" as const },
+      { sessionId: "s1", score: 95, amlStatus: "CLEAR" as const, amlMatchScore: 90 },
+    ]) {
+      const d = adjudicate(
+        buildEnvelope({
+          kind: "kyc.vendor.callback",
+          payload,
+          actor: { principal: "system", sessionId: "vendor-webhook" },
+          taint: "TRUSTED",
+          nonce: `n103-basis-${payload.amlStatus}-${payload.amlMatchScore ?? "x"}`,
+          createdAt: timestamp(),
+        }),
+        baseState,
+        policy,
+      );
+      expect(d.kind).toBe("ESCALATE");
+      const aml = d.basis.find((b) => b.category === "business");
+      expect(aml).toBeDefined();
+      // The CODE is the closed-vocabulary `rule_violated` — NOT a new aml_screening code.
+      expect(aml!.code).toBe("rule_violated");
+      // aml_screening lives in detail as a string, advisory only.
+      expect(aml!.detail).toMatchObject({ rule: "aml_screening" });
+    }
+  });
+
+  it("FAIL-CLOSED: an unrecognized amlStatus value never lowers friction (enforced enum is the source of truth)", () => {
+    // §3/§7 risk: widening the documented value-set must not introduce a value
+    // that bypasses `=== "FLAGGED"` and lowers friction (monotonicity break, §C).
+    // An unrecognized value (here a CLEAR-adjacent typo) at a BORDERLINE score
+    // (50 ≤ score < 90, no union hit) must fall through to default REFUSE — never
+    // EXECUTE. This pins that an unknown value fails closed to friction, not away.
+    const d = adjudicate(
+      buildEnvelope({
+        kind: "kyc.vendor.callback",
+        payload: { sessionId: "s1", score: 75, amlStatus: "UNKNOWN_STATUS" as unknown as "CLEAR" },
+        actor: { principal: "system", sessionId: "vendor-webhook" },
+        taint: "TRUSTED",
+        nonce: "n103-unknown-borderline",
+        createdAt: timestamp(),
+      }),
+      baseState,
+      policy,
+    );
+    // Neither escalate branch fires (not FLAGGED, no amlMatchScore); the score is
+    // sub-EXECUTE; the unknown value cannot authorize anything → default REFUSE.
+    expect(d.kind).toBe("REFUSE");
+    expect(d.kind).not.toBe("EXECUTE");
+  });
+});
+
 describe("pack-identity-kyc — taint policy", () => {
   it("rejects kyc.vendor.callback with UNTRUSTED taint (LLM cannot forge webhooks)", () => {
     // The vendor callback intent kind requires TRUSTED taint. An LLM

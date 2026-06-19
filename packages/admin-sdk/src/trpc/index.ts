@@ -16,7 +16,9 @@ import {
   EmergencyHistoryQuerySchema,
   EmergencyStateSchema,
   EmergencyUpdateInputSchema,
+  EscalateInputSchema,
   GovernanceEventSchema,
+  RecordedEscalationSchema,
   type Actor,
 } from "../schemas/emergency.js";
 import {
@@ -156,8 +158,13 @@ import {
 } from "../schemas/memory.js";
 import type { AuditStore } from "../store/index.js";
 import type { EmergencyStateStore } from "../store/emergency-store.js";
+import type { EscalationSink } from "../store/escalation-store.js";
 import type { ReplayInvoker } from "../store/replay-invoker.js";
 import type { TurnTraceStore } from "../store/turn-trace-store.js";
+import {
+  createEscalateRateLimiter,
+  type EscalateRateLimiter,
+} from "./escalate-rate-limit.js";
 import {
   TraceByConversationQuerySchema,
   TraceByTurnQuerySchema,
@@ -369,7 +376,41 @@ export interface AdminContext {
   readonly aiBoms?: ReadonlyArray<AiBomParsed>;
   /** Optional read-only session-memory lookup (ADR-126); `memory.bySession` PRECONDITION_FAILED when absent. */
   readonly memoryLookup?: { get(sessionId: string): Promise<unknown | null> };
+  /**
+   * Optional escalation sink (114) — the SINGLE write port the §B/§G
+   * Inspector-General OBSERVER plane is permitted. When supplied, the
+   * `escalate.raise` mutation records a friction-monotone escalation/
+   * recommendation FACT against an audited decision; when OMITTED (e.g. a pure
+   * read-only plane), `escalate.raise` throws PRECONDITION_FAILED — the same
+   * runtime feature-detection posture as every other optional port.
+   *
+   * MONOTONICITY (§C / §D inv.7): this port records FACTS only. It can never
+   * authorize, weaken, lower a threshold, override a refusal, or mint an
+   * EXECUTE — its recommendation vocabulary (`EscalateRecommendationSchema`) is
+   * closed to pause/review/escalate (friction-increasing) with no bypass value.
+   * The kernel decision hot-path is untouched and stays fail-closed; the
+   * sink's own durable log MAY be fail-OPEN (governance plane only).
+   */
+  readonly escalationSink?: EscalationSink;
+  /**
+   * Optional per-actor rate limiter for `escalate.raise` (114). When omitted, a
+   * default sliding-window limiter is used (the surface is rate-limited by
+   * contract — it is never unbounded). A host may inject its own to tune the
+   * window/cap or share a cross-process limiter.
+   *
+   * This is a GOVERNANCE-PLANE guard (caps how fast facts are recorded); it is
+   * NOT on the kernel decision path. Being rate-limited REFUSES an escalation
+   * (TOO_MANY_REQUESTS) — friction stays monotone.
+   */
+  readonly escalateRateLimiter?: EscalateRateLimiter;
 }
+
+// 114 — the default per-actor escalate rate limiter, used when the host does
+// not inject one. Module-scoped so the per-actor window survives across
+// requests within a process (each `createContext` call builds a fresh context
+// object, so a per-context limiter would never accumulate). A host that wants a
+// cross-process limit injects `escalateRateLimiter` explicitly.
+const defaultEscalateRateLimiter = createEscalateRateLimiter();
 
 const t = initTRPC.context<AdminContext>().create();
 
@@ -1144,6 +1185,82 @@ const memoryRouter = t.router({
     }),
 });
 
+// ─── 114 — Escalate / recommend surface (escalate-only, rate-limited) ────────
+//
+// The §B/§G Inspector-General OBSERVER plane is permitted EXACTLY ONE
+// friction-monotone write: raising an escalation/recommendation against an
+// audited decision. Unlike the other 4 mutations (emergency.update, replay.run,
+// governance.recordOutcome, approval.resolve — all EXCLUDED from the read-only
+// plane), `escalate.raise` is mounted on BOTH the full router AND the read-only
+// plane, because it is friction-INCREASING by construction:
+//   - its input enum (`EscalateRecommendationSchema`) admits only
+//     pause / review / escalate — there is NO allow/bypass/override/EXECUTE
+//     value, so a raw-HTTP caller cannot smuggle a friction-decreasing verb
+//     (the wire-level monotonicity gate, §C / §D inv.7);
+//   - its output is a recorded FACT (`RecordedEscalation`), never a `Decision`
+//     — the closed 6-outcome algebra (§D inv.2) is untouched, and the kernel
+//     decision hot-path is never reached;
+//   - it READS the target decision (`getByIntentHash`, tenant-scoped) but never
+//     mutates the audit record (`AuditStore` is read-only by contract).
+// So the write-isolation invariant the OBSERVER plane upholds is "reads +
+// friction-monotone writes only" — NOT "zero mutations". The 4 authorize/weaken
+// mutations remain structurally absent from the read plane.
+const escalateRouter = t.router({
+  raise: t.procedure
+    .input(EscalateInputSchema)
+    .output(RecordedEscalationSchema)
+    .mutation(async ({ input, ctx }) => {
+      // Uniform actor gate — same as every other mutation. Guard BEFORE the
+      // port feature-detection so an unauthenticated caller gets UNAUTHORIZED
+      // (not PRECONDITION_FAILED), and BEFORE the rate-limit so an
+      // unauthenticated flood cannot consume an actor's window.
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message:
+            "x-adjudicate-actor-id header required for the escalate mutation",
+        });
+      }
+      if (!ctx.escalationSink) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Escalation sink not configured. Wire an EscalationSink into the route handler context.",
+        });
+      }
+      // Per-actor rate-limit BEFORE any write (114 contract). The escalate
+      // surface is rate-limited by design — an over-limit attempt is REFUSED at
+      // the wire (TOO_MANY_REQUESTS); friction stays monotone.
+      const limiter = ctx.escalateRateLimiter ?? defaultEscalateRateLimiter;
+      if (!limiter.allow(ctx.actor.id, Date.now())) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message:
+            "Escalation rate limit exceeded for this actor. Retry after the window resets.",
+        });
+      }
+      // READ the target decision (tenant-scoped) to confirm it exists — the
+      // surface reads but NEVER mutates the audit record. An escalation against
+      // a non-existent decision is a NOT_FOUND, not a silent record.
+      const target = await ctx.store.getByIntentHash(
+        input.intentHash,
+        ctx.actor.tenantId,
+      );
+      if (!target) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `No audit record found for intentHash ${input.intentHash}`,
+        });
+      }
+      return ctx.escalationSink.record({
+        intentHash: input.intentHash,
+        recommendation: input.recommendation,
+        reason: input.reason,
+        actor: ctx.actor,
+      });
+    }),
+});
+
 /**
  * Resolve the wired AI-BOM set, falling back to the legacy single `ctx.aiBom`
  * for back-compat (ADR-130). Returns `undefined` when neither is configured so
@@ -1323,6 +1440,8 @@ export const adminRouter = t.router({
   memory: memoryRouter,
   adjutant: adjutantRouter,
   trace: traceRouter,
+  // 114 — the escalate/recommend surface (the 5th mutation). Friction-monotone.
+  escalate: escalateRouter,
 });
 
 export type AdminRouter = typeof adminRouter;
@@ -1336,12 +1455,12 @@ export type AdminRouter = typeof adminRouter;
  */
 export const createAdminCaller = t.createCallerFactory(adminRouter);
 
-// ─── 111 — Read-only (write-isolated) admin plane ───────────────────────────
+// ─── 111 — Write-isolated admin plane (reads + friction-monotone writes only) ─
 //
-// The §B/§G "Inspector-General" plane: `adminRouter` MINUS every mutation
-// procedure. This is the router-level write-isolation seam (NOT context-level:
-// passing `actor:null` would also break record-level reads — an invalid seam).
-// The read-only plane is assembled from:
+// The §B/§G "Inspector-General" plane: `adminRouter` MINUS every AUTHORIZE /
+// WEAKEN mutation. This is the router-level write-isolation seam (NOT
+// context-level: passing `actor:null` would also break record-level reads — an
+// invalid seam). The read-only plane is assembled from:
 //   - the pure-query namespaces VERBATIM (`audit`, `pack`, `memory`,
 //     `adjutant`, `trace` — these have ZERO mutations), and
 //   - the read-only TWINS of the four mutation-bearing namespaces, each of
@@ -1351,14 +1470,17 @@ export const createAdminCaller = t.createCallerFactory(adminRouter);
 //       replay     → drops `replay.run`              (re-adjudication WRITE)
 //       governance → drops `governance.recordOutcome`(retrospective WRITE)
 //       approval   → drops `approval.resolve`        (APPROVER re-adjudication)
+//   - PLUS (114) the `escalate` namespace VERBATIM — the ONE friction-monotone
+//     write the Inspector-General IS permitted. It is mounted EXPLICITLY here
+//     (never inherited), and it is safe to mount precisely because it cannot
+//     decrease friction: its enum admits only pause/review/escalate (no
+//     bypass), and its output is a recorded FACT, never a `Decision`.
 //
-// The invariant is NOT "the mutation count" — it is "the read plane exposes
-// ZERO mutations". When 114 adds `escalate` (the ONE friction-monotone write
-// the Inspector-General is permitted), it is added to THIS router's approval (or
-// a dedicated) namespace explicitly — never inherited, never a relaxation.
-//
-// A read-only console mounting THIS router physically cannot authorize, weaken,
-// or replay-mutate a decision: the procedures simply do not exist on the wire.
+// So the plane's invariant is "reads + friction-monotone writes only" — the 4
+// AUTHORIZE/WEAKEN mutations are structurally absent, while the single
+// friction-INCREASING escalate write is present. A console mounting THIS router
+// physically cannot authorize, weaken, or replay-mutate a decision: those
+// procedures simply do not exist on the wire.
 export const readOnlyAdminRouter = t.router({
   audit: auditRouter,
   emergency: emergencyReadOnlyRouter,
@@ -1369,6 +1491,8 @@ export const readOnlyAdminRouter = t.router({
   memory: memoryRouter,
   adjutant: adjutantRouter,
   trace: traceRouter,
+  // 114 — the SOLE write the observer plane permits: friction-monotone escalate.
+  escalate: escalateRouter,
 });
 
 export type ReadOnlyAdminRouter = typeof readOnlyAdminRouter;
@@ -1378,7 +1502,8 @@ export type ReadOnlyAdminRouter = typeof readOnlyAdminRouter;
  * invocation). The returned caller has NO `.emergency.update`,
  * `.replay.run`, `.governance.recordOutcome`, or `.approval.resolve` — calling
  * any of them is a COMPILE error AND a runtime "no procedure" error, which is
- * the structural write-isolation guarantee.
+ * the structural write-isolation guarantee. It DOES have `.escalate.raise`
+ * (114) — the ONE friction-monotone write the observer plane is permitted.
  */
 export const createReadOnlyAdminCaller =
   t.createCallerFactory(readOnlyAdminRouter);

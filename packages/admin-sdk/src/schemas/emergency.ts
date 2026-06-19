@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { IntentHashSchema } from "./common.js";
 
 /**
  * Emergency-status state vocabulary.
@@ -86,6 +87,71 @@ export const EmergencyUpdateInputSchema = z
 export const EmergencyHistoryQuerySchema = z.object({
   limit: z.number().int().min(1).max(100).default(20),
 });
+
+// ─── 114 — Escalate / recommend surface (escalate-only, rate-limited) ────────
+//
+// The Adjudicant (Inspector-General) OBSERVER plane is permitted exactly ONE
+// friction-monotone write: it can RAISE an escalation/recommendation against an
+// audited decision. It can NEVER authorize, weaken, lower a threshold, override
+// a refusal, or mint an EXECUTE. This is the wire-level realization of §C/§D
+// inv.7 monotonicity for a non-deterministic (operator) component: the surface
+// emits friction-INCREASING FACTS only — never a `Decision`.
+//
+// The recommendation vocabulary is closed and friction-only by construction —
+// the SAME design as `EmergencyStatusSchema` ("No allow-all/bypass status"):
+//
+//   pause    — recommend a hold / freeze pending review (highest friction).
+//   review   — recommend human review of the decision (manual scrutiny).
+//   escalate — recommend escalation to a higher authority / incident process.
+//
+// There is DELIBERATELY no `allow` / `bypass` / `override` / `lower-threshold` /
+// `EXECUTE` value. A raw-HTTP caller cannot smuggle a friction-decreasing
+// recommendation past the UI because the enum itself admits none — exactly as
+// the emergency status enum cannot express a "let everything through" mode.
+export const EscalateRecommendationSchema = z.enum([
+  "pause",
+  "review",
+  "escalate",
+]);
+
+/**
+ * Escalate-mutation input.
+ *
+ * `intentHash` keys the escalation to a real audited decision (resolved
+ * read-only via `AuditStore.getByIntentHash` — the surface READS but never
+ * mutates the audit record). `recommendation` is the friction-only verb.
+ * `reason` is a mandatory operator justification (same 10..500 rigor as the
+ * emergency-update reason — an escalation without a stated basis is governance
+ * noise).
+ */
+export const EscalateInputSchema = z.object({
+  intentHash: IntentHashSchema,
+  recommendation: EscalateRecommendationSchema,
+  reason: z.string().min(10).max(500),
+});
+
+/**
+ * A recorded escalation/recommendation FACT — the output of the escalate
+ * mutation. It is explicitly NOT a `Decision` (no `decision` field, no kernel
+ * outcome): the closed 6-outcome Decision algebra (§D inv.2) is untouched. The
+ * `raisedBy` actor is a CLAIM until real per-operator identity (OIDC) — the
+ * same posture as `approval.resolve`'s `resolvedBy`.
+ */
+export const RecordedEscalationSchema = z.object({
+  id: z.string().min(1),
+  at: z.string(),
+  kind: z.literal("escalation.raised"),
+  intentHash: IntentHashSchema,
+  recommendation: EscalateRecommendationSchema,
+  reason: z.string(),
+  raisedBy: ActorSchema,
+});
+
+export type EscalateRecommendation = z.infer<
+  typeof EscalateRecommendationSchema
+>;
+export type EscalateInput = z.infer<typeof EscalateInputSchema>;
+export type RecordedEscalation = z.infer<typeof RecordedEscalationSchema>;
 
 export type EmergencyStatus = z.infer<typeof EmergencyStatusSchema>;
 export type Actor = z.infer<typeof ActorSchema>;

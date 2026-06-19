@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowUpCircle,
   Eye,
   FolderSearch,
   LayoutDashboard,
@@ -18,8 +19,10 @@ interface NavItem {
 }
 
 // 111 — the observer plane opens with an Overview landing. Subsequent plans add
-// read-only surfaces here: 112 Audit Explorer, 113 Investigations, 115
-// Governance views. NONE of these is a write surface.
+// surfaces here: 112 Audit Explorer, 113 Investigations, 114 Escalate, 115
+// Governance views. Every surface but Escalate is read-only; Escalate is the
+// ONE friction-monotone write the observer plane permits (never an authorize/
+// weaken — pause/review/escalate only).
 const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   // 112 — the read-only Audit Explorer (browse / by-hash / integrity / chain).
@@ -27,6 +30,9 @@ const NAV_ITEMS: readonly NavItem[] = [
   // 113 — the read-only Investigations / cases surface (pivot from a record into
   // its correlated session + supersession-lineage case timeline).
   { href: "/cases", label: "Investigations", icon: FolderSearch },
+  // 114 — the friction-monotone Escalate / recommend surface (pause/review/
+  // escalate). The ONE write the observer plane permits; never authorize/weaken.
+  { href: "/escalate", label: "Escalate", icon: ArrowUpCircle },
 ] as const;
 
 /**

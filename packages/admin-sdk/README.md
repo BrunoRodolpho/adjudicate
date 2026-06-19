@@ -26,7 +26,7 @@ The framework does **not** ship: auth (adopter wraps), persistence (adopter impl
 @adjudicate/admin-sdk/adapters/next — toNextRouteHandler
 ```
 
-`adminRouter` exposes seven namespaces (see `src/trpc/index.ts`):
+`adminRouter` exposes these namespaces (see `src/trpc/index.ts`):
 
 | Namespace | What it covers |
 |-----------|----------------|
@@ -37,11 +37,49 @@ The framework does **not** ship: auth (adopter wraps), persistence (adopter impl
 | `approval` | `list` / `history` / `chain` (read) + `resolve` (mutation) — confirmation engine. |
 | `pack` | `aiBom` / `aiBomList` / `aiBomById` — AI Bill-of-Materials reads. |
 | `memory` | `bySession` — cross-session memory snapshot read. |
+| `escalate` | `raise` (mutation) — friction-monotone escalate/recommend surface (escalate-only, rate-limited). |
 
-Optional surfaces (governance/approval/pack/memory beyond the base reads)
-are **feature-detected at runtime**: each procedure throws
+Optional surfaces (governance/approval/pack/memory/escalate beyond the base
+reads) are **feature-detected at runtime**: each procedure throws
 `PRECONDITION_FAILED` when its backing port is not wired into `AdminContext`,
 so the procedure shape stays static across adopters.
+
+### Read-only plane + the escalate write (`readOnlyAdminRouter`)
+
+`@adjudicate/admin-sdk/trpc` also exports `readOnlyAdminRouter` — the §B/§G
+Inspector-General **OBSERVER** plane. It is `adminRouter` MINUS the four
+AUTHORIZE/WEAKEN mutations (`emergency.update`, `replay.run`,
+`governance.recordOutcome`, `approval.resolve`), so a console mounting it
+**physically cannot** authorize, weaken, or replay-mutate a decision — those
+procedures do not exist on the wire (router-level write isolation, not a runtime
+check).
+
+It is **not** zero-mutation, though: it carries exactly ONE write —
+`escalate.raise`. That is safe on the observer plane precisely because it is
+**friction-monotone** by construction (§C / §D inv.7):
+
+- **Escalate-only enum.** `recommendation` is the closed
+  `EscalateRecommendationSchema` — `pause` / `review` / `escalate`. There is
+  **no** `allow` / `bypass` / `override` / `lower-threshold` / `EXECUTE` value,
+  enforced at the wire (a raw-HTTP caller cannot smuggle a friction-decreasing
+  verb), mirroring the emergency status enum's "no allow-all/bypass" invariant.
+- **Records a fact, never a decision.** The output is a `RecordedEscalation`
+  (`kind: "escalation.raised"`) — the closed 6-outcome `Decision` algebra is
+  untouched; the kernel decision hot-path is never reached.
+- **Reads, never mutates, the target.** It resolves the target decision
+  read-only via `AuditStore.getByIntentHash` (tenant-scoped); the audit record
+  is never mutated.
+- **Actor-gated + rate-limited.** `UNAUTHORIZED` without an actor;
+  `TOO_MANY_REQUESTS` once a per-actor sliding window is exceeded
+  (`createEscalateRateLimiter`, default 10/min). Wire an `EscalationSink` into
+  `AdminContext` (`createInMemoryEscalationSink`, or your durable fail-OPEN
+  log); when absent, `escalate.raise` throws `PRECONDITION_FAILED`.
+
+The escalation log MAY be fail-OPEN within the governance plane (operator-action
+precedence): record into the live sink, fire-and-forget the durable write, log
+(don't throw) on log-infra failure — the same posture as the kill-switch
+governance log. This fail-OPEN is isolated to the governance plane and never
+touches the fail-CLOSED decision hot-path.
 
 ## Authentication & actors
 
@@ -53,7 +91,9 @@ resolved by the adopter's `createContext` via `extractActor(req)` from the
   (`piiEvents`, `commandRiskEvents`) throw `UNAUTHORIZED` with no actor — audit
   reads are **not** open.
 - Mutations (`emergency.update`, `replay.run`, `governance.recordOutcome`,
-  `approval.resolve`) throw `UNAUTHORIZED` with no actor.
+  `approval.resolve`, `escalate.raise`) throw `UNAUTHORIZED` with no actor.
+  `escalate.raise` is additionally per-actor rate-limited
+  (`TOO_MANY_REQUESTS`).
 - Aggregate-only stats (`outcomeDistribution`, `piiClassificationStats`,
   `commandRisk`) leak no per-record data and do not require an actor.
 

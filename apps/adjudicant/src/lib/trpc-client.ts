@@ -5,12 +5,15 @@ import type { ReadOnlyAdminRouter } from "@adjudicate/admin-sdk/trpc";
  * Typed tRPC client for the Adjudicant (Inspector-General) observer app.
  *
  * It is typed against `ReadOnlyAdminRouter` — the admin router MINUS every
- * mutation procedure — NOT the full `AdminRouter`. This makes write-isolation a
+ * AUTHORIZE/WEAKEN mutation procedure (PLUS the ONE friction-monotone escalate
+ * write, 114) — NOT the full `AdminRouter`. This makes write-isolation a
  * COMPILE-TIME guarantee in this app: `trpc.emergency.update`,
  * `trpc.approval.resolve`, `trpc.governance.recordOutcome`, and `trpc.replay.run`
  * are not members of this client's type, so any attempt to authorize, weaken, or
- * replay-mutate a decision fails the build. The §B/§G Inspector-General plane
- * observes/investigates/escalates; it NEVER decides.
+ * replay-mutate a decision fails the build. The SOLE mutation member is
+ * `trpc.escalate.raise` — and it can only RECORD a friction-increasing FACT
+ * (pause/review/escalate), never produce a `Decision`. The §B/§G
+ * Inspector-General plane observes/investigates/escalates; it NEVER decides.
  *
  * Headers: every request includes `x-adjudicate-actor-id` (and an optional
  * display name). This reference app hardcodes a "demo-observer" placeholder —

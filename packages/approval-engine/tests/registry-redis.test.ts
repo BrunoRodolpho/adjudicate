@@ -80,6 +80,29 @@ describe("createRedisApprovalRegistry", () => {
     expect((await r.list())[0]?.requestedBy?.displayName).toBe("Mallory");
   });
 
+  // ── 073 — out-of-band escalation projection + channel binding round-trip ─────
+  it("round-trips the escalation projection through the Redis JSON blob", async () => {
+    const { client, store } = fakeRedis();
+    const r = createRedisApprovalRegistry({ redis: client });
+    await r.put({ ...base, escalation: { afterMs: 120_000, to: "human" } }, 3600);
+    // Persisted in the blob...
+    const raw = [...store.values()][0]!;
+    expect(JSON.parse(raw).escalation).toEqual({ afterMs: 120_000, to: "human" });
+    // ...and rehydrated on read + list.
+    expect((await r.get("t1"))?.escalation).toEqual({ afterMs: 120_000, to: "human" });
+    expect((await r.list())[0]?.escalation).toEqual({ afterMs: 120_000, to: "human" });
+  });
+
+  it("preserves the channel + channelRef across the Redis round-trip", async () => {
+    const { client } = fakeRedis();
+    const r = createRedisApprovalRegistry({ redis: client });
+    await r.put({ ...base, channel: "teams", channelRef: "card-77" }, 3600);
+    const got = await r.get("t1");
+    expect(got?.channel).toBe("teams");
+    expect(got?.channelRef).toBe("card-77");
+    expect((await r.list())[0]?.channelRef).toBe("card-77");
+  });
+
   it("never persists an envelope blob — only display fields round-trip", async () => {
     const { client, store } = fakeRedis();
     const r = createRedisApprovalRegistry({ redis: client });

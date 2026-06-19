@@ -521,6 +521,93 @@ describe("071 confirmationReceipt binding (capability, approver, channel)", () =
     expect(result.decision.kind).toBe("REQUEST_CONFIRMATION");
   });
 
+  // ── 073 — the kernel NEVER authorizes on a CHANNEL alone ─────────────────────
+  //
+  // 073 hardens the out-of-band channel seam: channels deliver display facts and
+  // are pure I/O OUTSIDE the kernel. The receipt's optional `channel` binding
+  // (added by 071) participates ONLY in the equality/audit gate; the LOAD-BEARING
+  // identity gate is `intentHash`. These three tests prove a channel cannot stand
+  // in for the intentHash authority — neither a perfectly-matching channel binding
+  // nor any channel value can authorize when the intentHash does not match.
+  it("073: a MATCHING channel binding does NOT authorize when the intentHash is wrong (channel is not authority)", async () => {
+    const env = envOf("test.confirm.bind", "n-channel-not-authority");
+    const { sink, records } = captureSink();
+
+    const result = await adjudicateAndAudit(env, {}, policy071, {
+      sink,
+      confirmationReceipt: {
+        // WRONG hash — the only authority input the override keys on.
+        intentHash: "f".repeat(64),
+        at: "2026-05-13T12:00:01.000Z",
+        // A perfectly self-consistent channel binding (requested === confirmed):
+        // it satisfies confirmationBindingMatches, yet the override must NOT fire
+        // because the intentHash gate fails. A channel can only ever ADD a gate,
+        // never replace the intentHash authority.
+        binding: { channel: { requested: "slack", confirmed: "slack" } },
+      },
+    });
+
+    expect(result.decision.kind).toBe("REQUEST_CONFIRMATION");
+    // No supersession — no override happened on the strength of the channel.
+    expect(records[0]!.decision.kind).toBe("REQUEST_CONFIRMATION");
+    expect(records[0]!.supersedes).toBeUndefined();
+  });
+
+  it("073: changing ONLY the bound channel does not change WHETHER the override fires (intentHash decides)", async () => {
+    // Same correct intentHash, two different (self-consistent) channels: both
+    // must produce the SAME EXECUTE outcome. The channel is recorded forensically
+    // but is not part of the authorization decision (it only adds friction when it
+    // MISMATCHES its own issued-against value — proven separately above).
+    const env = envOf("test.confirm.bind", "n-channel-irrelevant-to-authz");
+
+    const a = captureSink();
+    const viaSlack = await adjudicateAndAudit(env, {}, policy071, {
+      sink: a.sink,
+      confirmationReceipt: {
+        intentHash: env.intentHash,
+        at: "2026-05-13T12:00:01.000Z",
+        binding: { channel: { requested: "slack", confirmed: "slack" } },
+      },
+    });
+
+    const b = captureSink();
+    const viaEmail = await adjudicateAndAudit(env, {}, policy071, {
+      sink: b.sink,
+      confirmationReceipt: {
+        intentHash: env.intentHash,
+        at: "2026-05-13T12:00:01.000Z",
+        binding: { channel: { requested: "email", confirmed: "email" } },
+      },
+    });
+
+    // Both authorize on the SAME intentHash regardless of which channel resolved.
+    expect(viaSlack.decision.kind).toBe("EXECUTE");
+    expect(viaEmail.decision.kind).toBe("EXECUTE");
+    // The channel is recorded forensically, distinctly, on each EXECUTE row.
+    expect(a.records[0]!.supersedes!.binding).toEqual({ channel: "slack" });
+    expect(b.records[0]!.supersedes!.binding).toEqual({ channel: "email" });
+  });
+
+  it("073: a receipt carrying ONLY a channel (no intentHash match) cannot mint EXECUTE", async () => {
+    // The override predicate requires `confirmationReceipt.intentHash ===
+    // envelope.intentHash`. A receipt whose only distinguishing fact is the
+    // channel — with a non-matching intentHash — leaves the verdict at the
+    // original REQUEST_CONFIRMATION (fail-closed friction, §D-6 / invariant #1).
+    const env = envOf("test.confirm.bind", "n-channel-only-receipt");
+    const { sink } = captureSink();
+
+    const result = await adjudicateAndAudit(env, {}, policy071, {
+      sink,
+      confirmationReceipt: {
+        intentHash: "a".repeat(64), // not env.intentHash
+        at: "2026-05-13T12:00:01.000Z",
+        binding: { channel: { confirmed: "slack" } }, // ungated channel fact only
+      },
+    });
+
+    expect(result.decision.kind).toBe("REQUEST_CONFIRMATION");
+  });
+
   // ── 072 — separation-of-duty stays ENGINE-SIDE, never on the kernel receipt ──
   it("072: the SoD proposer identity is NOT carried on the kernel receipt/binding (enforced engine-side)", async () => {
     const env = envOf("test.confirm.bind", "n-sod-no-proposer");

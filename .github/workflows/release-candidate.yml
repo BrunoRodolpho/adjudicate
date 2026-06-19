@@ -47,6 +47,15 @@ jobs:
       - name: Version consistency
         run: pnpm check:versions
 
+      # 083 — the §24 immutable-version-pin demand is ENFORCING on the publish
+      # stage: a malformed / duplicated / non-semver pin row fails the RC
+      # pipeline (no continue-on-error). This is the structural pin integrity
+      # gate; it does NOT compare values against live package.json (the §24
+      # values have drifted ahead across the merged history — tracked as the
+      # batched matrix sweep). §C: this only ADDS friction to publish.
+      - name: Freeze-matrix version-pin integrity (enforcing)
+        run: pnpm check:freeze-matrix --version-pin
+
       - name: Freeze-matrix consistency (strict)
         run: pnpm check:freeze-matrix --strict
         continue-on-error: true   # strict mode is advisory until the matrix is symbol-complete

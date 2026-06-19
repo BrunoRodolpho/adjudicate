@@ -18,6 +18,24 @@ jobs:
   release:
     name: Version PR or publish
     runs-on: ubuntu-latest
+    # 083 — SIGNER gate (maker/checker/signer segregation-of-duties).
+    #
+    # The publish step is the SIGNER. It is gated behind the protected
+    # GitHub `release-signing` Environment: `NPM_TOKEN` is scoped to that
+    # environment (NOT a repo-wide secret), so the publish step can only
+    # authenticate to npm after the environment's required-reviewer / wait-timer
+    # gate releases it. Configure the environment in repo Settings →
+    # Environments → `release-signing` with:
+    #   - Required reviewers = the SIGNER group (DISJOINT from the maker and,
+    #     ideally, from the .changeset/** CHECKER — see .github/CODEOWNERS).
+    #   - `NPM_TOKEN` as an environment secret (remove any repo-wide copy).
+    # This is the second-person sign-off on the artifact-publishing action
+    # itself, complementing the CODEOWNERS checker on the Version PR.
+    #
+    # §C monotonicity / §D-6 fail-closed: a withheld environment approval
+    # blocks publish; the workflow never publishes by default. This is a
+    # CI/ops control only — it never runs inside `adjudicate()`.
+    environment: release-signing
     steps:
       - uses: actions/checkout@v4
         with:

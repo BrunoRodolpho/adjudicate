@@ -1,0 +1,55 @@
+# CODEOWNERS — maker / checker / signer segregation-of-duties (plan 083)
+#
+# Purpose: enforce four-eyes (two-person) review on the publish path. The
+# release flow is the changesets two-phase flow (`.changeset/config.json`
+# `"commit": false`, `"baseBranch": "main"`):
+#
+#   maker   — opens a PR carrying a changeset and/or the auto-generated
+#             Version PR that bumps `packages/*/package.json` versions and
+#             changelogs. (The author of the change.)
+#   checker — a DISTINCT reviewer (NOT the maker) who must approve the PR.
+#             GitHub enforces this when "Require review from Code Owners" is
+#             enabled on the `main` branch protection rule: a PR that edits
+#             any path below CANNOT merge without a code-owner approval, and
+#             GitHub will not count the PR author's own review. This is the
+#             second person of the four-eyes control.
+#   signer  — the `Release` workflow's publish step (`release.yml`), which is
+#             additionally gated behind the protected GitHub `release-signing`
+#             Environment. The signer step only runs after the environment's
+#             required-reviewer gate releases `NPM_TOKEN` (see release.yml).
+#
+# This is a CI/ops control, NOT a kernel control: it never runs inside
+# `adjudicate()` and changes no package source. It can only ADD friction to
+# the merge/publish path (more required reviewers), never authorize a release
+# the existing gates would refuse (§C monotonicity; §D constitutional
+# invariant #6 fail-closed — a missing checker approval blocks the merge, so
+# publish never happens by default).
+#
+# NOTE: the handles below are placeholders for the project's maintainer
+# group. Replace `@adjudicate/maintainers` (and, for the most sensitive
+# version-bump surface, the distinct `@adjudicate/release-checkers`) with the
+# real GitHub team slugs before relying on CODEOWNERS enforcement. The teams
+# MUST be disjoint from the set of routine change authors for the four-eyes
+# property to hold.
+
+# ── Default ownership: every change gets a maintainer review. ───────────────
+*                               @adjudicate/maintainers
+
+# ── Publish-path surface: the maker's version-bump artifacts. ───────────────
+# A changeset declares the intended release; the auto-generated Version PR
+# rewrites these package manifests. A DISTINCT checker (the release-checkers
+# team — disjoint from the maker) must approve any edit here. This is the
+# four-eyes gate over what actually gets published.
+/.changeset/**                  @adjudicate/release-checkers
+/packages/*/package.json        @adjudicate/release-checkers
+
+# ── Release/CI machinery: the segregation controls themselves. ──────────────
+# Edits to the publish workflow, the CODEOWNERS policy, or the kernel-purity /
+# release gates must themselves go through code-owner review so the
+# maker/checker/signer separation cannot be silently weakened.
+/.github/CODEOWNERS             @adjudicate/release-checkers
+/.github/workflows/release.yml  @adjudicate/release-checkers
+/.github/workflows/ci.yml       @adjudicate/maintainers
+/.github/workflows/release-candidate.yml @adjudicate/maintainers
+/scripts/rc-checks.ts           @adjudicate/maintainers
+/scripts/check-freeze-matrix.ts @adjudicate/maintainers

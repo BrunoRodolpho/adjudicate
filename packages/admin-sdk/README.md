@@ -81,6 +81,35 @@ precedence): record into the live sink, fire-and-forget the durable write, log
 governance log. This fail-OPEN is isolated to the governance plane and never
 touches the fail-CLOSED decision hot-path.
 
+### Governance views (read-only, on the observer plane)
+
+The three governance surfaces below are **pure `.query` procedures** — they read
+recorded snapshots through feature-detected `AdminContext` ports and never
+authorize, weaken, or mutate a decision (§C / §D-7). They ride the read-only
+plane verbatim (`governanceReadOnlyRouter` = the governance reads with **no**
+`recordOutcome`), so an Inspector-General app exposes them while the lone
+governance mutation stays on the operator console. Each omitted port self-fences
+with `PRECONDITION_FAILED`, so the surface is **runtime-feature-detectable** (the
+procedure shape stays static across adopters; an unwired view returns a typed
+precondition error, never a crash or a fabricated empty value):
+
+| View | Reads | Port | Omitted ⇒ |
+|------|-------|------|-----------|
+| **Policy-version history** | `governance.describePolicy` / `governance.policyManifest` | `ctx.policyDescriptor` / `ctx.policyManifest` (typically `describePolicyBundle(pack.policy)` / the `ibx policy export` artifact, computed at route-handler startup) | `PRECONDITION_FAILED` |
+| **Dashboards** | `governance.guardFireStats` / `governance.outcomeDistribution` | `ctx.guardFireStats` (a `GuardFireStats` instance) / `ctx.store` (the read-only `AuditStore` — newest-first, `limit` capped at 500) | `guardFireStats` ⇒ `PRECONDITION_FAILED`; `outcomeDistribution` needs only `store` (always present) |
+| **Kill-switch read-status** | `governance.killSwitchTimeline` | `ctx.killSwitchTimeline` — the adopter maps `emergency.history` (`GovernanceEvent`) → `KillSwitchEvent[]` and runs the pure `analyzeKillSwitchTimeline` (`@adjudicate/audit`) at the route handler, then threads the report | `PRECONDITION_FAILED` |
+
+The kill-switch view is **read-status only**: the OBSERVER sees the engage/clear
+timeline (`emergency.state` / `emergency.history`), but the kill-switch WRITE
+(`emergency.update`) is structurally absent from the read-only plane — it stays
+on the operator console. A read-only mount therefore omits `replayer`,
+`outcomeSink`, and `approvalPort.resolve` while keeping the pure-read ports
+(`turnTrace`, `guardFireStats`, `policyDescriptor`, `policyManifest`,
+`killSwitchTimeline`). These views render store records verbatim; they make **no
+cryptographic tamper-detection claim** (integrity-on-read is the Audit Explorer's
+`byHashVerified` verdict), and they must not present `byHash` as tenant-safe
+(tenant isolation is host-enforced upstream).
+
 ## Authentication & actors
 
 Every record-level read and every mutation requires an authenticated actor,

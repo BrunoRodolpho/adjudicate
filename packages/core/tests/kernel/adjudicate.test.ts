@@ -221,6 +221,162 @@ describe("adjudicate — taint gate", () => {
     const decision = adjudicate(env, { step: "pre_order" }, bundle());
     expect(decision.kind).toBe("EXECUTE");
   });
+
+  // ── 043 — origin-aware policy branch (the REAL per-intent propagation gate) ──
+  //
+  // 042's PROPAGATION_VIOLATION at the LLM seam is ATTRIBUTION-ONLY: a
+  // sub-minimum proposal that would fail the trust-rank floor anyway. 043 adds
+  // the gate that actually FLIPS a decision: an UNTRUSTED-min mutating kind whose
+  // `1 >= 1` rank check ALWAYS passes is REFUSEd when the pack declares the kind
+  // origin-required AND the proposal traces to a contaminating origin.
+  //
+  // The branch is gated on the policy's optional `requiresUncontaminatedOrigin`.
+  // A policy WITHOUT it (the default `taintPolicy` above) is byte-identical to
+  // pre-043 — proven by the 042 tests above that still pass.
+  describe("043 — origin-aware policy branch", () => {
+    // `order.tool.propose` is UNTRUSTED-min under the base taintPolicy, but this
+    // policy declares it origin-required: a contaminating origin must be refused.
+    const originAwarePolicy: TaintPolicy = {
+      minimumFor: (kind) => (kind === "payment.send" ? "SYSTEM" : "UNTRUSTED"),
+      requiresUncontaminatedOrigin: (kind) => kind === "order.tool.propose",
+    };
+
+    it("FLIPS an UNTRUSTED-min mutating kind to REFUSE when origin is contaminating (the laundering catch)", () => {
+      // Baseline: with the DEFAULT (non-origin-aware) policy this very envelope
+      // cleanly EXECUTEs — proving the branch, not the rank floor, is what stops it.
+      const env = baseEnvelope({ origin: "Retrieved" });
+      expect(adjudicate(env, { step: "pre_order" }, bundle()).kind).toBe("EXECUTE");
+
+      // With the origin-aware policy the same contaminated proposal is REFUSEd.
+      const decision = adjudicate(
+        env,
+        { step: "pre_order" },
+        bundle({ taint: originAwarePolicy }),
+      );
+      expect(decision.kind).toBe("REFUSE");
+      if (decision.kind !== "REFUSE") return;
+      expect(decision.refusal.kind).toBe("SECURITY");
+      expect(decision.refusal.code).toBe("taint_level_insufficient");
+      const taintBasis = decision.basis.find((b) => b.category === "taint");
+      expect(taintBasis?.code).toBe(BASIS_CODES.taint.PROPAGATION_VIOLATION);
+      // The origin-branch attribution distinguishes it from a 042 rank-floor
+      // attribution: the kind CLEARED the rank gate but laundered its provenance.
+      expect(taintBasis?.detail?.branch).toBe("origin_required");
+      expect(taintBasis?.detail?.origin).toBe("Retrieved");
+    });
+
+    it("ExternalAPI also fires the origin branch", () => {
+      const env = baseEnvelope({ origin: "ExternalAPI" });
+      const decision = adjudicate(
+        env,
+        { step: "pre_order" },
+        bundle({ taint: originAwarePolicy }),
+      );
+      expect(decision.kind).toBe("REFUSE");
+      const taintBasis = decision.basis.find((b) => b.category === "taint");
+      expect(taintBasis?.code).toBe(BASIS_CODES.taint.PROPAGATION_VIOLATION);
+      expect(taintBasis?.detail?.branch).toBe("origin_required");
+    });
+
+    it("a NON-contaminating origin (Human / LLM / System) on an origin-required kind still EXECUTEs", () => {
+      for (const origin of ["Human", "LLM", "System"] as const) {
+        const env = baseEnvelope({ origin });
+        const decision = adjudicate(
+          env,
+          { step: "pre_order" },
+          bundle({ taint: originAwarePolicy }),
+        );
+        expect(decision.kind).toBe("EXECUTE");
+      }
+    });
+
+    it("a kind NOT declared origin-required is unaffected even from a contaminating origin", () => {
+      // The origin-aware policy marks ONLY `order.tool.propose`. A different
+      // UNTRUSTED-min kind from a contaminating origin still EXECUTEs.
+      const env = baseEnvelope({
+        kind: "some.other.kind" as Kind,
+        origin: "Retrieved",
+      });
+      const decision = adjudicate(
+        env,
+        { step: "pre_order" },
+        bundle({ taint: originAwarePolicy }),
+      );
+      expect(decision.kind).toBe("EXECUTE");
+    });
+
+    it("MONOTONIC: the branch never RELAXES a rank-floor refusal (still REFUSE, with the 042 attribution)", () => {
+      // A SYSTEM-min kind proposed at UNTRUSTED from a contaminating origin: the
+      // rank floor already refuses it. The origin branch must NOT change that to
+      // an EXECUTE, and the attribution stays the 042 contamination path (no
+      // origin_required branch marker, since the rank gate — not 043 — refused).
+      const sysOriginAware: TaintPolicy = {
+        minimumFor: () => "SYSTEM",
+        requiresUncontaminatedOrigin: () => true,
+      };
+      const env = baseEnvelope({
+        kind: "payment.send" as Kind,
+        origin: "Retrieved",
+      });
+      const decision = adjudicate(
+        env,
+        { step: "pre_order" },
+        bundle({ taint: sysOriginAware }),
+      );
+      expect(decision.kind).toBe("REFUSE");
+      const taintBasis = decision.basis.find((b) => b.category === "taint");
+      // Still PROPAGATION_VIOLATION (contaminating origin), but via the 042
+      // rank-floor attribution path — NOT the 043 origin_required branch.
+      expect(taintBasis?.code).toBe(BASIS_CODES.taint.PROPAGATION_VIOLATION);
+      expect(taintBasis?.detail?.branch).toBeUndefined();
+    });
+
+    it("a throwing requiresUncontaminatedOrigin fails CLOSED as a taint-phase GUARD_PANIC", () => {
+      const throwingPolicy: TaintPolicy = {
+        minimumFor: () => "UNTRUSTED",
+        requiresUncontaminatedOrigin: () => {
+          throw new Error("policy boom");
+        },
+      };
+      const env = baseEnvelope({ origin: "Retrieved" });
+      const decision = adjudicate(
+        env,
+        { step: "pre_order" },
+        bundle({ taint: throwingPolicy }),
+      );
+      expect(decision.kind).toBe("REFUSE");
+      if (decision.kind !== "REFUSE") return;
+      expect(decision.refusal.code).toBe("guard_panic");
+      expect(
+        decision.basis.some(
+          (b) => b.category === "kernel" && b.code === "guard_panic",
+        ),
+      ).toBe(true);
+    });
+
+    it("branch-disabled is byte-identical to today: same kind + same basis sequence as the non-origin-aware policy", () => {
+      // A policy WITH requiresUncontaminatedOrigin that returns false for the
+      // kind must produce the EXACT same decision as the plain policy (no extra
+      // basis, no kind change) — the dark-ship default.
+      const disabledPolicy: TaintPolicy = {
+        minimumFor: (kind) => (kind === "payment.send" ? "SYSTEM" : "UNTRUSTED"),
+        requiresUncontaminatedOrigin: () => false,
+      };
+      for (const origin of ["Human", "Retrieved", "ExternalAPI", "LLM", "System"] as const) {
+        const env = baseEnvelope({ origin });
+        const plain = adjudicate(env, { step: "pre_order" }, bundle());
+        const disabled = adjudicate(
+          env,
+          { step: "pre_order" },
+          bundle({ taint: disabledPolicy }),
+        );
+        expect(disabled.kind).toBe(plain.kind);
+        expect(disabled.basis.map((b) => `${b.category}:${b.code}`)).toEqual(
+          plain.basis.map((b) => `${b.category}:${b.code}`),
+        );
+      }
+    });
+  });
 });
 
 describe("adjudicate — schema gate", () => {

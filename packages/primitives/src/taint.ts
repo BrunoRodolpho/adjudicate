@@ -100,8 +100,30 @@ export interface SystemTaintPolicyOptions {
    * to the contaminating propagation gate (plan 042), never here. Present so
    * Pack authors can thread the source through their config without a schema
    * break; carried, not gated.
+   *
+   * NOTE (043): this `origin` is a per-CONFIG default carried for symmetry; it
+   * is NOT the per-ENVELOPE origin the kernel gate reads. The 043 origin-aware
+   * branch keys off the envelope's harness-stamped `origin` and the
+   * `originRequiredKinds` allowlist below — never this field.
    */
   readonly origin?: Origin;
+  /**
+   * 043 — intent kinds that must NOT be proposed from a *contaminating* origin
+   * (`Retrieved` / `ExternalAPI`), even when the trust-rank minimum alone would
+   * clear the gate. Populates the policy's optional
+   * `requiresUncontaminatedOrigin` method so the kernel taint gate raises the
+   * effective minimum for these kinds when the harness-stamped envelope origin
+   * is contaminating — catching the `READ`→inject→intent laundering path that an
+   * UNTRUSTED-min mutating kind (`1 >= 1` always-pass) cannot otherwise see.
+   *
+   * **Opt-in / default-OFF (§7 dark-ship flag).** Omit it (or pass `[]`) and the
+   * returned policy carries NO `requiresUncontaminatedOrigin` method — the
+   * kernel gate is byte-identical to pre-043, so existing packs are unaffected.
+   * Listing a kind can only ADD friction (REFUSE a contaminated proposal);
+   * `minimumFor` is unchanged for every kind (the trust-rank floor is
+   * untouched), so this NEVER relaxes a gate.
+   */
+  readonly originRequiredKinds?: ReadonlyArray<string>;
 }
 
 /**
@@ -147,9 +169,24 @@ export function createSystemTaintPolicy(
   // 041 — `options.origin` is deliberately NOT read here. The minimum is a
   // pure function of `kind`; origin is carried metadata, consulted by the
   // 042 propagation gate, never by this factory (ADR-105 rule 7).
-  return {
+  //
+  // 043 — `originRequiredKinds` is the OPT-IN origin-aware branch. When at least
+  // one kind is declared, the returned policy ALSO carries
+  // `requiresUncontaminatedOrigin` so the kernel gate refuses a contaminated-
+  // origin proposal of those kinds (raising the effective minimum). When the
+  // list is absent/empty the method is OMITTED entirely, so the policy shape is
+  // byte-identical to pre-043 and the kernel gate behaves exactly as before.
+  const originRequired = new Set(options.originRequiredKinds ?? []);
+  const base: TaintPolicy = {
     minimumFor(kind) {
       return systemOnly.has(kind) ? systemMinimum : userMinimum;
+    },
+  };
+  if (originRequired.size === 0) return base;
+  return {
+    ...base,
+    requiresUncontaminatedOrigin(kind) {
+      return originRequired.has(kind);
     },
   };
 }

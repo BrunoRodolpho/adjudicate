@@ -11,6 +11,7 @@ import {
   computeRedTeamExitCode,
   generatePromptInjectionEnvelopes,
   generateProvenanceInjectionEnvelopes,
+  generateReadInjectIntentEnvelopes,
   generateTaintEscalationEnvelopes,
   generateToolScopeViolationEnvelopes,
   renderRedTeamJson,
@@ -35,12 +36,15 @@ export interface RedTeamOptions {
 // 041 surfaced the `provenance_injection` seam in the AttackVector union; 042
 // LANDS its generator (`generateProvenanceInjectionEnvelopes`, wired in the
 // per-vector block below). Requesting it now produces real contamination /
-// data-provenance scenarios.
+// data-provenance scenarios. 043 adds the `read_inject_intent` laundering vector
+// (`generateReadInjectIntentEnvelopes`) — fires only for packs that declare an
+// UNTRUSTED-min kind as origin-required.
 const ALL_VECTORS: ReadonlyArray<AttackVector> = [
   "prompt_injection",
   "taint_escalation",
   "tool_scope_violation",
   "provenance_injection",
+  "read_inject_intent",
 ];
 
 export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> {
@@ -67,6 +71,9 @@ export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> 
   }
   if (vectors.includes("provenance_injection")) {
     scenarios.push(...generateProvenanceInjectionEnvelopes(pack, genOpts));
+  }
+  if (vectors.includes("read_inject_intent")) {
+    scenarios.push(...generateReadInjectIntentEnvelopes(pack, genOpts));
   }
 
   const report = runRedTeam(pack, scenarios);

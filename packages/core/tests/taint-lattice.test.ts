@@ -3,6 +3,7 @@ import fc from "fast-check";
 import {
   applySessionContamination,
   canPropose,
+  canProposeWithOrigin,
   contaminateSession,
   isContaminatingOrigin,
   meetAll,
@@ -120,6 +121,112 @@ describe("canPropose", () => {
 
   it("allows UNTRUSTED to propose an UNTRUSTED-minimum intent (e.g. read-only)", () => {
     expect(canPropose("UNTRUSTED", "browse", policy)).toBe(true);
+  });
+});
+
+// ── 043: origin-aware gate (canProposeWithOrigin) ────────────────────────────
+
+describe("canProposeWithOrigin", () => {
+  const ORIGINS: readonly Origin[] = [
+    "Human",
+    "Retrieved",
+    "ExternalAPI",
+    "LLM",
+    "System",
+  ];
+
+  // A plain policy with NO origin-aware branch — must behave identically to
+  // canPropose for every (taint, kind, origin).
+  const plainPolicy: TaintPolicy = {
+    minimumFor: (kind) => (kind === "payment.send" ? "SYSTEM" : "UNTRUSTED"),
+  };
+
+  it("is byte-identical to canPropose when the policy has no origin branch", () => {
+    fc.assert(
+      fc.property(
+        taintArb,
+        fc.constantFrom("payment.send", "order.submit", "browse"),
+        fc.constantFrom<Origin>(...ORIGINS),
+        (taint, kind, origin) => {
+          expect(canProposeWithOrigin(taint, kind, origin, plainPolicy)).toBe(
+            canPropose(taint, kind, plainPolicy),
+          );
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it("non-contaminated origin keeps the 1>=1 always-pass for an UNTRUSTED-min origin-required kind", () => {
+    const policy: TaintPolicy = {
+      minimumFor: () => "UNTRUSTED",
+      requiresUncontaminatedOrigin: () => true,
+    };
+    // Human / LLM / System are non-contaminating ⇒ the gate still passes.
+    for (const origin of ["Human", "LLM", "System"] as const) {
+      expect(canProposeWithOrigin("UNTRUSTED", "order.submit", origin, policy)).toBe(
+        true,
+      );
+    }
+  });
+
+  it("contaminating origin RAISES the effective minimum for an origin-required kind (UNTRUSTED-min flips to refuse)", () => {
+    const policy: TaintPolicy = {
+      minimumFor: () => "UNTRUSTED",
+      requiresUncontaminatedOrigin: (kind) => kind === "order.submit",
+    };
+    // The rank floor alone passes (1>=1) ...
+    expect(canPropose("UNTRUSTED", "order.submit", policy)).toBe(true);
+    // ... but the origin branch refuses the contaminated proposal.
+    for (const origin of ["Retrieved", "ExternalAPI"] as const) {
+      expect(
+        canProposeWithOrigin("UNTRUSTED", "order.submit", origin, policy),
+      ).toBe(false);
+    }
+    // A kind NOT marked origin-required is unaffected from the same origin.
+    expect(
+      canProposeWithOrigin("UNTRUSTED", "browse", "Retrieved", policy),
+    ).toBe(true);
+  });
+
+  it("MONOTONIC: never more permissive than canPropose for any input", () => {
+    // For an origin-aware policy, the origin gate result must imply the rank
+    // result — it can only flip a true→false, never a false→true.
+    const policy: TaintPolicy = {
+      minimumFor: (kind) => (kind === "payment.send" ? "SYSTEM" : "UNTRUSTED"),
+      requiresUncontaminatedOrigin: () => true,
+    };
+    fc.assert(
+      fc.property(
+        taintArb,
+        fc.constantFrom("payment.send", "order.submit", "browse"),
+        fc.constantFrom<Origin>(...ORIGINS),
+        (taint, kind, origin) => {
+          const rank = canPropose(taint, kind, policy);
+          const withOrigin = canProposeWithOrigin(taint, kind, origin, policy);
+          // withOrigin ⇒ rank (never authorize what the rank gate rejects).
+          if (withOrigin) expect(rank).toBe(true);
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+
+  it("a SYSTEM-taint proposal of an origin-required kind from a contaminating origin: the branch still refuses (origin axis is orthogonal to trust rank)", () => {
+    // The origin branch is keyed on PROVENANCE, not trust rank — a high-trust
+    // taint does not exempt a contaminating-origin proposal of an
+    // origin-required kind. (This is the deliberate design: laundering can
+    // co-occur with a declared-high taint.)
+    const policy: TaintPolicy = {
+      minimumFor: () => "UNTRUSTED",
+      requiresUncontaminatedOrigin: () => true,
+    };
+    expect(canProposeWithOrigin("SYSTEM", "order.submit", "Retrieved", policy)).toBe(
+      false,
+    );
+    expect(canProposeWithOrigin("SYSTEM", "order.submit", "Human", policy)).toBe(
+      true,
+    );
   });
 });
 

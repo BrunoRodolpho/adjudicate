@@ -29,6 +29,7 @@ export { generatePromptInjectionEnvelopes } from "./vectors/prompt-injection.js"
 export { generateProvenanceInjectionEnvelopes } from "./vectors/provenance-injection.js";
 export {
   generateOwnershipViolationEnvelopes,
+  generateReadInjectIntentEnvelopes,
   generateTaintEscalationEnvelopes,
   OWNERSHIP_VICTIM_PRINCIPAL,
   OWNERSHIP_VICTIM_RESOURCE,

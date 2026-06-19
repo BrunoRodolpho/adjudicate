@@ -59,6 +59,7 @@ export {
   type SessionRiskGuardOptions,
 } from "./session-risk.js";
 export {
+  createAuthorityGuard,
   createCommandRiskGuard,
   createConfirmGuard,
   createDataClassificationGuard,
@@ -73,6 +74,7 @@ export {
   createTokenBudgetGuard,
   ownershipBindingPredicate,
   requireTenantBinding,
+  type AuthorityGuardOptions,
   type ConfirmGuardOptions,
   type DataClassificationGuardOptions,
   type DataClassificationPattern,

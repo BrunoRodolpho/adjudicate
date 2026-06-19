@@ -16,6 +16,7 @@ import {
   type OwnershipFact,
 } from "@adjudicate/core";
 import {
+  createAuthorityGuard,
   createStateDeferGuard,
   createThresholdGuard,
   ownershipBindingPredicate,
@@ -360,5 +361,231 @@ describe("ownershipBindingPredicate — 032 authority-graph fact seam", () => {
     expect(
       guard(owningEnv, createAuthorityGraphStore({ edges: [] }))?.kind,
     ).toBe("REFUSE");
+  });
+});
+
+describe("createAuthorityGuard — 034 constitutional authority guard", () => {
+  // The injected authority-graph snapshot: user_42 owns acct_7. The guard reads
+  // the OwnershipFact (via 032's resolveOwnership) from the injected STATE — the
+  // store rides through `state`, the kernel never hands a guard an identity arg.
+  const graph = {
+    edges: [
+      {
+        principal: "user_42",
+        relationship: "owns" as const,
+        resource: "acct_7",
+        permits: { actions: ["pix.charge.refund"] },
+      },
+    ],
+  };
+  const store = createAuthorityGraphStore(graph);
+
+  // A mutating, UNTRUSTED-min money-mover (the exact §D #8 shape) declaring the
+  // TRUE owner of the resource it operates on.
+  const ownedEnv = buildEnvelope({
+    kind: "pix.charge.refund",
+    payload: { amountCentavos: 5000 },
+    actor: { principal: "user", sessionId: "s" },
+    taint: "UNTRUSTED",
+    nonce: "n-owned",
+    createdAt: at,
+    resourceRefs: { owner: "user_42", resource: "acct_7" },
+  });
+  // The IDOR attempt: a foreign principal claims a resource it does not own.
+  const idorEnv = buildEnvelope({
+    kind: "pix.charge.refund",
+    payload: { amountCentavos: 5000 },
+    actor: { principal: "user", sessionId: "s" },
+    taint: "UNTRUSTED",
+    nonce: "n-idor",
+    createdAt: at,
+    resourceRefs: { owner: "attacker", resource: "acct_7" },
+  });
+  // The IMPERSONATION attempt (the case that DEFEATS the bare wiring): an
+  // attacker session forges the REAL bound owner (`user_42`) of `acct_7`. The
+  // snapshot DOES bind user_42→acct_7, so `fact.bound` is true — the only thing
+  // that can stop this is binding the AUTHENTICATED actor, not the declared owner.
+  const impersonationEnv = buildEnvelope({
+    kind: "pix.charge.refund",
+    payload: { amountCentavos: 5000 },
+    actor: { principal: "user", sessionId: "attacker-session" },
+    taint: "UNTRUSTED",
+    nonce: "n-impersonation",
+    createdAt: at,
+    resourceRefs: { owner: "user_42", resource: "acct_7" },
+  });
+  // No authorization slot at all — the owner cannot be resolved.
+  const noRefsEnv = buildEnvelope({
+    kind: "pix.charge.refund",
+    payload: { amountCentavos: 5000 },
+    actor: { principal: "user", sessionId: "s" },
+    taint: "UNTRUSTED",
+    nonce: "n-norefs",
+    createdAt: at,
+  });
+
+  // The guard 035 would wire onto a pack's authGuards: it closes over the
+  // injected store (read from `state`) and resolves ownership from the envelope.
+  const guard = createAuthorityGuard<string, unknown, AuthorityGraphStore>(
+    (envelope, injectedStore) => resolveOwnership(injectedStore, envelope),
+  );
+
+  it("returns null (continue) when the actor is bound to the resource owner", () => {
+    expect(guard(ownedEnv, store)).toBeNull();
+  });
+
+  it("REFUSEs (SECURITY/tenant_binding_violation, basis auth.scope_insufficient) on owner mismatch", () => {
+    const decision = guard(idorEnv, store);
+    expect(decision?.kind).toBe("REFUSE");
+    if (decision?.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+    // The pinned basis code — reused from requireTenantBinding so the IDOR-class
+    // refusal surfaces under one stable code.
+    expect(
+      decision.basis.map((b) => `${b.category}:${b.code}`),
+    ).toContain("auth:scope_insufficient");
+  });
+
+  it("FAILS CLOSED (REFUSE, never null) when the owner ref is absent/unresolvable", () => {
+    const decision = guard(noRefsEnv, store);
+    expect(decision).not.toBeNull();
+    expect(decision?.kind).toBe("REFUSE");
+    if (decision?.kind !== "REFUSE") return;
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+  });
+
+  it("FAILS CLOSED (REFUSE, never null) when the injected snapshot has no binding edge", () => {
+    // A misconfigured/empty graph store ⇒ no edge binds ⇒ REFUSE, never bypass.
+    const decision = guard(ownedEnv, createAuthorityGraphStore({ edges: [] }));
+    expect(decision?.kind).toBe("REFUSE");
+  });
+
+  it("FAILS CLOSED (REFUSE, never null) when the resolver THROWS (absent graph store)", () => {
+    const throwingGuard = createAuthorityGuard<string, unknown, AuthorityGraphStore>(
+      () => {
+        throw new Error("authority graph store not injected");
+      },
+    );
+    const decision = throwingGuard(ownedEnv, store);
+    expect(decision?.kind).toBe("REFUSE");
+    if (decision?.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+  });
+
+  it("is arity-2 `(envelope, state)` — no kernel-contract identity argument", () => {
+    expect(guard.length).toBe(2);
+  });
+
+  it("emits ONLY closed-algebra outcomes (REFUSE | null), never a 7th kind or metadata field", () => {
+    const passed = guard(ownedEnv, store);
+    const refused = guard(idorEnv, store);
+    expect(passed).toBeNull();
+    expect(refused?.kind).toBe("REFUSE");
+    if (refused?.kind !== "REFUSE") return;
+    // Closed 6-outcome Decision: REFUSE carries exactly { kind, refusal, basis }
+    // — no `confidence`, no free `metadata` (§D #2).
+    expect(Object.keys(refused).sort()).toEqual(["basis", "kind", "refusal"]);
+  });
+
+  it("honors the `matches` scope predicate (out-of-scope kinds pass with null)", () => {
+    const scoped = createAuthorityGuard<string, unknown, AuthorityGraphStore>(
+      (envelope, injectedStore) => resolveOwnership(injectedStore, envelope),
+      { matches: (env) => env.kind === "pix.charge.refund" },
+    );
+    // An out-of-scope kind is not this guard's concern ⇒ null (its own guards/
+    // taint floor govern it). In-scope IDOR still REFUSEs.
+    const otherKindEnv = buildEnvelope({
+      kind: "demo.read.balance",
+      payload: {},
+      actor: { principal: "user", sessionId: "s" },
+      taint: "UNTRUSTED",
+      nonce: "n-other",
+      createdAt: at,
+      resourceRefs: { owner: "attacker", resource: "acct_7" },
+    });
+    expect(scoped(otherKindEnv, store)).toBeNull();
+    expect(scoped(idorEnv, store)?.kind).toBe("REFUSE");
+  });
+
+  // ── KNOWN RESIDUAL: the BARE ownership-binding wiring does NOT close IDOR ─────
+  // The reviewer-flagged bypass, pinned as the CURRENT (forgeable) behavior so a
+  // downstream wiring (035) is NOT misled. Under the bare `resolveOwnership`-only
+  // wiring, `OwnershipFact.principal` is read from the attacker-controlled
+  // `resourceRefs.owner`. Forging the REAL bound owner of a resource PASSES the
+  // bare check (the snapshot binds that owner to the resource) even though the
+  // authenticated session is NOT that owner — a full IDOR bypass.
+  it("RESIDUAL: bare wiring PASSES an impersonation (forged BOUND owner) — IDOR is NOT closed without the authenticatedPrincipal seam", () => {
+    // The bare guard binds the DECLARED owner, never the authenticated actor.
+    // user_42 owns acct_7 in the snapshot; the attacker forges owner=user_42.
+    expect(guard(impersonationEnv, store)).toBeNull();
+  });
+
+  // ── IDOR CLOSED: supply the authenticatedPrincipal seam ──────────────────────
+  // With an authenticated principal on the auth path (derived from the actor,
+  // NEVER from resourceRefs.owner), the guard additionally requires the resolved
+  // owner principal to EQUAL the authenticated principal — so the impersonation is
+  // REFUSEd. This is the property the IDOR-closure claim actually requires.
+  const sessionToPrincipal: Record<string, string> = {
+    "attacker-session": "attacker-principal", // NOT user_42
+    s: "user_42", // an honestly-authenticated owner session
+  };
+  const idorClosedGuard = createAuthorityGuard<string, unknown, AuthorityGraphStore>(
+    (envelope, injectedStore) => resolveOwnership(injectedStore, envelope),
+    {
+      authenticatedPrincipal: (envelope) =>
+        sessionToPrincipal[envelope.actor.sessionId] ?? null,
+    },
+  );
+
+  it("CLOSES IDOR with the authenticatedPrincipal seam: the impersonation (forged BOUND owner) is REFUSEd", () => {
+    const decision = idorClosedGuard(impersonationEnv, store);
+    expect(decision?.kind).toBe("REFUSE");
+    if (decision?.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+    expect(decision.basis.map((b) => `${b.category}:${b.code}`)).toContain(
+      "auth:scope_insufficient",
+    );
+  });
+
+  it("with the seam, an honestly-authenticated owner (session resolves to the declared owner) PASSES", () => {
+    // `ownedEnv` declares owner=user_42 with sessionId="s", and the identity map
+    // resolves "s"→"user_42" — the authenticated actor IS the owner ⇒ null.
+    expect(idorClosedGuard(ownedEnv, store)).toBeNull();
+  });
+
+  it("with the seam, FAILS CLOSED when the session resolves to no authenticated principal (null)", () => {
+    const unknownSessionEnv = buildEnvelope({
+      kind: "pix.charge.refund",
+      payload: { amountCentavos: 5000 },
+      actor: { principal: "user", sessionId: "no-such-session" },
+      taint: "UNTRUSTED",
+      nonce: "n-unknown-session",
+      createdAt: at,
+      resourceRefs: { owner: "user_42", resource: "acct_7" },
+    });
+    const decision = idorClosedGuard(unknownSessionEnv, store);
+    expect(decision?.kind).toBe("REFUSE");
+    if (decision?.kind !== "REFUSE") return;
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+  });
+
+  it("with the seam, FAILS CLOSED when the authenticatedPrincipal resolver THROWS", () => {
+    const throwingIdentityGuard = createAuthorityGuard<string, unknown, AuthorityGraphStore>(
+      (envelope, injectedStore) => resolveOwnership(injectedStore, envelope),
+      {
+        authenticatedPrincipal: () => {
+          throw new Error("identity map not injected");
+        },
+      },
+    );
+    // The declared owner is bound (would pass the first gate) but the identity
+    // resolver throws ⇒ REFUSE, never a fail-open null.
+    const decision = throwingIdentityGuard(ownedEnv, store);
+    expect(decision?.kind).toBe("REFUSE");
+    if (decision?.kind !== "REFUSE") return;
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
   });
 });

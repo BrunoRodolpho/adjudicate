@@ -52,6 +52,62 @@ export function normalizeTimestamptz(value: unknown, column?: string): string {
   );
 }
 
+/**
+ * Coerce a pg-driver `BIGINT` column value to a JS `number`.
+ *
+ * Different pg drivers materialize `BIGINT` differently: `node-postgres`
+ * returns it as a `string` (to avoid silent precision loss past 2^53), while
+ * some drivers return a `number`. The guard-stats / reservation `count` column
+ * (migration-006 `BIGINT`) flows through this helper so callers always see a
+ * `number`.
+ *
+ * 053 — the reservation store shares the `audit_guard_stats.count` (`BIGINT`)
+ * column with the additive guard-stats counter, so its read-back path coerces
+ * the same way. Counts are small aggregate tallies well within `Number`'s safe
+ * integer range; a value past `Number.MAX_SAFE_INTEGER` (which a real cumulative
+ * cap should never approach) throws loudly rather than returning a silently
+ * lossy number — a lossy cap read would be a correctness hazard for the
+ * over-commit guard, so it deserves loud failure.
+ */
+export function coerceBigIntCount(value: unknown, column?: string): number {
+  const where = column ? ` (column: ${column})` : "";
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(
+        `audit-postgres: unexpected BIGINT value${where} — number is not a safe integer, got ${value}`,
+      );
+    }
+    return value;
+  }
+  if (typeof value === "bigint") {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+      throw new Error(
+        `audit-postgres: unexpected BIGINT value${where} — bigint exceeds the safe integer range, got ${value}`,
+      );
+    }
+    return Number(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(
+        `audit-postgres: unexpected BIGINT value${where} — string is not a parseable integer, got string: ${safeSample(value)}`,
+      );
+    }
+    if (!Number.isSafeInteger(parsed)) {
+      throw new Error(
+        `audit-postgres: unexpected BIGINT value${where} — string exceeds the safe integer range, got string: ${safeSample(value)}`,
+      );
+    }
+    return parsed;
+  }
+  const sample =
+    value === null ? "null" : `${typeof value}: ${safeSample(value)}`;
+  throw new Error(
+    `audit-postgres: unexpected BIGINT value${where} — expected string, number, or bigint, got ${sample}`,
+  );
+}
+
 function safeSample(value: unknown): string {
   try {
     const s = typeof value === "object" ? JSON.stringify(value) : String(value);

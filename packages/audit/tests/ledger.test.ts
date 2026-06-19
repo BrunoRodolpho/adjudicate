@@ -217,6 +217,82 @@ describe("ExecutionLedger — Redis implementation", () => {
     });
     expect(setCalls[0]!.options?.EX).toBe(60);
   });
+
+  // ── 053 — recordExecution outcome ('acquired' then 'exists') + release ──────
+  // A reservation is claimed at most once per intentHash via the SET-NX ledger
+  // seam: the FIRST recordExecution wins ('acquired'); a SECOND for the same
+  // intentHash is suppressed ('exists') so the kernel flips a racing EXECUTE to
+  // REPLAY_SUPPRESSED. The best-effort `release` (exposed only when the client
+  // can DEL) clears an orphaned claim so a retry is not suppressed for the TTL.
+  it("recordExecution is first-writer-wins: 'acquired' then 'exists' for the same intentHash", async () => {
+    const { client } = mockRedis();
+    const ledger = createRedisLedger({ client, keyFor: (s) => s });
+    const first = await ledger.recordExecution({
+      intentHash: "claim-1",
+      resourceVersion: "v1",
+      sessionId: "s1",
+      kind: "pix.charge.create",
+    });
+    const second = await ledger.recordExecution({
+      intentHash: "claim-1",
+      resourceVersion: "v2",
+      sessionId: "s2",
+      kind: "pix.charge.create",
+    });
+    expect(first).toBe("acquired");
+    expect(second).toBe("exists");
+  });
+
+  it("release (when the client exposes del) clears an orphaned key so a retry re-acquires", async () => {
+    const { client, store } = mockRedis();
+    const delCalls: string[] = [];
+    // Augment the mock client with a real del so the ledger exposes release.
+    const clientWithDel: RedisLedgerClient = {
+      ...client,
+      async del(key) {
+        delCalls.push(key);
+        return store.delete(key) ? 1 : 0;
+      },
+    };
+    const ledger = createRedisLedger({
+      client: clientWithDel,
+      keyFor: (suffix) => `ns:${suffix}`,
+    });
+    // The ledger MUST expose release when the client can DEL.
+    expect(typeof ledger.release).toBe("function");
+
+    // Claim, then orphan-release, then re-claim succeeds (the claim is no longer
+    // suppressed — proving release actually cleared the key).
+    expect(await ledger.recordExecution({
+      intentHash: "orphan-1",
+      resourceVersion: "v1",
+      sessionId: "s1",
+      kind: "k",
+    })).toBe("acquired");
+    expect(await ledger.recordExecution({
+      intentHash: "orphan-1",
+      resourceVersion: "v1",
+      sessionId: "s1",
+      kind: "k",
+    })).toBe("exists"); // still claimed
+
+    await ledger.release!("orphan-1");
+    expect(delCalls).toEqual(["ns:ledger:intent:orphan-1"]); // namespaced key
+
+    // After release the key is gone → the retry re-acquires (first-writer-wins).
+    expect(await ledger.recordExecution({
+      intentHash: "orphan-1",
+      resourceVersion: "v1",
+      sessionId: "s1",
+      kind: "k",
+    })).toBe("acquired");
+  });
+
+  it("release is ABSENT when the client cannot DEL (kernel takes its orphan-telemetry branch)", () => {
+    const { client } = mockRedis(); // mockRedis has no del
+    const ledger = createRedisLedger({ client, keyFor: (s) => s });
+    expect(ledger.release).toBeUndefined();
+  });
 });
 
 // ── 052: the recorded aggregate snapshot persists through the replayable record ─

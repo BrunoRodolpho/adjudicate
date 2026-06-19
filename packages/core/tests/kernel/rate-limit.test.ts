@@ -2,7 +2,7 @@
  * Rate-limit primitives — store + helper + guard composition.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   basis,
   BASIS_CODES,
@@ -17,13 +17,34 @@ import {
   createCumulativeVelocityGuard,
   createInMemoryRateLimitStore,
   createRateLimitGuard,
+  type RateLimitStore,
   type VelocityBreach,
 } from "../../src/kernel/rate-limit.js";
+import {
+  _resetMetricsSink,
+  setMetricsSink,
+  type MetricsSink,
+  type SinkFailureEvent,
+} from "../../src/kernel/metrics.js";
 import {
   aggregateSnapshotFromRecorded,
   recordAggregateSnapshot,
   type AggregateSnapshot,
 } from "../../src/index.js";
+
+/** Spy MetricsSink that records sink failures for assertions (053). */
+function spyMetricsSink(failures: SinkFailureEvent[]): MetricsSink {
+  return {
+    recordLedgerOp() {},
+    recordDecision() {},
+    recordRefusal() {},
+    recordSinkFailure(e) {
+      failures.push(e);
+    },
+    recordShadowDivergence() {},
+    recordResourceLimit() {},
+  };
+}
 
 describe("createInMemoryRateLimitStore", () => {
   it("starts at 1 and increments per call within a window", async () => {
@@ -158,6 +179,10 @@ describe("createRateLimitGuard", () => {
 });
 
 describe("RateLimitResult.rollback (T5 #41)", () => {
+  afterEach(() => {
+    _resetMetricsSink();
+  });
+
   it("decrements the counter when called once", async () => {
     const store = createInMemoryRateLimitStore();
     const r1 = await checkRateLimit({ store, key: "u", windowMs: 1000, max: 5 });
@@ -194,6 +219,51 @@ describe("RateLimitResult.rollback (T5 #41)", () => {
     const r = await checkRateLimit({ store, key: "u", windowMs: 1000, max: 5 });
     await expect(r.rollback()).resolves.toBeUndefined();
     expect(counts.get("u")).toBe(1); // unchanged
+  });
+
+  it("a decrement FAILURE routes to recordSinkFailure({sink:'rate-limit'}) without throwing (053)", async () => {
+    // 053 — a refused reservation's rollback runs through THIS closure. When the
+    // store's decrement rejects, the inflated counter cannot be fixed, but the
+    // rollback MUST NOT throw (it would crash the kernel shell) — it surfaces the
+    // swallowed failure to metrics so operators see the leak.
+    const failures: SinkFailureEvent[] = [];
+    setMetricsSink(spyMetricsSink(failures));
+    const store: RateLimitStore = {
+      async incrementAndGet() {
+        return 1;
+      },
+      async decrement() {
+        throw new TypeError("redis DECR failed");
+      },
+    };
+    const r = await checkRateLimit({ store, key: "u-fail", windowMs: 1000, max: 5 });
+    // The rollback resolves (does NOT throw) even though decrement rejected.
+    await expect(r.rollback()).resolves.toBeUndefined();
+    // The swallowed failure is observable: routed to the rate-limit sink.
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.sink).toBe("rate-limit");
+    expect(failures[0]!.subject).toBe("u-fail");
+    expect(failures[0]!.errorClass).toBe("TypeError");
+  });
+
+  it("the decrement-failure rollback stays idempotent (a second call is a no-op)", async () => {
+    const failures: SinkFailureEvent[] = [];
+    setMetricsSink(spyMetricsSink(failures));
+    const decrement = vi.fn(async () => {
+      throw new Error("DECR boom");
+    });
+    const store: RateLimitStore = {
+      async incrementAndGet() {
+        return 1;
+      },
+      decrement,
+    };
+    const r = await checkRateLimit({ store, key: "u-idem", windowMs: 1000, max: 5 });
+    await r.rollback();
+    await r.rollback(); // second call short-circuits via the rolledBack flag
+    // decrement was attempted exactly ONCE; the second rollback never re-entered.
+    expect(decrement).toHaveBeenCalledTimes(1);
+    expect(failures).toHaveLength(1);
   });
 });
 

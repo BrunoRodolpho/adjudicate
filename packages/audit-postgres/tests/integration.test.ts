@@ -65,7 +65,12 @@ import {
   readVerificationSlot,
 } from "../src/audit-store.js";
 import type { PostgresReader } from "../src/pg-reader.js";
-import { UPSERT_GUARD_STAT_SQL } from "../src/guard-stats-store.js";
+import {
+  RESERVE_GUARD_STAT_SQL,
+  UPSERT_GUARD_STAT_SQL,
+  createPostgresReservationStore,
+  type ReservationWriter,
+} from "../src/guard-stats-store.js";
 
 const INTEGRATION = process.env.INTEGRATION_TEST === "1";
 const describeIntegration = INTEGRATION ? describe : describe.skip;
@@ -573,5 +578,183 @@ describeIntegration("integration — 052 additive guard-stats upsert vs a real D
     expect(await totalFor("pix")).toBe(5);
     const rows = await pool.query(`SELECT count(*)::int AS n FROM ${T}`);
     expect(Number(rows.rows[0]!.n)).toBe(2);
+  });
+});
+
+// ── 053: the transactional reservation over-commit guard vs a real DB ─────────
+// Exercises the PRODUCTION `RESERVE_GUARD_STAT_SQL` against a real table shaped
+// EXACTLY like migration-006 (`pack_id NOT NULL DEFAULT ''` + the 5-column PK).
+// Proves the LOAD-BEARING claims of plan 053:
+//   (a) the cap-guarded `ON CONFLICT … DO UPDATE … WHERE` arbiter is backed by a
+//       REAL PK (no silent 42P10 → no unenforced cap, the migration-006 lesson);
+//   (b) two concurrent over-cap reservation decrements do NOT over-commit — one
+//       wins, one refuses (the durable single-statement form closes the park
+//       counter's TOCTOU race);
+//   (c) a fresh-key first claim over the cap inserts ZERO rows (the SELECT…WHERE
+//       fresh-key gate), and the at-cap value is reservable (strict over-cap).
+// Self-contained: builds + drops a throwaway audit_guard_stats-shaped table so it
+// does not depend on migration-006 being applied to the shared DB.
+describeIntegration("integration — 053 reservation over-commit guard vs a real DB", () => {
+  let pool: PgPoolLike;
+  const T = "__it_053_reservation";
+
+  beforeAll(async () => {
+    if (!CONN) {
+      throw new Error(
+        "INTEGRATION_TEST=1 but no PG_TEST_URL/DATABASE_URL set. See header.",
+      );
+    }
+    const pg = (await import("pg")) as unknown as {
+      default?: { Pool: new (cfg: { connectionString: string }) => PgPoolLike };
+      Pool?: new (cfg: { connectionString: string }) => PgPoolLike;
+    };
+    const Pool = (pg.default?.Pool ?? pg.Pool)!;
+    pool = new Pool({ connectionString: CONN });
+    // Build the table EXACTLY as migration-006 declares it (PK + '' sentinel) —
+    // the same shape the reservation arbiter (ON CONFLICT) targets.
+    await pool.query(`DROP TABLE IF EXISTS ${T}`);
+    await pool.query(
+      `CREATE TABLE ${T} (
+        guard_name    TEXT   NOT NULL,
+        guard_phase   TEXT   NOT NULL,
+        decision_kind TEXT   NOT NULL,
+        day           DATE   NOT NULL,
+        pack_id       TEXT   NOT NULL DEFAULT '',
+        count         BIGINT NOT NULL DEFAULT 0,
+        CONSTRAINT ${T}_pk PRIMARY KEY (guard_name, guard_phase, decision_kind, day, pack_id)
+      )`,
+    );
+  });
+
+  afterAll(async () => {
+    if (pool) {
+      await pool.query(`DROP TABLE IF EXISTS ${T}`);
+      await pool.end();
+    }
+  });
+
+  /**
+   * The PRODUCTION reservation store bound to a real pg writer running
+   * `RESERVE_GUARD_STAT_SQL` against the throwaway table. The single-statement
+   * affected-row count IS the over-commit verdict (the store maps 0 → refuse).
+   *
+   * `RESERVE_GUARD_STAT_SQL` names `audit_guard_stats` twice (INSERT target +
+   * the `DO UPDATE SET count = audit_guard_stats.count + …` qualified ref). A
+   * single `.replace()` would rewrite only the first → "missing FROM-clause
+   * entry"; `replaceAll` substitutes the throwaway table everywhere (the same
+   * 052-suite lesson).
+   */
+  function reservationStore() {
+    const writer: ReservationWriter = {
+      async reserveGuardStat(a) {
+        const r = await pool.query(
+          RESERVE_GUARD_STAT_SQL.replaceAll("audit_guard_stats", T),
+          [a.guardName, a.guardPhase, a.decisionKind, a.day, a.packId, a.delta, a.cap],
+        );
+        // The affected-row count from the single atomic statement is the verdict.
+        return r.rowCount ?? 0;
+      },
+    };
+    return createPostgresReservationStore({ writer });
+  }
+
+  function keyFor(cap: number, packId: string | null = null) {
+    return {
+      guardName: "acct_7",
+      guardPhase: "business" as const,
+      decisionKind: "EXECUTE" as const,
+      day: "2026-06-19",
+      packId,
+      cap,
+    };
+  }
+
+  async function reservedTotal(packId = ""): Promise<number> {
+    const r = await pool.query(
+      `SELECT count FROM ${T} WHERE pack_id = $1 AND guard_name = $2`,
+      [packId, "acct_7"],
+    );
+    return r.rows.length ? Number(r.rows[0]!.count) : 0;
+  }
+
+  it("the cap-guarded ON CONFLICT arbiter is backed by a real PK (no 42P10) and reserves up to the cap", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    const cap = 5;
+    // Five single-unit claims fit exactly at the cap. (If the ON CONFLICT
+    // arbiter were not a real PK, the first conflicting claim would 42P10 here.)
+    for (let i = 0; i < cap; i++) {
+      expect(await store.reserve(keyFor(cap), 1)).toEqual({ reserved: true });
+    }
+    expect(await reservedTotal()).toBe(cap);
+    // The 6th claim crosses the cap → fail-closed over_cap; the durable total is
+    // unchanged (the DO UPDATE WHERE matched zero rows).
+    expect(await store.reserve(keyFor(cap), 1)).toEqual({
+      reserved: false,
+      reason: "over_cap",
+    });
+    expect(await reservedTotal()).toBe(cap);
+    // Exactly ONE PK row (the '' sentinel), never duplicates.
+    const rows = await pool.query(`SELECT count(*)::int AS n FROM ${T}`);
+    expect(Number(rows.rows[0]!.n)).toBe(1);
+  });
+
+  it("two CONCURRENT over-cap decrements do NOT over-commit — one wins, one refuses", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    const cap = 5;
+    // Pre-reserve cap−1 = 4 so exactly ONE unit of headroom remains.
+    expect(await store.reserve(keyFor(cap), 4)).toEqual({ reserved: true });
+    expect(await reservedTotal()).toBe(4);
+
+    // Two concurrent claims of 1 each contend for the LAST slot. Against a real
+    // DB the single atomic statement serializes them: exactly ONE wins.
+    const [a, b] = await Promise.all([
+      store.reserve(keyFor(cap), 1),
+      store.reserve(keyFor(cap), 1),
+    ]);
+    const wins = [a, b].filter((o) => o.reserved).length;
+    expect(wins).toBe(1); // NOT 2 — the park-counter TOCTOU race would over-commit
+    expect(await reservedTotal()).toBe(cap); // exactly at cap, never 6
+  });
+
+  it("N concurrent single-unit claims converge on EXACTLY the cap (no over-commit at scale)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    const cap = 50;
+    const attempts = 200; // 4× the cap of contending claims
+    const outcomes = await Promise.all(
+      Array.from({ length: attempts }, () => store.reserve(keyFor(cap), 1)),
+    );
+    const reserved = outcomes.filter((o) => o.reserved).length;
+    expect(reserved).toBe(cap); // exactly `cap` claims win
+    expect(await reservedTotal()).toBe(cap); // durable total is exactly the cap
+  });
+
+  it("a FRESH-KEY first claim over the cap inserts ZERO rows (the SELECT…WHERE gate)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    // No prior row: a first claim of 11 against cap 10 must NOT land a row.
+    expect(await store.reserve(keyFor(10), 11)).toEqual({
+      reserved: false,
+      reason: "over_cap",
+    });
+    const rows = await pool.query(`SELECT count(*)::int AS n FROM ${T}`);
+    expect(Number(rows.rows[0]!.n)).toBe(0); // the fresh-key over-cap hole is closed
+  });
+
+  it("distinct packIds key distinct reservation rows (independent caps)", async () => {
+    await pool.query(`DELETE FROM ${T}`);
+    const store = reservationStore();
+    expect(await store.reserve(keyFor(3, "pix"), 3)).toEqual({ reserved: true });
+    expect(await store.reserve(keyFor(3, "pix"), 1)).toEqual({
+      reserved: false,
+      reason: "over_cap",
+    }); // pix is at its cap …
+    expect(await store.reserve(keyFor(3, "boleto"), 2)).toEqual({
+      reserved: true,
+    }); // … but boleto has its own headroom
+    expect(await reservedTotal("pix")).toBe(3);
+    expect(await reservedTotal("boleto")).toBe(2);
   });
 });

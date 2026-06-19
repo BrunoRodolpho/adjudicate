@@ -37,8 +37,11 @@ describe("pack-identity-kyc — conformance", () => {
     expect(IdentityKycPack.signals).toContain("kyc.vendor.completed");
   });
 
-  it("has 5 business guards (2 DEFER + 3 terminal)", () => {
-    expect(IdentityKycPack.policy.business).toHaveLength(5);
+  it("has 6 business guards (2 DEFER + 2 sanctions-escalate + 2 terminal score)", () => {
+    // 102: the AML/sanctions escalate-only UNION is realized as TWO guards
+    // (escalateOnAmlFlag + escalateOnSanctionsMatchScore), both ordered before
+    // the refuse/execute score guards. Was 5 (single escalateOnAmlFlag) before.
+    expect(IdentityKycPack.policy.business).toHaveLength(6);
   });
 
   it("uses default=REFUSE for conservative-by-default semantics", () => {

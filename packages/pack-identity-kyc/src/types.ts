@@ -99,6 +99,14 @@ export interface KycVendorCallbackPayload {
   /** 0–100 confidence the identity is genuine. */
   readonly score: number;
   readonly amlStatus: AmlStatus;
+  /**
+   * Sanctions/OFAC watchlist match confidence (0–100). A VALIDATED escalate
+   * signal (102): when `amlMatchScore >= KYC_SANCTIONS_MATCH_THRESHOLD` the
+   * `escalateOnSanctionsMatchScore` guard ESCALATEs even if `amlStatus` is not
+   * `"FLAGGED"` — closing the "never compared, only decoration" gap. Optional:
+   * a FLAGGED callback with no match score still escalates via the standalone
+   * `escalateOnAmlFlag` flag check (the UNION's score-independent branch).
+   */
   readonly amlMatchScore?: number;
   readonly amlMatchEntity?: string;
 }
@@ -128,6 +136,16 @@ export type KycDeferSignal =
 export const KYC_REFUSE_THRESHOLD = 50;
 /** Verification score at or above this (with no AML flag) → EXECUTE. */
 export const KYC_EXECUTE_THRESHOLD = 90;
+/**
+ * Sanctions/OFAC watchlist match confidence at or above this → ESCALATE (102).
+ * Grounds `amlMatchScore` (previously never compared) as the validated,
+ * range-checked second branch of the escalate-only AML UNION. Escalate-only:
+ * the sanctions signal can only raise friction to a human, never authorize
+ * EXECUTE and never waive a downstream gate (§C monotonicity, inv. 7). Set at
+ * 80 so a strong watchlist correlation escalates for human review even when
+ * the vendor did not set the hard `amlStatus: "FLAGGED"` flag.
+ */
+export const KYC_SANCTIONS_MATCH_THRESHOLD = 80;
 /** Document upload deadline — runtime expires the DEFER if user doesn't upload in time. */
 export const KYC_DOCUMENT_UPLOAD_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 /** Vendor verification deadline. */

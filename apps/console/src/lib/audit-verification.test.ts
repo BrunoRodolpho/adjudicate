@@ -23,11 +23,11 @@ import {
 } from "@adjudicate/admin-sdk";
 import { withVerifyOnRead } from "./audit-verification";
 
-function rec(opts: { marker: string; signed?: boolean; forge?: boolean }): AuditRecord {
+function rec(opts: { marker: string; signed?: boolean; forge?: boolean; sessionId?: string; prevAuditHash?: string; at?: string }): AuditRecord {
   const env = buildEnvelope({
     kind: "test.intent",
     payload: { marker: opts.marker },
-    actor: { principal: "llm", sessionId: "s-1" },
+    actor: { principal: "llm", sessionId: opts.sessionId ?? "s-1" },
     taint: "UNTRUSTED",
     nonce: `n-${opts.marker}`,
     createdAt: "2026-06-18T00:00:00.000Z",
@@ -36,8 +36,9 @@ function rec(opts: { marker: string; signed?: boolean; forge?: boolean }): Audit
     envelope: env,
     decision: decisionExecute([]),
     durationMs: 5,
-    at: "2026-06-18T00:00:01.000Z",
+    at: opts.at ?? "2026-06-18T00:00:01.000Z",
     ...(opts.signed ? { signer: hashBindAuditSigner("kms://console-key") } : {}),
+    ...(opts.prevAuditHash !== undefined ? { prevAuditHash: opts.prevAuditHash } : {}),
   });
   if (opts.forge) {
     return { ...r, signature: { keyId: "kms://console-key", alg: "sha256-hashbind", value: "0".repeat(64) } };
@@ -100,5 +101,29 @@ describe("092 — the verdict reaches the admin tRPC response via createAuditQue
     const flagged = response.verifications!.filter((v) => v.verified === false);
     expect(flagged.length).toBeGreaterThanOrEqual(1);
     expect(flagged.every((v) => v.verified === false && v.reason === "invalid_signature")).toBe(true);
+  });
+});
+
+describe("093 — chainIntegrity reaches the admin tRPC response via createAuditQueryHandler (T10)", () => {
+  it("an intact chain surfaces chainIntegrity with zero breaks through the route pipeline", async () => {
+    const g = rec({ marker: "g", sessionId: "sX", at: "2026-06-18T00:00:01.000Z" });
+    const c1 = rec({ marker: "c1", sessionId: "sX", prevAuditHash: g.auditHash, at: "2026-06-18T00:00:02.000Z" });
+    // Same pipeline the route mounts: withVerifyOnRead(store) → createAuditQueryHandler.
+    const store = withVerifyOnRead(createInMemoryAuditStore({ records: [g, c1] }));
+    const handler = createAuditQueryHandler({ store });
+    const response = await handler({ limit: 100, intentHash: undefined });
+    expect(response.chainIntegrity).toBeDefined();
+    expect(response.chainIntegrity!.breaks).toHaveLength(0);
+    expect(response.chainIntegrity!.checked).toBeGreaterThanOrEqual(1);
+  });
+
+  it("a broken chain link is surfaced through the route pipeline", async () => {
+    const g = rec({ marker: "g2", sessionId: "sY", at: "2026-06-18T00:00:01.000Z" });
+    const broken = rec({ marker: "b2", sessionId: "sY", prevAuditHash: "f".repeat(64), at: "2026-06-18T00:00:02.000Z" });
+    const store = withVerifyOnRead(createInMemoryAuditStore({ records: [g, broken] }));
+    const handler = createAuditQueryHandler({ store });
+    const response = await handler({ limit: 100 });
+    expect(response.chainIntegrity!.breaks).toHaveLength(1);
+    expect(response.chainIntegrity!.breaks[0]!.intentHash).toBe(broken.intentHash);
   });
 });

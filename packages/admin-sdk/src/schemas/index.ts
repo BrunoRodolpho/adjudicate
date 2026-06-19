@@ -1,10 +1,12 @@
 export {
+  AggregateSnapshotSchema,
   AuthorityEdgeSchema,
   AuthorityGraphSchema,
   AuthorityPermitsSchema,
   AuthorityRelationshipSchema,
   IntentActorSchema,
   IntentEnvelopeSchema,
+  RecordedAggregateSnapshotSchema,
   RecordedAuthoritySnapshotSchema,
   TaintSchema,
 } from "./envelope.js";

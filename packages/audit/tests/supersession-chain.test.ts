@@ -43,6 +43,34 @@ function makeRecord(
   });
 }
 
+/**
+ * Like makeRecord but also threads a cryptographic `prevAuditHash` link (093).
+ * Used to exercise the per-stream cryptographic tip + chain-break detection,
+ * which is distinct from the logical `predecessorIntentHash` supersession link.
+ */
+function makeRecordWithPrev(
+  nonce: string,
+  prevAuditHash: string | undefined,
+  supersedes?: AuditRecord["supersedes"],
+): AuditRecord {
+  const e = buildEnvelope({
+    kind: "vacation.request",
+    payload: { n: nonce },
+    actor: { principal: "llm", sessionId: "s" },
+    taint: "UNTRUSTED",
+    nonce,
+    createdAt: at,
+  });
+  return buildAuditRecord({
+    envelope: e,
+    decision: decisionExecute([basis("BUSINESS_RULE", "ok", "x")]),
+    durationMs: 1,
+    at,
+    ...(supersedes !== undefined ? { supersedes } : {}),
+    ...(prevAuditHash !== undefined ? { prevAuditHash } : {}),
+  });
+}
+
 describe("buildSupersessionChains", () => {
   it("returns an empty report for an empty input", () => {
     const r = buildSupersessionChains([]);
@@ -442,5 +470,70 @@ describe("025 — budget-satisfied chain reconstructs end-to-end (real kernel em
     expect(chain.tail.map((n) => n.at)).toEqual([t1]); // walks back to the request row
     expect(chain.reasonCounts.budget_satisfied).toBe(1);
     expect(report.aggregateReasonCounts.budget_satisfied).toBe(1);
+  });
+});
+
+// ─── 093 (T3): per-stream cryptographic tip + chain-break, distinct from the
+// logical predecessorIntentHash link ───────────────────────────────────────
+describe("buildSupersessionChains — 093 cryptographic chain tip", () => {
+  it("surfaces the per-stream cryptographic tip (auditHash + prevAuditHash) on each node", () => {
+    const original = makeRecordWithPrev("n-1", undefined); // genesis
+    const successor = makeRecordWithPrev("n-2", original.auditHash, {
+      reason: "rewrite_executed",
+      predecessorIntentHash: original.intentHash,
+      predecessorAt: original.at,
+    });
+    const report = buildSupersessionChains([original, successor]);
+    expect(report.chains).toHaveLength(1);
+    const chain = report.chains[0]!;
+    // The head (successor) surfaces BOTH the cryptographic tip (its own
+    // auditHash) and the cryptographic link to its predecessor (prevAuditHash).
+    expect(chain.head.auditHash).toBe(successor.auditHash);
+    expect(chain.head.prevAuditHash).toBe(original.auditHash);
+    // The tail (genesis) surfaces its own auditHash but no cryptographic link.
+    expect(chain.tail[0]!.auditHash).toBe(original.auditHash);
+    expect(chain.tail[0]!.prevAuditHash).toBeUndefined();
+    // The intact cryptographic link produces NO chain break.
+    expect(report.chainBreaks).toHaveLength(0);
+  });
+
+  it("surfaces a BROKEN cryptographic link distinctly from the (intact) logical link", () => {
+    // The logical link (predecessorIntentHash) resolves the chain walk
+    // correctly, but the cryptographic link (prevAuditHash) points at a WRONG
+    // hash — the predecessor was substituted, which the logical link can't catch.
+    const original = makeRecordWithPrev("n-1", undefined);
+    const tampered = makeRecordWithPrev(
+      "n-2",
+      "f".repeat(64), // a prevAuditHash that does NOT match original.auditHash
+      {
+        reason: "rewrite_executed",
+        predecessorIntentHash: original.intentHash, // logical link still valid
+        predecessorAt: original.at,
+      },
+    );
+    const report = buildSupersessionChains([original, tampered]);
+    // The LOGICAL chain still reconstructs (the walk uses predecessorIntentHash).
+    expect(report.chains).toHaveLength(1);
+    expect(report.chains[0]!.head.intentHash).toBe(tampered.intentHash);
+    expect(report.danglingReferences).toHaveLength(0);
+    // But the CRYPTOGRAPHIC break is surfaced DISTINCTLY.
+    expect(report.chainBreaks).toHaveLength(1);
+    const brk = report.chainBreaks[0]!;
+    expect(brk.intentHash).toBe(tampered.intentHash);
+    expect(brk.prevAuditHash).toBe("f".repeat(64));
+    expect(brk.predecessorAuditHash).toBe(original.auditHash);
+    expect(brk.predecessorIntentHash).toBe(original.intentHash);
+  });
+
+  it("a record with no prevAuditHash never produces a chain break (logical-only chains are unaffected)", () => {
+    const original = makeRecord("n-1");
+    const successor = makeRecord("n-2", decisionExecute([basis("BUSINESS_RULE", "ok", "x")]), {
+      reason: "defer_resumed",
+      predecessorIntentHash: original.intentHash,
+      predecessorAt: original.at,
+    });
+    const report = buildSupersessionChains([original, successor]);
+    expect(report.chains).toHaveLength(1);
+    expect(report.chainBreaks).toHaveLength(0);
   });
 });

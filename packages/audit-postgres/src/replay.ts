@@ -11,6 +11,8 @@ import type {
   AuditRecordVersion,
   Decision,
   IntentEnvelope,
+  RecordedAggregateSnapshot,
+  RecordedAuthoritySnapshot,
   Supersession,
 } from "@adjudicate/core";
 import type { IntentAuditRow } from "./postgres-sink.js";
@@ -117,6 +119,21 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
     version >= 5 && row.metadata_jsonb
       ? (parseJsonb(row.metadata_jsonb) as NonNullable<AuditRecord["metadata"]>)
       : undefined;
+  // 033/052 read-path completion (093 / 092-F1): authoritySnapshot and
+  // aggregateSnapshot are BOTH part of the v4+ auditHash pre-image. They MUST be
+  // reconstructed with the SAME key-presence buildAuditRecord used (present when
+  // the column is non-NULL, OMITTED otherwise — never an `undefined`-valued key)
+  // or verifyAuditRecord re-derives a different hash and 092 verify-on-read
+  // FALSELY flags the record tampered. Gated on version >= 4 (the version the
+  // auditHash itself appears at); a NULL column omits the field, hash-stable.
+  const authoritySnapshot: RecordedAuthoritySnapshot | undefined =
+    version >= 4 && row.authority_snapshot_jsonb
+      ? (parseJsonb(row.authority_snapshot_jsonb) as RecordedAuthoritySnapshot)
+      : undefined;
+  const aggregateSnapshot: RecordedAggregateSnapshot | undefined =
+    version >= 4 && row.aggregate_snapshot_jsonb
+      ? (parseJsonb(row.aggregate_snapshot_jsonb) as RecordedAggregateSnapshot)
+      : undefined;
   return {
     version,
     intentHash: row.intent_hash,
@@ -135,11 +152,24 @@ export function rowToRecord(row: IntentAuditRow): AuditRecord {
     ...(version >= 4 && row.kernel_version != null
       ? { kernelVersion: row.kernel_version }
       : {}),
+    // 033/052 — recorded snapshots, IN the auditHash pre-image: place BEFORE
+    // auditHash/signature in the field stream and OMIT when absent so the
+    // reconstructed record hashes byte-identically to the one buildAuditRecord
+    // produced (verify-on-read does not false-tamper).
+    ...(authoritySnapshot !== undefined ? { authoritySnapshot } : {}),
+    ...(aggregateSnapshot !== undefined ? { aggregateSnapshot } : {}),
     ...(version >= 4 && row.audit_hash != null
       ? { auditHash: row.audit_hash }
       : {}),
     ...(signature !== undefined ? { signature } : {}),
     ...(metadata !== undefined ? { metadata } : {}),
+    // 093 — the inter-record chain link, EXCLUDED from the auditHash pre-image
+    // (like signature/metadata), so it can ride anywhere in the field stream and
+    // omitting it (genesis / pre-093) is hash-stable. Round-tripped so the chain-
+    // continuity harness + supersession-chain report can read it.
+    ...(row.prev_audit_hash != null
+      ? { prevAuditHash: row.prev_audit_hash }
+      : {}),
   };
 }
 

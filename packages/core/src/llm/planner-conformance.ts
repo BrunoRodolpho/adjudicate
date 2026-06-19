@@ -20,9 +20,21 @@
  * LLM sees the leaked surface.
  */
 
-import type { PackV0 } from "../pack.js";
 import type { CapabilityPlanner, Plan } from "./planner.js";
 import { isMutating, type ToolClassification } from "./tool-classifier.js";
+
+/**
+ * The minimal pack surface `assertPlanSubsetOfPack` / `safePlan` need: the
+ * declared `intents` tuple. Accepting this (rather than a full `PackV0`) lets a
+ * Pack break the planner↔pack construction cycle — a Pack can declare its
+ * `intents` tuple in `capabilities.ts` and pass it to `safePlan` BEFORE the full
+ * `PackV0` value (which references the planner) is built (024 T4). A full
+ * `PackV0` is structurally assignable, so every existing full-pack caller is
+ * unaffected.
+ */
+export interface PackIntentsSurface {
+  readonly intents: readonly string[];
+}
 
 export class PlanConformanceError extends Error {
   constructor(
@@ -76,9 +88,9 @@ export function assertPlanReadOnly(
  *
  * Pure function — throws `PlanConformanceError` on first violation set.
  */
-export function assertPlanSubsetOfPack<K extends string>(
+export function assertPlanSubsetOfPack(
   plan: Plan,
-  pack: PackV0<K, unknown, unknown, unknown>,
+  pack: PackIntentsSurface,
 ): void {
   const declared = new Set<string>(pack.intents);
   const leaked: string[] = [];
@@ -109,7 +121,7 @@ export function assertPlanSubsetOfPack<K extends string>(
 export function safePlan<S, C = unknown>(
   planner: CapabilityPlanner<S, C>,
   classification: ToolClassification,
-  pack?: PackV0<string, unknown, unknown, unknown>,
+  pack?: PackIntentsSurface,
 ): CapabilityPlanner<S, C> {
   return {
     plan(state: S, context: C): Plan {

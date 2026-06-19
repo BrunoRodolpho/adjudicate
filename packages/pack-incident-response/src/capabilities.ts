@@ -16,12 +16,26 @@ import {
   type Plan,
   type ToolClassification,
 } from "@adjudicate/core/llm";
-import type { IncidentContext, IncidentState } from "./types.js";
+import type { IncidentContext, IncidentIntentKind, IncidentState } from "./types.js";
 
 export const INCIDENT_TOOLS: ToolClassification = {
   READ_ONLY: new Set(["list_incidents", "get_incident"]),
   MUTATING: new Set(["execute_remediation", "escalate_incident"]),
 };
+
+/**
+ * 024 (T4) — the Pack's declared intent kinds, named HERE so the pack-bound
+ * `safePlan(planner, classification, { intents })` form engages
+ * `assertPlanSubsetOfPack` on every `plan()` WITHOUT a planner↔pack construction
+ * cycle. `index.ts` reuses this tuple for its `intents` field so the two cannot
+ * drift. `incident.monitor.callback` is system-only (never LLM-proposable) but is
+ * still a declared intent kind, so it belongs in the subset set.
+ */
+export const INCIDENT_INTENTS = [
+  "incident.remediation.execute",
+  "incident.escalate",
+  "incident.monitor.callback",
+] as const satisfies readonly IncidentIntentKind[];
 
 const rawIncidentCapabilityPlanner: CapabilityPlanner<IncidentState, IncidentContext> = {
   plan(state): Plan {
@@ -39,5 +53,9 @@ const rawIncidentCapabilityPlanner: CapabilityPlanner<IncidentState, IncidentCon
   },
 };
 
+// 024 (T4) — the pack-bound 3-arg form `safePlan(planner, classification, pack)`:
+// the `pack` ({ intents }) surface engages `assertPlanSubsetOfPack` on every plan().
+const classification = INCIDENT_TOOLS;
+const pack = { intents: INCIDENT_INTENTS };
 export const incidentCapabilityPlanner: CapabilityPlanner<IncidentState, IncidentContext> =
-  safePlan(rawIncidentCapabilityPlanner, INCIDENT_TOOLS);
+  safePlan(rawIncidentCapabilityPlanner, classification, pack);

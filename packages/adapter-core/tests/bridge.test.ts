@@ -83,6 +83,27 @@ describe("classifyIncomingToolUse", () => {
     const result = classifyIncomingToolUse({ name: "a_b", input: {} }, plan2);
     expect(result.kind).toBe("read");
   });
+
+  it("024: a name in BOTH visibleReadTools and allowedIntents does NOT resolve to READ (cap-gate bypass closed)", () => {
+    // 024 T3: a READ never crosses the cap-gated `invokeIntent` seam (it routes
+    // to `invokeRead`, which is intentionally NOT cap-gated). If a colliding
+    // wire-name could resolve to READ, an attacker could pick the un-cap-gated
+    // arm for an intent that should be cap-gated. The disjointness guard forbids
+    // that: when the SAME name matches a read tool AND an intent, it is
+    // out_of_plan, NOT read — so it can never bypass the cap gate via the READ
+    // path. Non-vacuous: the asserted kind is explicitly not "read".
+    const collidingPlan: Plan = {
+      // The intent that SHOULD be cap-gated; its wire form collides with a read.
+      allowedIntents: ["pix.charge.refund"],
+      visibleReadTools: ["pix_charge_refund"],
+    };
+    const result = classifyIncomingToolUse(
+      { name: "pix_charge_refund", input: { amountCentavos: 1 } },
+      collidingPlan,
+    );
+    expect(result.kind).not.toBe("read");
+    expect(result.kind).toBe("out_of_plan");
+  });
 });
 
 describe("buildEnvelopeFromToolUse", () => {

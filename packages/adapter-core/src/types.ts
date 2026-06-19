@@ -13,6 +13,7 @@
 
 import type {
   AuditSink,
+  Capability,
   Decision,
   IntentEnvelope,
   Ledger,
@@ -20,11 +21,13 @@ import type {
   ResourceBindingPolicy,
   StructuralMismatch,
   Taint,
+  UnsignedCapability,
 } from "@adjudicate/core";
 import type { PromptRenderer, ToolSchema } from "@adjudicate/core/llm";
 import type { RuntimeContext } from "@adjudicate/core/kernel";
 import type { ConfigSeal, ConfigSealPolicy, ConfigSealReport } from "@adjudicate/conformance";
 import type {
+  BurnStore,
   ConfirmationStore,
   DeferRedis,
   MemoryStore,
@@ -148,8 +151,103 @@ export interface AdopterExecutor<K extends string, P, S> {
    * resource-ref swapped after the decision fail-closes upstream and never
    * reaches this surface (anti-IDOR). The executor may honor the envelope's
    * `payload` / `resourceRefs` as authoritative.
+   *
+   * **024 — additionally cap-gated when a `CapabilityGate` is configured.** The
+   * executor signature is UNCHANGED (additive migration, §7): the loop verifies +
+   * burns a single-use, kernel-shell-minted ed25519 capability bound to this
+   * envelope's `intentHash` BEFORE this call. So when the gate is on,
+   * `invokeIntent` is GUARANTEED to be reached only via a successfully burned
+   * capability — a second use of the same capability is suppressed by 022's store
+   * and never reaches here. When the gate is off (default), this is the pre-024
+   * raw-envelope path.
    */
   invokeIntent(envelope: IntentEnvelope<K, P>, state: S): Promise<unknown>;
+}
+
+// ── 024 — cap-gated executor contract ───────────────────────────────────────
+
+/**
+ * 024 — the kernel-shell-minted, single-use, resource-bound capability gate the
+ * executor seam honors INSTEAD of a raw (possibly REWRITE-rewritten)
+ * `IntentEnvelope`. This makes the §B topology's "on EXECUTE → mint signed
+ * CAPABILITY → capability-gated EXECUTION FABRIC" edge enforced in code rather
+ * than by pack-author convention.
+ *
+ * **§D purity boundary (preserved bytewise).** The PURE `adjudicate()` produces
+ * the Decision; the IMPURE shell (the loop) mints + signs the capability AFTER
+ * the pure EXECUTE/REWRITE decision and the executor honors it. The kernel never
+ * signs (its `attest` stub stays a throwing v0.2 seam). Constitutional invariant
+ * #1 is unchanged: ONLY a kernel EXECUTE (or the REWRITE-rewritten envelope)
+ * reaches `invokeIntent`, NOW additionally gated by a burned-on-use capability.
+ *
+ * **Kernel authority = ed25519, NOT the forgeable hash-bind (021-F1).** The gate
+ * honors a capability as kernel-minted ONLY when `verify` returns true. Adopters
+ * MUST wire `verify` to approval-engine's ASYMMETRIC `verifyCapabilitySignature`
+ * (bound with the issuer's registered public keys) — NEVER core's pure-JS
+ * `verifyCapability`, which checks only hash-bind self-consistency (integrity,
+ * not authenticity) and is forgeable by anyone who can recompute the canonical
+ * hash. The signer (`mint`) and verifier (`verify`) are DEPENDENCY-INJECTED so
+ * adapter-core never imports `@adjudicate/approval-engine` (that would be a
+ * dependency cycle — approval-engine depends on adapter-core) and stays free of
+ * `node:crypto` / browser-bundleable, mirroring the config-seal verifier seam.
+ *
+ * **Single-use is delegated to 022's BurnStore.** The gate does NOT introduce a
+ * second single-use store: it CONSUMES 022's authoritative atomic claim-and-burn
+ * `BurnStore` (`createInMemoryBurnStore` / `createRedisBurnStore`). The loop
+ * mints the capability into the store on the EXECUTE/REWRITE decision (keyed by
+ * the envelope nonce, first-writer-wins); the executor seam BURNS it before
+ * dispatch. A second use of the same capability re-burns to `null` and is
+ * suppressed — never a parallel one (the Redis backing is Lua-atomic).
+ *
+ * **Resource binding (023).** The burned capability binds the authorizing
+ * `intentHash` (which content-addresses kind+payload+taint+nonce+actor+origin,
+ * §D #4); the gate constant-time-compares it against the effective envelope's
+ * own `intentHash` so a capability minted for intent A cannot be redeemed for
+ * intent B (anti-IDOR / anti-resource-swap). This composes ABOVE the 023
+ * `verifyResourceBinding` check `runExecute` already runs.
+ *
+ * **Fail-closed (§D #6 / §C monotonicity).** A burn miss/expiry, a store/IO
+ * error, a failed ed25519 verify, or an intentHash mismatch ABORTS the EXECUTE —
+ * `invokeIntent` is never reached. Gating can only ADD friction, never authorize
+ * an EXECUTE the kernel did not. Omitting the gate (default) restores the exact
+ * pre-024 raw-envelope `invokeIntent` path (rollback dial, §7).
+ */
+export interface CapabilityGate {
+  /**
+   * Mint + SIGN the capability in the impure shell, AFTER the pure EXECUTE/
+   * REWRITE decision. Adopters wire approval-engine's node-side `signCapability`
+   * (ed25519 over the canonical `capabilityPreimage`). MUST bind the EXACT
+   * `intentHash` of the effective (EXECUTE or REWRITE-rewritten) envelope. May be
+   * synchronous; the loop awaits the result either way.
+   */
+  readonly mint: (body: UnsignedCapability) => Capability | Promise<Capability>;
+  /**
+   * Verify a burned capability is genuinely kernel-minted via ASYMMETRIC ed25519
+   * signature verification (021-F1: NOT the forgeable hash-bind check). Adopters
+   * wire approval-engine's `verifyCapabilitySignature` partially applied with the
+   * issuer's registered public keys: `(cap) => verifyCapabilitySignature(cap,
+   * publicKeyPemByKeyId)`. MUST return false (never throw) on any unknown key /
+   * bad signature / non-ed25519 alg (the injected verifier already fails closed).
+   */
+  readonly verify: (capability: Capability) => boolean;
+  /**
+   * 022's authoritative atomic claim-and-burn store. The loop `mint`s into it on
+   * the decision; the executor seam `burn`s before dispatch (single-use). NOT a
+   * new single-use store — 024 consumes 022's.
+   */
+  readonly burnStore: BurnStore;
+  /**
+   * The deciding kernel identity id (`KernelIdentity.id`, e.g.
+   * `kernel://prod/us-east-1`) recorded in the minted capability body. Descriptive
+   * — the kernel never signs; the shell signs over a pre-image that binds this id.
+   */
+  readonly kernelId: string;
+  /**
+   * Capability TTL in seconds (the burn store's expiry). Defaults to a short
+   * window (the side effect happens in the same turn, milliseconds after the
+   * mint). Fail-closed past TTL (§D #6): an expired capability burns to `null`.
+   */
+  readonly ttlSeconds?: number;
 }
 
 export interface AgentLogger {
@@ -385,6 +483,22 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
    * restores the exact pre-023 executor seam (023 §7).
    */
   readonly resourceBindingPolicy?: ResourceBindingPolicy;
+  /**
+   * 024 — cap-gated executor. When supplied, the loop mints a kernel-shell-signed,
+   * single-use, resource-bound capability AFTER the pure EXECUTE/REWRITE decision
+   * and the executor seam (`runExecute`) honors it: it BURNS the capability from
+   * 022's atomic store, ed25519-VERIFIES it (the injected `verify`), and binds it
+   * to the effective envelope's `intentHash` BEFORE `invokeIntent`. Any failure
+   * (burn miss/expiry, store error, bad signature, hash mismatch) fail-closes the
+   * EXECUTE — `invokeIntent` is never reached (invariants #1, #6; §C: friction
+   * never decreases).
+   *
+   * **Default OFF** (option omitted): the executor seam is byte-identical to
+   * pre-024 (the raw-envelope `invokeIntent` path), so existing executors and the
+   * 071–073 consumers opt in. The READ path (`invokeRead`) is never cap-gated —
+   * a READ can never reach `invokeIntent`.
+   */
+  readonly capabilityGate?: CapabilityGate;
   /**
    * 042 — session-contamination configuration. When `{ enabled: true }`, an
    * untrusted-origin datum entering the session (an authorized READ result —

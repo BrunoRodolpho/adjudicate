@@ -67,6 +67,13 @@ import type {
 
 const DEFAULT_MAX_ITERATIONS = 8;
 
+/**
+ * 024 — default capability TTL (seconds). The side effect happens in the SAME
+ * turn, milliseconds after the mint, so a short window is correct: a capability
+ * not redeemed almost immediately is stale. Fail-closed past TTL (§D #6).
+ */
+const DEFAULT_CAPABILITY_TTL_SECONDS = 60;
+
 export function createAdjudicatedAgent<K extends string, P, S, C, H>(
   options: AdjudicatedAgentOptions<K, P, S, C, H>,
 ): AdjudicatedAgent<K, P, S, C, H> {
@@ -578,6 +585,27 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
       state: S;
       historySnapshot: H;
     }): Promise<ProcessResult> {
+      // 024 — cap-gated executor: mint the kernel-shell-signed, single-use
+      // capability in the IMPURE shell AFTER the pure decision (§D: the kernel
+      // decides; the shell signs + persists). Only EXECUTE / REWRITE reach the
+      // executor (invariant #1), so we mint ONLY for those, keyed by the EFFECTIVE
+      // envelope's nonce (the original for EXECUTE, the rewritten one for REWRITE)
+      // — matching the nonce `runExecute` burns by. We sign over the effective
+      // envelope's `intentHash` (which already content-addresses
+      // kind+payload+taint+nonce+actor+origin, §D #4) and `mint` it into 022's
+      // atomic store first-writer-wins. A failed mint (store error / duplicate
+      // live key) leaves NO grant to burn → `runExecute` fail-closes (§D #6). The
+      // gate is OFF by default, so this whole block is skipped and the seam is
+      // byte-identical to pre-024.
+      if (options.capabilityGate !== undefined) {
+        await mintCapabilityForDecision(
+          options.capabilityGate,
+          args.decision,
+          args.envelope,
+          args.sessionId,
+          args.toolUseId,
+        );
+      }
       const t = await translateDecision({
         decision: args.decision,
         envelope: args.envelope,
@@ -590,6 +618,11 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         historySnapshot: args.historySnapshot,
         rk,
         log: options.log,
+        // 024 — thread the cap gate so runExecute burns + verifies the minted
+        // capability before invokeIntent (fail-closed). Absent → pre-024 seam.
+        ...(options.capabilityGate !== undefined
+          ? { capabilityGate: options.capabilityGate }
+          : {}),
         // Item 1: resolve the per-kind executor output contract (if the Pack
         // declared one) so runExecute can validate the executor's output.
         // REWRITE is scope-restricted to payload sanitization and never changes
@@ -623,6 +656,66 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         toolResult: t.toolResult,
         loopAction: t.loopAction,
       };
+    }
+
+    /**
+     * 024 — mint + sign the single-use capability for an EXECUTE / REWRITE
+     * decision and persist it into 022's atomic burn store, keyed by the EFFECTIVE
+     * envelope's nonce. Non-EXECUTE/REWRITE decisions never reach the executor, so
+     * no capability is minted for them. The signer (`gate.mint`) is the injected
+     * node-side ed25519 `signCapability`; adapter-core never imports
+     * `@adjudicate/approval-engine` (that would be a dependency cycle).
+     *
+     * A throwing signer or store is swallowed here (best-effort mint): the grant
+     * simply isn't present, so `runExecute`'s burn returns null and fail-closes
+     * (§D #6 — no fail-open). We log it so the operator sees the cause.
+     */
+    async function mintCapabilityForDecision(
+      gate: NonNullable<typeof options.capabilityGate>,
+      decision: Decision,
+      envelope: IntentEnvelope<K, P>,
+      sessionId: string,
+      toolUseId: string,
+    ): Promise<void> {
+      let effective: IntentEnvelope<K, P>;
+      if (decision.kind === "EXECUTE") {
+        effective = envelope;
+      } else if (decision.kind === "REWRITE") {
+        effective = decision.rewritten as IntentEnvelope<K, P>;
+      } else {
+        return;
+      }
+      try {
+        const capability = await gate.mint({
+          intentHash: effective.intentHash,
+          kernelId: gate.kernelId,
+        });
+        const minted = await gate.burnStore.mint(
+          effective.nonce,
+          capability,
+          gate.ttlSeconds ?? DEFAULT_CAPABILITY_TTL_SECONDS,
+        );
+        if (!minted) {
+          // First-writer-wins suppressed the mint (a live grant already holds the
+          // key — e.g. a replay within the TTL). `runExecute` will burn the
+          // existing grant; if it doesn't match THIS envelope's intentHash the
+          // bind check fail-closes. Log for visibility.
+          options.log?.warn?.({
+            msg: "[adjudicate] capability mint suppressed (live key); burn will fail-closed if it does not bind",
+            sessionId,
+            toolUseId,
+            intentKind: effective.kind,
+          });
+        }
+      } catch (err) {
+        options.log?.warn?.({
+          msg: "[adjudicate] capability mint/sign failed; executor seam will fail-closed",
+          sessionId,
+          toolUseId,
+          intentKind: effective.kind,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 

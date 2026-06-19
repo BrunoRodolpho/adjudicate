@@ -13,6 +13,7 @@ import {
   createInMemoryRemediationProposalStore,
   createRemediationOrchestrator,
 } from "../src/index.js";
+import { createInMemoryApprovalRegistry } from "@adjudicate/approval-engine";
 
 function stateWith(
   overrides: { status?: IncidentStatus; deps?: IncidentDependency[] } = {},
@@ -273,5 +274,96 @@ describe("RemediationOrchestrator — 023 resource binding (anti-IDOR)", () => {
     });
     expect(executor.invokeIntent).not.toHaveBeenCalled();
     expect(res.executed).toBe(false);
+  });
+});
+
+describe("RemediationOrchestrator — 071 receipt binding (approver, channel)", () => {
+  it("an accepted resolve binds (approver, channel) onto the EXECUTE supersession", async () => {
+    const state = stateWith();
+    const executor: AdopterExecutor<IncidentIntentKind, unknown, IncidentState> = {
+      invokeRead: vi.fn(async () => ({})),
+      invokeIntent: vi.fn(async () => ({ ok: true })),
+    };
+    const records: import("@adjudicate/core").AuditRecord[] = [];
+    const proposalStore = createInMemoryRemediationProposalStore();
+    const orch = createRemediationOrchestrator({
+      executor,
+      getState: () => state,
+      proposalStore,
+      approvalRegistry: createInMemoryApprovalRegistry(),
+      sink: { async emit(r) { records.push(r); } },
+    });
+
+    // A REVIEW that adjudicates to REQUEST_CONFIRMATION parks a pending proposal.
+    const out = await orch.handle({
+      incidentId: "inc-1",
+      action: "patch",
+      blastRadius: 12,
+      disposition: "REVIEW",
+      nonce: "n-071-bind",
+      at: "2026-06-18T00:00:00.000Z",
+    });
+    expect(out.pending?.kind).toBe("review");
+    const proposal = proposalStore.list().find(
+      (p) => p.status === "pending_review",
+    )!;
+    expect(proposal.approvalToken).toBeDefined();
+
+    // The operator approves; the kernel substitutes EXECUTE and the audit row
+    // links back via a confirmation_resolved supersession carrying the bound
+    // approver + the ops-plane channel.
+    const res = await orch.resolve({
+      token: proposal.approvalToken!,
+      accepted: true,
+      by: { id: "operator-jane", displayName: "Jane" },
+      at: "2026-06-18T01:00:00.000Z",
+    });
+    expect(res.executed).toBe(true);
+    const exec = records.find((r) => r.decision.kind === "EXECUTE");
+    expect(exec).toBeDefined();
+    expect(exec!.supersedes).toMatchObject({
+      reason: "confirmation_resolved",
+      binding: { approver: "operator-jane", channel: "adjutant" },
+    });
+  });
+
+  it("an accepted resolve with no `by` still binds the channel (approver omitted)", async () => {
+    const state = stateWith();
+    const executor: AdopterExecutor<IncidentIntentKind, unknown, IncidentState> = {
+      invokeRead: vi.fn(async () => ({})),
+      invokeIntent: vi.fn(async () => ({ ok: true })),
+    };
+    const records: import("@adjudicate/core").AuditRecord[] = [];
+    const proposalStore = createInMemoryRemediationProposalStore();
+    const orch = createRemediationOrchestrator({
+      executor,
+      getState: () => state,
+      proposalStore,
+      approvalRegistry: createInMemoryApprovalRegistry(),
+      sink: { async emit(r) { records.push(r); } },
+    });
+    await orch.handle({
+      incidentId: "inc-1",
+      action: "patch",
+      blastRadius: 12,
+      disposition: "REVIEW",
+      nonce: "n-071-nobyy",
+      at: "2026-06-18T00:00:00.000Z",
+    });
+    const proposal = proposalStore.list().find(
+      (p) => p.status === "pending_review",
+    )!;
+    const res = await orch.resolve({
+      token: proposal.approvalToken!,
+      accepted: true,
+      at: "2026-06-18T01:00:00.000Z",
+    });
+    expect(res.executed).toBe(true);
+    const exec = records.find((r) => r.decision.kind === "EXECUTE");
+    expect(exec!.supersedes).toMatchObject({
+      reason: "confirmation_resolved",
+      binding: { channel: "adjutant" },
+    });
+    expect(exec!.supersedes!.binding).not.toHaveProperty("approver");
   });
 });

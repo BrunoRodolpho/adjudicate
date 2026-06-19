@@ -15,6 +15,7 @@ import type {
   AuditSink,
   BudgetGrant,
   Capability,
+  ConfirmationBinding,
   Decision,
   IntentEnvelope,
   Ledger,
@@ -602,6 +603,21 @@ export interface ConfirmArgs<S, C> {
   readonly accepted: boolean;
   readonly state: S;
   readonly context: C;
+  /**
+   * 071 — optional binding tuple the post-confirmation EXECUTE is provably tied
+   * to. When supplied, the loop forwards it onto the kernel's
+   * `confirmationReceipt.binding` so the override is gated on (and the audit
+   * trail records) the (capability, approver, channel) the confirmation
+   * resolved with. Each field's `confirmed` is the value the confirmation
+   * arrived with; the optional `requested` is the value the original
+   * REQUEST_CONFIRMATION was issued against (a mismatch fails closed in the
+   * kernel — friction, never bypass). The loop ADDS the
+   * `intentHash`/`at`/`token` itself (it owns the already-verified pending
+   * envelope); a caller (e.g. the approval-engine `resolve`) supplies only the
+   * binding it holds. STRICTLY ADDITIVE: omitting `binding` is byte-identical to
+   * pre-071 confirm().
+   */
+  readonly binding?: ConfirmationBinding;
 }
 
 export type AgentOutcome =

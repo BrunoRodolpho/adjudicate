@@ -1,4 +1,4 @@
-import type { Taint } from "@adjudicate/core";
+import type { ConfirmationBinding, Taint } from "@adjudicate/core";
 import type {
   AdjudicatedAgent,
   AgentTurnResult,
@@ -257,29 +257,12 @@ export function createApprovalEngine<S, C, H>(
         const { state, context } = await opts.resolveStateContext(
           existing.sessionId,
         );
-        let turn: AgentTurnResult<H>;
-        try {
-          turn = await opts.agent.confirm({
-            confirmationToken: input.token,
-            accepted: input.accepted,
-            state,
-            context,
-          });
-        } catch (err) {
-          // The underlying confirm() rejected the token (single-use / tampered) —
-          // the projection is no longer actionable.
-          await opts.registry.markResolved(input.token, "expired", input.by);
-          throw new ApprovalError(
-            "CONFIRM_REJECTED",
-            err instanceof Error ? err.message : String(err),
-          );
-        }
-        const status = input.accepted ? "approved" : "declined";
         // When attestation is enforced, the recorded approver id MUST be the
         // cryptographically-verified `attestation.approverId` — never the
         // unauthenticated `input.by.id` (which would re-introduce the forgeable
         // claim attestation exists to remove). Only the display name may come from
-        // the unauthenticated field. Mirrors the quorum path above.
+        // the unauthenticated field. Mirrors the quorum path above. Computed BEFORE
+        // confirm() (071) so the verified approver can be bound into the receipt.
         const effectiveBy =
           opts.attestationVerifier && input.attestation
             ? {
@@ -292,6 +275,50 @@ export function createApprovalEngine<S, C, H>(
               (input.attestation
                 ? { id: input.attestation.approverId }
                 : undefined));
+        // 071 — bind the post-confirmation EXECUTE to (capability, approver,
+        // channel). The engine knows the APPROVER (the verified `effectiveBy.id`)
+        // and the CHANNEL the request was issued on (`existing.channel`, stamped at
+        // request() time and unchanged here, so it is BOTH the issued-against
+        // `requested` and the resolved `confirmed` value — a forwarded resolve
+        // cannot retroactively change the channel a request was minted on; a
+        // channel mismatch fails the kernel override closed). The capability is not
+        // modeled in this single-approver path. We forward the binding ONLY on an
+        // accepted resolve (a decline never overrides). The approver carries no
+        // `requested` value here: the proposer/requestedBy surface that would let
+        // the kernel enforce approver≠proposer separation-of-duty is plan 072 — 071
+        // only RECORDS the bound approver.
+        const binding: ConfirmationBinding = {
+          ...(input.accepted && effectiveBy?.id !== undefined
+            ? { approver: { confirmed: effectiveBy.id } }
+            : {}),
+          ...(input.accepted
+            ? {
+                channel: {
+                  confirmed: existing.channel,
+                  requested: existing.channel,
+                },
+              }
+            : {}),
+        };
+        let turn: AgentTurnResult<H>;
+        try {
+          turn = await opts.agent.confirm({
+            confirmationToken: input.token,
+            accepted: input.accepted,
+            state,
+            context,
+            ...(Object.keys(binding).length > 0 ? { binding } : {}),
+          });
+        } catch (err) {
+          // The underlying confirm() rejected the token (single-use / tampered) —
+          // the projection is no longer actionable.
+          await opts.registry.markResolved(input.token, "expired", input.by);
+          throw new ApprovalError(
+            "CONFIRM_REJECTED",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+        const status = input.accepted ? "approved" : "declined";
         const request = (await opts.registry.markResolved(
           input.token,
           status,

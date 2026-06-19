@@ -48,6 +48,40 @@ describe("createApprovalEngine — resolve", () => {
     expect(confirmCalls[0]!.accepted).toBe(false);
     expect(request.status).toBe("declined");
   });
+
+  // ── 071 — approver/channel binding threaded into the forwarded receipt ──────
+  it("071: an accepted resolve forwards (approver, channel) binding into agent.confirm", async () => {
+    const { engine, confirmCalls } = makeEngine();
+    await engine.request(baseRequest); // routed to console-log → req.channel = "console-log"
+    await engine.resolve({ token: "tok-1", accepted: true, by: { id: "alice" } });
+
+    expect(confirmCalls[0]!.binding).toEqual({
+      // approver carries no `requested` value (proposer surface is plan 072) —
+      // recorded forensically, not gated.
+      approver: { confirmed: "alice" },
+      // channel is BOTH the issued-against value and the resolved value: a
+      // forwarded resolve cannot retroactively change the request's channel.
+      channel: { confirmed: "console-log", requested: "console-log" },
+    });
+  });
+
+  it("071: a declined resolve forwards NO binding (a decline never overrides)", async () => {
+    const { engine, confirmCalls } = makeEngine();
+    await engine.request(baseRequest);
+    await engine.resolve({ token: "tok-1", accepted: false, by: { id: "alice" } });
+    // The `binding` key is omitted entirely on the decline path.
+    expect(confirmCalls[0]).not.toHaveProperty("binding");
+  });
+
+  it("071: an accepted resolve without an approver still binds the channel", async () => {
+    const { engine, confirmCalls } = makeEngine();
+    await engine.request(baseRequest);
+    await engine.resolve({ token: "tok-1", accepted: true });
+    expect(confirmCalls[0]!.binding).toEqual({
+      channel: { confirmed: "console-log", requested: "console-log" },
+    });
+    expect(confirmCalls[0]!.binding).not.toHaveProperty("approver");
+  });
 });
 
 describe("createApprovalEngine — adversarial", () => {

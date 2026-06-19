@@ -372,5 +372,200 @@ describe("confirmationReceipt override (fix for confirm() loop)", () => {
   });
 });
 
+// ── 071 — (capability, approver, channel) binding ────────────────────────────
+//
+// The override stays keyed on `intentHash`; when the receipt carries a binding
+// tuple, EVERY present field whose issued-against `requested` value is supplied
+// MUST equal its resolved `confirmed` value, else the override falls through to
+// the original REQUEST_CONFIRMATION (fail-closed, §D-6). The confirmed values
+// are recorded on `supersedes.binding`. Omitting the binding is byte-identical
+// to the pre-071 four-field receipt (determinism fence, §D-5).
+const policy071 = {
+  stateGuards: [],
+  authGuards: [],
+  taint: permissive,
+  business: [askConfirm],
+  default: "REFUSE" as const,
+};
+
+describe("071 confirmationReceipt binding (capability, approver, channel)", () => {
+  it("override fires when all present binding fields match (requested === confirmed)", async () => {
+    const env = envOf("test.confirm.bind", "n-bind-match");
+    const { sink, records } = captureSink();
+
+    const result = await adjudicateAndAudit(env, {}, policy071, {
+      sink,
+      confirmationReceipt: {
+        intentHash: env.intentHash,
+        at: "2026-05-13T12:00:01.000Z",
+        binding: {
+          capability: { requested: "cap-deploy", confirmed: "cap-deploy" },
+          approver: { requested: "alice", confirmed: "alice" },
+          channel: { requested: "slack", confirmed: "slack" },
+        },
+      },
+    });
+
+    expect(result.decision.kind).toBe("EXECUTE");
+    const codes = result.decision.basis.map((b) => `${b.category}:${b.code}`);
+    expect(codes).toContain("confirmation:received");
+    // The bound (confirmed) tuple is recorded forensically on supersedes.binding.
+    expect(records[0]!.supersedes).toMatchObject({
+      reason: "confirmation_resolved",
+      binding: { capability: "cap-deploy", approver: "alice", channel: "slack" },
+    });
+  });
+
+  it("a mismatched bound APPROVER falls through to the original REQUEST_CONFIRMATION", async () => {
+    const env = envOf("test.confirm.bind", "n-bind-approver-mismatch");
+    const { sink, records } = captureSink();
+
+    const result = await adjudicateAndAudit(env, {}, policy071, {
+      sink,
+      confirmationReceipt: {
+        intentHash: env.intentHash,
+        at: "2026-05-13T12:00:01.000Z",
+        binding: {
+          // The confirmation request was issued for approver "alice" but the
+          // confirmation resolved with "mallory" — the override must NOT fire.
+          approver: { requested: "alice", confirmed: "mallory" },
+        },
+      },
+    });
+
+    expect(result.decision.kind).toBe("REQUEST_CONFIRMATION");
+    // No supersession (no override happened) — the record is the plain
+    // REQUEST_CONFIRMATION verdict.
+    expect(records[0]!.decision.kind).toBe("REQUEST_CONFIRMATION");
+    expect(records[0]!.supersedes).toBeUndefined();
+  });
+
+  it("a mismatched bound CHANNEL falls through (fail-closed, §D-6)", async () => {
+    const env = envOf("test.confirm.bind", "n-bind-channel-mismatch");
+    const { sink } = captureSink();
+
+    const result = await adjudicateAndAudit(env, {}, policy071, {
+      sink,
+      confirmationReceipt: {
+        intentHash: env.intentHash,
+        at: "2026-05-13T12:00:01.000Z",
+        binding: {
+          approver: { requested: "alice", confirmed: "alice" },
+          channel: { requested: "slack", confirmed: "email" },
+        },
+      },
+    });
+
+    expect(result.decision.kind).toBe("REQUEST_CONFIRMATION");
+  });
+
+  it("a mismatched bound CAPABILITY falls through", async () => {
+    const env = envOf("test.confirm.bind", "n-bind-cap-mismatch");
+    const { sink } = captureSink();
+
+    const result = await adjudicateAndAudit(env, {}, policy071, {
+      sink,
+      confirmationReceipt: {
+        intentHash: env.intentHash,
+        at: "2026-05-13T12:00:01.000Z",
+        binding: {
+          capability: { requested: "cap-deploy", confirmed: "cap-refund" },
+        },
+      },
+    });
+
+    expect(result.decision.kind).toBe("REQUEST_CONFIRMATION");
+  });
+
+  it("a field with no `requested` value is recorded but not gated (override still fires)", async () => {
+    const env = envOf("test.confirm.bind", "n-bind-no-requested");
+    const { sink, records } = captureSink();
+
+    const result = await adjudicateAndAudit(env, {}, policy071, {
+      sink,
+      confirmationReceipt: {
+        intentHash: env.intentHash,
+        at: "2026-05-13T12:00:01.000Z",
+        binding: {
+          // Only the resolved approver is known (no issued-against value to
+          // compare) — bind it forensically but do not gate on it.
+          approver: { confirmed: "alice" },
+        },
+      },
+    });
+
+    expect(result.decision.kind).toBe("EXECUTE");
+    expect(records[0]!.supersedes).toMatchObject({
+      reason: "confirmation_resolved",
+      binding: { approver: "alice" },
+    });
+    // Only the supplied field is recorded — capability/channel keys absent.
+    expect(records[0]!.supersedes!.binding).not.toHaveProperty("capability");
+    expect(records[0]!.supersedes!.binding).not.toHaveProperty("channel");
+  });
+
+  it("intentHash stays the load-bearing gate: a DIFFERENT hash falls through even with matching binding", async () => {
+    const env = envOf("test.confirm.bind", "n-bind-hash-mismatch");
+    const { sink } = captureSink();
+
+    const result = await adjudicateAndAudit(env, {}, policy071, {
+      sink,
+      confirmationReceipt: {
+        intentHash: "0".repeat(64), // wrong hash
+        at: "2026-05-13T12:00:01.000Z",
+        binding: { approver: { requested: "alice", confirmed: "alice" } },
+      },
+    });
+
+    expect(result.decision.kind).toBe("REQUEST_CONFIRMATION");
+  });
+
+  it("DETERMINISM FENCE: omitting binding is byte-identical to pre-071 (same auditHash + supersedes)", async () => {
+    // Two confirmations of the SAME envelope+receipt, one with a binding key
+    // entirely absent and one with `binding: undefined` — both must produce the
+    // identical supersedes shape and identical auditHash to the four-field path.
+    const env = envOf("test.confirm.bind", "n-bind-byte-identical");
+
+    const baseReceipt = {
+      intentHash: env.intentHash,
+      at: "2026-05-13T12:00:01.000Z",
+      originalAt: "2026-05-13T11:59:00.000Z",
+      token: "tok-bcompat",
+    };
+
+    const a = captureSink();
+    const noBinding = await adjudicateAndAudit(env, {}, policy071, {
+      sink: a.sink,
+      clock: { nowIso: () => "2026-05-13T12:00:02.000Z", nowMs: () => 0 },
+      confirmationReceipt: { ...baseReceipt },
+    });
+
+    const b = captureSink();
+    const undefinedBinding = await adjudicateAndAudit(env, {}, policy071, {
+      sink: b.sink,
+      clock: { nowIso: () => "2026-05-13T12:00:02.000Z", nowMs: () => 0 },
+      confirmationReceipt: { ...baseReceipt, binding: undefined },
+    });
+
+    expect(noBinding.decision.kind).toBe("EXECUTE");
+    expect(undefinedBinding.decision.kind).toBe("EXECUTE");
+    // No `binding` key on either supersession (omitted, not `binding: undefined`).
+    expect(a.records[0]!.supersedes).not.toHaveProperty("binding");
+    expect(b.records[0]!.supersedes).not.toHaveProperty("binding");
+    // Byte-identical supersedes shape.
+    expect(b.records[0]!.supersedes).toEqual(a.records[0]!.supersedes);
+    expect(a.records[0]!.supersedes).toEqual({
+      predecessorIntentHash: env.intentHash,
+      predecessorAt: "2026-05-13T11:59:00.000Z",
+      reason: "confirmation_resolved",
+      token: "tok-bcompat",
+    });
+    // And the tamper-evident auditHash is identical (the binding key is in the
+    // pre-image, so omitting it must not perturb the hash).
+    expect(a.records[0]!.auditHash).toBeDefined();
+    expect(b.records[0]!.auditHash).toBe(a.records[0]!.auditHash);
+  });
+});
+
 // Suppress unused import warning when noopAuditSink is unused
 void noopAuditSink;

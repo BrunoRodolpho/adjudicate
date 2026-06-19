@@ -24,7 +24,7 @@ import {
  * One GUIDED step: a plain-language "The AI proposes…" line and a single
  * "Run this step" button. Pressing it POSTs the step's real
  * `{ intentKind, payload, state }` to the kernel and renders the live result
- * — which guard fired, the decision, and a collapsible signed receipt.
+ * — which guard fired, the decision, and a collapsible tamper-evident receipt.
  *
  * Three visual states:
  *   - `collapsed`  — an earlier, already-run step shown as a one-line summary
@@ -60,7 +60,7 @@ interface GuidedStepProps {
   readonly onBusyChange?: (busy: boolean) => void;
   /**
    * Whether this is the final step of the story. Drives the context-aware
-   * ConsoleHandoff copy ("All steps above produced signed receipts…").
+   * ConsoleHandoff copy ("Every step above produced a tamper-evident receipt…").
    */
   readonly isLastStep?: boolean;
 }

@@ -11,7 +11,7 @@ import { CodeBlock } from "@/components/ui/CodeBlock";
  * The headline now leads with the *outcome* — guardrails that go beyond
  * block-or-allow — instead of the product category. The subhead is the literal
  * decision spine the rest of the page proves: the agent proposes, adjudicate
- * decides (one of six), and every decision is a signed receipt.
+ * decides (one of six), and every decision is a tamper-evident receipt.
  *
  * The CTA cluster mixes a high-intent primary ("Try the 5-min demo" → the live
  * /playground kernel), a one-click copyable install chip, and a low-commitment
@@ -62,7 +62,7 @@ export function Hero() {
             execute, rewrite, defer, escalate, refuse, or request confirmation —
             before anything touches production.{" "}
             <span className="font-medium text-ink">
-              Every decision, a signed receipt.
+              Every decision, a tamper-evident receipt.
             </span>
           </p>
 

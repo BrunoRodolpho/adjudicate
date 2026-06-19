@@ -35,8 +35,8 @@ export default function HowItWorksPage() {
       <HowItWorks />
 
       {/* The receipt, materializing. A tasteful looping clip closing the
-          walkthrough on its end-state artifact — the signed receipt every
-          adjudicated action leaves behind. Light (surface) tone so it reads as
+          walkthrough on its end-state artifact — the tamper-evident receipt
+          every adjudicated action leaves behind. Light (surface) tone so it reads as
           a section visual, not a second console. Server-renderable: a plain
           muted/autoplay/loop <video> with no controls and no client
           interactivity. No poster is shipped for this clip, so the attribute
@@ -45,7 +45,7 @@ export default function HowItWorksPage() {
       <Section tone="surface">
         <SectionHeading
           eyebrow="The artifact"
-          title="Every decision becomes a signed receipt"
+          title="Every decision becomes a tamper-evident receipt"
         />
         <figure className="mt-10 overflow-hidden rounded-2xl border border-edge bg-surface shadow-lg">
           <video
@@ -55,12 +55,12 @@ export default function HowItWorksPage() {
             muted
             loop
             playsInline
-            aria-label="An illustrative loop of a signed decision receipt materializing field by field."
+            aria-label="An illustrative loop of a tamper-evident decision receipt materializing field by field."
             className="block h-auto w-full"
           />
           <figcaption className="border-t border-edge px-4 py-2.5 text-xs text-muted">
-            Illustrative loop · an adjudicated action settling into its signed
-            receipt.{" "}
+            Illustrative loop · an adjudicated action settling into its
+            tamper-evident receipt.{" "}
             <Link
               href="/playground"
               className="font-medium text-ink underline decoration-edge underline-offset-4 transition-colors hover:decoration-ink/40"

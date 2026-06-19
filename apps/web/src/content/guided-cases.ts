@@ -150,7 +150,7 @@ export const GUIDED_CASES: ReadonlyArray<GuidedCase> = [
         expectedKind: "EXECUTE",
         narrateByOutcome: {
           EXECUTE:
-            "Execute. The refund is small and valid, so the kernel runs it and writes a signed receipt.",
+            "Execute. The refund is small and valid, so the kernel runs it and writes a tamper-evident receipt.",
         },
       },
     ],

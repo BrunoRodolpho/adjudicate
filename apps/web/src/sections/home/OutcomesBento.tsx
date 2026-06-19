@@ -111,7 +111,7 @@ const TILES: ReadonlyArray<OutcomeTile> = [
       "A small staging ramp at 25% clears every gate — the deploy runs as proposed.",
     fromPack: "Deployments · Approval",
     whenChosen:
-      "Chosen when the intent clears every guard as-is. The kernel runs it against the side-effect and writes a signed receipt. The only outcome a binary engine shares — the other five are where adjudicate earns its place.",
+      "Chosen when the intent clears every guard as-is. The kernel runs it against the side-effect and writes a tamper-evident receipt. The only outcome a binary engine shares — the other five are where adjudicate earns its place.",
   },
   {
     kind: "REFUSE",

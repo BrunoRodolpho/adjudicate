@@ -128,4 +128,5 @@ export { intentHashDeterministicCheck } from "./checks/intent-hash-deterministic
 export { basisVocabularyPurityCheck } from "./checks/basis-vocabulary-purity.js";
 export { guardOrderingCheck } from "./checks/guard-ordering.js";
 export { defaultPolarityCheck } from "./checks/default-polarity.js";
+export { untrustedMutatingNeedsOwnerCheck } from "./checks/untrusted-mutating-needs-owner.js";
 export { noPayloadSelfConfirmationCheck } from "./checks/no-payload-self-confirmation.js";

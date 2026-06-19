@@ -35,6 +35,9 @@ export {
   type DeploymentApproval,
   type DeploymentApprovalRequestPayload,
   type DeploymentApprovalResolvePayload,
+  // 035 — the host-injection seam for the constitutional authority guard wired
+  // into deploymentPolicyBundle.authGuards (§D #8).
+  type DeploymentAuthorityContext,
   type DeploymentContext,
   type DeploymentEnvironment,
   type DeploymentIntentKind,

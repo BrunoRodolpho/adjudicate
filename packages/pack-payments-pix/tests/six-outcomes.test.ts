@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { adjudicate, adjudicateAndAudit } from "@adjudicate/core/kernel";
 import {
   buildEnvelope,
+  createAuthorityGraphStore,
   deriveIntentHash,
   noopAuditSink,
   type IntentEnvelope,
@@ -21,6 +22,7 @@ import {
   PIX_CONFIRMATION_SIGNAL,
   PIX_DEFAULT_DEFER_TIMEOUT_MS,
   pixPolicyBundle,
+  type PixAuthorityContext,
   type PixCharge,
   type PixIntentKind,
   type PixState,
@@ -409,5 +411,147 @@ describe("pack-payments-pix — B1 agent-session refund always confirms", () => 
       pixPolicyBundle,
     );
     expect(decision.kind).toBe("EXECUTE");
+  });
+});
+
+// ── 035 — constitutional authority guard wired into PIX authGuards (§D #8) ────
+// Proves the wired guard is LOAD-BEARING: when the host injects the authority
+// context (the documented seam) it gates money-moving UNTRUSTED kinds and closes
+// IDOR; when absent it is inert (pre-035 posture, preserving every test above).
+
+describe("pack-payments-pix — 035 authority guard (money-moving owner predicate)", () => {
+  const VICTIM = "merchant_42";
+  const RESOURCE = "acct_7";
+
+  // The injected authority-graph snapshot: merchant_42 owns acct_7.
+  const store = createAuthorityGraphStore({
+    edges: [
+      {
+        principal: VICTIM,
+        relationship: "owns" as const,
+        resource: RESOURCE,
+        permits: { actions: ["pix.charge.refund", "pix.charge.create"] },
+      },
+    ],
+  });
+
+  // Host session→identity map (the IDOR-closing seam). NEVER reads resourceRefs.
+  const sessionToPrincipal: Record<string, string> = {
+    "s-owner": VICTIM, // an honestly-authenticated owner session
+    "s-attacker": "attacker_principal", // NOT the owner
+  };
+  const authority: PixAuthorityContext = {
+    store,
+    principalOf: (sessionId) => sessionToPrincipal[sessionId] ?? null,
+  };
+
+  // A confirmed charge the refund can act on (so business would otherwise EXECUTE).
+  const baseCharges = (): ReadonlyMap<string, PixCharge> =>
+    new Map<string, PixCharge>([
+      [
+        "cha-1",
+        {
+          id: "cha-1",
+          amountCentavos: 30_000,
+          status: "confirmed",
+          nonce: "n-test",
+          createdAt: DET_TIME,
+          confirmedAt: DET_TIME,
+        },
+      ],
+    ]);
+
+  function refundEnv(
+    sessionId: string,
+    owner: string,
+  ): IntentEnvelope<PixIntentKind, unknown> {
+    return buildEnvelope({
+      kind: "pix.charge.refund",
+      payload: { chargeId: "cha-1", refundCentavos: 20_000, reason: "x" },
+      actor: { principal: "user", sessionId },
+      taint: "UNTRUSTED",
+      nonce: "n-auth",
+      createdAt: DET_TIME,
+      resourceRefs: { owner, resource: RESOURCE },
+    });
+  }
+
+  it("inert without injected authority — money-moving refund still EXECUTEs (pre-035 posture)", () => {
+    // No `authority` in state ⇒ the guard returns null and the refund flows to
+    // business exactly as the EXECUTE test above. Proves the seam is opt-in.
+    const noAuthState: PixState = { charges: baseCharges() };
+    const decision = adjudicate(refundEnv("s-owner", VICTIM), noAuthState, pixPolicyBundle);
+    expect(decision.kind).toBe("EXECUTE");
+  });
+
+  it("BINDING with injected authority — an honestly-authenticated owner EXECUTEs", () => {
+    // owner=VICTIM, session resolves to VICTIM ⇒ the authenticated actor IS the
+    // owner ⇒ the guard continues (null) and business EXECUTEs the refund.
+    const authState: PixState = { charges: baseCharges(), authority };
+    const decision = adjudicate(refundEnv("s-owner", VICTIM), authState, pixPolicyBundle);
+    expect(decision.kind).toBe("EXECUTE");
+  });
+
+  it("REFUSEs the forged-unbound owner (declared owner not bound to the resource)", () => {
+    const authState: PixState = { charges: baseCharges(), authority };
+    const decision = adjudicate(refundEnv("s-attacker", "attacker"), authState, pixPolicyBundle);
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+    expect(decision.basis.map((b) => `${b.category}:${b.code}`)).toContain(
+      "auth:scope_insufficient",
+    );
+  });
+
+  it("CLOSES IDOR — REFUSEs an impersonation (forged BOUND owner ≠ authenticated actor)", () => {
+    // The attacker forges owner=VICTIM (the REAL bound owner) but the
+    // authenticated session resolves to attacker_principal ⇒ REFUSE. This is the
+    // case the bare wiring would let escape; the principalOf seam closes it.
+    const authState: PixState = { charges: baseCharges(), authority };
+    const decision = adjudicate(refundEnv("s-attacker", VICTIM), authState, pixPolicyBundle);
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+  });
+
+  it("FAILS CLOSED when authority is injected without a principalOf identity source", () => {
+    // A host that injects the store but NO identity map cannot prove the
+    // authenticated actor, so even a genuinely-bound owner REFUSEs (no
+    // false-sense-of-security fallback to bare declared-owner binding).
+    const authState: PixState = { charges: baseCharges(), authority: { store } };
+    const decision = adjudicate(refundEnv("s-owner", VICTIM), authState, pixPolicyBundle);
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+  });
+
+  it("the guard runs AFTER taint (§D #3): a TRUSTED-only confirm at UNTRUSTED hits the taint gate, not the owner predicate", () => {
+    // pix.charge.confirm is TRUSTED-min; an UNTRUSTED proposal must be refused by
+    // the TAINT gate (taint short-circuits before auth), never reach the owner
+    // predicate. Use a PENDING charge so the state guard passes and the taint
+    // gate is the one that fires. The forged owner ref would otherwise tempt the
+    // authority guard — but the guard never matches confirm AND taint runs first.
+    const pendingCharges: ReadonlyMap<string, PixCharge> = new Map<string, PixCharge>([
+      ["cha-1", { id: "cha-1", amountCentavos: 30_000, status: "pending", nonce: "n-test", createdAt: DET_TIME }],
+    ]);
+    const authState: PixState = { charges: pendingCharges, authority };
+    const confirmEnv = buildEnvelope({
+      kind: "pix.charge.confirm",
+      payload: { chargeId: "cha-1", providerTxId: "ptx", confirmedAt: DET_TIME },
+      actor: { principal: "llm", sessionId: "s-attacker" },
+      taint: "UNTRUSTED",
+      nonce: "n-confirm",
+      createdAt: DET_TIME,
+      resourceRefs: { owner: VICTIM, resource: RESOURCE },
+    });
+    const decision = adjudicate(confirmEnv, authState, pixPolicyBundle);
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    // The refusal is the TAINT gate's (SECURITY), reached BEFORE the auth phase —
+    // so it is NOT the authority guard's tenant_binding_violation. This pins the
+    // state→taint→auth ordering: taint short-circuits before the owner predicate.
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).not.toBe("tenant_binding_violation");
   });
 });

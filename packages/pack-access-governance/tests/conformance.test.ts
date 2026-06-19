@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  adjudicate,
   assertPackConformance,
+  buildEnvelope,
+  createAuthorityGraphStore,
   hashAuthorityGraph,
   installPack,
   readRecordedAuthoritySnapshot,
@@ -10,7 +13,7 @@ import {
   type PackV0,
   type PolicyBundle,
 } from "@adjudicate/core";
-import { accessGovernancePack } from "../src/index.js";
+import { accessGovernancePack, type AccessAuthorityContext, type AccessState } from "../src/index.js";
 
 describe("pack-access-governance — conformance", () => {
   it("satisfies PackV0 and passes assertPackConformance", () => {
@@ -21,6 +24,13 @@ describe("pack-access-governance — conformance", () => {
 
   it("default polarity is REFUSE", () => {
     expect(accessGovernancePack.policy.default).toBe("REFUSE");
+  });
+
+  // 035 — §D #8: the pack must ship a non-empty authGuards (an owner predicate)
+  // so its mutating UNTRUSTED-min kinds (access.request/revoke) cannot execute
+  // without an authority/owner check. Pre-035 this was `authGuards: []`.
+  it("ships a non-empty authGuards (constitutional owner predicate, §D #8)", () => {
+    expect(accessGovernancePack.policy.authGuards.length).toBeGreaterThan(0);
   });
 
   it("review.resolve is TRUSTED-only; request tolerates UNTRUSTED", () => {
@@ -108,5 +118,77 @@ describe("pack-access-governance — 033 authority-snapshot injection (no guard/
     expect(result.authoritySnapshot).toBeUndefined();
     expect("authoritySnapshot" in result).toBe(false);
     expect(readRecordedAuthoritySnapshot(result.pack)).toBeUndefined();
+  });
+});
+
+// ── 035 — the wired authority guard is LOAD-BEARING (non-vacuous) ──────────────
+// Proves the wired guard actually closes IDOR for the mutating UNTRUSTED kinds:
+// when the host injects authority + identity, an actor acting on a resource it is
+// not the authenticated owner of is REFUSEd at the auth gate; when authority is
+// absent the guard is inert (pre-035 posture — every other test here unaffected).
+describe("pack-access-governance — 035 authority guard (request owner predicate)", () => {
+  const OWNER = "principal_owner";
+  const RESOURCE = "db.prod"; // a KNOWN resource so the state guard passes
+
+  const store = createAuthorityGraphStore({
+    edges: [
+      {
+        principal: OWNER,
+        relationship: "owns" as const,
+        resource: RESOURCE,
+        permits: { actions: ["access.request"] },
+      },
+    ],
+  });
+  const authority: AccessAuthorityContext = {
+    store,
+    principalOf: (sessionId) =>
+      sessionId === "sess-owner" ? OWNER : sessionId === "sess-attacker" ? "attacker" : null,
+  };
+
+  function requestEnv(sessionId: string, owner: string) {
+    return buildEnvelope({
+      kind: "access.request",
+      payload: {
+        principal: OWNER,
+        resourceId: RESOURCE,
+        privilegeLevel: 0,
+        justification: "need read",
+      },
+      actor: { principal: "user", sessionId },
+      taint: "UNTRUSTED",
+      nonce: "n-acc-auth",
+      createdAt: "2026-05-18T12:00:00.000Z",
+      resourceRefs: { owner, resource: RESOURCE },
+    });
+  }
+
+  it("inert without injected authority — request flows past the auth gate (pre-035 posture)", () => {
+    const noAuth: AccessState = { reviews: new Map(), grants: new Map() };
+    const decision = adjudicate(requestEnv("sess-owner", OWNER), noAuth, accessGovernancePack.policy);
+    // No authority context ⇒ the auth guard is inert; the request reaches the
+    // business stage and DEFERs awaiting review (NOT an auth REFUSE).
+    expect(decision.kind).not.toBe("REFUSE");
+  });
+
+  it("REFUSEs at the auth gate when an attacker forges the bound owner (IDOR closed)", () => {
+    const withAuth: AccessState = { reviews: new Map(), grants: new Map(), authority };
+    // Attacker forges owner=OWNER (the real bound owner) but the authenticated
+    // session is "attacker" ⇒ the principalOf seam REFUSEs.
+    const decision = adjudicate(requestEnv("sess-attacker", OWNER), withAuth, accessGovernancePack.policy);
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
+    expect(decision.basis.map((b) => `${b.category}:${b.code}`)).toContain(
+      "auth:scope_insufficient",
+    );
+  });
+
+  it("an honestly-authenticated owner passes the auth gate", () => {
+    const withAuth: AccessState = { reviews: new Map(), grants: new Map(), authority };
+    const decision = adjudicate(requestEnv("sess-owner", OWNER), withAuth, accessGovernancePack.policy);
+    // Owner passes auth → reaches business → DEFERs awaiting review (not an auth REFUSE).
+    expect(decision.kind).not.toBe("REFUSE");
   });
 });

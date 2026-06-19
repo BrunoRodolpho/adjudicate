@@ -7,11 +7,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { adjudicate, buildEnvelope } from "@adjudicate/core";
+import { adjudicate, buildEnvelope, createAuthorityGraphStore } from "@adjudicate/core";
 import {
   approvalKey,
   deploymentPolicyBundle,
   type DeploymentApproval,
+  type DeploymentAuthorityContext,
   type DeploymentState,
 } from "../src/index.js";
 
@@ -202,5 +203,59 @@ describe("pack-deployments-approval — Decision algebra coverage", () => {
     });
     const decision = adjudicate(env, emptyState(), deploymentPolicyBundle);
     expect(decision.kind).toBe("REQUEST_CONFIRMATION");
+  });
+});
+
+// ── 035 — constitutional authority guard wired into authGuards (§D #8) ────────
+describe("pack-deployments-approval — 035 authority guard (deploy owner predicate)", () => {
+  const OWNER = "team_payments";
+  const SERVICE = "api";
+
+  const store = createAuthorityGraphStore({
+    edges: [
+      {
+        principal: OWNER,
+        relationship: "owns" as const,
+        resource: SERVICE,
+        permits: { actions: ["deployment.approval.request"] },
+      },
+    ],
+  });
+  const authority: DeploymentAuthorityContext = {
+    store,
+    principalOf: (sessionId) =>
+      sessionId === "s-owner" ? OWNER : sessionId === "s-attacker" ? "intruder" : null,
+  };
+
+  function requestEnv(sessionId: string, owner: string) {
+    return buildEnvelope({
+      kind: "deployment.approval.request",
+      payload: { service: SERVICE, environment: "staging", gitSha: "deadbeefdeadbeef", rampPercent: 25 },
+      actor: { principal: "user", sessionId },
+      taint: "UNTRUSTED",
+      nonce: "n-deploy-auth",
+      createdAt: "2026-05-13T12:00:00.000Z",
+      resourceRefs: { owner, resource: SERVICE },
+    });
+  }
+
+  it("inert without injected authority — staging deploy still EXECUTEs (pre-035 posture)", () => {
+    const decision = adjudicate(requestEnv("s-owner", OWNER), emptyState(), deploymentPolicyBundle);
+    expect(decision.kind).toBe("EXECUTE");
+  });
+
+  it("binding owner passes the auth gate and EXECUTEs the staging deploy", () => {
+    const state: DeploymentState = { approvals: new Map(), authority };
+    const decision = adjudicate(requestEnv("s-owner", OWNER), state, deploymentPolicyBundle);
+    expect(decision.kind).toBe("EXECUTE");
+  });
+
+  it("REFUSEs at the auth gate when an attacker forges the bound deploy owner (IDOR closed)", () => {
+    const state: DeploymentState = { approvals: new Map(), authority };
+    const decision = adjudicate(requestEnv("s-attacker", OWNER), state, deploymentPolicyBundle);
+    expect(decision.kind).toBe("REFUSE");
+    if (decision.kind !== "REFUSE") return;
+    expect(decision.refusal.kind).toBe("SECURITY");
+    expect(decision.refusal.code).toBe("tenant_binding_violation");
   });
 });

@@ -9,10 +9,12 @@ import {
   OWNERSHIP_VICTIM_RESOURCE,
   runRedTeam,
   type RedTeamPack,
+  type RedTeamScenario,
 } from "../src/index.js";
 import {
   basis,
   BASIS_CODES,
+  buildEnvelope,
   createAuthorityGraphStore,
   decisionRefuse,
   refuse,
@@ -22,6 +24,7 @@ import {
   type PolicyBundle,
 } from "@adjudicate/core";
 import { createAuthorityGuard, createSystemTaintPolicy } from "@adjudicate/primitives";
+import { paymentsPixPack, type PixAuthorityContext } from "@adjudicate/pack-payments-pix";
 import { strictStubPack } from "./helpers.js";
 
 const pack = strictStubPack();
@@ -339,5 +342,126 @@ describe("generateOwnershipViolationEnvelopes (034 — authority guard / IDOR)",
     // authority guard is wired — exactly the §D #8 violation 034's primitive +
     // 035's wiring close. 2 cases * 3 perIntent = 6.
     expect(report.summary.escaped).toBe(6);
+  });
+});
+
+// ── 035 — the REAL pix pack's money-moving UNTRUSTED kinds reach the owner ─────
+// predicate once 035 wires createAuthorityGuard into authGuards AND the host
+// injects the authority context (the documented seam). This is the IDOR vector
+// 084's frozen canary set consumes. Asserts pix.charge.create/refund (the exact
+// §D #8 cases) are REFUSEd at the AUTHORITY gate (basis auth:scope_insufficient),
+// not by the taint floor or a state precondition.
+describe("035 — REAL pix pack money-moving kinds hit the owner predicate (IDOR vector for 084)", () => {
+  // The injected authority snapshot binds OWNERSHIP_VICTIM_PRINCIPAL to the victim
+  // resource (the same pair the impersonation vector forges).
+  const store = createAuthorityGraphStore({
+    edges: [
+      {
+        principal: OWNERSHIP_VICTIM_PRINCIPAL,
+        relationship: "owns" as const,
+        resource: OWNERSHIP_VICTIM_RESOURCE,
+        permits: { actions: ["pix.charge.create", "pix.charge.refund"] },
+      },
+    ],
+  });
+
+  // Host-injection seam: the IDOR-closing identity map. The vector stamps the
+  // attacker session "red-team-attacker"; it must NOT resolve to the victim.
+  const authority: PixAuthorityContext = {
+    store,
+    principalOf: (sessionId) =>
+      sessionId === "red-team-attacker" ? "attacker-principal" : null,
+  };
+
+  // A RedTeamPack view of the REAL pix pack whose rehydrateState INJECTS the host
+  // authority context (the production host wires this from its session→identity
+  // map; the pack's own JSON rehydrator intentionally does not carry host infra).
+  const pixWithAuthority: RedTeamPack = {
+    id: paymentsPixPack.id,
+    intents: paymentsPixPack.intents as ReadonlyArray<string>,
+    policy: paymentsPixPack.policy as PolicyBundle<string, unknown, unknown>,
+    rehydrateState: () => ({ charges: new Map(), authority }),
+  };
+
+  it("emits ownership vectors for the money-moving UNTRUSTED-min kinds (create + refund), not the TRUSTED webhook", () => {
+    const out = generateOwnershipViolationEnvelopes(pixWithAuthority, { perIntent: 3 });
+    const kinds = new Set(out.map((s) => s.intent.kind));
+    expect(kinds.has("pix.charge.create")).toBe(true);
+    expect(kinds.has("pix.charge.refund")).toBe(true);
+    // pix.charge.confirm is TRUSTED-min (taint gate owns it) — never targeted.
+    expect(kinds.has("pix.charge.confirm")).toBe(false);
+  });
+
+  it("the generated ownership vectors are fully DEFENDED against the real pix pack (0 escapes)", () => {
+    // The generic generator payload carries no valid chargeId, so for pix.charge.
+    // refund a STATE precondition (validateRefundTarget — charge not found) fires
+    // BEFORE the auth gate; for pix.charge.create the auth gate fires. Either way
+    // the money-moving IDOR attempt is DEFENDED (REFUSE), never an escape. This is
+    // the honest causality the lighthouse fixture also documents for taint.
+    const out = generateOwnershipViolationEnvelopes(pixWithAuthority, { perIntent: 3 });
+    const report = runRedTeam(pixWithAuthority, out);
+    expect(report.summary.total).toBeGreaterThan(0);
+    expect(report.summary.escaped).toBe(0);
+    expect(report.summary.errors).toBe(0);
+    for (const r of report.results) expect(r.status).toBe("defended");
+  });
+
+  it("a state-valid refund with a forged owner REACHES the owner predicate (auth-gate REFUSE)", () => {
+    // To prove the OWNER PREDICATE (not a state precondition) defends the money-
+    // moving kind, hand-build a refund whose payload PASSES the state guards (a
+    // confirmed charge exists) but forges the REAL bound victim owner. The state
+    // guards pass ⇒ the AUTH gate runs ⇒ the impersonation is REFUSEd by the owner
+    // predicate, basis auth:scope_insufficient. This is the case the bare wiring
+    // would let escape; the host `principalOf` seam closes it.
+    const confirmedCharge = {
+      id: "cha-x",
+      amountCentavos: 30_000,
+      status: "confirmed" as const,
+      nonce: "n",
+      createdAt: "2026-05-18T12:00:00.000Z",
+      confirmedAt: "2026-05-18T12:00:00.000Z",
+    };
+    const stateWithCharge = {
+      charges: new Map([["cha-x", confirmedCharge]]),
+      authority, // host-injected seam
+    };
+    const forgedRefund: IntentEnvelope<string, unknown> = buildEnvelope({
+      kind: "pix.charge.refund",
+      payload: { chargeId: "cha-x", refundCentavos: 10_000, reason: "x" },
+      actor: { principal: "user", sessionId: "red-team-attacker" }, // NOT the victim
+      taint: "UNTRUSTED",
+      nonce: "n-forged-refund",
+      createdAt: "2026-05-18T12:00:00.000Z",
+      // Forge the REAL bound owner (impersonation) — defeats the bare wiring.
+      resourceRefs: { owner: OWNERSHIP_VICTIM_PRINCIPAL, resource: OWNERSHIP_VICTIM_RESOURCE },
+    });
+    const scenario: RedTeamScenario = {
+      name: "pix.refund.state_valid_impersonation",
+      vector: "taint_escalation",
+      intent: {
+        kind: forgedRefund.kind,
+        payload: forgedRefund.payload,
+        actor: forgedRefund.actor,
+        taint: forgedRefund.taint,
+        nonce: forgedRefund.nonce,
+        createdAt: forgedRefund.createdAt,
+        resourceRefs: forgedRefund.resourceRefs,
+      },
+      state: stateWithCharge,
+      defense: { acceptable: ["REFUSE"] },
+    };
+    // Use a view whose rehydrateState passes the rich state through verbatim.
+    const pixPassthrough: RedTeamPack = {
+      ...pixWithAuthority,
+      rehydrateState: (raw) => raw,
+    };
+    const report = runRedTeam(pixPassthrough, [scenario]);
+    expect(report.summary.escaped).toBe(0);
+    const r = report.results[0]!;
+    expect(r.status).toBe("defended");
+    expect(r.decision).toBe("REFUSE");
+    // The defense is the AUTHORITY guard's owner predicate — the money-moving kind
+    // genuinely reached it (state preconditions passed).
+    expect(r.basisCodes).toContain(`auth:${BASIS_CODES.auth.SCOPE_INSUFFICIENT}`);
   });
 });

@@ -22,6 +22,7 @@
  *                            confirmed, REWRITES if refund > original.
  */
 
+import type { AuthorityGraphStore } from "@adjudicate/core";
 import { createSystemTaintPolicy } from "@adjudicate/primitives";
 
 export type PixIntentKind =
@@ -75,9 +76,54 @@ export interface PixCharge {
   readonly refundedCentavos?: number;
 }
 
+/**
+ * The host-supplied authority context the constitutional authority guard (034)
+ * reads from `state` (the kernel never hands a guard an identity argument — auth
+ * facts flow through `state`, `packages/core/src/kernel/policy.ts`). INJECTED as
+ * an immutable snapshot (index §B/§D): the authority-graph store (032/033) plus
+ * the IDOR-closing host-identity seam.
+ *
+ * OPTIONAL by design (035 wiring contract). When absent, the authority guard is
+ * inert (returns `null`) — the pre-035 standalone-demo posture the lighthouse
+ * scenarios/fixtures use, which carry no identity model. When PRESENT, the guard
+ * is binding and fail-closed: it REFUSEs a money-moving UNTRUSTED kind whose
+ * declared owner (`envelope.resourceRefs.owner`) is not bound to the resource in
+ * `store`, AND (via `principalOf`) whose AUTHENTICATED actor is not that owner.
+ *
+ * ⚠️ IDOR residual (034-F1/F2). `principalOf` is the seam that actually closes
+ * IDOR. The host MUST resolve the AUTHENTICATED acting principal from a trusted
+ * session→identity map keyed by `actor.sessionId` — NEVER from
+ * `resourceRefs.owner` (attacker-controlled) — and its namespace MUST match the
+ * authority-graph principal names. WITHOUT `principalOf`, the guard only enforces
+ * "the declared owner genuinely owns the resource" and does NOT close IDOR (a
+ * forged-but-bound owner ref passes). There is no production authenticated-
+ * identity data model yet (`IntentActor.principal` is the provenance enum;
+ * `attest()` is a v0.2 stub), so this is the documented host injection point.
+ */
+export interface PixAuthorityContext {
+  /** The injected authority-graph snapshot store (032/033). */
+  readonly store: AuthorityGraphStore;
+  /**
+   * IDOR-closing host-identity seam. Resolves the AUTHENTICATED acting principal
+   * from `actor.sessionId` (a trusted host session→identity map) — NEVER from
+   * `resourceRefs.owner`. Return `null` for an unauthenticated/unknown session
+   * (the guard then REFUSEs, fail-closed). Omit only when the host has no
+   * identity model AND accepts the documented IDOR residual.
+   */
+  readonly principalOf?: (sessionId: string) => string | null;
+}
+
 export interface PixState {
   /** All charges, keyed by charge id. Adopter persistence is out of scope. */
   readonly charges: ReadonlyMap<string, PixCharge>;
+  /**
+   * OPTIONAL injected authority context (032/033/034). When present, the
+   * authority guard in `authGuards` is binding for money-moving UNTRUSTED kinds
+   * (`pix.charge.create`/`refund`); when absent the guard is inert. See
+   * `PixAuthorityContext` for the IDOR residual. NOT serialized into the audit
+   * payload by the pack (the store/identity are host infra, not charge state).
+   */
+  readonly authority?: PixAuthorityContext;
 }
 
 // ── Context ─────────────────────────────────────────────────────────────

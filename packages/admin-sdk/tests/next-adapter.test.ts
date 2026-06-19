@@ -104,6 +104,31 @@ describe("toNextRouteHandler — requireAuth gate", () => {
       ).toThrow(/requireAuth/i);
     });
 
+    // 115 — the governance VIEWS (kill-switch read-status, dashboards, policy
+    // history) ride the read-only plane. The fail-closed prod mount MUST cover
+    // them too: a governance-views app cannot serve `governance.killSwitchTimeline`
+    // in production without an auth gate (§3 — "a governance-views app cannot
+    // mount in prod without an auth gate").
+    it("runs requireAuth before a governance read (killSwitchTimeline) can reach a resolver", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const seen: string[] = [];
+      const { GET } = toNextRouteHandler({
+        router: readOnlyAdminRouter,
+        endpoint: "/api/admin/trpc",
+        createContext: () => dummyContext,
+        requireAuth: (req) => {
+          seen.push(new URL(req.url).pathname);
+          return new Response("unauth", { status: 401 });
+        },
+      });
+      const res = await GET(
+        new Request("https://x/api/admin/trpc/governance.killSwitchTimeline"),
+      );
+      expect(res.status).toBe(401);
+      // The gate ran BEFORE the governance resolver — no record-level data leaked.
+      expect(seen).toEqual(["/api/admin/trpc/governance.killSwitchTimeline"]);
+    });
+
     it("runs requireAuth before the escalate.raise mutation can reach a resolver", async () => {
       vi.stubEnv("NODE_ENV", "production");
       const seen: string[] = [];

@@ -174,6 +174,49 @@ describe("createEmergencyHandler", () => {
       const events = await handler.history(10);
       expect(events).toHaveLength(0);
     });
+
+    // ── 115 — the kill-switch read-status view's data source is a PURE READ ──
+    // The Adjudicant kill-switch timeline reads `history(...)` and maps it onto
+    // the pure `analyzeKillSwitchTimeline`. This pins that the history read is
+    // honored WITHOUT ever engaging the WRITE/`update` path: a spy store whose
+    // `update` would throw is never reached by the read, and repeated reads
+    // leave the state + history byte-identical.
+    it("honors the history read used by the kill-switch view without engaging update", async () => {
+      const inner = createInMemoryEmergencyStateStore();
+      // Seed one real transition so the timeline has content.
+      await inner.update({
+        newStatus: "DENY_ALL",
+        reason: "Seed engagement for the kill-switch timeline read",
+        actor: operator,
+      });
+
+      let updateCalls = 0;
+      const readGuardStore: EmergencyStateStore = {
+        getState: () => inner.getState(),
+        history: (limit) => inner.history(limit),
+        // A read that engaged the write path is a governance defect — make it
+        // loud: any `update` from a READ surface throws.
+        update: () => {
+          updateCalls++;
+          throw new Error(
+            "kill-switch READ view must never engage the update WRITE path",
+          );
+        },
+      };
+
+      const handler = createEmergencyHandler({ stateStore: readGuardStore });
+      const stateBefore = await handler.getState();
+      const first = await handler.history(100);
+      const second = await handler.history(100);
+
+      // The view's data source is read-only and stable across reads.
+      expect(updateCalls).toBe(0);
+      expect(first).toHaveLength(1);
+      expect(first[0]!.newStatus).toBe("DENY_ALL");
+      expect(second).toEqual(first);
+      const stateAfter = await handler.getState();
+      expect(stateAfter).toEqual(stateBefore);
+    });
   });
 });
 

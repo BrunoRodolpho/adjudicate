@@ -5,6 +5,7 @@ import {
   Eye,
   FolderSearch,
   LayoutDashboard,
+  Landmark,
   ScrollText,
   ShieldCheck,
 } from "lucide-react";
@@ -33,6 +34,9 @@ const NAV_ITEMS: readonly NavItem[] = [
   // 114 — the friction-monotone Escalate / recommend surface (pause/review/
   // escalate). The ONE write the observer plane permits; never authorize/weaken.
   { href: "/escalate", label: "Escalate", icon: ArrowUpCircle },
+  // 115 — the read-only Governance views (policy-version history, dashboards,
+  // kill-switch READ-status timeline). Pure reads; no operator control here.
+  { href: "/governance", label: "Governance", icon: Landmark },
 ] as const;
 
 /**

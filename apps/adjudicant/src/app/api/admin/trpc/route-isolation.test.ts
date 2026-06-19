@@ -93,4 +93,26 @@ describe("apps/adjudicant route — mounts the READ-ONLY router (write-isolation
     // ONLY write port on the wire.
     expect(routeCode).toContain("escalationSink");
   });
+
+  // ── 115 — governance views wired READ-ONLY (kill-switch read-status only) ──
+  it("the route wires the governance READ ports (killSwitchTimeline + guardFireStats)", () => {
+    // 115's load-bearing surface: the kill-switch READ-status timeline is wired
+    // from the OBSERVER's emergency history, and the guard-fire dashboard port is
+    // wired. Both are pure-read context ports — no mutation.
+    expect(routeCode).toContain("killSwitchTimeline:");
+    expect(routeCode).toContain("guardFireStats");
+  });
+
+  it("the kill-switch timeline is derived from emergency.history as a pure READ (never the WRITE path)", () => {
+    // 115 maps emergency.history → KillSwitchEvent[] and runs the pure analyzer.
+    // It MUST read history; it must NEVER call the WRITE/update path (which the
+    // read-only router does not even expose). The 4 authorize/weaken mutation
+    // tokens (incl. emergency.update) were already proven absent above; here we
+    // pin the kill-switch view's data source is the READ `history`.
+    expect(routeCode).toContain("emergencyStore.history(");
+    expect(routeCode).toContain("analyzeKillSwitchTimeline");
+    // The kill-switch WRITE (engage/clear) is structurally absent — re-asserted
+    // for the 115 read-status-only invariant.
+    expect(routeCode.includes("emergency.update")).toBe(false);
+  });
 });

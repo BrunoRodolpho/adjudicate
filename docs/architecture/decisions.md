@@ -127,7 +127,8 @@ Individual decisions live as numbered ADRs in
 | ADR-115 | Pack trust primitives (fingerprinting + signature verification) |
 | ADR-116 | Post-v1 extension discipline |
 
-The ADR directory is authoritative for the full list (ADR-101..ADR-136).
+The ADR directory is authoritative for the full list (ADR-101..ADR-143;
+highest is `ADR-143-approval-engine-governance.md`).
 
 ---
 

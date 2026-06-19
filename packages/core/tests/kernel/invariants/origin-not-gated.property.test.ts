@@ -1,25 +1,24 @@
 /**
- * Invariant (041): `origin` is STAMPED and HASHED but consulted by NO guard.
+ * Invariant (041 → evolved by 042): `origin` is STAMPED and HASHED, and is
+ * consulted by the kernel ONLY to ATTRIBUTE a taint-gate refusal — never to
+ * change the Decision KIND, never to weaken a gate.
  *
- * Plan 041 adds the harness-stamped `origin` provenance source axis to the
- * envelope and binds it into the `intentHash` pre-image — but it is NOT yet a
- * gate input. The kernel's taint gate is UNCHANGED: it calls envelope-level
- * `canPropose(envelope.taint, envelope.kind, policy.taint)` (adjudicate.ts),
- * never `origin`. The contaminating propagation gate that CONSUMES `origin`
- * is plan 042; until then 041 must be NEITHER more restrictive NOR more
- * permissive than the pre-041 kernel.
+ * Plan 041 added the harness-stamped `origin` provenance source axis, bound it
+ * into the `intentHash` pre-image, and consulted it from NO guard. Plan 042 (this
+ * file's chartered evolution) makes the kernel read `origin` read-only at the
+ * taint gate to choose the basis CODE on an ALREADY-FAILING `canPropose` refusal:
+ * a contaminating origin (Retrieved / ExternalAPI) populates the previously-unused
+ * `taint:propagation_violation` basis so audit can distinguish a contamination-
+ * lowered refusal from a bare declared-untrusted one. This is NOT a new outcome
+ * (still REFUSE), NOT a new guard phase, and NOT a friction change — the Decision
+ * KIND remains origin-invariant.
  *
- * This invariant proves the no-decision-change property by the only
- * outcome-level test that matters: two envelopes that differ in NOTHING but
- * `origin` (same kind/payload/nonce/actor/taint) must produce the SAME
- * Decision — same kind, same basis — under any policy. If `origin` ever
- * leaked into a guard, this property would break the moment the two origins
- * diverged. It also pins that `PROPAGATION_VIOLATION` is never emitted from
- * an origin difference in 041 (it is reserved for 042).
- *
- * It additionally pins replay byte-identity (§D #5) with the new field
- * recorded: the same recorded inputs (now including `origin`) re-derive the
- * exact stored `intentHash`.
+ * The properties below pin the 042-evolved contract precisely:
+ *   1. origin NEVER changes the Decision KIND (no EXECUTE↔REFUSE flip).
+ *   2. `propagation_violation` is emitted ONLY on a taint-gate REFUSE AND ONLY
+ *      for a contaminating origin — never on an EXECUTE, never for a
+ *      non-contaminating origin (Human / System / LLM).
+ *   3. replay byte-identity (§D #5) holds with `origin` recorded.
  */
 
 import { describe, expect, it } from "vitest";
@@ -27,6 +26,7 @@ import fc from "fast-check";
 import {
   buildEnvelope,
   deriveIntentHash,
+  isContaminatingOrigin,
   type IntentEnvelope,
   type Origin,
   type Taint,
@@ -80,8 +80,8 @@ function envWithOrigin(
   });
 }
 
-describe("invariant 041: origin is stamped+hashed but NOT a gate input", () => {
-  it("origin never changes the Decision (same everything-but-origin → same decision)", () => {
+describe("invariant 041→042: origin attributes a taint refusal, never changes the outcome", () => {
+  it("origin never changes the Decision KIND (same everything-but-origin → same kind)", () => {
     fc.assert(
       fc.property(
         kindArb,
@@ -103,31 +103,84 @@ describe("invariant 041: origin is stamped+hashed but NOT a gate input", () => {
             {},
             b,
           );
-          // Origin is invisible to the gate: identical decision kind + basis.
+          // 042: origin can ONLY influence the basis CODE on a taint refusal —
+          // never the decision KIND. EXECUTE↔REFUSE is origin-invariant, so a
+          // contaminating origin can neither buy an EXECUTE nor manufacture a
+          // refusal where the taint gate passes.
           expect(dA.kind).toBe(dB.kind);
-          expect(dA.basis.map((x) => `${x.category}:${x.code}`)).toEqual(
-            dB.basis.map((x) => `${x.category}:${x.code}`),
-          );
         },
       ),
       { numRuns: 1_000 },
     );
   });
 
-  it("no origin difference ever emits a taint:propagation_violation (reserved for 042)", () => {
+  it("origin leaves the non-taint basis sequence byte-identical (only the taint code may differ)", () => {
     fc.assert(
-      fc.property(kindArb, taintArb, originArb, (kind, taint, origin) => {
-        const decision = adjudicate(
-          envWithOrigin(kind, taint, { x: 1 }, origin),
-          {},
-          bundle("SYSTEM", "EXECUTE"),
-        );
-        expect(
-          decision.basis.some(
+      fc.property(
+        kindArb,
+        taintArb,
+        jsonSafePayloadArb,
+        originArb,
+        originArb,
+        fc.constantFrom<Taint>("SYSTEM", "TRUSTED", "UNTRUSTED"),
+        fc.constantFrom<"REFUSE" | "EXECUTE">("REFUSE", "EXECUTE"),
+        (kind, taint, payload, originA, originB, minimum, def) => {
+          const b = bundle(minimum, def);
+          const dA = adjudicate(
+            envWithOrigin(kind, taint, payload as Record<string, unknown>, originA),
+            {},
+            b,
+          );
+          const dB = adjudicate(
+            envWithOrigin(kind, taint, payload as Record<string, unknown>, originB),
+            {},
+            b,
+          );
+          // Every basis EXCEPT a taint-category code is identical across origins.
+          const nonTaint = (d: typeof dA) =>
+            d.basis
+              .filter((x) => x.category !== "taint")
+              .map((x) => `${x.category}:${x.code}`);
+          expect(nonTaint(dA)).toEqual(nonTaint(dB));
+        },
+      ),
+      { numRuns: 1_000 },
+    );
+  });
+
+  it("propagation_violation appears ONLY on a taint REFUSE AND ONLY for a contaminating origin", () => {
+    fc.assert(
+      fc.property(
+        kindArb,
+        taintArb,
+        originArb,
+        fc.constantFrom<Taint>("SYSTEM", "TRUSTED", "UNTRUSTED"),
+        fc.constantFrom<"REFUSE" | "EXECUTE">("REFUSE", "EXECUTE"),
+        (kind, taint, origin, minimum, def) => {
+          const decision = adjudicate(
+            envWithOrigin(kind, taint, { x: 1 }, origin),
+            {},
+            bundle(minimum, def),
+          );
+          const hasPropagation = decision.basis.some(
             (x) => x.category === "taint" && x.code === "propagation_violation",
-          ),
-        ).toBe(false);
-      }),
+          );
+          if (hasPropagation) {
+            // Only ever on a REFUSE produced by the taint gate ...
+            expect(decision.kind).toBe("REFUSE");
+            // ... and only for a contaminating origin.
+            expect(isContaminatingOrigin(origin)).toBe(true);
+          }
+          // A non-contaminating origin NEVER emits propagation_violation.
+          if (!isContaminatingOrigin(origin)) {
+            expect(hasPropagation).toBe(false);
+          }
+          // An EXECUTE NEVER carries a propagation_violation basis.
+          if (decision.kind === "EXECUTE") {
+            expect(hasPropagation).toBe(false);
+          }
+        },
+      ),
       { numRuns: 1_000 },
     );
   });

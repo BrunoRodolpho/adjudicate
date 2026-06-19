@@ -92,7 +92,10 @@ export {
 } from "./guards.js";
 
 export {
+  createSessionContaminationPolicy,
   createSystemTaintPolicy,
   type Origin,
+  type SessionContaminationPolicy,
+  type SessionContaminationPolicyOptions,
   type SystemTaintPolicyOptions,
 } from "./taint.js";

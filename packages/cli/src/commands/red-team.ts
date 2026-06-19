@@ -10,6 +10,7 @@
 import {
   computeRedTeamExitCode,
   generatePromptInjectionEnvelopes,
+  generateProvenanceInjectionEnvelopes,
   generateTaintEscalationEnvelopes,
   generateToolScopeViolationEnvelopes,
   renderRedTeamJson,
@@ -31,12 +32,10 @@ export interface RedTeamOptions {
   readonly stdout?: (line: string) => void;
 }
 
-// 041 surfaced the `provenance_injection` seam in the AttackVector union.
-// Its generator lands with plan 042/043; until then there is no
-// `generate*Envelopes` for it, so requesting it yields zero scenarios (the
-// per-vector `if (vectors.includes(...))` blocks below have no provenance
-// arm yet). The key is listed so the CLI accepts it and 042/043 only need to
-// add the generator call, not re-wire the surface.
+// 041 surfaced the `provenance_injection` seam in the AttackVector union; 042
+// LANDS its generator (`generateProvenanceInjectionEnvelopes`, wired in the
+// per-vector block below). Requesting it now produces real contamination /
+// data-provenance scenarios.
 const ALL_VECTORS: ReadonlyArray<AttackVector> = [
   "prompt_injection",
   "taint_escalation",
@@ -65,6 +64,9 @@ export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> 
   }
   if (vectors.includes("tool_scope_violation")) {
     scenarios.push(...generateToolScopeViolationEnvelopes(pack, genOpts));
+  }
+  if (vectors.includes("provenance_injection")) {
+    scenarios.push(...generateProvenanceInjectionEnvelopes(pack, genOpts));
   }
 
   const report = runRedTeam(pack, scenarios);

@@ -70,6 +70,12 @@ export function runRedTeam(
         taint: s.intent.taint,
         nonce: s.intent.nonce,
         ...(s.intent.createdAt !== undefined ? { createdAt: s.intent.createdAt } : {}),
+        // 042: thread the contaminating origin through so the provenance-injection
+        // vector reaches the kernel's taint gate with a Retrieved/ExternalAPI
+        // source. Drop-safe — only spread when present, so the existing vectors
+        // (which omit it) build byte-identically and `buildEnvelope` defaults to
+        // the LLM source for them.
+        ...(s.intent.origin !== undefined ? { origin: s.intent.origin } : {}),
         // 031: thread resource-refs through so v3-with-refs vectors build.
         // Drop-safe — only spread when present, so no-refs vectors are byte-identical.
         ...(s.intent.resourceRefs !== undefined

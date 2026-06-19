@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createSystemTaintPolicy } from "../src/index.js";
+import {
+  createSessionContaminationPolicy,
+  createSystemTaintPolicy,
+} from "../src/index.js";
 
 describe("createSystemTaintPolicy", () => {
   it("returns TRUSTED for system-only kinds and UNTRUSTED for others", () => {
@@ -49,5 +52,27 @@ describe("createSystemTaintPolicy", () => {
         expect(withOrigin.minimumFor(kind)).toBe(baseline.minimumFor(kind));
       }
     }
+  });
+});
+
+describe("createSessionContaminationPolicy (042)", () => {
+  it("defaults to OFF (behavior-preserving) when no options are passed", () => {
+    expect(createSessionContaminationPolicy()).toEqual({ enabled: false });
+  });
+
+  it("defaults to OFF when enabled is omitted from an options object", () => {
+    expect(createSessionContaminationPolicy({})).toEqual({ enabled: false });
+  });
+
+  it("enables contamination only when explicitly opted in", () => {
+    expect(createSessionContaminationPolicy({ enabled: true })).toEqual({
+      enabled: true,
+    });
+  });
+
+  it("preserves an explicit disable", () => {
+    expect(createSessionContaminationPolicy({ enabled: false })).toEqual({
+      enabled: false,
+    });
   });
 });

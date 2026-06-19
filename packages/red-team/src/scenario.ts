@@ -1,14 +1,16 @@
-import type { DecisionKind, PolicyBundle, Taint } from "@adjudicate/core";
+import type { DecisionKind, Origin, PolicyBundle, Taint } from "@adjudicate/core";
 
 /**
  * The adversarial vectors red-team ships. Additive — new vectors land MINOR.
  *
- * 041 adds the closed seam for the PROVENANCE vector: a proposal whose
+ * 041 opened the closed seam for the PROVENANCE vector: a proposal whose
  * contaminating `origin` (e.g. `"Retrieved"` / `"ExternalAPI"`) should be
- * caught once the origin axis is gated. NOTE: 041 only opens the union seam
- * (so 042/043 can land scenarios); the kernel gate still calls envelope-level
- * `canPropose` only, so a provenance scenario is NOT yet defended — the
- * generators + the consuming gate arrive with plan 042/043.
+ * caught once the origin axis is consumed. 042 LANDS that vector's generator
+ * (`generateProvenanceInjectionEnvelopes`): an UNTRUSTED, system-only-kind
+ * proposal stamped with a contaminating origin, sourced from the planner's
+ * `visibleReadTools` (the READ→inject→intent path). The kernel now attributes
+ * such a sub-minimum refusal to `taint:propagation_violation`, so the scenario
+ * is genuinely defended (REFUSE), not a clean EXECUTE.
  */
 export type AttackVector =
   | "prompt_injection"
@@ -27,6 +29,15 @@ export interface ScenarioIntent {
   readonly taint: Taint;
   readonly nonce: string;
   readonly createdAt?: string;
+  /**
+   * 042 — optional harness-stamped provenance source axis. Canonical-drop-safe:
+   * omitted on the existing vectors so their envelopes hash and decide EXACTLY
+   * as before (the runner only threads it when present, and `buildEnvelope`
+   * defaults it to the LLM source either way). A provenance-injection vector
+   * supplies a CONTAMINATING origin (`"Retrieved"` / `"ExternalAPI"`) so the
+   * kernel attributes the taint refusal to `propagation_violation`.
+   */
+  readonly origin?: Origin;
   /**
    * 031 — optional per-kind resource refs. Canonical-drop-safe: omitted on the
    * existing vectors so their envelopes hash exactly as before; a vector that

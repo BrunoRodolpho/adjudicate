@@ -204,6 +204,21 @@ export interface ProviderBridge<H> {
 
 // ── Public agent surface (generic over history) ──────────────────────────────
 
+/**
+ * 042 — adopter-facing session-contamination configuration for the loop.
+ *
+ * Structurally compatible with `@adjudicate/primitives`'
+ * `SessionContaminationPolicy` (the canonical factory `createSessionContamination
+ * Policy` builds exactly this shape) — declared locally so adapter-core does not
+ * take a build dependency on primitives. When `enabled`, the loop folds session
+ * contamination into the minted intent taint via the lattice meet (monotonic;
+ * never raises trust). **Default OFF** when the option is omitted: the
+ * non-contaminated path is byte-identical to pre-042.
+ */
+export interface SessionContaminationConfig {
+  readonly enabled: boolean;
+}
+
 export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
   /**
    * Pack the agent adjudicates against. MUST already be the output of
@@ -352,6 +367,21 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
    * restores the exact pre-023 executor seam (023 §7).
    */
   readonly resourceBindingPolicy?: ResourceBindingPolicy;
+  /**
+   * 042 — session-contamination configuration. When `{ enabled: true }`, an
+   * untrusted-origin datum entering the session (an authorized READ result —
+   * data pulled from a store/tool, treated as `Retrieved`) contaminates the
+   * session: every subsequently minted LLM intent has its taint lowered via the
+   * lattice meet (so the kernel's `canPropose` gate sees the contaminated
+   * taint) and is stamped with the contaminating origin (so a contamination-
+   * lowered refusal is attributed `taint:propagation_violation`). Contamination
+   * is monotonic — it can only ADD friction (§C #7) — and is cleared ONLY by the
+   * adopter-authenticated `resume()` path, never by an LLM action.
+   *
+   * **Default OFF** (option omitted): the loop mints the declared taint
+   * unchanged, byte-identical to pre-042.
+   */
+  readonly contamination?: SessionContaminationConfig;
   /**
    * Optional low-cardinality trace sink. The loop emits one event per
    * iteration/decision/pause; sink must NOT throw. Defaults to no-op.

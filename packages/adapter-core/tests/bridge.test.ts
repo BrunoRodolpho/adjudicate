@@ -171,4 +171,77 @@ describe("buildEnvelopeFromToolUse", () => {
     });
     expect(a.intentHash).not.toBe(b.intentHash);
   });
+
+  // ── 042 — session contamination fold at the minting seam ──────────────────
+
+  it("042: no contamination flag → byte-identical to the pre-042 path (same hash)", () => {
+    const base = {
+      intentKind: "order.submit",
+      payload: { id: 1 },
+      sessionId: "s-1",
+      taint: "TRUSTED" as const,
+      origin: "LLM" as const,
+      nonce: "tu-clean",
+    };
+    const withoutFlag = buildEnvelopeFromToolUse(base);
+    const withUndefinedFlag = buildEnvelopeFromToolUse({
+      ...base,
+      contamination: undefined,
+    });
+    expect(withoutFlag.taint).toBe("TRUSTED");
+    expect(withoutFlag.origin).toBe("LLM");
+    expect(withUndefinedFlag.intentHash).toBe(withoutFlag.intentHash);
+  });
+
+  it("042: a contamination flag LOWERS the minted taint via the lattice meet", () => {
+    const envelope = buildEnvelopeFromToolUse({
+      intentKind: "order.submit",
+      payload: { id: 1 },
+      sessionId: "s-1",
+      // Declared TRUSTED, but the session is UNTRUSTED-contaminated.
+      taint: "TRUSTED",
+      origin: "LLM",
+      contamination: { taint: "UNTRUSTED", origin: "Retrieved" },
+      nonce: "tu-contam",
+    });
+    // Meet of TRUSTED and UNTRUSTED → UNTRUSTED (friction added, never removed).
+    expect(envelope.taint).toBe("UNTRUSTED");
+    // The contaminating source is stamped so the kernel attributes the cause.
+    expect(envelope.origin).toBe("Retrieved");
+  });
+
+  it("042: contamination NEVER raises trust above the declared taint", () => {
+    // Declared UNTRUSTED with a (nonsensically) higher contamination taint must
+    // still mint UNTRUSTED — the meet floor holds, no laundering.
+    const envelope = buildEnvelopeFromToolUse({
+      intentKind: "order.submit",
+      payload: { id: 1 },
+      sessionId: "s-1",
+      taint: "UNTRUSTED",
+      origin: "LLM",
+      contamination: { taint: "SYSTEM", origin: "ExternalAPI" },
+      nonce: "tu-floor",
+    });
+    expect(envelope.taint).toBe("UNTRUSTED");
+    expect(envelope.origin).toBe("ExternalAPI");
+  });
+
+  it("042: the folded taint/origin are inside the intentHash pre-image (hash differs)", () => {
+    const common = {
+      intentKind: "order.submit",
+      payload: { id: 1 },
+      sessionId: "s-1",
+      taint: "TRUSTED" as const,
+      origin: "LLM" as const,
+      nonce: "tu-preimage",
+    };
+    const clean = buildEnvelopeFromToolUse(common);
+    const contaminated = buildEnvelopeFromToolUse({
+      ...common,
+      contamination: { taint: "UNTRUSTED", origin: "Retrieved" },
+    });
+    // The fold happens before hashing, so a contaminated mint hashes
+    // differently — an LLM cannot post-hoc flip taint without breaking the hash.
+    expect(contaminated.intentHash).not.toBe(clean.intentHash);
+  });
 });

@@ -46,6 +46,33 @@ export type Origin = "Human" | "Retrieved" | "ExternalAPI" | "LLM" | "System";
  */
 export const DEFAULT_ORIGIN: Origin = "LLM";
 
+/**
+ * 042 — the subset of `Origin` that is *contaminating*: an untrusted datum
+ * pulled from a store/RAG/document (`"Retrieved"`) or a third-party API/tool
+ * result (`"ExternalAPI"`) fed back into the model's context. Once such a datum
+ * enters a session, subsequent LLM-proposed intents in that session inherit the
+ * untrusted taint rather than re-entering the loop byte-identical to a
+ * user-induced proposal (000_index.md §G "contaminating").
+ *
+ * `"Human"`/`"System"` are first-party trusted sources; `"LLM"` is the model's
+ * own proposal — none are a contaminating *data* source on their own.
+ */
+const CONTAMINATING_ORIGINS: ReadonlySet<Origin> = new Set<Origin>([
+  "Retrieved",
+  "ExternalAPI",
+]);
+
+/**
+ * 042 — is this `Origin` a contaminating data source? Pure predicate over the
+ * closed union. Used by the harness shell to detect when an untrusted-origin
+ * datum enters the session, and (read-only) by the kernel taint gate to
+ * attribute a sub-minimum refusal to propagation vs. a bare declared-untrusted
+ * proposal. Adding it here keeps the contamination definition single-sourced.
+ */
+export function isContaminatingOrigin(origin: Origin): boolean {
+  return CONTAMINATING_ORIGINS.has(origin);
+}
+
 /** Internal rank — higher number = more trust. */
 const RANK: Readonly<Record<Taint, number>> = {
   SYSTEM: 3,
@@ -102,6 +129,83 @@ export function canPropose(
 export function meetAll(taints: readonly Taint[]): Taint {
   if (taints.length === 0) return "SYSTEM";
   return taints.reduce((acc, t) => mergeTaint(acc, t));
+}
+
+// ── Session contamination (042) ─────────────────────────────────────────────
+
+/**
+ * 042 — the per-session contamination flag.
+ *
+ * Set in the impure harness shell when an untrusted-origin datum (per
+ * `isContaminatingOrigin`) enters the session context. Once set, it lowers the
+ * taint of every subsequently minted LLM intent envelope via the lattice meet
+ * (`applySessionContamination`) so the kernel's existing `canPropose` gate sees
+ * the contaminated taint — without adding a new kernel guard phase or any IO.
+ *
+ * Contract (000_index.md §C #7 / invariant #7 monotonicity):
+ *   - Contamination is **monotonic**: it can only *lower* trust, never raise it.
+ *     `taint` is the meet of every contaminating datum that entered (UNTRUSTED
+ *     once any untrusted datum has, since that is the floor of the lattice).
+ *   - The flag carries the contaminating `origin` so a contamination-lowered
+ *     refusal can be attributed (`taint:propagation_violation`) rather than
+ *     mistaken for a bare declared-untrusted proposal.
+ *   - Clearing the flag requires an adopter-authenticated signal on the same
+ *     path as `resume()` — never an LLM-controlled action. There is no helper
+ *     here that raises trust; constructing a *cleared* session is simply not
+ *     carrying a flag (`undefined`).
+ */
+export interface SessionContamination {
+  /** Lattice meet of every contaminating datum that entered the session. */
+  readonly taint: Taint;
+  /** The contaminating source that first lowered the session (audit attribution). */
+  readonly origin: Origin;
+}
+
+/**
+ * 042 — fold a session contamination flag into a freshly-declared taint at the
+ * envelope-minting seam. Pure lattice meet: the minted taint is the LOWER of
+ * the declared taint and the contamination taint, so contamination can only add
+ * friction, never remove it (§C). When no flag is present (`undefined`) the
+ * declared taint passes through unchanged — the non-contaminated path is
+ * byte-identical to pre-042 behavior.
+ *
+ * Folded BEFORE the envelope is hashed so the contaminated taint is inside the
+ * `intentHash` pre-image (invariant #4): an LLM cannot post-hoc flip it.
+ */
+export function applySessionContamination(
+  declaredTaint: Taint,
+  flag: SessionContamination | undefined,
+): Taint {
+  if (flag === undefined) return declaredTaint;
+  return mergeTaint(declaredTaint, flag.taint);
+}
+
+/**
+ * 042 — fold a newly-observed contaminating datum into the running session
+ * contamination flag, monotonically. Given the prior flag (or `undefined` for a
+ * clean session) and the origin/taint of an incoming datum, returns the updated
+ * flag when the datum is contaminating, else the prior flag unchanged.
+ *
+ * Monotonic by construction: the resulting `taint` is the meet of the prior
+ * contamination taint and the datum's taint (lowest trust wins), so a session
+ * can never become *more* trusted by ingesting more data. A non-contaminating
+ * origin (`Human`/`System`/`LLM`) leaves the flag untouched — trusted sources
+ * do not contaminate.
+ */
+export function contaminateSession(
+  prior: SessionContamination | undefined,
+  datum: { readonly origin: Origin; readonly taint: Taint },
+): SessionContamination | undefined {
+  if (!isContaminatingOrigin(datum.origin)) return prior;
+  if (prior === undefined) {
+    return { taint: datum.taint, origin: datum.origin };
+  }
+  return {
+    taint: mergeTaint(prior.taint, datum.taint),
+    // Preserve the FIRST contaminating origin as the attribution anchor; the
+    // taint is what tightens monotonically.
+    origin: prior.origin,
+  };
 }
 
 // ── Field-level taint (v1.1 — IBX-IGE P1-l) ─────────────────────────────────

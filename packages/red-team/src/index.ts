@@ -27,7 +27,12 @@ export {
 
 export { generatePromptInjectionEnvelopes } from "./vectors/prompt-injection.js";
 export { generateProvenanceInjectionEnvelopes } from "./vectors/provenance-injection.js";
-export { generateTaintEscalationEnvelopes } from "./vectors/taint-escalation.js";
+export {
+  generateOwnershipViolationEnvelopes,
+  generateTaintEscalationEnvelopes,
+  OWNERSHIP_VICTIM_PRINCIPAL,
+  OWNERSHIP_VICTIM_RESOURCE,
+} from "./vectors/taint-escalation.js";
 export { generateToolScopeViolationEnvelopes } from "./vectors/tool-scope-violation.js";
 
 export {

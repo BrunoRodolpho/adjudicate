@@ -584,6 +584,197 @@ export function ownershipBindingPredicate<S>(
   return (actor, state) => resolveFact(actor, state).bound;
 }
 
+// ─── createAuthorityGuard (034 — constitutional authority guard) ─────────────
+
+/**
+ * Constitutional authority guard (034). Ships a real, FAIL-CLOSED authority
+ * guard primitive: a mutating UNTRUSTED-min kind can no longer reach `EXECUTE`
+ * without an owner predicate firing (constitutional invariant §D #8).
+ *
+ * Shape & placement. It returns a kernel `Guard<K,P,S> = (envelope, state) =>
+ * Decision | null` — the SAME arity-2 contract every guard honors (the kernel
+ * never passes identity/RuntimeContext to a guard; the `IntentActor` stays
+ * provenance-only, so the authority FACT must flow through the injected `state`,
+ * `packages/core/src/kernel/policy.ts`). 034 ships ONLY this primitive; the
+ * per-pack wiring into `authGuards` — preserving kernel order
+ * `state→taint→auth→business` so taint short-circuits before auth (§D #3) — is
+ * 035's single-owner job. This factory supersedes `requireTenantBinding` as the
+ * authority primitive 035 wires.
+ *
+ * Resolver seam. `resolveOwner(envelope, state)` produces the `OwnershipFact`
+ * (032's `resolveOwnership(store, envelope)`) for the payload's resource from the
+ * injected authority-graph snapshot (032/033). A 034/035 adopter closes over its
+ * injected `AuthorityGraphStore` (read from `state`) when it builds the guard;
+ * the resolver reads the envelope's `resourceRefs` (031) for the (principal,
+ * resource) pair. The resolver computes a deterministic FACT — it NEVER returns
+ * a `Decision` and NEVER authorizes (index §B): this guard is the only thing that
+ * turns the fact into friction.
+ *
+ * ⚠️ KNOWN RESIDUAL — the BARE ownership-binding wiring does NOT close the IDOR
+ * class (handed to a later plan). Under the canonical wiring
+ * `resolveOwner=(env,store)=>resolveOwnership(store,env)`, the OwnershipFact's
+ * `principal` is read from `envelope.resourceRefs.owner` — an ATTACKER-CONTROLLED
+ * envelope field (031). Nothing in the bare wiring ties that declared owner to
+ * the AUTHENTICATED actor, because there is no authenticated identity to bind
+ * to: `IntentActor.principal` is the provenance enum `"llm"|"user"|"system"`
+ * only (`packages/core/src/envelope.ts`), it carries NO owner/account identity,
+ * and `attestation` (`KernelIdentity.attest`) is an unimplemented stub. So a
+ * caller that forges `resourceRefs.owner = <a real, snapshot-bound victim
+ * principal>` PASSES the bare check (the snapshot binds that victim to the
+ * resource), even though the AUTHENTICATED session is not that principal. The
+ * bare wiring therefore enforces "the DECLARED owner genuinely owns the resource"
+ * — a real and useful invariant — but it does NOT enforce "the AUTHENTICATED
+ * actor IS that owner", which is what closes IDOR. Closing IDOR requires an
+ * authenticated principal on the auth path; this primitive exposes the seam for
+ * it (`authenticatedPrincipal`, below) but the AUTHENTICATED-IDENTITY DATA MODEL
+ * (an actor with a verifiable resolved identity, not the provenance enum) is a
+ * pre-existing residual 034 cannot itself close — it is handed forward to the
+ * actor-attestation / v3-actor-model plan. Do NOT wire the BARE resolver onto a
+ * mutating kind and call it IDOR-closed; supply `authenticatedPrincipal` (or wait
+ * for the actor-identity plan) to actually defend IDOR.
+ *
+ * Closing IDOR — the `authenticatedPrincipal` seam. When the host CAN supply the
+ * acting principal from the AUTHENTICATED side (`envelope.actor` or a host
+ * identity map keyed by `actor.sessionId` — NEVER `resourceRefs.owner`), pass
+ * `options.authenticatedPrincipal`. The guard then additionally REQUIRES the
+ * resolved owner principal (`fact.principal`) to EQUAL the authenticated
+ * principal — a forged `resourceRefs.owner` naming a victim no longer passes,
+ * because the authenticated session is not that victim. With the seam supplied,
+ * the guard genuinely closes the IDOR class for the kinds it is wired onto.
+ *
+ * Fail-closed (§D #6). The guard returns `null` (continue) ONLY when the fact's
+ * `bound` predicate is `true` AND (when `authenticatedPrincipal` is supplied) the
+ * resolved owner principal equals the authenticated principal. EVERY other case
+ * REFUSEs:
+ *   - declared owner not bound to the resource (no binding edge) ⇒ REFUSE;
+ *   - absent/unresolvable owner — a missing `resourceRefs` ref yields a `null`
+ *     principal/resource and `bound: false` ⇒ REFUSE;
+ *   - authenticated-principal mismatch (forged owner ≠ authenticated actor, or an
+ *     absent/`null` authenticated principal when the seam is supplied) ⇒ REFUSE;
+ *   - a `resolveOwner` or `authenticatedPrincipal` that THROWS (an absent/
+ *     misconfigured graph store / identity map) is caught and REFUSEd, never
+ *     propagated as a fail-open `null`.
+ * There is no code path that returns `null` on an unresolvable owner or an
+ * unresolved authenticated principal — absence defaults to friction, never
+ * bypass (§C monotonicity: this is `EXECUTE→REFUSE` only, friction-increasing).
+ *
+ * Refusal codes. On any non-bound / mismatched outcome it REFUSEs `SECURITY` /
+ * `tenant_binding_violation` with basis `auth.SCOPE_INSUFFICIENT` — the SAME
+ * test-pinned codes `requireTenantBinding` emits, so the IDOR-class refusal
+ * surfaces under one stable code across both authority primitives.
+ *
+ * Decision algebra (§D #2). Emits only members of the closed 6-outcome `Decision`
+ * union (`REFUSE` | `null`); adds no `confidence`/free `metadata` to the Decision.
+ *
+ * Pure & synchronous (§D, invariant #5): a deterministic function of the supplied
+ * resolver over `(envelope, state)`; no clock/RNG/IO on any path. Browser-safe.
+ */
+export interface AuthorityGuardOptions<K extends string, P, S> {
+  /**
+   * Optional predicate scoping the guard to specific kinds. Returning `false`
+   * short-circuits to `null` (the guard has no opinion on out-of-scope kinds —
+   * those are governed by their own guards/taint floor). When omitted the guard
+   * applies to EVERY kind it is wired onto (fail-closed: no implicit exemption).
+   */
+  readonly matches?: (envelope: IntentEnvelope<K, P>, state: S) => boolean;
+  /**
+   * IDOR-closing seam. Resolves the AUTHENTICATED acting principal from the
+   * envelope's actor (or a host identity map in `state` keyed by
+   * `actor.sessionId`) — NEVER from `resourceRefs.owner` (which is
+   * attacker-controlled). When supplied, the guard additionally REQUIRES the
+   * resolved owner principal (`OwnershipFact.principal`) to EQUAL this
+   * authenticated principal, so a forged `resourceRefs.owner` naming a real
+   * (snapshot-bound) victim no longer passes. Return `null` for an
+   * unauthenticated/unresolvable session — the guard then REFUSEs (fail-closed),
+   * never bypasses. WITHOUT this seam the guard only checks that the DECLARED
+   * owner owns the resource and does NOT close the IDOR class (see the
+   * doc-comment residual). A throwing resolver is caught and REFUSEd.
+   */
+  readonly authenticatedPrincipal?: (
+    envelope: IntentEnvelope<K, P>,
+    state: S,
+  ) => string | null;
+  /** User-facing refusal text. Defaults to the neutral PT-BR string `requireTenantBinding` uses. */
+  readonly refusalUserFacing?: string;
+}
+
+export function createAuthorityGuard<K extends string, P, S>(
+  resolveOwner: (envelope: IntentEnvelope<K, P>, state: S) => OwnershipFact,
+  options: AuthorityGuardOptions<K, P, S> = {},
+): Guard<K, P, S> {
+  const refusalUserFacing =
+    options.refusalUserFacing ?? "Não consigo concluir essa ação.";
+
+  const refuseUnbound = (detail: string, fact?: OwnershipFact): Decision =>
+    decisionRefuse(
+      refuse("SECURITY", "tenant_binding_violation", refusalUserFacing, detail),
+      [
+        basis("auth", BASIS_CODES.auth.SCOPE_INSUFFICIENT, {
+          rule: "authority_guard",
+          principal: fact?.principal ?? null,
+          resource: fact?.resource ?? null,
+          bound: fact?.bound ?? false,
+        }),
+      ],
+    );
+
+  const guard: Guard<K, P, S> = (envelope, state) => {
+    if (options.matches && !options.matches(envelope, state)) return null;
+
+    let fact: OwnershipFact;
+    try {
+      fact = resolveOwner(envelope, state);
+    } catch {
+      // A throwing resolver = absent/misconfigured authority-graph snapshot.
+      // Fail CLOSED: REFUSE, never propagate as a fail-open `null`.
+      return refuseUnbound("owner could not be resolved (resolver threw)");
+    }
+
+    // First gate: the DECLARED owner must genuinely own the resource. Absent/
+    // unresolvable owner (`bound: false`) ⇒ REFUSE.
+    if (!fact.bound) {
+      return refuseUnbound(
+        "declared owner is not bound to the resource (no authority-graph edge)",
+        fact,
+      );
+    }
+
+    // Second gate (IDOR-closing) — ONLY when the host supplies an authenticated
+    // principal. The declared owner (`fact.principal`, read from the
+    // attacker-controlled `resourceRefs.owner`) MUST equal the AUTHENTICATED
+    // acting principal; otherwise a caller can forge a real victim's owner ref.
+    // WITHOUT the seam this gate is skipped and the guard does NOT close IDOR
+    // (documented residual) — it only enforces "declared owner owns resource".
+    if (options.authenticatedPrincipal) {
+      let authedPrincipal: string | null;
+      try {
+        authedPrincipal = options.authenticatedPrincipal(envelope, state);
+      } catch {
+        // A throwing identity resolver = absent/misconfigured identity map.
+        // Fail CLOSED: REFUSE, never bypass.
+        return refuseUnbound(
+          "authenticated principal could not be resolved (resolver threw)",
+          fact,
+        );
+      }
+      if (authedPrincipal === null || authedPrincipal !== fact.principal) {
+        return refuseUnbound(
+          "authenticated actor is not the declared resource owner (IDOR: forged owner ref)",
+          fact,
+        );
+      }
+    }
+
+    // `null` (continue): the declared owner owns the resource AND — when the
+    // seam is supplied — the authenticated actor IS that owner.
+    return null;
+  };
+
+  return withMetadata(guard, {
+    description: { kind: "opaque", note: "constitutional authority guard" },
+  });
+}
+
 // ─── createDataClassificationGuard (PII / data-classification, ADR-117) ──────
 
 /**

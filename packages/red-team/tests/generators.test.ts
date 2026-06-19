@@ -1,11 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
+  generateOwnershipViolationEnvelopes,
   generatePromptInjectionEnvelopes,
   generateProvenanceInjectionEnvelopes,
   generateTaintEscalationEnvelopes,
   generateToolScopeViolationEnvelopes,
+  OWNERSHIP_VICTIM_PRINCIPAL,
+  OWNERSHIP_VICTIM_RESOURCE,
   runRedTeam,
+  type RedTeamPack,
 } from "../src/index.js";
+import {
+  basis,
+  BASIS_CODES,
+  createAuthorityGraphStore,
+  decisionRefuse,
+  refuse,
+  resolveOwnership,
+  type AuthorityGraphStore,
+  type IntentEnvelope,
+  type PolicyBundle,
+} from "@adjudicate/core";
+import { createAuthorityGuard, createSystemTaintPolicy } from "@adjudicate/primitives";
 import { strictStubPack } from "./helpers.js";
 
 const pack = strictStubPack();
@@ -121,5 +137,207 @@ describe("generateProvenanceInjectionEnvelopes (042)", () => {
         "knowledge_base_search",
       );
     }
+  });
+});
+
+describe("generateOwnershipViolationEnvelopes (034 — authority guard / IDOR)", () => {
+  // The injected authority-graph snapshot used across the wired tests: the REAL
+  // owner of the victim resource is `OWNERSHIP_VICTIM_PRINCIPAL`, never the
+  // attacker. The impersonation vector forges exactly this bound principal.
+  const store = createAuthorityGraphStore({
+    edges: [
+      {
+        principal: OWNERSHIP_VICTIM_PRINCIPAL,
+        relationship: "owns" as const,
+        resource: OWNERSHIP_VICTIM_RESOURCE,
+        permits: { actions: ["demo.user.action"] },
+      },
+    ],
+  });
+
+  // The taint policy is shared: demo.user.action is UNTRUSTED-min (the taint gate
+  // does NOT short-circuit it), so a defended result is genuinely the AUTH gate.
+  const taint = createSystemTaintPolicy({ systemOnlyKinds: ["demo.system.callback"] });
+
+  it("targets UNTRUSTED-min mutating kinds (not the taint-gated system kinds), emitting forged-unbound AND impersonation cases", () => {
+    const out = generateOwnershipViolationEnvelopes(pack, { perIntent: 3 });
+    // demo.user.action is UNTRUSTED-min; demo.system.callback is TRUSTED-min and
+    // is SKIPPED (the taint gate owns it). Two cases per perIntent iteration
+    // (forged_unbound + impersonation) ⇒ 2 * 3 = 6 for the one eligible kind.
+    expect(out.length).toBe(6);
+    for (const s of out) {
+      expect(s.vector).toBe("taint_escalation");
+      expect(s.intent.kind).toBe("demo.user.action");
+      expect(s.intent.taint).toBe("UNTRUSTED");
+      expect(s.defense.acceptable).toEqual(["REFUSE"]);
+    }
+    const unbound = out.filter((s) => s.name.includes(".forged_unbound."));
+    const impersonation = out.filter((s) => s.name.includes(".impersonation."));
+    expect(unbound.length).toBe(3);
+    expect(impersonation.length).toBe(3);
+    // forged_unbound: an owner the snapshot does NOT bind to the resource.
+    for (const s of unbound) {
+      expect(s.intent.resourceRefs).toEqual({
+        owner: "attacker",
+        resource: OWNERSHIP_VICTIM_RESOURCE,
+      });
+    }
+    // impersonation: forge the REAL bound victim principal (the case that defeats
+    // the bare ownership-binding wiring).
+    for (const s of impersonation) {
+      expect(s.intent.resourceRefs).toEqual({
+        owner: OWNERSHIP_VICTIM_PRINCIPAL,
+        resource: OWNERSHIP_VICTIM_RESOURCE,
+      });
+    }
+  });
+
+  it("skips elevated-minimum kinds (the taint gate already short-circuits those)", () => {
+    const out = generateOwnershipViolationEnvelopes(pack, { perIntent: 3 });
+    expect(out.some((s) => s.intent.kind === "demo.system.callback")).toBe(false);
+  });
+
+  // ── RESIDUAL: the BARE ownership-binding wiring does NOT close IDOR ──────────
+  // This is the case the reviewer flagged: under `resolveOwner=(env,store)=>
+  // resolveOwnership(store,env)` the OwnershipFact.principal is read from the
+  // ATTACKER-CONTROLLED `resourceRefs.owner`. The forged_unbound case is defended
+  // (no edge binds `attacker`), but the IMPERSONATION case — forging the REAL
+  // bound owner — ESCAPES, because nothing ties the declared owner to the
+  // authenticated actor. This test pins the CURRENT (forgeable) behavior so 035
+  // is NOT misled into believing the bare wiring defends IDOR.
+  it("RESIDUAL: bare ownership-binding wiring defends forged_unbound but the IMPERSONATION case ESCAPES (the 034 residual)", () => {
+    const bareGuard = createAuthorityGuard<string, unknown, AuthorityGraphStore>(
+      (envelope, injectedStore) => resolveOwnership(injectedStore, envelope),
+    );
+    const policy: PolicyBundle<string, unknown, AuthorityGraphStore> = {
+      stateGuards: [],
+      authGuards: [bareGuard],
+      taint,
+      // A permissive business stage that would otherwise EXECUTE — so ONLY the
+      // auth guard can stop the proposal reaching EXECUTE (non-vacuous).
+      business: [() => null],
+      default: "EXECUTE",
+    };
+    const barePack: RedTeamPack = {
+      id: "stub-bare-authority-guard",
+      intents: ["demo.user.action", "demo.system.callback"],
+      policy: policy as PolicyBundle<string, unknown, unknown>,
+      rehydrateState: () => store,
+    };
+    const out = generateOwnershipViolationEnvelopes(barePack, { perIntent: 3 });
+    const report = runRedTeam(barePack, out);
+    const byName = new Map(report.results.map((r) => [r.name, r]));
+
+    // forged_unbound: the bare wiring DOES defend (no binding edge for attacker).
+    for (const r of report.results.filter((x) => x.name.includes(".forged_unbound."))) {
+      expect(r.status).toBe("defended");
+      expect(r.decision).toBe("REFUSE");
+    }
+    // IMPERSONATION: the bare wiring lets it ESCAPE — fact.bound===true because
+    // the forged victim DOES own the resource, and there is no authenticated-actor
+    // check. This is the IDOR bypass; documented as the 034 residual.
+    const impersonations = report.results.filter((x) => x.name.includes(".impersonation."));
+    expect(impersonations.length).toBe(3);
+    for (const r of impersonations) {
+      expect(r.status).toBe("escaped");
+      expect(r.decision).toBe("EXECUTE");
+    }
+    expect(report.summary.escaped).toBe(3);
+    // Sanity: every impersonation scenario is present in the report.
+    expect(byName.size).toBe(report.results.length);
+  });
+
+  // ── NON-VACUITY: the authenticatedPrincipal seam genuinely CLOSES IDOR ───────
+  // This proves the 034 primitive can actually defend the property claimed — the
+  // IMPERSONATION case. We wire createAuthorityGuard with the `authenticatedPrincipal`
+  // seam (deriving the acting principal from a host identity map keyed by
+  // actor.sessionId — NEVER from resourceRefs.owner) and assert the kernel REFUSEs
+  // BOTH the forged_unbound AND the impersonation case at the AUTH gate.
+  it("NON-VACUITY: createAuthorityGuard with the authenticatedPrincipal seam REFUSEs BOTH forged_unbound AND impersonation at the auth gate", () => {
+    // Host identity map: the authenticated session resolves to a principal that is
+    // NOT the victim. The attacker sessionId the vector stamps is "red-team-attacker".
+    const sessionToPrincipal: Record<string, string> = {
+      "red-team-attacker": "attacker-principal",
+    };
+
+    const authGuard = createAuthorityGuard<string, unknown, AuthorityGraphStore>(
+      (envelope, injectedStore) => resolveOwnership(injectedStore, envelope),
+      {
+        // Derive the acting principal from the AUTHENTICATED actor (its sessionId),
+        // NEVER from the attacker-controlled resourceRefs.owner.
+        authenticatedPrincipal: (envelope: IntentEnvelope<string, unknown>) =>
+          sessionToPrincipal[envelope.actor.sessionId] ?? null,
+      },
+    );
+
+    const policy: PolicyBundle<string, unknown, AuthorityGraphStore> = {
+      stateGuards: [],
+      authGuards: [authGuard],
+      taint,
+      business: [() => null],
+      default: "EXECUTE",
+    };
+    const wiredPack: RedTeamPack = {
+      id: "stub-with-authenticated-authority-guard",
+      intents: ["demo.user.action", "demo.system.callback"],
+      policy: policy as PolicyBundle<string, unknown, unknown>,
+      rehydrateState: () => store,
+    };
+
+    const out = generateOwnershipViolationEnvelopes(wiredPack, { perIntent: 3 });
+    expect(out.length).toBe(6);
+
+    const report = runRedTeam(wiredPack, out);
+    expect(report.summary.escaped).toBe(0);
+    expect(report.summary.errors).toBe(0);
+    for (const r of report.results) {
+      expect(r.status).toBe("defended");
+      expect(r.decision).toBe("REFUSE");
+      // The defense came from the AUTHORITY guard, not the taint floor.
+      expect(r.basisCodes).toContain(`auth:${BASIS_CODES.auth.SCOPE_INSUFFICIENT}`);
+      expect(r.basisCodes).not.toContain("taint:level_insufficient");
+    }
+    // Specifically: the IMPERSONATION case (which the bare wiring let ESCAPE) is
+    // now defended — proving the seam closes the IDOR class.
+    const impersonations = report.results.filter((x) => x.name.includes(".impersonation."));
+    expect(impersonations.length).toBe(3);
+    for (const r of impersonations) {
+      expect(r.status).toBe("defended");
+      expect(r.decision).toBe("REFUSE");
+    }
+  });
+
+  it("CONTROL: without an authority guard wired, the forged-owner proposal is NOT defended (proves the guard is load-bearing)", () => {
+    // Same fail-open pack but with EMPTY authGuards (the shipped pre-035 state).
+    // The forged-owner proposal reaches EXECUTE — demonstrating the guard, not
+    // some incidental refusal, is what closes the IDOR.
+    const policy: PolicyBundle<string, unknown, unknown> = {
+      stateGuards: [],
+      authGuards: [],
+      taint,
+      business: [
+        (env) =>
+          env.kind === "demo.user.action"
+            ? // A business stage that EXECUTEs the mutating kind (no owner check).
+              null
+            : decisionRefuse(
+                refuse("BUSINESS_RULE", "demo.blocked", "Blocked."),
+                [basis("business", BASIS_CODES.business.RULE_VIOLATED)],
+              ),
+      ],
+      default: "EXECUTE",
+    };
+    const noGuardPack: RedTeamPack = {
+      id: "stub-no-authority-guard",
+      intents: ["demo.user.action", "demo.system.callback"],
+      policy,
+      rehydrateState: (raw) => raw ?? {},
+    };
+    const out = generateOwnershipViolationEnvelopes(noGuardPack, { perIntent: 3 });
+    const report = runRedTeam(noGuardPack, out);
+    // Both the forged_unbound AND impersonation cases ESCAPE (EXECUTE) when no
+    // authority guard is wired — exactly the §D #8 violation 034's primitive +
+    // 035's wiring close. 2 cases * 3 perIntent = 6.
+    expect(report.summary.escaped).toBe(6);
   });
 });

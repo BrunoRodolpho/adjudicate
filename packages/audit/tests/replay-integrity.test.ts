@@ -227,6 +227,45 @@ describe("replayWithIntegrity", () => {
     expect(JSON.stringify(r1)).toBe(JSON.stringify(r2));
   });
 
+  it("envelope forged but auditHash consistent → EXACTLY ONE INTENT_HASH_MISMATCH, NO spurious AUDIT_HASH_TAMPERED (T4 double-count fix)", () => {
+    // Build a record, then forge ONLY the envelope's content (payload) so the
+    // stored `envelope.intentHash` no longer re-derives — AND rebuild the record
+    // so its `auditHash` is CONSISTENT with the forged envelope (i.e. the whole
+    // record's bytes are internally self-consistent; only the intentHash recipe
+    // is violated). This is the case the masking gap at the old :90-109 hid:
+    // `verifyAuditRecord` checks envelope-intent FIRST and returns
+    // `{verified:false, reason:"envelope_intent_mismatch"}`, which the pre-T4 code
+    // mislabeled as a SECOND, spurious `AUDIT_HASH_TAMPERED`.
+    const env = envelopeWith({ payload: { amount: 100 } });
+    const decision = executeDecision();
+    // Forge the envelope's payload WITHOUT recomputing intentHash — the stored
+    // envelope.intentHash is now inconsistent with the payload.
+    const forgedEnvelope: IntentEnvelope = { ...env, payload: { amount: 7777 } };
+    // Build the audit record OVER the forged envelope so its auditHash is
+    // self-consistent (computed over the forged bytes). The only inconsistency is
+    // the envelope intentHash recipe — exactly the "forged envelope, consistent
+    // auditHash" case.
+    const record = buildAuditRecord({
+      envelope: forgedEnvelope,
+      decision,
+      durationMs: 1,
+      at: "2026-05-20T00:00:01.000Z",
+    });
+
+    const report = replayWithIntegrity([record], () => decision);
+
+    // EXACTLY ONE integrity failure — the correct INTENT_HASH_MISMATCH.
+    expect(report.integrityFailures).toHaveLength(1);
+    expect(report.integrityFailures[0]!.kind).toBe("INTENT_HASH_MISMATCH");
+    // ABSENCE of the spurious mislabeled AUDIT_HASH_TAMPERED (the T4 fix).
+    expect(
+      report.integrityFailures.some((f) => f.kind === "AUDIT_HASH_TAMPERED"),
+    ).toBe(false);
+    // Still not matched — a forged envelope is never counted as intact.
+    expect(report.matched).toBe(0);
+    expect(isReplayIntegrityClean(report)).toBe(false);
+  });
+
   it("malformed envelope payload (post-build tamper) is caught by intentHash check", () => {
     const env = envelopeWith({ payload: { amount: 100 } });
     const record = buildAuditRecord({

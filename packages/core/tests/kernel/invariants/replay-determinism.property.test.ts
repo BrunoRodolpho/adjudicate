@@ -25,6 +25,7 @@ import {
   decisionRefuse,
   recordAggregateSnapshot,
   refuse,
+  verifyAuditRecord,
   type AggregateSnapshot,
   type Decision,
   type DecisionBasis,
@@ -258,6 +259,61 @@ describe("invariant: 052 replay over the recorded aggregate snapshot is bit-iden
           // Non-vacuity: the decision is exactly the limit predicate, so the
           // snapshot value drives the outcome (flips at the boundary).
           expect(decision.kind).toBe(committed >= limit ? "REFUSE" : "EXECUTE");
+        },
+      ),
+      { numRuns: 1_000 },
+    );
+  });
+});
+
+// ── 093: byte-identical replay holds with the inter-record chain link present ─
+// `prevAuditHash` is the per-stream cryptographic tip threaded onto the record on
+// the PERSIST side, AFTER the pure decision and AFTER the record hash. It is
+// EXCLUDED from both (a) the decision — the kernel never reads it — and (b) the
+// auditHash pre-image. So for ANY policy/taint/payload: re-running the kernel
+// over the chained record's envelope reproduces a byte-identical Decision, and
+// the record's auditHash is invariant to the chain link (a genesis record and a
+// chained record over identical content share an auditHash, and both verify).
+// This is the constitutional-invariant-5 (byte-identical replay) claim with the
+// 093 chain field present. Non-vacuous: it asserts BOTH the decision match AND
+// the hash-invariance (a chain link leaking into the pre-image would flip the
+// hash-equality assertion).
+describe("invariant: 093 byte-identical replay holds with prevAuditHash present", () => {
+  it("decisionsMatch(stored, replay) AND auditHash invariant to the chain link, for any (taint × default × guard × payload)", () => {
+    fc.assert(
+      fc.property(
+        taintArb,
+        defaultArb,
+        guardArb,
+        jsonSafePayloadArb,
+        fc.hexaString({ minLength: 64, maxLength: 64 }),
+        (taint, def, guard, payload, prevAuditHash) => {
+          const policy = bundle(def, guard);
+          const envelope = env(taint, payload);
+          const decision = adjudicate(envelope, {}, policy);
+          // A genesis record (no chain link) and a chained record over IDENTICAL
+          // content. The chain link must not enter the decision or the hash. A
+          // FIXED `at` is supplied so the only delta between the two records is
+          // `prevAuditHash` (omitting `at` would default to `new Date()`, making
+          // the two `at` values differ and confounding the hash-invariance claim).
+          const at = "2026-04-23T12:00:00.000Z";
+          const genesis = buildAuditRecord({ envelope, decision, durationMs: 1, at });
+          const chained = buildAuditRecord({
+            envelope,
+            decision,
+            durationMs: 1,
+            at,
+            prevAuditHash,
+          });
+          // (a) the chain link rides ON the record but is EXCLUDED from the hash.
+          expect(chained.prevAuditHash).toBe(prevAuditHash);
+          expect(chained.auditHash).toBe(genesis.auditHash);
+          // (b) both records verify (the excluded link never false-tampers).
+          expect(verifyAuditRecord(genesis).verified).toBe(true);
+          expect(verifyAuditRecord(chained).verified).toBe(true);
+          // (c) the kernel never reads the chain link → byte-identical replay.
+          const replayed = adjudicate(chained.envelope, {}, policy);
+          expect(decisionsMatch(decision, replayed)).toBe(true);
         },
       ),
       { numRuns: 1_000 },

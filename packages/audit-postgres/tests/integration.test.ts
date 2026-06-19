@@ -45,6 +45,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   BASIS_CODES,
   basis,
@@ -52,6 +53,8 @@ import {
   buildEnvelope,
   decisionExecute,
   hashBindAuditSigner,
+  recordAggregateSnapshot,
+  recordAuthoritySnapshot,
 } from "@adjudicate/core";
 import type { AuditRecord } from "@adjudicate/core";
 import {
@@ -178,6 +181,17 @@ describeIntegration("integration — audit-postgres sink vs a real migrated DB",
           `Underlying: ${(err as Error).message}`,
       );
     }
+    // 093: apply the ADDITIVE migration 012 (idempotent ADD COLUMN IF NOT EXISTS)
+    // up-front so the whole suite runs against the schema the production sink
+    // (which now binds prev_audit_hash + the snapshot columns) expects — the
+    // migration and the new sink SQL ship together. `ibx kernel migrate` bundles
+    // an older audit-postgres copy that stops at 010, so a checkout-local DB will
+    // not have 012 until this runs. Re-runnable: harmless against a DB already at 012.
+    const migration012 = readFileSync(
+      new URL("../migrations/012-add-prev-audit-hash.sql", import.meta.url),
+      "utf-8",
+    );
+    await pool.query(migration012);
     // Pre-clean any rows left by a prior crashed run.
     await pool.query("DELETE FROM intent_audit WHERE session_id = $1", [TEST_SESSION]);
   });
@@ -414,6 +428,87 @@ describeIntegration("integration — audit-postgres sink vs a real migrated DB",
     const v = result.verifications![0]!;
     expect(v.verified).toBe(false);
     if (v.verified === false) expect(v.reason).toBe("tampered");
+  });
+
+  // ── 5c. 093 — migration 012 applies + chained/snapshot record round-trips ──
+  // Apply the ADDITIVE migration 012 (idempotent ADD COLUMN IF NOT EXISTS) so a
+  // DB migrated only through 011 gains prev_audit_hash + the snapshot columns.
+  // Then write a record carrying a chain link AND both recorded snapshots through
+  // the PRODUCTION sink, read it back via the PRODUCTION cold store, and assert:
+  //   (a) prevAuditHash + both snapshots round-trip losslessly, AND
+  //   (b) verify-on-read stays {verified:true} — the 092-F1 false-tamper closure.
+  // BEFORE 093 the snapshots were unpersisted → rowToRecord omitted them →
+  // re-derived auditHash differed → verify-on-read FALSELY flagged tampered.
+  it("migration 012 applies + a chained/snapshot record round-trips to {verified:true}", async () => {
+    const migration012 = readFileSync(
+      new URL("../migrations/012-add-prev-audit-hash.sql", import.meta.url),
+      "utf-8",
+    );
+    // Idempotent + additive: safe to run against a DB already at 012 or only 011.
+    await pool.query(migration012);
+
+    // Schema guard: the three additive columns now exist on the real table.
+    const cols = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'intent_audit'
+          AND column_name IN ('prev_audit_hash','authority_snapshot_jsonb','aggregate_snapshot_jsonb')`,
+    );
+    expect(cols.rows.map((r) => r.column_name).sort()).toEqual([
+      "aggregate_snapshot_jsonb",
+      "authority_snapshot_jsonb",
+      "prev_audit_hash",
+    ]);
+
+    const env = buildEnvelope({
+      kind: "order.item.add",
+      payload: { sku: "chain-093", qty: 1 },
+      actor: { principal: "llm", sessionId: TEST_SESSION },
+      taint: "UNTRUSTED",
+      nonce: "n-chain-093",
+      createdAt: "2026-06-15T12:00:00.000Z",
+    });
+    const rec = buildAuditRecord({
+      envelope: env,
+      decision: decisionExecute([basis("state", BASIS_CODES.state.TRANSITION_VALID)]),
+      durationMs: 7,
+      at: "2026-06-15T12:27:00.000Z",
+      prevAuditHash: "a".repeat(64),
+      authoritySnapshot: recordAuthoritySnapshot({
+        edges: [
+          {
+            principal: "user:42",
+            relationship: "owns",
+            resource: "acct:7",
+            permits: { actions: ["transfer"], limits: { perTx: 1000 } },
+          },
+        ],
+      }),
+      aggregateSnapshot: recordAggregateSnapshot({
+        windows: { "acct:7|daily": 250 },
+        at: "2026-06-15T11:59:00.000Z",
+      }),
+    });
+    await sinkFor(pool).emit(rec);
+
+    // Raw column check: prev_audit_hash bound, snapshots persisted as JSONB.
+    const back = await pool.query(
+      `SELECT prev_audit_hash, authority_snapshot_jsonb, aggregate_snapshot_jsonb
+         FROM intent_audit WHERE intent_hash = $1 AND recorded_at = $2`,
+      [rec.intentHash, rec.at],
+    );
+    expect(back.rows).toHaveLength(1);
+    expect(back.rows[0]!.prev_audit_hash).toBe("a".repeat(64));
+
+    // Cold-store read: round-trip fidelity + verify-on-read stays verified.
+    const store = createPostgresAuditStore({ reader: readerFor(pool) });
+    const result = await store.query({ limit: 100, intentHash: rec.intentHash });
+    expect(result.records).toHaveLength(1);
+    const recovered = result.records[0]!;
+    expect(recovered.prevAuditHash).toBe("a".repeat(64));
+    expect(recovered.authoritySnapshot).toEqual(rec.authoritySnapshot);
+    expect(recovered.aggregateSnapshot).toEqual(rec.aggregateSnapshot);
+    expect(recovered.auditHash).toBe(rec.auditHash);
+    expect(result.verifications![0]!.verified).toBe(true);
   });
 
   // ── 6. MIGRATION 009 IS APPLIED TO THE REAL TABLE (direct schema guard) ───

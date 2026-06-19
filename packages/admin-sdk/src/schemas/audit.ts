@@ -4,6 +4,7 @@ import { DecisionBasisSchema } from "./basis.js";
 import { DecisionSchema } from "./decision.js";
 import {
   IntentEnvelopeSchema,
+  RecordedAggregateSnapshotSchema,
   RecordedAuthoritySnapshotSchema,
 } from "./envelope.js";
 import { IntentHashSchema, IsoTimestampSchema } from "./common.js";
@@ -40,6 +41,20 @@ export const SupersessionSchema = z.object({
   predecessorAt: z.string(),
   reason: SupersessionReasonSchema,
   token: z.string().optional(),
+  // 071-F1 — the bound (capability, approver, channel) tuple a
+  // confirmation_resolved supersession links. IS part of the auditHash pre-image
+  // (it is a recorded supersession field, unlike signature/metadata), so the wire
+  // schema MUST carry it: dropping it on the read path makes a binding-bearing
+  // record re-derive a different auditHash → 092 verify-on-read FALSELY flags it
+  // tampered. Each sub-key is optional and the whole `binding` is optional, so a
+  // confirmation with no binding stays byte-identical (hash-stable).
+  binding: z
+    .object({
+      capability: z.string().optional(),
+      approver: z.string().optional(),
+      channel: z.string().optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -102,8 +117,19 @@ export const AuditRecordSchema = z.object({
   // decisions that injected no snapshot. Surfaced so recorded decisions expose
   // it for replay/inspection (§D-5, invariant #5).
   authoritySnapshot: RecordedAuthoritySnapshotSchema.optional(),
+  // 052 — the RECORDED aggregate/limit snapshot the decision was injected with
+  // (snapshot + content-address). OPTIONAL + IN the auditHash pre-image. MUST be
+  // carried here: omitting it strips the field at the wire boundary and a
+  // snapshot-bearing record re-derives a different auditHash → 092 verify-on-read
+  // FALSELY flags it tampered (the 092-F1 read-path hazard 093 closes).
+  aggregateSnapshot: RecordedAggregateSnapshotSchema.optional(),
   // v5+ additive: governance/observability metadata (e.g. hallucination_score).
   metadata: z.record(z.string(), z.unknown()).optional(),
+  // 093 — the inter-record hash-chain link (the per-stream cryptographic tip).
+  // EXCLUDED from the auditHash pre-image (like signature/metadata), so dropping
+  // it would NOT false-tamper — but it is carried so the admin/console read path
+  // can surface chain status. Absent for genesis / pre-093 records.
+  prevAuditHash: z.string().optional(),
 });
 
 // ─── Build-time drift guards ────────────────────────────────────────────────

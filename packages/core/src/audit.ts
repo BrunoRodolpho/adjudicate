@@ -414,6 +414,29 @@ export interface AuditRecord {
    */
   readonly aggregateSnapshot?: RecordedAggregateSnapshot;
   /**
+   * Optional (093). The inter-record cryptographic hash-chain link: the
+   * `auditHash` of the immediately-preceding record in the SAME stream. This is
+   * the per-stream cryptographic TIP — distinct from the LOGICAL
+   * `supersedes.predecessorIntentHash` link (an envelope content hash), which
+   * cannot detect a deleted or reordered record. `prevAuditHash` binds THIS
+   * record to its predecessor's whole-record hash, so removing or reordering a
+   * record breaks the chain (the next record's `prevAuditHash` no longer matches
+   * the surviving predecessor's `auditHash`). The first record of a stream
+   * (genesis) carries `undefined`.
+   *
+   * **EXCLUDED from the `auditHash` pre-image** (exactly like
+   * `auditHash`/`signature`/`metadata`): the chain link is THREADED ONTO the
+   * record on the persist side AFTER the pure decision and AFTER the record hash
+   * is computed, so attaching it never invalidates the existing `auditHash`. This
+   * preserves the pre-image contract (§7): every pre-093 record (and every record
+   * with no predecessor) hashes byte-identically whether or not `prevAuditHash` is
+   * present. NEVER read by `adjudicate()`; NEVER enters `intentHash` (invariant
+   * #4); NEVER part of the decision (so replay stays bit-identical, §D-5 /
+   * invariant #5). It lives entirely on the persist/replay side; chain continuity
+   * is verified out-of-band by the replay/integrity harness, not by the kernel.
+   */
+  readonly prevAuditHash?: string;
+  /**
    * Optional, v5+. Adopter-attached governance/observability metadata
    * (e.g. `hallucination_score`).
    *
@@ -482,6 +505,17 @@ export interface BuildAuditInput {
    * (no `undefined` key, hash-stable for non-injecting adopters).
    */
   readonly aggregateSnapshot?: RecordedAggregateSnapshot;
+  /**
+   * Optional (093). The inter-record hash-chain link — the `auditHash` of the
+   * immediately-preceding record in the same stream (the per-stream cryptographic
+   * tip). When supplied, the resulting AuditRecord carries it under
+   * `prevAuditHash`. It is EXCLUDED from the `auditHash` pre-image (attached AFTER
+   * the record hash is computed, exactly like `signature`/`metadata`), so
+   * threading the chain link never invalidates the record hash and a genesis
+   * record (no predecessor) hashes byte-identically to a pre-093 record. Omitting
+   * it leaves `prevAuditHash` absent (genesis).
+   */
+  readonly prevAuditHash?: string;
   /**
    * Optional (092). Impure-shell signer. When supplied, `buildAuditRecord`
    * computes `auditHash` FIRST, then calls `signer.sign(auditHash)` and attaches
@@ -562,6 +596,14 @@ export function buildAuditRecord(input: BuildAuditInput): AuditRecord {
     ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     auditHash,
     ...(signature !== undefined ? { signature } : {}),
+    // 093: thread the inter-record chain link AFTER `auditHash` is computed, so
+    // it is EXCLUDED from the pre-image (the `sha256Canonical(baseRecord)` above
+    // never sees it) — exactly like `signature`/`metadata`. Attaching the chain
+    // link therefore never invalidates the record hash, and a genesis record
+    // (no `prevAuditHash`) hashes byte-identically to a pre-093 record.
+    ...(input.prevAuditHash !== undefined
+      ? { prevAuditHash: input.prevAuditHash }
+      : {}),
   };
 }
 
@@ -688,9 +730,19 @@ export function verifyAuditRecord(
   if (record.auditHash === undefined) {
     return { verified: null, reason: "missing_hash" };
   }
-  // Strip the auditHash + signature + metadata fields from the record before
-  // re-deriving (the hash was computed over the record sans these fields).
-  const { auditHash: stored, signature: _signature, metadata: _metadata, ...rest } = record;
+  // Strip the auditHash + signature + metadata + prevAuditHash fields from the
+  // record before re-deriving (the hash was computed over the record sans these
+  // fields). `prevAuditHash` (093) is the inter-record chain link threaded onto
+  // the record AFTER the hash was computed; it is excluded from the pre-image
+  // exactly like `signature`/`metadata`, so a record verifies identically whether
+  // or not it carries a chain link.
+  const {
+    auditHash: stored,
+    signature: _signature,
+    metadata: _metadata,
+    prevAuditHash: _prevAuditHash,
+    ...rest
+  } = record;
   const derived = sha256Canonical(rest);
   // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare
   // short-circuits on the first differing hex char, leaking via timing how

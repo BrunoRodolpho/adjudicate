@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type {
+  AggregateSnapshot,
   AuthorityEdge,
   AuthorityGraph,
   AuthorityPermits,
@@ -7,6 +8,7 @@ import type {
   IntentActor,
   IntentEnvelope,
   Origin,
+  RecordedAggregateSnapshot,
   RecordedAuthoritySnapshot,
   ResourceRefs,
   Taint,
@@ -138,6 +140,30 @@ export const RecordedAuthoritySnapshotSchema = z.object({
   snapshotHash: z.string(),
 });
 
+/**
+ * 052 — the aggregate/limit SNAPSHOT (per-window committed aggregates + sample
+ * `at`). Mirrors `AggregateSnapshot` in @adjudicate/core. `windows` is an opaque
+ * adopter-string → committed-aggregate (number) map.
+ */
+export const AggregateSnapshotSchema = z.object({
+  windows: z.record(z.string(), z.number()),
+  at: z.string(),
+});
+
+/**
+ * 052 — the RECORDED aggregate/limit snapshot surfaced on the audit record: the
+ * immutable injected `snapshot` plus its content-address (`hashAggregateSnapshot`).
+ * Mirrors `RecordedAggregateSnapshot` in @adjudicate/core. IS part of the
+ * auditHash pre-image (like `authoritySnapshot`), so the wire schema MUST carry
+ * it — dropping it on the read path makes a snapshot-bearing record re-derive a
+ * different auditHash and 092 verify-on-read FALSELY flags it tampered. OPTIONAL
+ * on the audit record — absent for decisions that injected no snapshot (hash-stable).
+ */
+export const RecordedAggregateSnapshotSchema = z.object({
+  snapshot: AggregateSnapshotSchema,
+  snapshotHash: z.string(),
+});
+
 // ─── Build-time drift guards ────────────────────────────────────────────────
 // If you see a compile error in either function body, the Zod schema and
 // the kernel type have drifted. Fix the schema; do not edit the kernel
@@ -190,6 +216,18 @@ const _recordedAuthoritySnapshotCoreToSchema = (
 const _recordedAuthoritySnapshotSchemaToCore = (
   x: z.infer<typeof RecordedAuthoritySnapshotSchema>,
 ): RecordedAuthoritySnapshot => x;
+// 052 — aggregate-snapshot drift guards. Bidirectional: windows is a
+// string→number map and snapshotHash/at are strings, so the schema and core type
+// are structurally interchangeable.
+const _aggregateSnapshotCoreToSchema = (
+  x: AggregateSnapshot,
+): z.infer<typeof AggregateSnapshotSchema> => x;
+const _recordedAggregateSnapshotCoreToSchema = (
+  x: RecordedAggregateSnapshot,
+): z.infer<typeof RecordedAggregateSnapshotSchema> => x;
+const _recordedAggregateSnapshotSchemaToCore = (
+  x: z.infer<typeof RecordedAggregateSnapshotSchema>,
+): RecordedAggregateSnapshot => x;
 
 void [
   _taintCoreToSchema,
@@ -209,4 +247,7 @@ void [
   _authorityGraphCoreToSchema,
   _recordedAuthoritySnapshotCoreToSchema,
   _recordedAuthoritySnapshotSchemaToCore,
+  _aggregateSnapshotCoreToSchema,
+  _recordedAggregateSnapshotCoreToSchema,
+  _recordedAggregateSnapshotSchemaToCore,
 ];

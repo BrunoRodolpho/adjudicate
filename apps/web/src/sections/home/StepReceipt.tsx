@@ -63,6 +63,7 @@ async function loadReceipt(): Promise<{
     const result = await runPlayground({
       intentKind: PRESET.intentKind,
       payload: PRESET.payload,
+      state: PRESET.state,
     });
     return { result, real: true };
   } catch {

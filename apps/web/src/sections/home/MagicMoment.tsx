@@ -17,16 +17,18 @@ import { MagicMomentSplit } from "@/components/home/MagicMomentSplit";
  *
  * Async SERVER component. Runs the REAL kernel server-side (at build time) via
  * runPlayground() for the canonical deploy scenario — a production deploy at
- * 100% ramp with no recorded approval — and reads the actual REWRITE decision
- * back out: the rewritten rampPercent and the record's auditHash. Those real
- * values are handed to a thin client component (MagicMomentSplit) that animates
- * the danger (left) → fixed (right) reveal with the shared motion kit and
- * degrades to a static side-by-side under prefers-reduced-motion.
+ * 100% ramp, far above the cap — and reads the actual REWRITE decision back
+ * out: the rewritten rampPercent and the record's auditHash. Those real values
+ * are handed to a thin client component (MagicMomentSplit) that animates the
+ * danger (left) → fixed (right) reveal with the shared motion kit and degrades
+ * to a static side-by-side under prefers-reduced-motion.
  *
  * The left pane shows what the agent *proposed* (danger-tinted: production,
- * 100% ramp, no approval). The right pane shows what adjudicate *decided* —
- * REWRITE, ramp clamped to the real cap — plus a compact, real receipt line
- * carrying the auditHash. Nothing here is mocked: the caption says so.
+ * 100% ramp). The right pane shows what adjudicate *decided* — REWRITE, ramp
+ * clamped to the real cap — plus a compact, real receipt line carrying the
+ * auditHash. Nothing here is mocked: the caption says so. (The preset seeds an
+ * approval in state so the clamp SURVIVES the 011 re-adjudication and the live
+ * decision is the REWRITE this pane renders, not ESCALATE — see decisions.ts.)
  *
  * If the real run ever fails at build (it shouldn't — the kernel is pure and
  * deterministic), we fall back to a record built from the same @adjudicate/core
@@ -72,6 +74,7 @@ async function loadMoment(): Promise<MomentData> {
     const result = await runPlayground({
       intentKind: PRESET.intentKind,
       payload: PRESET.payload,
+      state: PRESET.state,
     });
     const rewrittenRamp =
       result.decision.kind === "REWRITE"
@@ -156,8 +159,8 @@ export async function MagicMoment() {
           <span className="font-medium text-ink">
             all of {data.environment}
           </span>{" "}
-          with no recorded approval. adjudicate doesn&apos;t just block it — it
-          returns a <span className="font-medium text-ink">safer action</span>{" "}
+          in one shot — far above the cap. adjudicate doesn&apos;t just block it
+          — it returns a <span className="font-medium text-ink">safer action</span>{" "}
           and a tamper-evident receipt.
         </p>
       </div>

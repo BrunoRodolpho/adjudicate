@@ -6,10 +6,12 @@ import { cn } from "@/lib/cn";
  * Step 1 — "What happened?"
  *
  * Server component. Anchors the whole spine in ONE concrete, alarming
- * scenario: an AI agent proposes deploying to 100% of production with no
- * recorded approval. The proposed action is rendered as the literal
+ * scenario: an AI agent proposes shipping straight to 100% of production
+ * traffic in one shot. The proposed action is rendered as the literal
  * IntentEnvelope the agent would submit — font-mono, dashed rewrite-orange
  * border — so the reader sees the raw input the kernel is about to judge.
+ * (The kernel REWRITEs that 100% ramp down to the 25% production cap — the
+ * decision the live Step-3 receipt records; see StepReceipt / decisions.ts.)
  *
  * No decision is shown here. This section only establishes the danger.
  */
@@ -41,7 +43,7 @@ export function StepActs() {
         <p className="max-w-2xl text-base leading-relaxed text-muted">
           A coding agent decides the change is safe and submits a deploy at{" "}
           <span className="font-medium text-ink">100% of production traffic</span>{" "}
-          — with no recorded human approval. This is the action it wants to
+          — far above the policy cap, in one shot. This is the action it wants to
           take, exactly as it reaches the kernel.
         </p>
       </div>

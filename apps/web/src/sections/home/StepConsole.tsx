@@ -36,6 +36,7 @@ async function buildRows(): Promise<ReadonlyArray<AuditRow>> {
     const res = await runPlayground({
       intentKind: preset.intentKind,
       payload: preset.payload,
+      state: preset.state,
     });
     scenarioHash = shortHash(res.record.intentHash);
   } catch {

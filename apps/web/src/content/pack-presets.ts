@@ -193,8 +193,9 @@ export const PACK_PRESETS: Record<string, ReadonlyArray<PackPreset>> = {
       expectedKind: "EXECUTE",
     },
     {
-      label: "Production at 100% → REWRITE",
-      description: "Production ramp clamped to MAX_PRODUCTION_RAMP_PERCENT (25%).",
+      label: "Production at 100% → ESCALATE",
+      description:
+        "Production ramp clamped to MAX_PRODUCTION_RAMP_PERCENT (25%), then the corrected, still-unapproved deploy re-adjudicates to ESCALATE.",
       intentKind: "deployment.approval.request",
       payload: {
         service: "api",
@@ -202,7 +203,7 @@ export const PACK_PRESETS: Record<string, ReadonlyArray<PackPreset>> = {
         gitSha: "feedfacefeedface",
         rampPercent: 100,
       },
-      expectedKind: "REWRITE",
+      expectedKind: "ESCALATE",
     },
     {
       label: "Production w/o approval → ESCALATE",

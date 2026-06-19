@@ -18,6 +18,7 @@
  *     records the human decision; the matching request can then EXECUTE.
  */
 
+import type { AuthorityGraphStore } from "@adjudicate/core";
 import { createSystemTaintPolicy } from "@adjudicate/primitives";
 
 export type DeploymentIntentKind =
@@ -76,12 +77,40 @@ export interface DeploymentApproval {
   readonly promptVersion?: string;
 }
 
+/**
+ * Host-supplied authority context the constitutional authority guard (034) reads
+ * from `state`. INJECTED immutable snapshot (index §B/§D): the authority-graph
+ * store (032/033) plus the IDOR-closing host-identity seam. OPTIONAL (035 wiring
+ * contract): absent ⇒ inert; present ⇒ binding + fail-closed for the mutating
+ * UNTRUSTED kinds (`deployment.approval.request`, `deployment.rollback.execute`).
+ * See `PixAuthorityContext` (pack-payments-pix) for the identical IDOR residual:
+ * `principalOf` resolves the AUTHENTICATED principal from `actor.sessionId` —
+ * NEVER from the payload — and its namespace MUST match the authority-graph
+ * principal names (034-F2).
+ */
+export interface DeploymentAuthorityContext {
+  /** The injected authority-graph snapshot store (032/033). */
+  readonly store: AuthorityGraphStore;
+  /**
+   * IDOR-closing host-identity seam: AUTHENTICATED principal for a sessionId, or
+   * `null` for an unknown/unauthenticated session (the guard then REFUSEs,
+   * fail-closed). NEVER read from the payload.
+   */
+  readonly principalOf?: (sessionId: string) => string | null;
+}
+
 export interface DeploymentState {
   /**
    * Approvals keyed by `${environment}/${service}/${gitSha}` — a deployment
    * request consults this to check whether the human gate has been cleared.
    */
   readonly approvals: ReadonlyMap<string, DeploymentApproval>;
+  /**
+   * OPTIONAL injected authority context (032/033/034). Present ⇒ the authority
+   * guard in `authGuards` is binding for mutating UNTRUSTED kinds; absent ⇒
+   * inert. See `DeploymentAuthorityContext` for the IDOR residual.
+   */
+  readonly authority?: DeploymentAuthorityContext;
 }
 
 // ── Context ─────────────────────────────────────────────────────────────

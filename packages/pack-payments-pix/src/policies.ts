@@ -26,9 +26,11 @@ import {
   decisionRefuse,
   decisionRequestConfirmation,
   decisionRewrite,
+  resolveOwnership,
 } from "@adjudicate/core";
 import { nameGuard, type Guard, type PolicyBundle } from "@adjudicate/core/kernel";
 import {
+  createAuthorityGuard,
   createStateDeferGuard,
   createThresholdGuard,
 } from "@adjudicate/primitives";
@@ -345,6 +347,75 @@ const executeValidRefund: PixGuard = (envelope, state) => {
   ]);
 };
 
+// ── Authority guard (034/035) ─────────────────────────────────────────────
+
+/**
+ * The money-moving UNTRUSTED-min kinds the constitutional authority guard (034)
+ * gates: `pix.charge.create` and `pix.charge.refund`. `pix.charge.confirm` is
+ * the TRUSTED-only provider webhook (the taint gate already short-circuits an
+ * UNTRUSTED proposal of it), so it is NOT an owner-predicate candidate.
+ */
+const PIX_AUTHORITY_GATED_KINDS: ReadonlySet<PixIntentKind> = new Set<PixIntentKind>(
+  ["pix.charge.create", "pix.charge.refund"],
+);
+
+/**
+ * 035 — wire the constitutional authority guard (034) into PIX `authGuards`,
+ * closing the §D #8 violation that money-moving kinds previously shipped with
+ * `authGuards: []`. The guard reads its authority context from the INJECTED
+ * `state.authority` (032/033) — the kernel never hands a guard an identity arg.
+ *
+ * Engagement is gated on the host having injected `state.authority` (the
+ * documented host injection seam — see `PixAuthorityContext`). When the host
+ * opts into authority enforcement, the guard is BINDING and fail-closed:
+ *
+ *   - resolves ownership of the payload's resource from the injected store
+ *     (`resolveOwnership`, reading `envelope.resourceRefs.owner`/`resource`);
+ *   - REFUSEs (SECURITY/tenant_binding_violation, basis auth.SCOPE_INSUFFICIENT)
+ *     when the declared owner is not bound, the ref is absent, or — via the
+ *     `principalOf` identity seam — the AUTHENTICATED actor is not that owner
+ *     (the IDOR-closing check), and on any resolver throw.
+ *
+ * When `state.authority` is ABSENT the guard returns `null` (inert) — the
+ * pre-035 standalone-demo posture the lighthouse scenarios use (no identity
+ * model). This is the residual the run-state mandates documenting: §D #8 is
+ * enforced STRUCTURALLY by AC-007 (the guard is present in authGuards), and
+ * becomes binding at runtime once the host injects authority. Because there is
+ * no production authenticated-identity model yet (034-F1), the host injection
+ * point is the only place real IDOR closure can live.
+ */
+const enforceResourceOwnership: PixGuard = createAuthorityGuard<
+  PixIntentKind,
+  unknown,
+  PixState
+>(
+  // Resolver: read ownership from the injected authority-graph store. Throws when
+  // no authority context is injected — but `matches` gates that case out first,
+  // so a throw here means the host injected authority but the store is broken
+  // (fail-closed: createAuthorityGuard catches the throw and REFUSEs).
+  (envelope, state) => resolveOwnership(state.authority!.store, envelope),
+  {
+    // Engage ONLY for money-moving UNTRUSTED kinds AND only when the host has
+    // injected the authority context. No injected authority ⇒ inert (null).
+    matches: (envelope, state) =>
+      state.authority !== undefined &&
+      PIX_AUTHORITY_GATED_KINDS.has(envelope.kind),
+    // IDOR-closing identity seam: resolve the AUTHENTICATED principal from the
+    // host session→identity map (NEVER from resourceRefs.owner). createAuthorityGuard
+    // engages its IDOR gate because this option is present, so it additionally
+    // requires the resolved owner to EQUAL the authenticated actor. A host that
+    // injects authority but supplies NO `principalOf` yields `null` here, which
+    // createAuthorityGuard treats as an unresolved authenticated principal and
+    // REFUSEs — fail-CLOSED. This deliberately does NOT fall back to the bare
+    // declared-owner binding (the run-state-flagged false-sense-of-security): if
+    // the host enforces authority, it MUST supply a real identity source. Closing
+    // IDOR requires a trusted session→identity map whose namespace matches the
+    // authority-graph principal names (034-F2).
+    authenticatedPrincipal: (envelope, state) =>
+      state.authority?.principalOf?.(envelope.actor.sessionId) ?? null,
+  },
+);
+
 // ── PolicyBundle ────────────────────────────────────────────────────────
 
 export const pixPolicyBundle: PolicyBundle<
@@ -357,7 +428,10 @@ export const pixPolicyBundle: PolicyBundle<
     validateConfirmTarget,
     validateRefundTarget,
   ],
-  authGuards: [],
+  // 035 — constitutional authority guard (034) gating money-moving UNTRUSTED
+  // kinds (§D #8). Runs after taint, before business (kernel order). Inert when
+  // the host injects no authority context; binding + fail-closed when it does.
+  authGuards: [enforceResourceOwnership],
   taint: pixTaintPolicy,
   business: [
     validateChargeAmount,

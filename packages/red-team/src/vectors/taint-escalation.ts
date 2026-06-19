@@ -117,6 +117,16 @@ export const OWNERSHIP_VICTIM_RESOURCE = "tenant-owned-resource";
  * where the taint gate stays silent and the AUTHORITY gate is the only defense —
  * so a defended result genuinely exercises the owner predicate, not the taint
  * floor. Skips elevated-minimum kinds (the taint gate owns those).
+ *
+ * 035 — this is the IDOR vector the shipped packs now defend: 035 wired
+ * `createAuthorityGuard` into pack-payments-pix / pack-access-governance /
+ * pack-deployments-approval `authGuards` (closing the §D #8 `authGuards: []`
+ * gap), and the `impersonation` case is defended once the host injects the
+ * authority context (store + `principalOf` identity seam). With the seam, the
+ * real money-moving kinds (`pix.charge.create`/`refund`) are REFUSEd at the auth
+ * gate — see `generators.test.ts` ("035 — REAL pix pack money-moving kinds hit
+ * the owner predicate"). This frozen vector is the ownership-axis canary 084
+ * consumes.
  */
 export function generateOwnershipViolationEnvelopes(
   pack: RedTeamPack,

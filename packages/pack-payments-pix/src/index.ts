@@ -78,6 +78,7 @@ export {
   PIX_DEFAULT_DEFER_TIMEOUT_MS,
   PIX_DEFAULT_EXPIRY_SECONDS,
   pixTaintPolicy,
+  type PixAuthorityContext,
   type PixCharge,
   type PixChargeConfirmPayload,
   type PixChargeCreatePayload,

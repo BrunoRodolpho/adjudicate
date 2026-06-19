@@ -271,11 +271,13 @@ describe("adminRouter — audit read actor guard (AuthReviewer-004)", () => {
 });
 
 // ─── 111 — Write-isolation seam (router-level) ──────────────────────────────
-// The read-only plane = `adminRouter` MINUS all mutations. The invariant is NOT
-// "the mutation count" — it is "the read plane exposes ZERO mutations". A
-// read-only console mounting `readOnlyAdminRouter` physically cannot authorize,
-// weaken, or replay-mutate a decision.
-describe("readOnlyAdminRouter — router-level write isolation (111)", () => {
+// The read-only plane = `adminRouter` MINUS the 4 AUTHORIZE/WEAKEN mutations,
+// PLUS (114) the ONE friction-monotone `escalate.raise` write. The invariant is
+// "reads + friction-monotone writes only": a console mounting
+// `readOnlyAdminRouter` physically cannot authorize, weaken, or replay-mutate a
+// decision (those 4 mutations are structurally absent), but it CAN raise a
+// friction-increasing escalation (which records a FACT, never a Decision).
+describe("readOnlyAdminRouter — router-level write isolation (111 + 114)", () => {
   const procType = (router: typeof adminRouter | typeof readOnlyAdminRouter) =>
     router._def.procedures as Record<string, { _def: { type: string } }>;
 
@@ -288,41 +290,54 @@ describe("readOnlyAdminRouter — router-level write isolation (111)", () => {
       .map(([k]) => k)
       .sort();
 
-  // The full router's 4 mutations TODAY (the contract: emergency.update,
-  // replay.run, governance.recordOutcome, approval.resolve). Asserted so this
-  // test fails LOUDLY if a future plan adds a 5th mutation to the full router
-  // without consciously deciding whether it belongs on the read plane.
-  const FULL_MUTATIONS = [
+  // The full router's 4 AUTHORIZE/WEAKEN mutations (emergency.update,
+  // replay.run, governance.recordOutcome, approval.resolve) — all EXCLUDED from
+  // the read plane.
+  const AUTHORIZE_WEAKEN_MUTATIONS = [
     "approval.resolve",
     "emergency.update",
     "governance.recordOutcome",
     "replay.run",
   ];
 
-  it("the FULL router exposes exactly the 4 known mutations", () => {
+  // 114 — the ONE friction-monotone write the read plane PERMITS.
+  const FRICTION_MONOTONE_MUTATION = "escalate.raise";
+
+  // The full router today (the contract): the 4 authorize/weaken mutations PLUS
+  // the friction-monotone escalate. Asserted so this test fails LOUDLY if a
+  // future plan adds a 6th mutation without consciously deciding whether it is
+  // friction-monotone and whether it belongs on the read plane.
+  const FULL_MUTATIONS = [
+    ...AUTHORIZE_WEAKEN_MUTATIONS,
+    FRICTION_MONOTONE_MUTATION,
+  ].sort();
+
+  it("the FULL router exposes exactly the 5 known mutations", () => {
     expect(namesByType(adminRouter, "mutation")).toEqual(FULL_MUTATIONS);
   });
 
-  it("the read-only plane exposes ZERO mutation procedures", () => {
-    expect(namesByType(readOnlyAdminRouter, "mutation")).toEqual([]);
+  it("the read-only plane exposes EXACTLY the one friction-monotone escalate mutation", () => {
+    expect(namesByType(readOnlyAdminRouter, "mutation")).toEqual([
+      FRICTION_MONOTONE_MUTATION,
+    ]);
   });
 
-  it("ALL of the full router's mutations are EXCLUDED from the read plane", () => {
+  it("ALL of the full router's AUTHORIZE/WEAKEN mutations are EXCLUDED from the read plane", () => {
     const roNames = Object.keys(procType(readOnlyAdminRouter));
-    for (const mutation of FULL_MUTATIONS) {
+    for (const mutation of AUTHORIZE_WEAKEN_MUTATIONS) {
       expect(roNames).not.toContain(mutation);
     }
   });
 
   it("the read plane preserves EVERY query procedure of the full router (reads are unaffected)", () => {
-    // Write-isolation must subtract ONLY mutations — never a read. The read
-    // plane's query set must equal the full router's query set exactly.
+    // Write-isolation must subtract ONLY authorize/weaken mutations — never a
+    // read. The read plane's query set must equal the full router's query set.
     expect(namesByType(readOnlyAdminRouter, "query")).toEqual(
       namesByType(adminRouter, "query"),
     );
   });
 
-  it("the read-only caller has NO callable mutation procedures at runtime", async () => {
+  it("the read-only caller has NO callable AUTHORIZE/WEAKEN mutation at runtime", async () => {
     const store = createInMemoryAuditStore({ records: ALL });
     const emergencyStore = createInMemoryEmergencyStateStore();
     const roCaller = createReadOnlyAdminCaller({
@@ -331,12 +346,13 @@ describe("readOnlyAdminRouter — router-level write isolation (111)", () => {
       actor: operator,
     });
 
-    // The four mutations do not exist on the read-only plane. The tRPC caller
-    // is a lazy Proxy (every property access returns a callable), so presence is
-    // proven by BEHAVIOUR: invoking the absent procedure rejects with tRPC's
-    // "No procedure" NOT_FOUND — it never reaches a mutation resolver. The
-    // STATIC type already lacks these members (a direct call is a compile
-    // error), so we go through the dynamic shape to probe the wire surface.
+    // The four authorize/weaken mutations do not exist on the read-only plane.
+    // The tRPC caller is a lazy Proxy (every property access returns a
+    // callable), so presence is proven by BEHAVIOUR: invoking the absent
+    // procedure rejects with tRPC's "No procedure" NOT_FOUND — it never reaches
+    // a mutation resolver. The STATIC type already lacks these members (a direct
+    // call is a compile error), so we go through the dynamic shape to probe the
+    // wire surface.
     const dyn = roCaller as unknown as Record<
       string,
       Record<string, (input: unknown) => Promise<unknown>>
@@ -363,6 +379,13 @@ describe("readOnlyAdminRouter — router-level write isolation (111)", () => {
     await expect(
       dyn.approval!.resolve!({ token: "tok-0", accepted: true }),
     ).rejects.toThrow(/No .*procedure|not found|No "?mutation"?-procedure/i);
+  });
+
+  it("the read-only caller DOES expose escalate.raise (the ONE friction-monotone write)", () => {
+    // Static guarantee: escalate.raise IS a member of the read-only client's
+    // type (compiles). It is a mutation on the read plane by design (114).
+    const roMutations = namesByType(readOnlyAdminRouter, "mutation");
+    expect(roMutations).toContain(FRICTION_MONOTONE_MUTATION);
   });
 
   it("the read-only caller STILL serves reads (e.g. audit.query, emergency.state)", async () => {

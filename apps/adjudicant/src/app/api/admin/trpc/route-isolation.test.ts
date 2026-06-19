@@ -5,12 +5,19 @@ import { describe, expect, it } from "vitest";
 import { readOnlyAdminRouter } from "@adjudicate/admin-sdk/trpc";
 
 /**
- * 111 — write-isolation acceptance for the Adjudicant (Inspector-General) app.
+ * 111 + 114 — write-isolation acceptance for the Adjudicant (Inspector-General)
+ * app.
  *
  * The OBSERVER plane mounts the admin SDK's READ-ONLY router. These tests
- * structurally prove that mounting it exposes ZERO authorize/weaken mutations on
- * the wire, and that the app's route handler does NOT reference any mutation
- * procedure (the substituted §8 grep, as an executable guard).
+ * structurally prove that mounting it exposes ZERO AUTHORIZE/WEAKEN mutations on
+ * the wire, and that the app's route handler does NOT reference any of them.
+ *
+ * 114 adds the ONE friction-monotone write the observer plane permits:
+ * `escalate.raise`. That mutation IS present on the mounted router (and the
+ * route wires its sink) — it is safe precisely because it can only RECORD a
+ * friction-increasing FACT (pause/review/escalate), never authorize, weaken, or
+ * produce a `Decision`. So the invariant is "reads + the single friction-monotone
+ * escalate write" — the 4 authorize/weaken mutations remain structurally absent.
  */
 
 // This test file lives in src/app/api/admin/trpc/; the route handler lives in
@@ -61,7 +68,7 @@ describe("apps/adjudicant route — mounts the READ-ONLY router (write-isolation
     expect(routeCode).toMatch(/requireAuth:\s*requireAdjudicantAuth/);
   });
 
-  it("the mounted read-only router exposes ZERO mutation procedures", () => {
+  it("the mounted read-only router exposes EXACTLY the one friction-monotone escalate mutation", () => {
     const procs = readOnlyAdminRouter._def.procedures as Record<
       string,
       { _def: { type: string } }
@@ -69,7 +76,8 @@ describe("apps/adjudicant route — mounts the READ-ONLY router (write-isolation
     const mutations = Object.entries(procs)
       .filter(([, p]) => p._def.type === "mutation")
       .map(([k]) => k);
-    expect(mutations).toEqual([]);
+    // 114 — the ONLY mutation the observer plane carries is escalate.raise.
+    expect(mutations).toEqual(["escalate.raise"]);
   });
 
   it("each of the four authorize/weaken procedures is ABSENT from the mounted router", () => {
@@ -77,5 +85,12 @@ describe("apps/adjudicant route — mounts the READ-ONLY router (write-isolation
     for (const mutation of MUTATION_TOKENS) {
       expect(names).not.toContain(mutation);
     }
+  });
+
+  it("the route handler wires the escalation sink (114's single write port)", () => {
+    // The escalate mutation feature-detects `escalationSink`; the observer route
+    // MUST wire it (else escalate.raise would PRECONDITION_FAILED). It is the
+    // ONLY write port on the wire.
+    expect(routeCode).toContain("escalationSink");
   });
 });

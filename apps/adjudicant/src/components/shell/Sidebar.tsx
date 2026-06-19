@@ -1,6 +1,12 @@
 "use client";
 
-import { Eye, LayoutDashboard, ScrollText, ShieldCheck } from "lucide-react";
+import {
+  Eye,
+  FolderSearch,
+  LayoutDashboard,
+  ScrollText,
+  ShieldCheck,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
@@ -18,6 +24,9 @@ const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   // 112 — the read-only Audit Explorer (browse / by-hash / integrity / chain).
   { href: "/audit", label: "Audit Explorer", icon: ScrollText },
+  // 113 — the read-only Investigations / cases surface (pivot from a record into
+  // its correlated session + supersession-lineage case timeline).
+  { href: "/cases", label: "Investigations", icon: FolderSearch },
 ] as const;
 
 /**

@@ -69,9 +69,9 @@ export const INTENT_SCHEMAS: Record<string, IntentSchema> = {
     fields: [
       { name: "sessionId", type: "string", description: "Session id from a prior kyc.start." },
       { name: "score", type: "number (0-100)", description: "Confidence the identity is genuine." },
-      { name: "amlStatus", type: "\"clear\" | \"hit\" | \"pending\"", description: "Anti-money-laundering screening result." },
-      { name: "amlMatchScore", type: "number (optional)", description: "Match confidence if amlStatus is \"hit\"." },
-      { name: "amlMatchEntity", type: "string (optional)", description: "Sanctioned entity name if amlStatus is \"hit\"." },
+      { name: "amlStatus", type: "\"CLEAR\" | \"FLAGGED\"", description: "Anti-money-laundering screening result. A FLAGGED callback ESCALATEs regardless of score." },
+      { name: "amlMatchScore", type: "number (optional)", description: "Match confidence if amlStatus is \"FLAGGED\"." },
+      { name: "amlMatchEntity", type: "string (optional)", description: "Sanctioned entity name if amlStatus is \"FLAGGED\"." },
     ],
   },
   // ── Deployments · Approval ────────────────────────────────────────

@@ -103,7 +103,16 @@ live in `@adjudicate/core`.
   executor's side-effect log. Replay (ADR-104 `legacyV1ToV2` +
   ADR-110 conformance harness) re-runs the kernel and verifies the
   same Decision is produced — kernel purity makes this a
-  high-assurance check.
+  high-assurance check. The secondary join key — the Pack/policy
+  identity at emit time — is `policyVersion`: as built today
+  `buildAuditRecord` and BOTH `adjudicateAndAudit` call sites
+  (kill-switch + main) thread `policyVersion` / `kernelVersion` onto
+  the record *only when the host supplies `deps.policyVersion` /
+  `deps.kernelVersion`* (`packages/core/src/audit.ts` emits each
+  field only when defined; `packages/core/src/kernel/adjudicate-and-audit.ts`
+  passes `deps.policyVersion` / `deps.kernelVersion` through). A host
+  that does not supply them leaves the join key absent, so cross-version
+  drift resolution at replay is host-conditional, not unconditional.
 
 **Information disclosure**
 
@@ -188,10 +197,30 @@ live in `@adjudicate/core`.
 
 **Elevation of privilege**
 
-- **E3 — Resume bypasses taint floor.** *Mitigation:* resume
-  re-runs the full guard chain — taint gate before auth-side
-  effects. The resume cannot upgrade effective taint without going
-  through `canPropose()` as a fresh submission.
+- **E3 — Resume bypasses taint floor.** *Mitigation (scoped — read
+  the path distinction).* Every resume/resolve re-runs the full guard
+  chain, taint gate before auth-side effects. Two of the three
+  re-entry paths preserve the original principal/taint and so cannot
+  upgrade effective taint without re-passing `canPropose()` as a fresh
+  submission: the REQUEST_CONFIRMATION `confirm()` path reuses the
+  parked envelope as-is, and the approval-engine `resolve()` path
+  routes into that same taint-preserving `confirm()`
+  (`packages/approval-engine/src/engine.ts` calls `agent.confirm()`).
+  The DEFER `resume()` path is the deliberate exception: it does NOT
+  reuse the parked envelope — it builds a *fresh* envelope with
+  `actor.principal: "system"` and `taint: "TRUSTED"`
+  (`packages/adapter-core/src/loop.ts`, `buildEnvelope({...principal:
+  "system"... taint: "TRUSTED"})`), so resuming a parked UNTRUSTED
+  intent on its signal is an INTENTIONAL elevation to a system-trusted
+  actor — not a bypass, but not the blanket "taint always preserved"
+  guarantee either. The elevated envelope's `intentHash` is re-derived
+  from those elevated fields (content-addressing rejects a copied stale
+  hash) and is then fully re-adjudicated, but the new floor is TRUSTED,
+  not the parked UNTRUSTED. The runtime `defer-resume.ts` itself
+  constructs NO envelope (it returns `{ resumed, intentHash, parked }`);
+  the elevation lives solely in the adapter-core resume shell. The
+  separation-of-duty controls on this elevation are tracked under the
+  approval/SoD work (ADR-143).
 
 ---
 
@@ -431,12 +460,16 @@ built on that core.
 ADR-104's `nonce` makes envelope identity stable; ADR-105's closed
 vocabulary keeps guard descriptions stable; ADR-111's
 `policyVersion` + `kernelVersion` let the replay reader resolve the
-correct Pack and kernel at emit time.
+correct Pack and kernel at emit time *when the host supplies them*
+(both `adjudicateAndAudit` call sites thread `deps.policyVersion` /
+`deps.kernelVersion`, and `buildAuditRecord` emits each field only
+when defined — so an omitting host leaves the join key absent).
 
 **Defense-in-depth ordering.** The `state → taint → auth → business`
 order (ADR-104 reorder) is itself a security property. A future ADR
 proposing declarative phase metadata MUST preserve this as a
-closed-enum invariant (`docs/concepts.md §9.5`).
+closed-enum invariant (`docs/concepts.md` §9, heading "Invariant to
+preserve through any refactor" — the `GuardPhase` closed enum).
 
 **Observability as a security signal.** ADR-112's stable `SEMCONV`
 attribute names mean dashboards and alert rules survive framework
@@ -516,7 +549,7 @@ runtime's `crypto.subtle` (or `node:crypto`) guarantees.
 | Guard panic (D1, I2) | ADR-106 isolation | Mitigated |
 | Locale leak indirect | ADR-107 externalization | Mitigated |
 | Fail-open Pack (E1) | ADR-109 AJD-106 | Mitigated (analyzer) |
-| Pack drift at replay (R2) | ADR-111 policyVersion | Mitigated |
+| Pack drift at replay (R2) | ADR-111 policyVersion | Mitigated when host supplies `policyVersion` |
 | Adopter misconfig (§9.1) | n/a — documented | Out-of-scope |
 | Supply chain (§9.3) | n/a — ecosystem | Out-of-scope |
 

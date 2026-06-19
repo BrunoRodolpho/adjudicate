@@ -30,7 +30,8 @@ or `docs/security/threat-model.md`.
       `REQUEST_CONFIRMATION`, `ESCALATE`, `REWRITE`, `DEFER`. No
       seventh; no escape-hatch metadata bag.
 - [ ] **Guard order preserved.** `state → taint → auth → business`.
-      No reorder for any reason. (ADR-104, `docs/concepts.md §9.5`.)
+      No reorder for any reason. (ADR-104, `docs/concepts.md` §9,
+      heading "Invariant to preserve through any refactor".)
 - [ ] **Fail-closed defaults preserved.** `multiSink` strict by
       default; `policy.default = "EXECUTE"` warned by AJD-106;
       kill-switch absence means closed in distributed paths.

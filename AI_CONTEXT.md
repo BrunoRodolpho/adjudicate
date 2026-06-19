@@ -86,7 +86,7 @@ adopter HTTP/webhook
                       EXECUTE → adopter executor (real side-effect)
                       DEFER → parkDeferredIntent → wait for signal → resume
                       REQUEST_CONFIRMATION → confirmationStore → user → resume with receipt
-                      REWRITE → re-adjudicate the sanitized envelope
+                      REWRITE → kernel re-runs the full guard order on the rewritten envelope (second pass); executor runs the rewritten bytes only on a second-pass EXECUTE
                       REFUSE/ESCALATE → adopter handler (no state change)
 ```
 

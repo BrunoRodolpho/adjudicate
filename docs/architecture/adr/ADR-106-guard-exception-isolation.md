@@ -1,8 +1,9 @@
 # ADR-106 — Guard exception isolation
 
-**Status**: Accepted (2026-05-18 — M1 overnight execution)
-**Supersedes**: none
-**Related**: ADR-101 (kernel audit emission), ADR-102 (audit fail-closed default), ADR-104 (envelope v2 nonce)
+- **Status:** Accepted
+- **Date:** 2026-05-18 (M1 overnight execution)
+- **Supersedes:** none
+- **Related:** ADR-101 (kernel audit emission), ADR-102 (audit fail-closed default), ADR-104 (envelope v2 nonce)
 
 ## Context
 

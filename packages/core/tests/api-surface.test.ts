@@ -160,6 +160,8 @@ describe("@adjudicate/core public API surface — v1 freeze matrix", () => {
   it("BASIS_CODES categories are stable", () => {
     const expected = [
       "auth",
+      // 025 — capabilities-as-budgets adds the `budget` category (budget:satisfied).
+      "budget",
       "business",
       "confirmation",
       "deadline",

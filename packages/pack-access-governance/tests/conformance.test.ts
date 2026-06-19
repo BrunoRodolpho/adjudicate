@@ -14,6 +14,10 @@ import {
   type PolicyBundle,
 } from "@adjudicate/core";
 import { accessGovernancePack, type AccessAuthorityContext, type AccessState } from "../src/index.js";
+import {
+  ACCESS_BUDGET_CAPABLE_INTENTS,
+  ACCESS_INTENTS,
+} from "../src/capabilities.js";
 
 describe("pack-access-governance — conformance", () => {
   it("satisfies PackV0 and passes assertPackConformance", () => {
@@ -46,6 +50,23 @@ describe("pack-access-governance — conformance", () => {
     );
     expect(plan.allowedIntents).not.toContain("access.review.resolve");
     expect(plan.allowedIntents).toContain("access.revoke");
+  });
+
+  // 025 — capabilities-as-budgets: the Pack declares which intent kinds a
+  // standing, bounded budget may pre-authorize (the budget-capable class).
+  it("ACCESS_BUDGET_CAPABLE_INTENTS declares the LLM-proposable access mutations (a non-empty subset of declared intents, excluding system-only kinds)", () => {
+    expect(ACCESS_BUDGET_CAPABLE_INTENTS.length).toBeGreaterThan(0);
+    expect([...ACCESS_BUDGET_CAPABLE_INTENTS].sort()).toEqual([
+      "access.request",
+      "access.revoke",
+    ]);
+    for (const k of ACCESS_BUDGET_CAPABLE_INTENTS) {
+      expect(ACCESS_INTENTS).toContain(k);
+    }
+    // The system-only review-resolve and the break-glass path are NOT budget-capable.
+    const budgetable = ACCESS_BUDGET_CAPABLE_INTENTS as readonly string[];
+    expect(budgetable).not.toContain("access.review.resolve");
+    expect(budgetable).not.toContain("access.breakglass");
   });
 });
 

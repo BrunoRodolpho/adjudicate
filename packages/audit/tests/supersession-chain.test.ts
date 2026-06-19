@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  adjudicateAndAudit,
   basis,
   buildAuditRecord,
   buildEnvelope,
   decisionExecute,
   decisionRefuse,
+  decisionRequestConfirmation,
   refuse,
   type AuditRecord,
+  type AuditSink,
+  type BudgetGrant,
+  type Guard,
+  type TaintPolicy,
 } from "@adjudicate/core";
 import {
   buildSupersessionChains,
@@ -323,5 +329,118 @@ describe("buildSupersessionChains", () => {
     expect(allEmittedHashes.has(a.intentHash)).toBe(true);
     expect(allEmittedHashes.has(b.intentHash)).toBe(true);
     expect(allEmittedHashes.has(c.intentHash)).toBe(true);
+  });
+});
+
+// ── 025 (LogicReviewer) — END-TO-END budget chain over REAL kernel records ──
+// The prior commit set the budget-satisfied EXECUTE's `supersedes.predecessorAt`
+// to the SECOND `adjudicateAndAudit` call's `clock.nowIso()`, which equals that
+// EXECUTE row's OWN `at` — NOT the predecessor REQUEST_CONFIRMATION row's `at`
+// (emitted by a SEPARATE, earlier call at an earlier wall clock). Because the two
+// records share the envelope's intentHash, the chain walker's `at`-disambiguation
+// (findRecord) could not tell them apart, yielding a FALSE CYCLE / spurious
+// singleton with `budget_satisfied` invisible in reason analytics. This is the
+// 025 T6/§3 audit-observability deliverable — it was UNCOVERED: no test ran
+// buildSupersessionChains over the real (REQUEST_CONFIRMATION, budget-EXECUTE)
+// pair. The fix threads the predecessor row's `at` as `budgetGrant.originalAt`.
+describe("025 — budget-satisfied chain reconstructs end-to-end (real kernel emission)", () => {
+  const permissive: TaintPolicy = { minimumFor: () => "UNTRUSTED" };
+  const askConfirm: Guard<string, unknown, unknown> = () =>
+    decisionRequestConfirmation("Confirm this transfer?", []);
+  const policy = {
+    stateGuards: [],
+    authGuards: [],
+    taint: permissive,
+    business: [askConfirm],
+    default: "REFUSE" as const,
+  };
+  const grant: BudgetGrant = {
+    budgetId: "bud-chain",
+    intentKind: "pix.charge.create",
+    limit: 5,
+    windowSeconds: 600,
+  };
+
+  function envOf(nonce: string) {
+    return buildEnvelope({
+      kind: "pix.charge.create",
+      payload: { amountCentavos: 5000 },
+      actor: { principal: "llm", sessionId: "s-budget-chain" },
+      taint: "UNTRUSTED",
+      nonce,
+      createdAt: "2026-06-19T12:00:00.000Z",
+    });
+  }
+
+  // An ADVANCING wall clock — distinct ticks for the two SEPARATE kernel calls,
+  // mirroring real-clock semantics (REQUEST_CONFIRMATION@T1, budget-EXECUTE@T2,
+  // T2 != T1). A frozen clock would mask the defect (predecessorAt == at trivially).
+  function advancingClock(startMs: number, stepMs: number) {
+    let ms = startMs;
+    return {
+      nowIso: () => {
+        const iso = new Date(ms).toISOString();
+        ms += stepMs;
+        return iso;
+      },
+      // nowMs is read for latency only (start/end of each call); advance it too
+      // so it never collides, but it does NOT enter the auditHash pre-image.
+      nowMs: () => {
+        const v = ms;
+        return v;
+      },
+    };
+  }
+
+  function captureSink(): { sink: AuditSink; records: AuditRecord[] } {
+    const records: AuditRecord[] = [];
+    return { sink: { async emit(r) { records.push(r); } }, records };
+  }
+
+  it("buildSupersessionChains over (REQUEST_CONFIRMATION@T1, budget-EXECUTE@T2) yields 1 chain / 0 cycles / budget_satisfied=1", async () => {
+    const env = envOf("n-budget-chain");
+    const { sink, records } = captureSink();
+    const clock = advancingClock(Date.parse("2026-06-19T12:00:00.000Z"), 60_000);
+
+    // FIRST call — no grant asserted: the kernel returns REQUEST_CONFIRMATION
+    // and emits its audit row at T1. The shell would persist this row first.
+    const first = await adjudicateAndAudit(env, {}, policy, { sink, clock });
+    expect(first.decision.kind).toBe("REQUEST_CONFIRMATION");
+    const requestRow = records[0]!;
+    const t1 = requestRow.at;
+
+    // SECOND call — after an atomic burn-down the shell re-adjudicates with the
+    // grant asserted AND threads the predecessor row's `at` as originalAt. The
+    // kernel substitutes EXECUTE and the budget-satisfied row is emitted at a
+    // LATER wall clock (T2 != T1).
+    const second = await adjudicateAndAudit(env, {}, policy, {
+      sink,
+      clock,
+      budgetGrant: { ...grant, originalAt: requestRow.at },
+    });
+    expect(second.decision.kind).toBe("EXECUTE");
+    const executeRow = records[1]!;
+    const t2 = executeRow.at;
+
+    // Pre-conditions that make this a faithful repro of the defect:
+    expect(executeRow.intentHash).toBe(requestRow.intentHash); // shared hash
+    expect(t2).not.toBe(t1); // real-clock: second call ticked later
+    expect(executeRow.supersedes?.reason).toBe("budget_satisfied");
+    // The load-bearing assertion: predecessorAt points at the PREDECESSOR row's
+    // `at` (T1), NOT this EXECUTE row's own `at` (T2). This is exactly what the
+    // prior commit got wrong.
+    expect(executeRow.supersedes?.predecessorAt).toBe(t1);
+    expect(executeRow.supersedes?.predecessorAt).not.toBe(t2);
+
+    // The deliverable: operators can reconstruct the budget-satisfied chain.
+    const report = buildSupersessionChains([requestRow, executeRow]);
+    expect(report.cycles).toHaveLength(0);
+    expect(report.chains).toHaveLength(1);
+    expect(report.singletons).toHaveLength(0);
+    const chain = report.chains[0]!;
+    expect(chain.head.intentHash).toBe(executeRow.intentHash);
+    expect(chain.tail.map((n) => n.at)).toEqual([t1]); // walks back to the request row
+    expect(chain.reasonCounts.budget_satisfied).toBe(1);
+    expect(report.aggregateReasonCounts.budget_satisfied).toBe(1);
   });
 });

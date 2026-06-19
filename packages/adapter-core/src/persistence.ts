@@ -79,6 +79,9 @@ const SWEEP_BATCH = 50;
 export function createInMemoryDeferStore(): DeferRedis & ParkRedis {
   const store = new Map<string, Entry>();
   const counters = new Map<string, number>();
+  // 025 — per-counter expiry (ms epoch) for the `evalIncrCheck` budget primitive,
+  // so a window past its TTL refills (Redis EXPIRE on the counter key).
+  const counterExpiry = new Map<string, number>();
 
   const isAlive = (entry: Entry | undefined): entry is Entry =>
     entry !== undefined && entry.expiresAt > Date.now();
@@ -136,6 +139,7 @@ export function createInMemoryDeferStore(): DeferRedis & ParkRedis {
     async del(key) {
       const had = store.delete(key);
       counters.delete(key);
+      counterExpiry.delete(key);
       return had ? 1 : 0;
     },
     async incr(key) {
@@ -163,6 +167,31 @@ export function createInMemoryDeferStore(): DeferRedis & ParkRedis {
       if (entry === undefined) return 0;
       entry.expiresAt = Date.now() + seconds * 1000;
       return 1;
+    },
+    // 025 — atomic INCREMENT-and-check, the budget burn-down primitive. Mirrors
+    // the Redis `evalIncrCheck` Lua contract: increment the counter, and if it
+    // would exceed `max` roll the increment back and return `0` (over-limit);
+    // otherwise return the new count (`>= 1`). Atomic WITHIN the single-threaded
+    // event loop (no `await` between the read and the write), so two concurrent
+    // `evalIncrCheck` calls cannot both push the counter past `max` — exactly the
+    // at-most-`max` guarantee `createBudgetStore` relies on. The counter TTL is
+    // (re)set on every increment so the window refills naturally.
+    async evalIncrCheck(counterKey: string, ttlSeconds: number, max: number) {
+      const now = Date.now();
+      const expired = counterExpiry.get(counterKey);
+      // Window expiry: a counter past its TTL refills (start fresh).
+      const base =
+        expired !== undefined && expired <= now ? 0 : counters.get(counterKey) ?? 0;
+      const next = base + 1;
+      if (next > max) {
+        // Over-limit: do NOT advance the counter (the Lua script DECRs the
+        // speculative increment back). Return 0 = over-limit (fail-closed).
+        counters.set(counterKey, base);
+        return 0;
+      }
+      counters.set(counterKey, next);
+      counterExpiry.set(counterKey, now + ttlSeconds * 1000);
+      return next;
     },
   };
 }
@@ -334,6 +363,115 @@ export function createInMemoryBurnStore<R = Capability>(): BurnStore<R> {
       // Fail-closed on expiry: a grant past its TTL is never honored (§D #6).
       if (entry.expiresAt <= Date.now()) return null;
       return entry.record;
+    },
+  };
+}
+
+// ─── BudgetStore (capabilities-as-budgets, 025) ──────────────────────────────
+
+/**
+ * Authoritative, single-use-COUNTED budget burn-down store (025 —
+ * capabilities-as-budgets). The IMPURE-shell authority over a human-granted,
+ * BOUNDED, STANDING pre-authorization: it METERS at-most-`limit` threshold
+ * substitutions per `intentKind` within a rolling window, so a class of intents
+ * can satisfy the "ask first" threshold WITHOUT a per-intent confirmation
+ * receipt — up to the declared ceiling.
+ *
+ * **Justified DISTINCT store (vs 022 BurnStore).** This is a deliberately
+ * different primitive from the single-use `BurnStore`:
+ *   - `BurnStore.burn(nonce)` BURNS a single capability token (claim-and-delete,
+ *     atomic Lua GET+DEL) — at-most-ONCE.
+ *   - `BudgetStore.tryBurnDown(...)` METERS N substitutions against a `limit`
+ *     (atomic Lua INCREMENT-and-check, `evalIncrCheck`) — at-most-`limit`.
+ * A per-token burn cannot express an N-use budget, so 022 is NOT reused; the two
+ * are different mechanisms for different jobs, each authoritative for its own
+ * scope.
+ *
+ * **Atomicity — the headline guarantee (plan §3 / §6).** `tryBurnDown` decrements
+ * the budget via the atomic `evalIncrCheck` Lua primitive (`ParkRedis`,
+ * `defer-park`): the increment AND the limit check are ONE indivisible step, so
+ * concurrent burn-downs over a `limit`-N budget yield AT MOST N grants across
+ * replicas. This deliberately does NOT mirror the non-atomic GET+DEL caveat the
+ * production confirmation store documents (`persistence-redis.ts`) — copying that
+ * sequence would re-introduce the over-grant race this store exists to close.
+ *
+ * **Authority stays OUT of the lossy projection.** The authoritative counter
+ * lives here, in the single-use-counted store — NEVER the lossy display-only
+ * approval registry (`approval-engine/registry-redis.ts`, which never stores the
+ * authoritative envelope). The shell asserts a kernel budget grant ONLY after
+ * `tryBurnDown` returns `true`.
+ *
+ * **Fail-closed (§D #6 / index §C).** Over-limit, an expired/refilled window
+ * miscount, or a store/IO error yields NO grant (`false` / rejection) — the
+ * kernel then returns the original REQUEST_CONFIRMATION (friction, never bypass).
+ * Removing the store cannot loosen any guard: no guard authorizes on a successful
+ * burn-down (it gates a threshold substitution, not a state/taint/auth/business
+ * guard).
+ */
+export interface BudgetStore {
+  /**
+   * Atomically burn down ONE unit of the budget for `(budgetId, intentKind)`
+   * against `limit`, expiring the counter under `windowSeconds`. Returns:
+   *   - `true`  — the decrement stayed AT OR UNDER `limit`; the caller MAY assert
+   *               the kernel budget grant for this substitution.
+   *   - `false` — the budget is exhausted for this window (over `limit`), so NO
+   *               grant is asserted (fail-closed to friction). The atomic
+   *               primitive has already rolled the over-limit increment back.
+   *
+   * The read-modify-write is ONE atomic step (the `evalIncrCheck` Lua eval), so
+   * concurrent calls cannot both push the counter past `limit` (at-most-`limit`).
+   */
+  tryBurnDown(input: {
+    readonly budgetId: string;
+    readonly intentKind: string;
+    readonly limit: number;
+    readonly windowSeconds: number;
+  }): Promise<boolean>;
+}
+
+/**
+ * Construct a `BudgetStore` backed by a `ParkRedis`-shaped client's ATOMIC
+ * `evalIncrCheck` Lua primitive (`persistence.ts` `ParkRedis.evalIncrCheck`,
+ * declared HERE, exercised by `defer-park`). The counter key namespaces the
+ * grant by `(budgetId, intentKind)` so two grants never share a counter.
+ *
+ * `evalIncrCheck(counterKey, ttlSeconds, max)` returns `0` when the increment
+ * would exceed `max` (the Lua script already DECR'd back — atomic), or the new
+ * count (`>= 1`) otherwise. So `result !== 0` ⇔ the substitution is in-budget.
+ * The `evalIncrCheck` hook is REQUIRED for this store: a single-use-COUNTED
+ * authority store has NO safe non-atomic fallback (a bare INCR→check→DECR would
+ * re-introduce the over-grant race), so a client without it throws at
+ * construction — exactly the fail-closed posture (§D #6).
+ */
+export function createBudgetStore(opts: {
+  readonly client: Pick<ParkRedis, "evalIncrCheck">;
+  /**
+   * Key namespacer — Adjudicate convention wraps the raw suffix into a
+   * tenant/env-namespaced key (e.g. `${APP_ENV}:adjudicate:${suffix}`).
+   * Defaults to identity.
+   */
+  readonly keyFor?: (suffix: string) => string;
+}): BudgetStore {
+  if (typeof opts.client.evalIncrCheck !== "function") {
+    throw new Error(
+      "[adjudicate] createBudgetStore requires an atomic `evalIncrCheck` Lua " +
+        "primitive — a single-use-counted budget store has no safe non-atomic " +
+        "fallback (a bare INCR→check→DECR would re-introduce the over-grant race).",
+    );
+  }
+  const evalIncrCheck = opts.client.evalIncrCheck.bind(opts.client);
+  const keyFor = opts.keyFor ?? ((s: string) => s);
+  return {
+    async tryBurnDown({ budgetId, intentKind, limit, windowSeconds }) {
+      // Per-grant counter key. Including `intentKind` is belt-and-suspenders:
+      // the kernel already scopes substitution to `envelope.kind === intentKind`,
+      // and `budgetId` is unique per grant, but keying by both makes a single
+      // counter authoritative for exactly one (grant, kind) pair.
+      const counterKey = keyFor(`budget:${budgetId}:${intentKind}`);
+      // Atomic increment-and-check. `0` ⇒ over-limit (already rolled back by the
+      // Lua script) ⇒ NOT in-budget ⇒ no grant. Any value `>= 1` ⇒ in-budget.
+      const result = await evalIncrCheck(counterKey, windowSeconds, limit);
+      return result !== 0;
     },
   };
 }

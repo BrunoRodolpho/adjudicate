@@ -7,14 +7,21 @@ import {
 } from "@adjudicate/core/kernel";
 import {
   BASIS_CODES,
+  adjudicateAndAudit,
   basis,
   buildAuditRecord,
   buildEnvelope,
   decisionRefuse,
+  decisionRequestConfirmation,
   recordAggregateSnapshot,
   refuse,
   verifyAuditRecord,
   type AggregateSnapshot,
+  type AuditRecord,
+  type AuditSink,
+  type BudgetGrant,
+  type Guard,
+  type TaintPolicy,
 } from "@adjudicate/core";
 import { createMemoryLedger } from "../src/ledger-memory.js";
 import { createRedisLedger, type RedisLedgerClient } from "../src/ledger-redis.js";
@@ -290,5 +297,99 @@ describe("052 — recorded aggregate snapshot persists through the audit record"
     );
     expect(report.integrityFailures).toHaveLength(1);
     expect(report.integrityFailures[0]!.kind).toBe("AUDIT_HASH_TAMPERED");
+  });
+});
+
+// ── 025: a budget burn is recorded in the ledger without weakening first-writer-wins ─
+// A budget-satisfied EXECUTE (REQUEST_CONFIRMATION → EXECUTE via a standing
+// budget grant) claims a ledger key EXACTLY like any natural EXECUTE: the first
+// writer wins, and a second attempt for the same intentHash is REPLAY_SUPPRESSED.
+// The budget burn does NOT introduce a new ledger path or loosen the SET-NX
+// idempotent claim — it rides the existing EXECUTE-claim plumbing — and the
+// budget-satisfied record is tamper-evident + replayable.
+describe("025 — budget burn records in the ledger without weakening first-writer-wins", () => {
+  const permissive: TaintPolicy = { minimumFor: () => "UNTRUSTED" };
+  const askConfirm: Guard<string, unknown, unknown> = () =>
+    decisionRequestConfirmation("Confirm this transfer?", []);
+  const grant: BudgetGrant = {
+    budgetId: "bud-ledger",
+    intentKind: "pix.charge.create",
+    limit: 5,
+    windowSeconds: 600,
+  };
+
+  function envOf(nonce: string) {
+    return buildEnvelope({
+      kind: "pix.charge.create",
+      payload: { amountCentavos: 5000 },
+      actor: { principal: "llm", sessionId: "s-budget-ledger" },
+      taint: "UNTRUSTED",
+      nonce,
+      createdAt: "2026-06-19T12:00:00.000Z",
+    });
+  }
+
+  function captureSink(): { sink: AuditSink; records: AuditRecord[] } {
+    const records: AuditRecord[] = [];
+    return { sink: { async emit(r) { records.push(r); } }, records };
+  }
+
+  const policy = {
+    stateGuards: [],
+    authGuards: [],
+    taint: permissive,
+    business: [askConfirm],
+    default: "REFUSE" as const,
+  };
+
+  it("budget-satisfied EXECUTE claims the ledger; a second attempt is REPLAY_SUPPRESSED (first-writer-wins intact)", async () => {
+    const env = envOf("n-budget-ledger");
+    const ledger = createMemoryLedger();
+    const { sink, records } = captureSink();
+    const deps = { sink, ledger, budgetGrant: grant };
+
+    const first = await adjudicateAndAudit(env, {}, policy, deps);
+    expect(first.decision.kind).toBe("EXECUTE");
+    // The burn is observable in the ledger: a hit now exists for this intentHash.
+    const hit = await ledger.checkLedger(env.intentHash);
+    expect(hit).not.toBe(null);
+    expect(hit?.kind).toBe("pix.charge.create");
+
+    // Second attempt for the same intentHash: the ledger's SET-NX first-writer-
+    // wins is NOT weakened by the budget path — it REPLAY_SUPPRESSEs.
+    const second = await adjudicateAndAudit(env, {}, policy, deps);
+    expect(second.decision.kind).toBe("REFUSE");
+    expect(
+      second.decision.basis.some(
+        (b) => `${b.category}:${b.code}` === "ledger:replay_suppressed",
+      ),
+    ).toBe(true);
+
+    // The budget-satisfied EXECUTE record is tamper-evident + carries the
+    // budget_satisfied supersession.
+    const execRecord = records[0]!;
+    expect(execRecord.decision.kind).toBe("EXECUTE");
+    expect(
+      execRecord.decision_basis.some((b) => b.category === "budget"),
+    ).toBe(true);
+    expect(execRecord.supersedes?.reason).toBe("budget_satisfied");
+    expect(verifyAuditRecord(execRecord).verified).toBe(true);
+  });
+
+  it("the budget-satisfied record replays intact through replayWithIntegrity", async () => {
+    const env = envOf("n-budget-replay");
+    const ledger = createMemoryLedger();
+    const { sink, records } = captureSink();
+    await adjudicateAndAudit(env, {}, policy, { sink, ledger, budgetGrant: grant });
+    const execRecord = records[0]!;
+    expect(execRecord.decision.kind).toBe("EXECUTE");
+
+    // Re-run a deterministic adjudicator that reproduces the recorded EXECUTE.
+    // The budget basis + supersession ride the durable record verbatim; the
+    // auditHash is intact (no integrity failure).
+    const report = replayWithIntegrity([execRecord], () => execRecord.decision);
+    expect(report.total).toBe(1);
+    expect(report.matched).toBe(1);
+    expect(report.integrityFailures).toHaveLength(0);
   });
 });

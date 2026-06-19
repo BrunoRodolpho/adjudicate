@@ -6,6 +6,8 @@ describe("BASIS_CODES — vocabulary-controlled", () => {
     expect(Object.keys(BASIS_CODES).sort()).toEqual(
       [
         "auth",
+        // 025 — capabilities-as-budgets adds the `budget` category (budget:satisfied).
+        "budget",
         "business",
         "confirmation",
         "deadline",

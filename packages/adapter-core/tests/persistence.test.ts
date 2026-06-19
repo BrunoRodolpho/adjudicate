@@ -59,6 +59,40 @@ describe("createInMemoryDeferStore — ParkRedis surface", () => {
     expect(result).toBe("OK");
     expect(await store.get("p")).toBe("envelope-blob");
   });
+
+  // 025 — atomic increment-and-check (the budget burn-down primitive).
+  it("evalIncrCheck increments while in-limit and returns 0 once over-limit (no advance)", async () => {
+    const store = createInMemoryDeferStore();
+    expect(await store.evalIncrCheck!("k", 600, 3)).toBe(1);
+    expect(await store.evalIncrCheck!("k", 600, 3)).toBe(2);
+    expect(await store.evalIncrCheck!("k", 600, 3)).toBe(3);
+    // Over-limit: returns 0 AND does NOT advance the counter (the speculative
+    // increment is rolled back — at-most-`max`).
+    expect(await store.evalIncrCheck!("k", 600, 3)).toBe(0);
+    expect(await store.evalIncrCheck!("k", 600, 3)).toBe(0);
+  });
+
+  it("evalIncrCheck refills the window after the counter TTL expires", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createInMemoryDeferStore();
+      expect(await store.evalIncrCheck!("k", 10, 1)).toBe(1);
+      expect(await store.evalIncrCheck!("k", 10, 1)).toBe(0); // exhausted
+      vi.advanceTimersByTime(11_000);
+      expect(await store.evalIncrCheck!("k", 10, 1)).toBe(1); // refilled
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("evalIncrCheck counters are independent per key; del clears them", async () => {
+    const store = createInMemoryDeferStore();
+    expect(await store.evalIncrCheck!("a", 600, 1)).toBe(1);
+    expect(await store.evalIncrCheck!("b", 600, 1)).toBe(1); // independent key
+    expect(await store.evalIncrCheck!("a", 600, 1)).toBe(0); // a exhausted
+    await store.del("a");
+    expect(await store.evalIncrCheck!("a", 600, 1)).toBe(1); // reset after del
+  });
 });
 
 describe("createInMemoryDeferStore — MemoryReviewer-002", () => {

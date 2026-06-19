@@ -16,7 +16,7 @@ import {
 } from "@adjudicate/core/llm";
 
 import { paymentsPixPack } from "../src/index.js";
-import { PIX_INTENTS, PIX_TOOLS } from "../src/capabilities.js";
+import { PIX_BUDGET_CAPABLE_INTENTS, PIX_INTENTS, PIX_TOOLS } from "../src/capabilities.js";
 
 describe("paymentsPixPack — PackV0 conformance", () => {
   test("declares the v0 contract", () => {
@@ -117,6 +117,26 @@ describe("paymentsPixPack — PackV0 conformance", () => {
     expect(paymentsPixPack.basisCodes).toContain("pix.charge.amount_invalid");
     expect(paymentsPixPack.basisCodes).toContain(
       "pix.charge.already_refunded",
+    );
+  });
+
+  // 025 — capabilities-as-budgets: the Pack declares which intent kinds a
+  // standing, bounded budget may pre-authorize (the budget-capable class).
+  test("PIX_BUDGET_CAPABLE_INTENTS declares the LLM-proposable money-movers (a non-empty subset of declared intents, excluding the system-only webhook)", () => {
+    expect(PIX_BUDGET_CAPABLE_INTENTS.length).toBeGreaterThan(0);
+    // Budget-capable kinds are the create/refund money-movers.
+    expect([...PIX_BUDGET_CAPABLE_INTENTS].sort()).toEqual([
+      "pix.charge.create",
+      "pix.charge.refund",
+    ]);
+    // Every budget-capable kind is a genuinely-declared Pack intent (no drift).
+    for (const k of PIX_BUDGET_CAPABLE_INTENTS) {
+      expect(PIX_INTENTS).toContain(k);
+    }
+    // The system-only (TRUSTED-only) webhook is NEVER budget-capable — a budget
+    // relieves friction for bounded VOLUMES of LLM-proposable money-movers only.
+    expect(PIX_BUDGET_CAPABLE_INTENTS as readonly string[]).not.toContain(
+      "pix.charge.confirm",
     );
   });
 });

@@ -96,6 +96,9 @@ const REASON_KEYS: ReadonlyArray<SupersessionReason> = [
   "defer_resumed",
   "rewrite_executed",
   "replay",
+  // 025 — capabilities-as-budgets: a budget-satisfied EXECUTE supersedes the
+  // REQUEST_CONFIRMATION it was substituted for.
+  "budget_satisfied",
   "lgpd_scrub",
 ];
 
@@ -105,6 +108,7 @@ function emptyReasonCounts(): Record<SupersessionReason, number> {
     defer_resumed: 0,
     rewrite_executed: 0,
     replay: 0,
+    budget_satisfied: 0,
     lgpd_scrub: 0,
   };
 }

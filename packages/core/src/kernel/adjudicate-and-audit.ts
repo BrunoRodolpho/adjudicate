@@ -36,6 +36,7 @@ import {
   type AuditPlanSnapshot,
   type AuditRecord,
   type AuditSigner,
+  type BudgetGrant,
   type Supersession,
 } from "../audit.js";
 import {
@@ -293,6 +294,48 @@ export interface AdjudicateAndAuditDeps {
     readonly token?: string;
   };
   /**
+   * Budget grant (025 — capabilities-as-budgets). A human-granted, BOUNDED,
+   * STANDING pre-authorization the impure shell asserts so a CLASS of intents
+   * can satisfy the "ask first" threshold up to a declared limit WITHOUT a
+   * per-intent confirmation receipt. When supplied AND the grant's `intentKind`
+   * matches `envelope.kind` AND the kernel returns `REQUEST_CONFIRMATION`, the
+   * kernel substitutes `EXECUTE` with an appended `budget:satisfied` basis (and
+   * auto-derives a `budget_satisfied` supersession), EXACTLY mirroring the
+   * `confirmationReceipt` override above. State guards, taint guards, and auth
+   * guards are still evaluated in full — only the threshold-style "ask the user
+   * first" step is satisfied. Other Decisions (REFUSE/REWRITE/ESCALATE/DEFER/
+   * EXECUTE) are returned UNCHANGED (monotonicity-preserving, §C; closed
+   * 6-outcome algebra, §D #2 — no new kind, no confidence/metadata).
+   *
+   * The kernel does NOT verify or count the grant — the shell
+   * (`adapter-core/decisions.ts` + `loop.ts`) owns burn-down integrity and only
+   * asserts a grant AFTER a SUCCESSFUL atomic decrement against `limit` (the
+   * `evalIncrCheck` Lua primitive). Over-limit ⇒ no grant asserted ⇒ the kernel
+   * returns the original `REQUEST_CONFIRMATION` (fail-closed to friction, §C).
+   * Adopters wiring this directly MUST ensure the grant cannot be forged from
+   * untrusted inputs and that the decrement preceded the assertion.
+   *
+   * `originalAt` (LogicReviewer, 025): the `at` timestamp of the ORIGINAL
+   * REQUEST_CONFIRMATION audit row this budget substitution supersedes. The
+   * predecessor row is emitted by a SEPARATE, earlier `adjudicateAndAudit` call
+   * (the shell's first pass) at an earlier wall clock; this budget-satisfied
+   * EXECUTE is a SECOND call at a LATER wall clock. So `predecessorAt` MUST be
+   * the predecessor's `at`, NOT this call's `clock.nowIso()` (which equals this
+   * EXECUTE row's OWN `at`). When provided, it is stored as
+   * `supersedes.predecessorAt` so `buildSupersessionChains` (@adjudicate/audit)
+   * can JOIN on (predecessorIntentHash, predecessorAt) and disambiguate the two
+   * records that share the envelope's intentHash — mirroring
+   * `confirmationReceipt.originalAt`. When omitted, falls back to
+   * `clock.nowIso()` (legacy behaviour — use only when the predecessor row's
+   * `at` is unavailable to the caller; the chain walker then cannot disambiguate
+   * and may report the pair as a false cycle/singleton).
+   *
+   * STRICTLY ADDITIVE: this lives on the kernel deps slot, NOT on the recorded
+   * `BudgetGrant` data contract (it is a per-substitution timing detail, not
+   * standing-grant identity), so the basis pre-image is unchanged.
+   */
+  readonly budgetGrant?: BudgetGrant & { readonly originalAt?: string };
+  /**
    * Optional explicit supersession link (AuditRecord v3). When supplied,
    * the produced AuditRecord carries this value under `supersedes`. Use this
    * to attach `defer_resumed`, `rewrite_executed`, or `replay` links — for
@@ -523,6 +566,11 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // `deps.supersedes` (set by adapters for defer_resumed / rewrite_executed /
   // replay) always wins over this auto-derivation.
   let confirmationSupersedes: Supersession | undefined;
+  // 025 — auto-derived supersedes for the budget-substitution path. Mirrors the
+  // confirmation-receipt derivation; never co-occurs with it (both gate on the
+  // same single REQUEST_CONFIRMATION outcome, and the confirmation branch runs
+  // first and substitutes EXECUTE, so the budget branch's gate no longer holds).
+  let budgetSupersedes: Supersession | undefined;
   // 011/T2: the envelope whose bytes actually execute and get recorded/claimed.
   // For a plain EXECUTE this is the original `envelope`; for a kernel REWRITE
   // that re-adjudicated to a second-pass EXECUTE it becomes `decision.rewritten`
@@ -609,6 +657,71 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         ...(deps.confirmationReceipt.token !== undefined
           ? { token: deps.confirmationReceipt.token }
           : {}),
+      };
+    }
+
+    // ── 2a′. Budget substitution (025 — capabilities-as-budgets) ─────
+    // When the impure shell asserts a standing, bounded budget grant for THIS
+    // intent's KIND and the kernel returned REQUEST_CONFIRMATION, substitute
+    // EXECUTE with an appended `budget:satisfied` basis — EXACTLY mirroring the
+    // confirmation-receipt override above (2a). The shell asserts the grant ONLY
+    // after a successful ATOMIC burn-down (`evalIncrCheck` against the grant's
+    // limit), so this branch is reached at-most-`limit` times per window; the
+    // kernel does NOT verify/count the grant. State/taint/auth/business guards
+    // already ran; only the threshold-style "ask first" step is satisfied. Other
+    // Decisions flow through unchanged (REFUSE/REWRITE/ESCALATE/DEFER/EXECUTE) —
+    // monotonicity-preserving (§C), closed 6-outcome algebra (§D #2: no new kind,
+    // no confidence/metadata).
+    //
+    // §C carve-out (index §C / invariant #7): like the confirmation-receipt
+    // substitution, this is the deterministic kernel/shell flow that WEAKENS a
+    // Decision (REQUEST_CONFIRMATION → EXECUTE). §C scopes monotonicity to
+    // NON-DETERMINISTIC components (risk/anomaly/compliance/ops). A budget grant
+    // is a DETERMINISTIC recorded input (a human-granted bounded pre-auth bound
+    // to THIS `envelope.kind`), not a risk model lowering a ceiling, so §C does
+    // not govern it — it is EXEMPT from `clampToCeiling`/the monotonic-ceiling
+    // lint and is explicitly allowlisted at the call site below.
+    //
+    // The gate is `confirmationReceipt`-mutually-exclusive in practice: 2a runs
+    // first and, on a matching receipt, already substituted EXECUTE — so
+    // `decision.kind === "REQUEST_CONFIRMATION"` no longer holds here. When BOTH
+    // are passed (unusual), the receipt wins and the budget is left untouched
+    // (no double burn from the kernel's perspective).
+    if (
+      decision.kind === "REQUEST_CONFIRMATION" &&
+      deps.budgetGrant !== undefined &&
+      deps.budgetGrant.intentKind === envelope.kind
+    ) {
+      // eslint-disable-next-line @adjudicate/monotonic-ceiling -- deterministic capabilities-as-budgets flow, §C carve-out (see block comment above)
+      decision = decisionExecute([
+        ...decision.basis,
+        basis("budget", BASIS_CODES.budget.SATISFIED, {
+          budgetId: deps.budgetGrant.budgetId,
+          intentKind: deps.budgetGrant.intentKind,
+          limit: deps.budgetGrant.limit,
+          windowSeconds: deps.budgetGrant.windowSeconds,
+          originalPrompt: decision.prompt,
+        }),
+      ]);
+      // Auto-derive the `budget_satisfied` supersession linking the budget-
+      // satisfied EXECUTE record back to the original REQUEST_CONFIRMATION row.
+      // `predecessorAt` MUST be the PREDECESSOR row's `at`, threaded by the shell
+      // as `budgetGrant.originalAt` — NOT this call's `clock.nowIso()`, which is
+      // this EXECUTE row's OWN `at` (the predecessor was emitted by a SEPARATE,
+      // earlier `adjudicateAndAudit` call at an earlier wall clock). Using
+      // `clock.nowIso()` here would make `predecessorAt === at`, so
+      // `buildSupersessionChains` (@adjudicate/audit) could not disambiguate the
+      // two records that share `envelope.intentHash` and would report a false
+      // cycle/singleton with `budget_satisfied` invisible in reason analytics
+      // (LogicReviewer, 025). Mirrors `confirmationReceipt.originalAt` (2a). Falls
+      // back to `clock.nowIso()` only when the caller could not supply the
+      // predecessor `at` (legacy/best-effort). `token` carries the grant's
+      // `budgetId` for the forensic trail.
+      budgetSupersedes = {
+        predecessorIntentHash: envelope.intentHash,
+        predecessorAt: deps.budgetGrant.originalAt ?? clock.nowIso(),
+        reason: "budget_satisfied" as const,
+        token: deps.budgetGrant.budgetId,
       };
     }
 
@@ -779,9 +892,16 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // ── 6. Audit emission ──────────────────────────────────────────────
   // Supersedes precedence: an explicit `deps.supersedes` always wins; otherwise
   // the 011/T2 auto-derived `rewrite_executed` link (when the REWRITE executed)
-  // takes priority over the confirmation_resolved auto-derivation.
+  // takes priority over the confirmation_resolved / budget_satisfied (025)
+  // auto-derivations. `confirmationSupersedes` and `budgetSupersedes` are mutually
+  // exclusive (both gate on the same single REQUEST_CONFIRMATION outcome; 2a runs
+  // first and, on substitution, the 2a′ gate no longer holds) so only one is ever
+  // set — the `??` order is for completeness, not a real tie-break.
   const supersedes =
-    deps.supersedes ?? rewriteSupersedes ?? confirmationSupersedes;
+    deps.supersedes ??
+    rewriteSupersedes ??
+    confirmationSupersedes ??
+    budgetSupersedes;
   const kernelIdentity = ctx?.kernelIdentity
     ? { id: ctx.kernelIdentity.id, version: ctx.kernelIdentity.version }
     : undefined;

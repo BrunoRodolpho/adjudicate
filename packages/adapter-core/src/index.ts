@@ -33,6 +33,8 @@ export type {
   AgentOutcome,
   AgentTurnResult,
   AssistantTurn,
+  // 025 — capabilities-as-budgets loop configuration (store + grant resolver).
+  BudgetConfig,
   // 024 — cap-gated executor contract (kernel-shell-minted, single-use,
   // resource-bound capability gate honored at the executor seam).
   CapabilityGate,
@@ -58,6 +60,7 @@ export type {
 
 export {
   makeOutOfPlanToolResult,
+  runBudgetBurnDown,
   translateDecision,
 } from "./decisions.js";
 export type {
@@ -67,12 +70,14 @@ export type {
 } from "./decisions.js";
 
 export {
+  createBudgetStore,
   createInMemoryBurnStore,
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
   createInMemoryMemoryStore,
 } from "./persistence.js";
 export type {
+  BudgetStore,
   BurnStore,
   ConfirmationStore,
   CreateInMemoryMemoryStoreOptions,

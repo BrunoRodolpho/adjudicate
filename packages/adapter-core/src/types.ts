@@ -13,6 +13,7 @@
 
 import type {
   AuditSink,
+  BudgetGrant,
   Capability,
   Decision,
   IntentEnvelope,
@@ -248,6 +249,42 @@ export interface CapabilityGate {
    * mint). Fail-closed past TTL (§D #6): an expired capability burns to `null`.
    */
   readonly ttlSeconds?: number;
+}
+
+/**
+ * 025 — capabilities-as-budgets configuration for the loop.
+ *
+ * Pairs the authoritative, single-use-COUNTED budget store (the
+ * `ParkRedis.evalIncrCheck` atomic burn-down primitive — supply a
+ * `createInMemoryDeferStore()` for tests/quickstart, a Redis client exposing
+ * `evalIncrCheck` in production) with a host-supplied resolver that maps an
+ * intent kind to the standing grant authorizing it (or `undefined` when no
+ * budget covers that kind). The resolver is the host's authority: it returns a
+ * grant ONLY for kinds an operator has actually pre-authorized (e.g. a
+ * budget-capable kind declared in a Pack's `capabilities.ts`).
+ *
+ * **Default OFF** (the whole option omitted): the REQUEST_CONFIRMATION path is
+ * byte-identical to pre-025.
+ */
+export interface BudgetConfig {
+  /**
+   * Authoritative atomic burn-down store — only the `evalIncrCheck` Lua hook is
+   * required (a single-use-counted store has no safe non-atomic fallback). Wire a
+   * `createInMemoryDeferStore()` (tests) or a Redis client with `evalIncrCheck`.
+   */
+  readonly store: Pick<ParkRedis, "evalIncrCheck">;
+  /**
+   * Resolve the standing budget grant that pre-authorizes `intentKind`, or
+   * `undefined` when no budget covers it. The host owns this mapping (an operator
+   * issued the grant). The loop substitutes EXECUTE for REQUEST_CONFIRMATION ONLY
+   * when this returns a grant AND the atomic burn-down against `grant.limit`
+   * stays in-budget. The returned grant's `intentKind` MUST equal `intentKind`
+   * (the kernel re-checks `grant.intentKind === envelope.kind` — a mismatch is a
+   * no-op, friction-preserving).
+   */
+  readonly resolveGrant: (
+    intentKind: string,
+  ) => BudgetGrant | undefined | Promise<BudgetGrant | undefined>;
 }
 
 export interface AgentLogger {
@@ -499,6 +536,28 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
    * a READ can never reach `invokeIntent`.
    */
   readonly capabilityGate?: CapabilityGate;
+  /**
+   * 025 — capabilities-as-budgets. When supplied, an intent kind that the kernel
+   * would otherwise REQUEST_CONFIRMATION for can satisfy the "ask first"
+   * threshold via a standing, human-granted, BOUNDED budget — WITHOUT a
+   * per-intent confirmation receipt — up to the grant's `limit` per window.
+   *
+   * The loop adjudicates the intent normally first; ONLY on a
+   * REQUEST_CONFIRMATION outcome does it resolve a grant for the envelope's kind
+   * (`resolveGrant`), ATOMICALLY burn down one unit against the grant's `limit`
+   * (the `store.evalIncrCheck` Lua primitive), and — on a successful, in-budget
+   * decrement — RE-adjudicate with the kernel `budgetGrant` asserted, producing a
+   * budget-satisfied EXECUTE that supersedes the REQUEST_CONFIRMATION audit row.
+   * Over-limit / no grant / store error leaves the original REQUEST_CONFIRMATION
+   * standing (fail-closed to friction, §C). The kernel never weakens any
+   * state/taint/auth/business guard — only the threshold step is satisfied
+   * (§D #2 closed algebra; §C monotonicity carve-out, deterministic recorded
+   * input).
+   *
+   * **Default OFF** (option omitted): the loop never burns down a budget and the
+   * REQUEST_CONFIRMATION path is byte-identical to pre-025.
+   */
+  readonly budget?: BudgetConfig;
   /**
    * 042 — session-contamination configuration. When `{ enabled: true }`, an
    * untrusted-origin datum entering the session (an authorized READ result —

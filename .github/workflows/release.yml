@@ -55,6 +55,32 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # 084 — adversarial-canary PUBLISH PRECONDITION (staged rollout). Before a
+      # single artifact is signed/published, re-run the FROZEN red-team canary
+      # (all vectors + the 035 ownership/IDOR vector) over each shipped pack dist
+      # bundle. `--canary-policy execute-escape` is the §D-1 privilege-escalation
+      # gate: a FAILED canary (an adversarial intent reaching a clean EXECUTE, or
+      # an error) exits 2 and ABORTS the job BEFORE the publish (SIGNER) step ever
+      # runs — a guard-config change cannot reach production trust if it lets an
+      # adversarial intent reach the executor (§D-6 fail-closed: a failed canary
+      # aborts promotion). (Rationale for execute-escape over the heterogeneous
+      # shipped catalog is documented on the CI gate in ci.yml.) Runs in the CI
+      # shell, never inside adjudicate() (§D kernel purity).
+      - name: Adversarial canary gate (publish precondition)
+        run: |
+          set -e
+          for pack in \
+            ./packages/pack-cli-agent/dist/index.js \
+            ./packages/pack-access-governance/dist/index.js \
+            ./packages/pack-incident-response/dist/index.js \
+            ./packages/pack-payments-pix/dist/index.js \
+            ./packages/pack-identity-kyc/dist/index.js \
+            ./packages/pack-deployments-approval/dist/index.js ; do
+            echo "::group::canary $pack"
+            node packages/cli/dist/bin.js red-team --canary --canary-policy execute-escape --seed 1 --pack "$pack"
+            echo "::endgroup::"
+          done
+
       - name: Create release PR or publish
         id: changesets
         uses: changesets/action@v1

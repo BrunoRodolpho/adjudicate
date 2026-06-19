@@ -16,8 +16,10 @@ import {
   generateToolScopeViolationEnvelopes,
   renderRedTeamJson,
   renderRedTeamText,
+  runCanaryGate,
   runRedTeam,
   type AttackVector,
+  type CanaryPolicy,
   type RedTeamPack,
   type RedTeamScenario,
 } from "@adjudicate/red-team";
@@ -29,6 +31,22 @@ export interface RedTeamOptions {
   readonly perIntent?: number;
   readonly vectors?: ReadonlyArray<AttackVector>;
   readonly format?: "text" | "json";
+  /**
+   * 084 — run the FROZEN adversarial-canary GATE instead of the ad-hoc per-vector
+   * run. The canary gate folds the 035 ownership/IDOR vector into the frozen set
+   * AND (under the strict policy) promotes the `taintEscalationCausality`
+   * non-vacuity check to a hard fail. Exit 2 = ROLLBACK / 0 = PROMOTE. `--vectors`
+   * is ignored in canary mode (the frozen set is fixed by design).
+   */
+  readonly canary?: boolean;
+  /**
+   * 084 — canary failure policy. `"strict"` (default): any non-acceptable
+   * decision / error / vacuous taint pass rolls back (single-candidate canary).
+   * `"execute-escape"`: roll back ONLY on a reached EXECUTE or error (the §D-1
+   * privilege-escalation gate) — for a heterogeneous catalog whose adversarial
+   * scenarios are legitimately defended upstream of the taint gate.
+   */
+  readonly canaryPolicy?: CanaryPolicy;
   readonly cwd?: string;
   readonly stdout?: (line: string) => void;
 }
@@ -58,6 +76,48 @@ export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> 
   };
 
   const pack = (await loadPackFromModule(options.pack, cwd)) as unknown as RedTeamPack;
+
+  // 084 — frozen adversarial-canary GATE mode. Runs the FROZEN scenario set
+  // (all vectors + the 035 ownership/IDOR vector) with the non-vacuity check
+  // promoted to a hard fail, then exits 0 (PROMOTE) / 2 (ROLLBACK). This is the
+  // gate CI + release wire over the shipped pack dist bundles.
+  if (options.canary === true) {
+    const policy: CanaryPolicy = options.canaryPolicy ?? "strict";
+    const result = runCanaryGate(pack, { stage: "canary", policy, ...genOpts });
+    if (format === "json") {
+      out(
+        JSON.stringify(
+          {
+            stage: result.stage,
+            policy: result.policy,
+            exitCode: result.exitCode,
+            taintVacuous: result.taintVacuous,
+            executeEscapes: result.executeEscapes,
+            ownership: result.ownership,
+            causality: result.causality,
+            report: result.report,
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      out(renderRedTeamText(result.report));
+      out(
+        `  canary[${result.stage}/${result.policy}] · taint gate exercised ${result.causality.byTaintGate}/${result.causality.total}` +
+          (result.taintVacuous
+            ? result.policy === "strict"
+              ? " · VACUOUS taint pass (hard fail)"
+              : " · vacuous taint pass (advisory)"
+            : "") +
+          ` · EXECUTE escapes ${result.executeEscapes}` +
+          ` · ownership/IDOR escapes ${result.ownership.escaped} (to-EXECUTE ${result.ownership.toExecute})` +
+          ` · verdict ${result.exitCode === 0 ? "PROMOTE" : "ROLLBACK"}`,
+      );
+    }
+    process.exitCode = result.exitCode;
+    return;
+  }
 
   const scenarios: RedTeamScenario[] = [];
   if (vectors.includes("prompt_injection")) {

@@ -573,3 +573,92 @@ describe("installPack — 083 change-control is orthogonal to the load path", ()
     expect(optionKeys).not.toContain("codeowners" as keyof InstallPackOptions);
   });
 });
+
+// ── 084: the staged-rollout CANARY gate is EXTERNAL to the kernel install path
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 084 adds a staged rollout (shadow → canary → auto-rollback) whose adversarial
+// re-run + seal/trust orchestration lives ENTIRELY in the red-team / adapter /
+// CLI shell. The canary runs `runRedTeam` / `runCanaryGate` AROUND install, never
+// inside `adjudicate()` (§D kernel purity). These tests prove the kernel install
+// path stayed orchestration-free: `installPack` carries NO canary/rollout option
+// key, its 082 seal/trust verifiers remain INJECTED (no canary coupling), and a
+// candidate installs byte-identically regardless of any external canary state.
+describe("installPack — 084 staged-rollout canary is external to the load path", () => {
+  beforeEach(() => {
+    _resetMetricsSink();
+    _resetLearningSink();
+  });
+  afterEach(() => {
+    _resetMetricsSink();
+    _resetLearningSink();
+  });
+
+  const noSinks = { installDefaultMetrics: false, installDefaultLearning: false } as const;
+
+  it("InstallPackOptions exposes NO canary / rollout / red-team option key", () => {
+    // The complete, canary-free option surface. The 084 canary/rollout is wired
+    // in @adjudicate/red-team + the adapter loop + CI — never as an install knob.
+    const optionKeys: Array<keyof InstallPackOptions> = [
+      "installDefaultMetrics",
+      "installDefaultLearning",
+      "auditBasisDrift",
+      "allowDefaultExecute",
+      "warn",
+      "authoritySnapshot",
+      "verifyOnLoad",
+    ];
+    const sneaky = {
+      ...noSinks,
+      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
+      canary: true,
+      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
+      rolloutStage: "canary",
+      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
+      runRedTeam: () => 0,
+    } as InstallPackOptions;
+    const result = installPack(makePack(), sneaky);
+    expect(result.pack.id).toBe("pack-test");
+    expect(optionKeys).not.toContain("canary" as keyof InstallPackOptions);
+    expect(optionKeys).not.toContain("rolloutStage" as keyof InstallPackOptions);
+  });
+
+  it("a candidate installs byte-identically with or without an ambient canary verdict (no coupling)", () => {
+    // Baseline.
+    const bare = installPack(makePack(), noSinks);
+    // Simulate an external canary having run (env that a CI canary step might set);
+    // the load path reads NONE of it — the result must be byte-identical.
+    process.env.ADJUDICATE_CANARY_STAGE = "canary";
+    process.env.ADJUDICATE_CANARY_VERDICT = "promote";
+    try {
+      const withCanary = installPack(makePack(), noSinks);
+      expect(withCanary.pack.id).toBe(bare.pack.id);
+      expect(withCanary.installedDefaults).toEqual(bare.installedDefaults);
+      expect(describePolicyBundle(withCanary.pack.policy)).toEqual(
+        describePolicyBundle(bare.pack.policy),
+      );
+    } finally {
+      delete process.env.ADJUDICATE_CANARY_STAGE;
+      delete process.env.ADJUDICATE_CANARY_VERDICT;
+    }
+  });
+
+  it("the 082 seal/trust verifiers stay INJECTED (no canary orchestration inside install)", () => {
+    // The verifyOnLoad seam is the ONLY place trust/seal verification touches the
+    // install path, and both verifiers are caller-INJECTED (core never imports
+    // @adjudicate/conformance — a cycle). 084 adds NO new verification arm here:
+    // a validly-signed candidate installs through exactly the 082 injected seam.
+    const { publicKeyPem, privateKeyPem } = ed25519();
+    const pack = makePack();
+    const sig = { algorithm: "ed25519", keyId: "k", value: signFp(fingerprintOf(pack), privateKeyPem) };
+    const verify: VerifyOnLoadOptions = {
+      verifyPackTrust: makeVerifyPackTrust(),
+      verifyConfigSeal: makeVerifyConfigSeal(),
+      publicKeyPem,
+      signature: sig,
+      seal: sealOf(pack, privateKeyPem),
+    };
+    const result = installPack(pack, { ...noSinks, verifyOnLoad: verify });
+    expect(result.pack.id).toBe("pack-test");
+  });
+});

@@ -24,11 +24,16 @@
 export { createAdjudicatedAgent } from "./loop.js";
 export { createQuickAgent } from "./quick-agent.js";
 export type { QuickAgentOptions } from "./quick-agent.js";
+// 084 — fail-closed CANARY-stage config-seal posture builder (require_signature
+// + engageKillSwitchOnMismatch + every_turn). Runtime helper.
+export { canaryStageConfigSeal } from "./types.js";
 export type {
   AdjudicatedAgent,
   AdjudicatedAgentOptions,
   AdopterExecutor,
   AgentEvent,
+  // 084 — the named config-seal options shape the canary-stage helper returns.
+  AgentConfigSealOptions,
   AgentLogger,
   AgentOutcome,
   AgentTurnResult,

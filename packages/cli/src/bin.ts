@@ -365,6 +365,16 @@ program
     "--vectors <csv>",
     "Comma list of vectors: prompt_injection,taint_escalation,tool_scope_violation,provenance_injection. Defaults to all",
   )
+  .option(
+    "--canary",
+    "084 — run the FROZEN adversarial-canary GATE (all vectors + ownership/IDOR). Exit 2 = ROLLBACK / 0 = PROMOTE. Ignores --vectors.",
+    false,
+  )
+  .option(
+    "--canary-policy <strict|execute-escape>",
+    "084 — canary failure policy. strict (default): non-acceptable decision/error/vacuous taint pass rolls back. execute-escape: roll back ONLY on a reached EXECUTE or error (§D-1 privilege-escalation gate, for a heterogeneous shipped catalog).",
+    "strict",
+  )
   .option("--format <text|json>", "Output format. Defaults to text", "text")
   .action(
     async (options: {
@@ -372,11 +382,18 @@ program
       seed?: string;
       perIntent?: string;
       vectors?: string;
+      canary?: boolean;
+      canaryPolicy?: string;
       format?: string;
     }) => {
       const format = (options.format ?? "text") as "text" | "json";
       if (format !== "text" && format !== "json") {
         console.error(`✗ Unknown --format value "${options.format}". Use text or json.`);
+        process.exit(1);
+      }
+      const canaryPolicy = (options.canaryPolicy ?? "strict") as "strict" | "execute-escape";
+      if (canaryPolicy !== "strict" && canaryPolicy !== "execute-escape") {
+        console.error(`✗ Unknown --canary-policy value "${options.canaryPolicy}". Use strict or execute-escape.`);
         process.exit(1);
       }
       // 041 — `provenance_injection` is an accepted vector key (its generator
@@ -404,6 +421,7 @@ program
         ...(options.seed !== undefined ? { seed: Number(options.seed) } : {}),
         ...(options.perIntent !== undefined ? { perIntent: Number(options.perIntent) } : {}),
         ...(vectors !== undefined ? { vectors } : {}),
+        ...(options.canary === true ? { canary: true, canaryPolicy } : {}),
         format,
       });
     },

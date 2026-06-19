@@ -6,7 +6,14 @@ import {
   type PolicyBundle,
 } from "@adjudicate/core";
 import { sha256Canonical } from "@adjudicate/canonical";
-import type { AttackVector, RedTeamPack, RedTeamScenario } from "./scenario.js";
+import type {
+  AttackVector,
+  GenerateOptions,
+  RedTeamPack,
+  RedTeamScenario,
+} from "./scenario.js";
+import { generateAllVectors } from "./vectors.js";
+import { generateOwnershipViolationEnvelopes } from "./vectors/taint-escalation.js";
 
 export type RedTeamStatus = "defended" | "escaped" | "error";
 
@@ -239,4 +246,191 @@ export function runConfigSealCapEditRegression(args: {
     baselineDigest,
     tamperedDigest,
   };
+}
+
+// ─── 084: frozen adversarial-canary gate (shadow → canary → auto-rollback) ───
+//
+// A deterministic publish/rollout gate that re-runs the FULL adversarial suite
+// over a FROZEN scenario set as a precondition to promotion. It lives entirely
+// in the red-team SHELL — it runs `runRedTeam` / `computeRedTeamExitCode`
+// *around* a pack, never inside `adjudicate()` (§D kernel purity preserved).
+//
+// Two correctness properties beyond a bare `runRedTeam`:
+//
+//   1. OWNERSHIP/IDOR COVERAGE. The frozen set is `generateAllVectors` PLUS the
+//      035/T10 ownership/IDOR vector (`generateOwnershipViolationEnvelopes`),
+//      which `generateAllVectors` does NOT carry. Without it the canary would
+//      pass a pack with an open IDOR hole on the §D #8 ownership/authority
+//      surface — the exact gap §2 flags. The gate therefore protects ownership
+//      as a first-class axis, not just the 3 legacy vectors + provenance.
+//
+//   2. NON-VACUITY (the primary correctness risk, §7). `escaped === 0` alone is
+//      a HOLLOW guarantee for the taint-escalation vector: a state precondition
+//      may refuse the sub-minimum intent before the taint gate ever runs (kernel
+//      order: state → taint), so a green run can mean "the taint gate was never
+//      exercised", not "the taint gate works". The gate promotes
+//      `taintEscalationCausality`'s warning into a HARD FAIL: when there ARE
+//      taint-escalation scenarios but NONE were caught by the taint gate itself
+//      (`byTaintGate === 0` while `total > 0`), the gate fails (exit 2) rather
+//      than passing a vacuous green. A partially-vacuous run (some by the taint
+//      gate, some upstream) is reported but not failed — at least one scenario
+//      genuinely exercised the gate.
+//
+// Pure: no clock / RNG / IO (the generators take an explicit seed; the kernel is
+// pure). Deterministic over `(pack, opts)` — same seed → byte-identical verdict.
+
+/** The terminal verdict of a single canary stage: promote (0) or roll back (2). */
+export type CanaryExitCode = 0 | 2;
+
+/** A canary stage label, for the shadow → canary progression. */
+export type CanaryStage = "shadow" | "canary";
+
+/**
+ * Canary failure policy — what counts as a ROLLBACK.
+ *
+ *  - `"strict"` (default): the FULL gate. ANY non-acceptable decision (incl. a
+ *    DEFER where REFUSE was expected) or error is a rollback, AND a VACUOUS
+ *    taint-escalation pass (defended only upstream of the taint gate) is a HARD
+ *    FAIL. Use when canarying a single candidate the operator expects to FULLY
+ *    defend (REFUSE) every adversarial intent and to genuinely exercise the
+ *    taint gate. This is the property the §6 unit tests certify.
+ *
+ *  - `"execute-escape"`: the §D-1 PRIVILEGE-ESCALATION gate. A rollback fires
+ *    ONLY when an adversarial intent reached a clean `EXECUTE` (the executor)
+ *    or errored. A non-EXECUTE friction outcome (DEFER/REQUEST_CONFIRMATION/
+ *    ESCALATE/REWRITE) where REFUSE was expected, and a vacuous taint pass, are
+ *    REPORTED but do NOT roll back. Use over a HETEROGENEOUS catalog of shipped
+ *    packs whose adversarial scenarios are legitimately defended upstream of the
+ *    taint gate (schema/state preconditions) and which carry documented,
+ *    pre-existing non-REFUSE friction (035-F1) — there the strict gate would
+ *    over-block on properties that are not privilege escalations.
+ *
+ * Both policies are FAIL-CLOSED on the real escape (a reached EXECUTE) and on
+ * errors; `"execute-escape"` is strictly WEAKER on the advisory axes only.
+ */
+export type CanaryPolicy = "strict" | "execute-escape";
+
+export interface CanaryGateResult {
+  /** Which stage produced this verdict. */
+  readonly stage: CanaryStage;
+  /** The failure policy this verdict was computed under. */
+  readonly policy: CanaryPolicy;
+  /** The underlying adversarial report (full per-scenario detail). */
+  readonly report: RedTeamReport;
+  /** Causality breakdown for the taint-escalation vector. */
+  readonly causality: TaintEscalationCausality;
+  /**
+   * True when the taint-escalation vector PASSED only because every defense fired
+   * upstream of the taint gate (`total > 0 && byTaintGate === 0`). Under
+   * `"strict"` this is a HARD FAIL; under `"execute-escape"` it is advisory.
+   */
+  readonly taintVacuous: boolean;
+  /**
+   * Count of scenarios that reached a clean `EXECUTE` — a genuine privilege
+   * escalation to the executor (the §D-1 failure mode). Always a rollback.
+   */
+  readonly executeEscapes: number;
+  /**
+   * The ownership/IDOR coverage the frozen set added (035/T10). `present` is true
+   * when the pack had an eligible UNTRUSTED-min mutating kind so the vector
+   * actually fired; `escaped` counts any non-acceptable IDOR outcome; `toExecute`
+   * counts the subset that reached a clean EXECUTE (the real IDOR-to-executor).
+   */
+  readonly ownership: {
+    readonly present: boolean;
+    readonly escaped: number;
+    readonly toExecute: number;
+  };
+  /**
+   * The promote/rollback verdict. 0 = PROMOTE, 2 = ROLLBACK. Fail-closed (§D #6):
+   * a reached EXECUTE or an error always rolls back; under `"strict"` a vacuous
+   * taint pass / any non-acceptable decision also rolls back.
+   */
+  readonly exitCode: CanaryExitCode;
+}
+
+/**
+ * The FROZEN canary scenario set: the full vector suite PLUS the 035/T10
+ * ownership/IDOR vector. Deterministic over `(pack, opts)`. Exported so the CLI
+ * and tests run EXACTLY the same frozen set the gate certifies.
+ */
+export function frozenCanaryScenarios(
+  pack: RedTeamPack,
+  opts: GenerateOptions = {},
+): RedTeamScenario[] {
+  return [
+    ...generateAllVectors(pack, opts),
+    // 035/T10 — the ownership/IDOR vector `generateAllVectors` omits. Closes the
+    // ownership-axis canary gap (§2/§3): the canary now protects §D #8.
+    ...generateOwnershipViolationEnvelopes(pack, opts),
+  ];
+}
+
+/**
+ * Run the frozen adversarial canary gate for one stage against one pack.
+ *
+ * Promotes the `taintEscalationCausality` non-vacuity warning to a hard fail
+ * (under `"strict"`) and folds the ownership/IDOR vector into the frozen set.
+ * Reuses `runRedTeam` + `computeRedTeamExitCode` (0 = promote / 2 = rollback) and
+ * ONLY ever RAISES friction over the base mapper — a vacuous taint pass that
+ * `computeRedTeamExitCode` would call 0 is forced to 2 under `"strict"`
+ * (§C monotonicity: the gate may only add friction, never remove it).
+ *
+ * See `CanaryPolicy` for the strict vs execute-escape failure semantics. Both
+ * policies are fail-closed on a reached `EXECUTE` (the §D-1 privilege escalation)
+ * and on errors; `"execute-escape"` only relaxes the advisory axes (it never
+ * lets a real escape through).
+ */
+export function runCanaryGate(
+  pack: RedTeamPack,
+  opts: { readonly stage?: CanaryStage; readonly policy?: CanaryPolicy } & GenerateOptions = {},
+): CanaryGateResult {
+  const stage: CanaryStage = opts.stage ?? "canary";
+  const policy: CanaryPolicy = opts.policy ?? "strict";
+  const genOpts: GenerateOptions = {
+    ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
+    ...(opts.perIntent !== undefined ? { perIntent: opts.perIntent } : {}),
+  };
+  const scenarios = frozenCanaryScenarios(pack, genOpts);
+  const report = runRedTeam(pack, scenarios);
+  const causality = taintEscalationCausality(report);
+
+  // Non-vacuity: a taint-escalation vector that "passed" without the taint gate
+  // ever firing is a HOLLOW guarantee — under "strict" we refuse to certify it.
+  const taintVacuous = causality.total > 0 && causality.byTaintGate === 0;
+
+  // The REAL escape (§D-1): an adversarial intent that reached a clean EXECUTE.
+  const executeEscapes = report.results.filter(
+    (r) => r.status === "escaped" && r.decision === "EXECUTE",
+  ).length;
+
+  // Ownership/IDOR coverage: surface the open §D #8 hole distinctly for the
+  // operator's rollback trace — both any non-acceptable outcome (`escaped`) and
+  // the subset that actually reached EXECUTE (`toExecute`, the real IDOR hole).
+  const ownershipResults = report.results.filter((r) =>
+    r.name.startsWith("ownership_violation."),
+  );
+  const ownership = {
+    present: ownershipResults.length > 0,
+    escaped: ownershipResults.filter((r) => r.status === "escaped").length,
+    toExecute: ownershipResults.filter(
+      (r) => r.status === "escaped" && r.decision === "EXECUTE",
+    ).length,
+  };
+
+  // Verdict. ALWAYS fail-closed on a reached EXECUTE or any error (both
+  // policies). Under "strict" ALSO fail on any non-acceptable decision (the base
+  // mapper) or a vacuous taint pass. Friction-only: a 2 is never lowered to a 0.
+  const base = computeRedTeamExitCode(report.summary); // 2 on ANY escape/error
+  const hardEscape = executeEscapes > 0 || report.summary.errors > 0;
+  const exitCode: CanaryExitCode =
+    policy === "strict"
+      ? base === 2 || taintVacuous
+        ? 2
+        : 0
+      : hardEscape
+        ? 2
+        : 0;
+
+  return { stage, policy, report, causality, taintVacuous, executeEscapes, ownership, exitCode };
 }

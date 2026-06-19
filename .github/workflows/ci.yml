@@ -52,6 +52,37 @@ jobs:
           --pack ./packages/pack-identity-kyc/dist/index.js
           --pack ./packages/pack-deployments-approval/dist/index.js
 
+      # 084 — FROZEN adversarial-canary gate (alongside the ADR-140 composition
+      # gate). Re-runs the full red-team suite + the 035 ownership/IDOR vector
+      # over each shipped pack dist bundle as a DETERMINISTIC publish precondition.
+      # `--canary-policy execute-escape` is the §D-1 PRIVILEGE-ESCALATION gate: a
+      # rollback (exit 2) fires only when an adversarial intent reaches a clean
+      # EXECUTE (the executor) or errors — fail-closed (§D-6). This is the right
+      # policy for the HETEROGENEOUS shipped catalog: several packs legitimately
+      # defend their adversarial scenarios UPSTREAM of the taint gate (schema/
+      # state preconditions), and pack-identity-kyc carries the documented,
+      # pre-existing 035-F1 #8 gap (forged-owner kinds resolve to DEFER friction,
+      # not REFUSE — never an EXECUTE). The STRICT non-vacuity hard-fail (the full
+      # gate) is exercised in the @adjudicate/red-team unit suite over a candidate
+      # pack expected to FULLY defend; running it as a blocking gate over the
+      # current catalog would over-block on those non-escalation properties (§7
+      # risk). The gate runs entirely in the shell, never inside adjudicate()
+      # (§D kernel purity). Fixed seed ⇒ reproducible verdict run-to-run.
+      - name: Adversarial canary gate (frozen red-team over the shipped packs)
+        run: |
+          set -e
+          for pack in \
+            ./packages/pack-cli-agent/dist/index.js \
+            ./packages/pack-access-governance/dist/index.js \
+            ./packages/pack-incident-response/dist/index.js \
+            ./packages/pack-payments-pix/dist/index.js \
+            ./packages/pack-identity-kyc/dist/index.js \
+            ./packages/pack-deployments-approval/dist/index.js ; do
+            echo "::group::canary $pack"
+            node packages/cli/dist/bin.js red-team --canary --canary-policy execute-escape --seed 1 --pack "$pack"
+            echo "::endgroup::"
+          done
+
       - name: Version consistency
         run: pnpm check:versions
 

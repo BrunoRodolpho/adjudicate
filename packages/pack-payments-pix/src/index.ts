@@ -107,7 +107,11 @@ export {
   pixPolicyBundle,
 } from "./policies.js";
 
-export { PIX_TOOLS, pixCapabilityPlanner } from "./capabilities.js";
+export {
+  PIX_BUDGET_CAPABLE_INTENTS,
+  PIX_TOOLS,
+  pixCapabilityPlanner,
+} from "./capabilities.js";
 
 export { inMemoryPixHandlers } from "./handlers.js";
 

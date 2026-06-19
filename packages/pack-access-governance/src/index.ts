@@ -44,7 +44,11 @@ export function rehydrateAccessState(raw: unknown): AccessState {
 
 export * from "./types.js";
 export { accessPolicyBundle } from "./policies.js";
-export { ACCESS_TOOLS, accessCapabilityPlanner } from "./capabilities.js";
+export {
+  ACCESS_BUDGET_CAPABLE_INTENTS,
+  ACCESS_TOOLS,
+  accessCapabilityPlanner,
+} from "./capabilities.js";
 export {
   refuseUnknownResource,
   refuseInvalidPrivilegeLevel,

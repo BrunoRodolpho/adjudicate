@@ -48,6 +48,7 @@ import {
 import {
   makeOutOfPlanToolResult,
   routeReadThroughKernel,
+  runBudgetBurnDown,
   translateDecision,
   type LoopAction,
 } from "./decisions.js";
@@ -499,7 +500,7 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         });
         events.push({ kind: "intent_proposed", envelope });
 
-        const { decision } = await adjudicateAndAudit(
+        const { decision, record: firstRecord } = await adjudicateAndAudit(
           envelope as IntentEnvelope<K, P>,
           state,
           sealedPolicy,
@@ -513,17 +514,39 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
             }),
           },
         );
-        lastDecision = decision;
-        events.push({ kind: "decision", decision, envelope });
+        // 025 — capabilities-as-budgets: ONLY when the kernel asked for
+        // confirmation, try to satisfy the threshold from a standing budget
+        // grant. On a successful ATOMIC burn-down the loop re-adjudicates with
+        // the kernel `budgetGrant` asserted, yielding a budget-satisfied EXECUTE
+        // that supersedes the REQUEST_CONFIRMATION audit row. Any other outcome
+        // (or no budget configured / over-limit) leaves `decision` untouched.
+        let effectiveDecision = decision;
+        if (decision.kind === "REQUEST_CONFIRMATION" && options.budget) {
+          const budgeted = await tryBudgetSubstitution(
+            envelope as IntentEnvelope<K, P>,
+            state,
+            sealedPolicy,
+            plan,
+            decision,
+            // 025 (LogicReviewer): the predecessor REQUEST_CONFIRMATION row's
+            // `at`. The budget-satisfied EXECUTE's supersedes.predecessorAt MUST
+            // be this value (NOT the second call's clock), so the audit-chain
+            // walker can JOIN the two records that share the envelope intentHash.
+            firstRecord.at,
+          );
+          if (budgeted !== null) effectiveDecision = budgeted;
+        }
+        lastDecision = effectiveDecision;
+        events.push({ kind: "decision", decision: effectiveDecision, envelope });
         traceSink.onTrace({
           phase: "decision_emitted",
           sessionId,
           iteration: iter + 1,
-          decisionKind: decision.kind,
+          decisionKind: effectiveDecision.kind,
         });
 
         const single = await processSingleDecision({
-          decision,
+          decision: effectiveDecision,
           envelope: envelope as IntentEnvelope<K, P>,
           toolUseId: tu.id,
           sessionId,
@@ -716,6 +739,95 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    }
+
+    /**
+     * 025 — capabilities-as-budgets: try to satisfy a REQUEST_CONFIRMATION from a
+     * standing budget grant. The decrement-then-assert-grant authority flow:
+     *   1. resolve the grant for the envelope's kind (host authority; no grant ⇒
+     *      no substitution).
+     *   2. ATOMICALLY burn down ONE unit against the grant's `limit` via the
+     *      `evalIncrCheck` Lua primitive (`runBudgetBurnDown`, decisions.ts). The
+     *      shell asserts the grant ONLY after a successful, in-budget decrement.
+     *   3. RE-adjudicate with `deps.budgetGrant` asserted — the kernel substitutes
+     *      EXECUTE + a `budget:satisfied` basis ONLY because the decision is still
+     *      REQUEST_CONFIRMATION (state/taint/auth/business guards re-run; a state
+     *      change since the first pass that flipped the outcome correctly stands).
+     *      The re-adjudication's audit row supersedes the original via
+     *      `budget_satisfied`.
+     * Returns the substituted Decision, or `null` when no substitution happened
+     * (no grant, over-limit / store error, or the re-adjudication did not EXECUTE
+     * — friction-preserving, fail-closed §C/§D #6).
+     */
+    async function tryBudgetSubstitution(
+      envelope: IntentEnvelope<K, P>,
+      state: S,
+      sealedPolicy: typeof options.pack.policy,
+      plan: { visibleReadTools: ReadonlyArray<string>; allowedIntents: ReadonlyArray<string> },
+      original: Decision,
+      // 025 (LogicReviewer): the `at` of the predecessor REQUEST_CONFIRMATION
+      // audit row (the first-pass `adjudicateAndAudit` record). Threaded into the
+      // kernel as `budgetGrant.originalAt` so the budget-satisfied EXECUTE's
+      // `supersedes.predecessorAt` points at the predecessor's `at`, not the
+      // second call's `clock.nowIso()`. Required for `buildSupersessionChains` to
+      // reconstruct the chain instead of emitting a false cycle/singleton.
+      originalAt: string,
+    ): Promise<Decision | null> {
+      const budget = options.budget;
+      if (!budget) return null;
+      let grant;
+      try {
+        grant = await budget.resolveGrant(envelope.kind);
+      } catch (err) {
+        options.log?.warn?.({
+          msg: "[adjudicate] budget grant resolver threw; leaving REQUEST_CONFIRMATION standing (fail-closed)",
+          intentKind: envelope.kind,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      }
+      // No standing budget covers this kind, or the resolver mis-mapped the kind:
+      // leave the REQUEST_CONFIRMATION (friction-preserving). The kind guard here
+      // mirrors the kernel's own `grant.intentKind === envelope.kind` check.
+      if (grant === undefined || grant.intentKind !== envelope.kind) return null;
+      // Atomic burn-down. Over-limit / no atomic primitive / store error ⇒ false
+      // ⇒ leave the REQUEST_CONFIRMATION standing (fail-closed to friction).
+      const inBudget = await runBudgetBurnDown({
+        store: budget.store,
+        grant,
+        rk,
+        ...(options.log !== undefined ? { log: options.log } : {}),
+      });
+      if (!inBudget) {
+        options.log?.info?.({
+          msg: "[adjudicate] budget exhausted or unavailable; REQUEST_CONFIRMATION stands",
+          intentKind: envelope.kind,
+          budgetId: grant.budgetId,
+        });
+        return null;
+      }
+      // In-budget: re-adjudicate with the grant asserted. The kernel substitutes
+      // EXECUTE + budget basis ONLY if the decision is STILL REQUEST_CONFIRMATION.
+      const { decision: substituted } = await adjudicateAndAudit(
+        envelope,
+        state,
+        sealedPolicy,
+        {
+          sink: auditSink,
+          ledger: options.ledger,
+          context: runtimeContext,
+          plan: () => ({
+            visibleReadTools: plan.visibleReadTools,
+            allowedIntents: plan.allowedIntents,
+          }),
+          // 025 (LogicReviewer): assert the grant AND the predecessor row's `at`
+          // so the auto-derived `budget_satisfied` supersedes.predecessorAt joins
+          // the original REQUEST_CONFIRMATION row (not this EXECUTE row's own at).
+          budgetGrant: { ...grant, originalAt },
+        },
+      );
+      void original;
+      return substituted;
     }
   }
 

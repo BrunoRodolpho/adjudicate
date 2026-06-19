@@ -23,12 +23,15 @@ export const AuditPlanSnapshotSchema = z.object({
   planFingerprint: z.string(),
 });
 
-/** v3 — predecessor link for confirmation_resolved / defer_resumed / rewrite_executed / replay / lgpd_scrub. */
+/** v3 — predecessor link for confirmation_resolved / defer_resumed / rewrite_executed / replay / budget_satisfied / lgpd_scrub. */
 export const SupersessionReasonSchema = z.enum([
   "confirmation_resolved",
   "defer_resumed",
   "rewrite_executed",
   "replay",
+  // 025 — capabilities-as-budgets: a budget-satisfied EXECUTE supersedes the
+  // REQUEST_CONFIRMATION it was substituted for.
+  "budget_satisfied",
   "lgpd_scrub",
 ]);
 

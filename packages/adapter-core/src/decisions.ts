@@ -54,6 +54,7 @@ import {
 } from "@adjudicate/core";
 import type {
   AuditSink,
+  BudgetGrant,
   Capability,
   Decision,
   ExecutorContract,
@@ -149,6 +150,65 @@ export interface DecisionTranslation {
   readonly toolResult: ToolResultBlock | null;
   readonly loopAction: LoopAction;
   readonly extraEvents: ReadonlyArray<AgentEvent>;
+}
+
+/**
+ * 025 — shell budget burn-down (decrement-then-assert-grant).
+ *
+ * The IMPURE-shell authority step for capabilities-as-budgets. When the kernel
+ * returns REQUEST_CONFIRMATION for an intent kind a standing budget grant covers,
+ * the shell ATOMICALLY decrements the budget via the `ParkRedis.evalIncrCheck`
+ * Lua primitive — increment-and-check against `limit` — and asserts the kernel
+ * budget grant ONLY when the decrement stayed in-budget. This is the §6 atomic
+ * burn-down: `evalIncrCheck(counterKey, windowSeconds, limit)` returns `0` when
+ * the increment would exceed `limit` (the Lua script already rolled it back —
+ * at-most-`limit` across replicas, NOT the non-atomic GET+DEL the confirmation
+ * store documents), or the new count (`>= 1`) when in-budget.
+ *
+ * Authority stays in THIS single-use-counted counter — never the lossy
+ * display-only approval registry. Fail-closed (§D #6 / index §C): over-limit, a
+ * client without `evalIncrCheck`, or a store/IO error returns `false`, so the
+ * caller re-uses the original REQUEST_CONFIRMATION (friction, never bypass).
+ * Returns `true` ⇒ the caller may assert the kernel grant for ONE substitution.
+ */
+export async function runBudgetBurnDown(args: {
+  readonly store: Pick<ParkRedis, "evalIncrCheck">;
+  readonly grant: BudgetGrant;
+  readonly rk: (raw: string) => string;
+  readonly log?: AgentLogger;
+}): Promise<boolean> {
+  const { store, grant, rk } = args;
+  if (typeof store.evalIncrCheck !== "function") {
+    // No atomic primitive → fail-closed. A single-use-counted authority store has
+    // NO safe non-atomic fallback (a bare INCR→check→DECR re-introduces the
+    // over-grant race), so we do NOT assert the grant.
+    args.log?.warn?.({
+      msg: "[adjudicate] budget store lacks atomic evalIncrCheck — refusing to burn down (fail-closed)",
+      budgetId: grant.budgetId,
+      intentKind: grant.intentKind,
+    });
+    return false;
+  }
+  const counterKey = rk(`budget:${grant.budgetId}:${grant.intentKind}`);
+  try {
+    // Atomic increment-and-check. `0` ⇒ over-limit (already rolled back) ⇒ NOT
+    // in-budget ⇒ no grant asserted. Any value `>= 1` ⇒ in-budget.
+    const result = await store.evalIncrCheck(
+      counterKey,
+      grant.windowSeconds,
+      grant.limit,
+    );
+    return result !== 0;
+  } catch (err) {
+    // Store/IO error on the burn (write) path → fail-closed (§D #6). No grant.
+    args.log?.warn?.({
+      msg: "[adjudicate] budget burn-down store error — refusing to substitute (fail-closed)",
+      budgetId: grant.budgetId,
+      intentKind: grant.intentKind,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
 }
 
 /**

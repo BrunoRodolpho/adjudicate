@@ -45,6 +45,15 @@ export type AuditRecordVersion = 1 | 2 | 3 | 4 | 5;
  *     was then adjudicated to an EXECUTE.
  *   - `replay` — re-adjudication from an audit row (replay harness or
  *     migration). The predecessor is the stored record.
+ *   - `budget_satisfied` — predecessor was a REQUEST_CONFIRMATION; a standing,
+ *     human-granted, bounded budget (capabilities-as-budgets, 025) satisfied the
+ *     ask-first threshold for THIS bounded substitution (the impure shell burned
+ *     down one unit of the grant atomically before asserting it), so the kernel
+ *     substituted EXECUTE. Distinct from `confirmation_resolved` (a per-intent
+ *     user receipt): a budget is a single-use-counted standing pre-authorization
+ *     for a CLASS of intents up to a declared limit. This record links the
+ *     budget-satisfied EXECUTE back to the original REQUEST_CONFIRMATION audit
+ *     row; `token` carries the grant's `budgetId` for the forensic trail.
  *   - `lgpd_scrub` — per-surface anonymization continuation. The predecessor
  *     is the originating LGPD/GDPR scrub envelope; this record links a
  *     downstream surface scrub (OrderProjection, ConversationMessage,
@@ -57,7 +66,58 @@ export type SupersessionReason =
   | "defer_resumed"
   | "rewrite_executed"
   | "replay"
+  | "budget_satisfied"
   | "lgpd_scrub";
+
+/**
+ * Budget grant (025 — capabilities-as-budgets) data contract.
+ *
+ * A budget is a human-granted, BOUNDED, STANDING pre-authorization that lets a
+ * CLASS of intents (`intentKind`) satisfy the "ask first" threshold up to a
+ * declared `limit` within a rolling `windowSeconds`, WITHOUT a per-intent
+ * confirmation receipt. It is the §B "human-granted bounded **budget**" form of
+ * a capability (index §G) — distinct from a single-use capability token (022):
+ * a budget METERS N substitutions against a limit (atomic increment-and-check),
+ * whereas a capability BURNS a single token.
+ *
+ * **Authority & determinism (§D).** The grant is recorded snapshot data the
+ * impure shell injects into the ONE kernel decision (mirroring
+ * `confirmationReceipt`). The kernel does NOT verify or count it — the shell
+ * owns burn-down integrity and only asserts a grant AFTER a successful atomic
+ * decrement (the `evalIncrCheck` Lua primitive). The kernel only substitutes
+ * EXECUTE for the threshold-style outcome (exactly as the confirmation-receipt
+ * override does), appends a `budget:satisfied` basis, and derives a
+ * `budget_satisfied` supersession — never weakening any state/taint/auth/
+ * business guard (§C monotonicity; §D #2 closed algebra). Recorded into the
+ * audit trail via the appended basis (in `decision_basis`) and the supersession
+ * link, so the decision stays REPLAYABLE.
+ */
+export interface BudgetGrant {
+  /**
+   * Opaque, stable identifier of the standing grant (e.g. a UUID the operator
+   * issued when authorizing the budget). Carried into `Supersession.token` for
+   * the forensic trail; the audit reader can join budget-satisfied EXECUTEs by
+   * `budgetId`.
+   */
+  readonly budgetId: string;
+  /**
+   * The single intent KIND this grant pre-authorizes. The substitution fires
+   * ONLY when `envelope.kind === budgetGrant.intentKind` (the §B class scope) —
+   * a grant for kind A can never satisfy an intent of kind B.
+   */
+  readonly intentKind: string;
+  /**
+   * Declared ceiling: the maximum number of threshold substitutions the budget
+   * authorizes within `windowSeconds`. The impure shell enforces it atomically
+   * (`evalIncrCheck`); the kernel never reads it.
+   */
+  readonly limit: number;
+  /**
+   * Rolling window (seconds) the `limit` is metered over — the TTL the shell's
+   * atomic counter expires under, after which the budget refills.
+   */
+  readonly windowSeconds: number;
+}
 
 export interface Supersession {
   readonly predecessorIntentHash: string;

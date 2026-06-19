@@ -38,6 +38,26 @@ export const ACCESS_INTENTS = [
   "access.breakglass",
 ] as const satisfies readonly AccessIntentKind[];
 
+/**
+ * 025 (capabilities-as-budgets) — the budget-CAPABLE intent kinds.
+ *
+ * A standing, human-granted, BOUNDED budget grant may satisfy the "ask first"
+ * threshold for these kinds WITHOUT a per-intent confirmation receipt — up to the
+ * grant's declared limit per window. The host wires
+ * `AdjudicatedAgentOptions.budget.resolveGrant` to return a grant ONLY for a kind
+ * in THIS set; the kernel substitution still fires ONLY on a REQUEST_CONFIRMATION
+ * outcome and NEVER weakens any state/taint/auth/business guard (§C / §D #2).
+ *
+ * `access.request` and `access.revoke` are the LLM-proposable access mutations a
+ * bounded budget can relieve friction for (e.g. an admin pre-authorizes up to N
+ * low-risk access grants per window). `access.review.resolve` and
+ * `access.breakglass` are system-only (never LLM-proposable) — not budget-capable.
+ */
+export const ACCESS_BUDGET_CAPABLE_INTENTS = [
+  "access.request",
+  "access.revoke",
+] as const satisfies readonly AccessIntentKind[];
+
 const rawAccessCapabilityPlanner: CapabilityPlanner<AccessState, AccessContext> = {
   plan(state): Plan {
     const allTools: string[] = ["list_access_reviews", "list_grants", "request_access"];

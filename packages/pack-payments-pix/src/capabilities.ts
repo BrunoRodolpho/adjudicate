@@ -51,6 +51,28 @@ export const PIX_INTENTS = [
   "pix.charge.refund",
 ] as const satisfies readonly PixIntentKind[];
 
+/**
+ * 025 (capabilities-as-budgets) — the budget-CAPABLE intent kinds.
+ *
+ * A standing, human-granted, BOUNDED budget grant (capabilities-as-budgets) may
+ * satisfy the "ask first" threshold for these kinds WITHOUT a per-intent
+ * confirmation receipt — up to the grant's declared limit per window. The host
+ * wires `AdjudicatedAgentOptions.budget.resolveGrant` to return a grant ONLY for
+ * a kind in THIS set (an operator-authorized money-mover budget); the kernel
+ * substitution still fires ONLY on a REQUEST_CONFIRMATION outcome and NEVER
+ * weakens any state/taint/auth/business guard (§C / §D #2).
+ *
+ * These are the LLM-proposable money-movers (`pix.charge.create` /
+ * `pix.charge.refund`). The provider-webhook intent `pix.charge.confirm` is
+ * NEVER LLM-proposable (TRUSTED-only) and is therefore NOT budget-capable — a
+ * budget relieves human-in-the-loop friction for bounded VOLUMES of the same
+ * money-mover class, never the system-only confirm path.
+ */
+export const PIX_BUDGET_CAPABLE_INTENTS = [
+  "pix.charge.create",
+  "pix.charge.refund",
+] as const satisfies readonly PixIntentKind[];
+
 const rawPixCapabilityPlanner: CapabilityPlanner<PixState, PixContext> = {
   plan(state): Plan {
     const hasConfirmedCharge = Array.from(state.charges.values()).some(

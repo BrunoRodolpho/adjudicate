@@ -37,6 +37,26 @@ export const INCIDENT_INTENTS = [
   "incident.monitor.callback",
 ] as const satisfies readonly IncidentIntentKind[];
 
+/**
+ * 025 (capabilities-as-budgets) — the budget-CAPABLE intent kinds.
+ *
+ * A standing, human-granted, BOUNDED budget grant may satisfy the "ask first"
+ * threshold for these kinds WITHOUT a per-intent confirmation receipt — up to the
+ * grant's declared limit per window. The host wires
+ * `AdjudicatedAgentOptions.budget.resolveGrant` to return a grant ONLY for a kind
+ * in THIS set; the kernel substitution still fires ONLY on a REQUEST_CONFIRMATION
+ * outcome and NEVER weakens any state/taint/auth/business guard (§C / §D #2).
+ *
+ * `incident.remediation.execute` is the LLM-proposable remediation action a
+ * bounded budget can relieve friction for (e.g. an SRE pre-authorizes up to N
+ * remediations per window during an active incident). `incident.escalate` only
+ * RAISES friction (never threshold-gated) and `incident.monitor.callback` is
+ * system-only — neither is budget-capable.
+ */
+export const INCIDENT_BUDGET_CAPABLE_INTENTS = [
+  "incident.remediation.execute",
+] as const satisfies readonly IncidentIntentKind[];
+
 const rawIncidentCapabilityPlanner: CapabilityPlanner<IncidentState, IncidentContext> = {
   plan(state): Plan {
     const active = Array.from(state.incidents.values()).filter(

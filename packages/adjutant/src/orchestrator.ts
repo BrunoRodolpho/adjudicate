@@ -22,6 +22,7 @@ import { buildEnvelope, verifyResourceBinding } from "@adjudicate/core";
 import type {
   AuditRecord,
   AuditSink,
+  ConfirmationBinding,
   Decision,
   IntentActor,
   IntentEnvelope,
@@ -45,6 +46,13 @@ import type { PendingAction, RemediationOutcome, RemediationSignal } from "./typ
 
 const DEFAULT_MAX_PASSES = 4;
 const APPROVAL_TTL_SECONDS = 24 * 60 * 60;
+/**
+ * Channel a REVIEW proposal is issued on. The ops plane has exactly one
+ * confirmation channel; stamped into the ApprovalRequest at proposal time and
+ * bound into the kernel receipt at resolve time (071) so a resolve cannot
+ * retroactively claim a different channel.
+ */
+const ADJUTANT_CHANNEL = "adjutant" as const;
 /** No-op sink — telemetry only; never gates a decision. */
 const noopSink: AuditSink = { emit: async () => {} };
 
@@ -212,7 +220,7 @@ export function createRemediationOrchestrator(
           intentKind: finalEnvelope.kind,
           prompt: pending.prompt ?? "Confirm remediation?",
           taint: finalEnvelope.taint,
-          channel: "adjutant",
+          channel: ADJUTANT_CHANNEL,
           status: "pending",
           requestedAt: at,
         };
@@ -334,9 +342,30 @@ export function createRemediationOrchestrator(
         // Re-adjudicate the SAME envelope with a confirmation receipt — the
         // kernel substitutes EXECUTE for the prior REQUEST_CONFIRMATION. We mint
         // no EXECUTE ourselves; the kernel remains the authority.
+        // 071 — bind the post-confirmation EXECUTE to the (approver, channel) the
+        // ops plane resolved it with, not just the bare intentHash + token. The
+        // approver is `args.by` (the operator who approved); the channel is the
+        // single ops-plane channel the proposal was issued on (stamped into the
+        // ApprovalRequest above, so it is BOTH the issued-against `requested` and
+        // the resolved `confirmed` value). `intentHash` stays the load-bearing
+        // identity gate; the binding is an additional fail-closed gate + forensic
+        // record. The capability is not modeled in the ops plane. Each sub-field
+        // is conditionally spread so an approve with no `args.by` is byte-identical
+        // to pre-071 (§D-5).
+        const binding: ConfirmationBinding = {
+          ...(args.by?.id !== undefined
+            ? { approver: { confirmed: args.by.id } }
+            : {}),
+          channel: { confirmed: ADJUTANT_CHANNEL, requested: ADJUTANT_CHANNEL },
+        };
         const res = await adjudicateAndAudit(env, state, incidentPolicyBundle, {
           ...deps,
-          confirmationReceipt: { intentHash: env.intentHash, at: args.at, token: args.token },
+          confirmationReceipt: {
+            intentHash: env.intentHash,
+            at: args.at,
+            token: args.token,
+            binding,
+          },
         });
         decision = res.decision;
         if (decision.kind === "EXECUTE") {

@@ -129,6 +129,24 @@ export interface Supersession {
    * `defer_resumed` it is the resume token; left undefined otherwise.
    */
   readonly token?: string;
+  /**
+   * Optional (071). The bound (capability, approver, channel) tuple a
+   * `confirmation_resolved` supersession links — the FORENSIC record of which
+   * capability the confirmation authorized, which approver confirmed, and which
+   * channel it arrived on. Carries the CONFIRMED (resolved) values only (the
+   * issued-against `requested` values are an override gate input in
+   * `adjudicateAndAudit`, not a recorded fact). Each sub-key is omitted when the
+   * caller did not supply that field, and the whole `binding` key is omitted when
+   * no field was supplied — so a confirmation with no binding produces a
+   * byte-identical `supersedes` (and therefore identical auditHash) to pre-071
+   * (§D-5). IS in the auditHash pre-image (it is part of the recorded
+   * supersession), unlike `signature`/`metadata`.
+   */
+  readonly binding?: {
+    readonly capability?: string;
+    readonly approver?: string;
+    readonly channel?: string;
+  };
 }
 
 /**

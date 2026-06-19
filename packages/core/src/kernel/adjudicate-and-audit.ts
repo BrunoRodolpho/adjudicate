@@ -111,6 +111,92 @@ function readTenantKillState(
   }
 }
 
+/**
+ * 071 — a single bound binding field. `confirmed` is the value the confirmation
+ * was actually resolved with (always recorded forensically); `requested` is the
+ * OPTIONAL value the original REQUEST_CONFIRMATION was issued against. When
+ * `requested` is present the override requires `requested === confirmed`.
+ */
+export interface ConfirmationBindingField {
+  /** The value the confirmation was resolved with (the bound, recorded value). */
+  readonly confirmed: string;
+  /**
+   * Optional: the value the REQUEST_CONFIRMATION was issued against (from the
+   * already-verified pending request). When present, the override requires it to
+   * equal `confirmed`; a mismatch falls through to the original verdict.
+   */
+  readonly requested?: string;
+}
+
+/**
+ * 071 — the bound (capability, approver, channel) tuple a post-confirmation
+ * EXECUTE is provably tied to. Each field is optional and independently gated:
+ * a caller that can supply only some of the tuple still binds those.
+ */
+export interface ConfirmationBinding {
+  /** The capability/grant the confirmation authorizes (opaque to the kernel). */
+  readonly capability?: ConfirmationBindingField;
+  /** The approver identity who confirmed (distinct from the proposer). */
+  readonly approver?: ConfirmationBindingField;
+  /** The channel the confirmation arrived on (Slack/email/console/...). */
+  readonly channel?: ConfirmationBindingField;
+}
+
+/**
+ * 071 — pure equality gate over a `ConfirmationBinding`. Returns `true` when
+ * EVERY present field whose `requested` value is supplied equals its `confirmed`
+ * value (fail-closed: any single mismatch returns `false`). A field with no
+ * `requested` value is forensically recorded but not gated (the caller could not
+ * supply the issued-against value). An absent `binding` is vacuously satisfied —
+ * that is the unchanged back-compat path.
+ *
+ * Pure: no I/O, no clock. Used INSIDE the override predicate so a mismatch on any
+ * bound field defaults to friction (the original REQUEST_CONFIRMATION), never a
+ * bypass (§D-6).
+ */
+export function confirmationBindingMatches(
+  binding: ConfirmationBinding | undefined,
+): boolean {
+  if (binding === undefined) return true;
+  const fieldOk = (f: ConfirmationBindingField | undefined): boolean =>
+    f === undefined || f.requested === undefined || f.requested === f.confirmed;
+  return (
+    fieldOk(binding.capability) &&
+    fieldOk(binding.approver) &&
+    fieldOk(binding.channel)
+  );
+}
+
+/**
+ * 071 — project a `ConfirmationBinding` onto the forensic `Supersession.binding`
+ * carrier: the BOUND (confirmed) values only, keys omitted when unsupplied so an
+ * omitted binding leaves the key off the supersession entirely (byte-identical
+ * supersedes / auditHash for non-binding callers, §D-5). Returns `undefined` when
+ * no field carries a confirmed value, so the supersession spread is a no-op.
+ *
+ * Pure. Records the confirmed value (what the EXECUTE is bound TO), not the
+ * issued-against `requested` value (which is a gate input, not the recorded fact).
+ */
+export function confirmationBindingRecord(
+  binding: ConfirmationBinding | undefined,
+):
+  | { capability?: string; approver?: string; channel?: string }
+  | undefined {
+  if (binding === undefined) return undefined;
+  const record: { capability?: string; approver?: string; channel?: string } = {
+    ...(binding.capability !== undefined
+      ? { capability: binding.capability.confirmed }
+      : {}),
+    ...(binding.approver !== undefined
+      ? { approver: binding.approver.confirmed }
+      : {}),
+    ...(binding.channel !== undefined
+      ? { channel: binding.channel.confirmed }
+      : {}),
+  };
+  return Object.keys(record).length > 0 ? record : undefined;
+}
+
 export interface AdjudicateAndAuditClock {
   nowIso(): string;
   nowMs(): number;
@@ -292,6 +378,37 @@ export interface AdjudicateAndAuditDeps {
      * before this field existed.
      */
     readonly token?: string;
+    /**
+     * Optional (071): the bound (capability, approver, channel) tuple the
+     * post-confirmation EXECUTE is provably tied to. `intentHash` (above)
+     * stays the LOAD-BEARING identity gate; this tuple is an ADDITIONAL,
+     * fail-closed gate that the override consults ONLY when present.
+     *
+     * Because `capability` and `channel` are NOT envelope fields and the
+     * approver is NEVER in `intentHashInput` (`envelope.ts` — invariant #4 is
+     * untouched), the binding values cannot be re-derived from the envelope:
+     * they TRAVEL on the receipt. Each field is a pair:
+     *   - `confirmed` — the value the confirmation was actually resolved with
+     *     (the approver who confirmed, the channel it arrived on, the
+     *     capability presented). ALWAYS the forensically recorded value.
+     *   - `requested?` — OPTIONAL: the value the original REQUEST_CONFIRMATION
+     *     was issued AGAINST (from the already-verified pending request). When
+     *     supplied, the override additionally REQUIRES `requested === confirmed`
+     *     for that field; a mismatch on ANY present field falls through to the
+     *     original REQUEST_CONFIRMATION verdict (fail-closed, §D-6) — never a
+     *     bypass.
+     *
+     * The kernel does NOT verify the capability/token (the adapter's
+     * `confirmationStore.take()` + timing-safe hash compare owns single-use /
+     * tamper defense, `loop.ts`); these fields participate ONLY in the equality
+     * gate and the forensic audit trail.
+     *
+     * STRICTLY ADDITIVE: a caller that omits `binding` (or any sub-field)
+     * produces a byte-identical `supersedes` (and therefore identical
+     * auditHash) as before this field existed — the keys are conditionally
+     * spread off the supersession entirely when unsupplied (§D-5).
+     */
+    readonly binding?: ConfirmationBinding;
   };
   /**
    * Budget grant (025 — capabilities-as-budgets). A human-granted, BOUNDED,
@@ -625,7 +742,16 @@ export async function adjudicateAndAudit<K extends string, P, S>(
     if (
       decision.kind === "REQUEST_CONFIRMATION" &&
       deps.confirmationReceipt !== undefined &&
-      deps.confirmationReceipt.intentHash === envelope.intentHash
+      deps.confirmationReceipt.intentHash === envelope.intentHash &&
+      // 071: when the receipt carries a binding tuple (capability/approver/
+      // channel), EVERY present field whose issued-against `requested` value is
+      // supplied MUST equal its resolved `confirmed` value. `intentHash` above
+      // stays the LOAD-BEARING identity gate (§D-4); this is an ADDITIONAL
+      // fail-closed gate. A mismatch falls through to the original
+      // REQUEST_CONFIRMATION verdict (friction, never bypass — §D-6). An absent
+      // binding (or a field with no `requested`) is vacuously satisfied, so the
+      // pre-071 four-field receipt path is byte-identical.
+      confirmationBindingMatches(deps.confirmationReceipt.binding)
     ) {
       // eslint-disable-next-line @adjudicate/monotonic-ceiling -- deterministic confirmation-receipt flow, §C carve-out (see block comment above)
       decision = decisionExecute([
@@ -649,6 +775,16 @@ export async function adjudicateAndAudit<K extends string, P, S>(
       //     `at` when the caller did not supply it.
       //   - AuthReviewer-005: token is included only when supplied; an
       //     omitted token leaves the key off the object entirely.
+      //   - 071: when the receipt carries a binding tuple, surface the BOUND
+      //     (confirmed) capability/approver/channel onto the supersession's
+      //     `binding` carrier so the audit chain records exactly which
+      //     (capability, approver, channel) the EXECUTE was tied to. The
+      //     `requested` (issued-against) values are gate inputs, not recorded
+      //     facts. An omitted binding leaves the key off entirely — the
+      //     supersession (and its auditHash) is byte-identical to pre-071.
+      const confirmationBinding = confirmationBindingRecord(
+        deps.confirmationReceipt.binding,
+      );
       confirmationSupersedes = {
         predecessorIntentHash: deps.confirmationReceipt.intentHash,
         predecessorAt:
@@ -656,6 +792,9 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         reason: "confirmation_resolved" as const,
         ...(deps.confirmationReceipt.token !== undefined
           ? { token: deps.confirmationReceipt.token }
+          : {}),
+        ...(confirmationBinding !== undefined
+          ? { binding: confirmationBinding }
           : {}),
       };
     }

@@ -1038,6 +1038,13 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
             // adapter already verified it above via confirmationStore.take();
             // the kernel does not re-verify.
             token: args.confirmationToken,
+            // 071: forward the bound (capability, approver, channel) tuple the
+            // caller resolved this confirmation with. The pending envelope was
+            // already taken (single-use) and hash-verified above; the kernel
+            // additionally gates the override on (and records into the
+            // supersession) this tuple. Conditionally spread so omitting it is
+            // byte-identical to pre-071 confirm() (§D-5).
+            ...(args.binding !== undefined ? { binding: args.binding } : {}),
           },
         },
       );

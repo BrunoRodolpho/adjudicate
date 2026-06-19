@@ -11,9 +11,13 @@ export {
 } from "./adjudicate.js";
 export {
   adjudicateAndAudit,
+  confirmationBindingMatches,
+  confirmationBindingRecord,
   type AdjudicateAndAuditClock,
   type AdjudicateAndAuditDeps,
   type AdjudicateAndAuditResult,
+  type ConfirmationBinding,
+  type ConfirmationBindingField,
 } from "./adjudicate-and-audit.js";
 export {
   adjudicateWithDeadline,

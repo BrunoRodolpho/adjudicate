@@ -85,11 +85,14 @@ export function GuardMetadataGraph() {
           subtitle="Every guard carries optional metadata — name, author, since, and a structured description (threshold, state_defer, system_taint, rewrite, opaque). Tooling reads it; the graph below is one example."
         />
         <p className="mx-auto mt-3 max-w-2xl text-center text-xs italic text-muted">
-          New to Adjudicate? This view is for auditors and analyzers — the{" "}
+          New to Adjudicate? This view is for auditors and analyzers — it reads
+          the same describe-policy data live from{" "}
+          <code className="not-italic">/api/playground/policy</code>. To run
+          intents end to end, open the{" "}
           <a href="/playground" className="underline hover:text-muted">
             playground
-          </a>{" "}
-          surfaces the same data interactively per Pack.
+          </a>
+          .
         </p>
 
         <div className="mt-10 grid items-start gap-6 md:grid-cols-[2fr_1fr]">

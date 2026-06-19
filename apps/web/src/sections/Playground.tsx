@@ -69,7 +69,7 @@ export function Playground() {
         <SectionHeading
           eyebrow="Live playground"
           title="Watch the kernel decide."
-          subtitle="Every decision runs the real Packs server-side and produces a signed receipt. Start guided to see a complete business story, or jump to the sandbox to configure your own test. Real kernel, real time."
+          subtitle="Every decision runs the real Packs server-side and produces a tamper-evident, replayable receipt. Start guided to see a complete business story, or jump to the sandbox to configure your own test. Real kernel, real time."
           align="center"
         />
 

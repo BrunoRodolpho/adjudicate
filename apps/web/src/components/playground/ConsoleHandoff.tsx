@@ -25,15 +25,15 @@ const COPY: Record<
 > = {
   "guided-step": {
     title: "Receipts like this populate your operator console",
-    hint: "Open the Audit Explorer to see how signed receipts land in the live feed.",
+    hint: "Open the Audit Explorer to see how tamper-evident receipts land in the live feed.",
   },
   "guided-final": {
-    title: "Every step above produced a signed receipt",
+    title: "Every step above produced a tamper-evident receipt",
     hint: "View them together in the Audit Explorer, exactly as an operator would.",
   },
   sandbox: {
     title: "This receipt would now appear in your operator console",
-    hint: "Open the Audit Explorer to see how signed receipts land in the live feed.",
+    hint: "Open the Audit Explorer to see how tamper-evident receipts land in the live feed.",
   },
 };
 

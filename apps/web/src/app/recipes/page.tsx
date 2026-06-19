@@ -111,7 +111,7 @@ export default function RecipesPage() {
           <BrandGlow />
           <div className="relative z-10 mx-auto max-w-4xl">
             <p className="mb-5 text-center text-eyebrow uppercase text-muted">
-              Every recipe resolves to one of six signed decisions
+              Every recipe resolves to one of six tamper-evident decisions
             </p>
             <div className="overflow-x-auto">
               <DecisionFan className="h-auto w-full min-w-[600px]" />

@@ -4,12 +4,19 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { PolicyBundleDescriptorParsed } from "@adjudicate/admin-sdk";
 
 /**
- * Single fetch of `/api/playground/policy` shared across all playground
- * surfaces that need the policy descriptor (Pack Inspector,
- * GuardMetadataGraph if it ever moves into the playground, etc.).
+ * Single fetch of `/api/playground/policy` shared across the surfaces that
+ * consume the policy descriptor via this provider (the per-tab Pack
+ * Inspector).
  *
- * The endpoint is `force-static` and returns the descriptor for all three
- * shipped Packs — fetching it more than once per page load is wasted work.
+ * Live-consumer note: today the shipped consumer of `/api/playground/policy`
+ * is `GuardMetadataGraph` on the `/introspection` route, which fetches the
+ * endpoint directly (not through this provider). `PackInspector` +
+ * `PolicyProvider`/`usePolicy` are the per-tab playground surface; the
+ * playground (`Playground.tsx`) currently mounts only GuidedMode + SandboxMode,
+ * so this provider is not wired into a mounted tree yet.
+ *
+ * The endpoint returns the descriptor for the shipped Packs — fetching it more
+ * than once per page load is wasted work.
  */
 
 export interface InstalledPackDescriptor {

@@ -20,7 +20,7 @@ import { FinalCTA } from "@/sections/FinalCTA";
  *
  * The hero now leads with the outcome (guardrails beyond block-or-allow), then
  * MagicMoment lands the conversion punch immediately: one risky deploy, caught
- * and rewritten by the REAL kernel, with a signed receipt. From there the four
+ * and rewritten by the REAL kernel, with a tamper-evident receipt. From there the four
  * spine sections answer the comprehension test in order —
  *   1. What happened?            → StepActs
  *   2. What can the guard decide? → OutcomesBento (the six-outcome surface)

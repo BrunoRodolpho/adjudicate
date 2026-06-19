@@ -112,7 +112,7 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
                 <p className="max-w-measure text-sm leading-relaxed text-muted">
                   Run this guard against your own payload in the interactive
                   playground — watch the kernel reach this outcome live, with a
-                  signed receipt.
+                  tamper-evident receipt.
                 </p>
                 <a
                   href={playgroundHref}

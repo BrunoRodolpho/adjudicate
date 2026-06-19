@@ -32,12 +32,16 @@ import { cn } from "@/lib/cn";
  *
  * The reframe: an aircraft has a flight recorder so that, after the fact, you
  * can replay exactly what happened and prove it wasn't altered. adjudicate is
- * that for AI actions. Every decision becomes a signed, hash-chained,
- * tamper-evident receipt. The annotation rail translates the load-bearing
- * cryptographic fields into plain English — what each one PROVES, with no
- * crypto fluency assumed: intentHash (a fingerprint of the action), auditHash
- * (tamper-evidence), signature (non-repudiation) — plus the persistence rail
- * (append-only, replayable).
+ * that for AI actions. Every decision becomes a tamper-evident, replayable
+ * receipt. The annotation rail translates the load-bearing fields into plain
+ * English — what each one PROVES, with no crypto fluency assumed: intentHash
+ * (a fingerprint of the action), auditHash (keyless tamper-evidence over the
+ * whole record). The receipt this demo renders is exactly what the pure kernel
+ * returns from `runPlayground` — it carries an `auditHash` only. Signing
+ * (non-repudiation) and the inter-record hash-chain are added by the impure
+ * production shell when a signer / ledger / database is wired (§D: the kernel
+ * decides; the shell signs and persists), so the rail flags them as what the
+ * production rail adds, not as fields on the demo record.
  *
  * If runPlayground throws at build time (it shouldn't — the kernel is pure,
  * deterministic, and dependency-free), we fall back to a representative record
@@ -129,9 +133,9 @@ export async function StepReceipt() {
           and prove nothing was tampered with. adjudicate is that for AI
           actions. Every decision emits one{" "}
           <span className="font-medium text-ink">tamper-evident,
-          hash-chained, signed receipt</span> — the proposed envelope, the
-          outcome, the basis, and the hashes that make it verifiable and
-          replayable. This is a real record{" "}
+          replayable receipt</span> — the proposed envelope, the outcome, the
+          basis, and an <code className="font-mono">auditHash</code> that makes
+          it verifiable and replayable. This is a real record{" "}
           {real ? (
             <span className="font-medium text-ink">
               produced live, server-side, by the kernel
@@ -197,21 +201,28 @@ export async function StepReceipt() {
             field="auditHash"
             tone="neutral"
           >
-            <span className="font-medium text-ink">Tamper-evidence.</span> A
-            single hash binding the envelope, the decision, and the basis
-            together — and chaining to the record before it. Alter any past
-            record and the chain no longer verifies. This is the black box you
-            can&apos;t quietly rewrite.
+            <span className="font-medium text-ink">
+              Keyless tamper-evidence.
+            </span>{" "}
+            A single sha256 hash binding the envelope, the decision, and the
+            basis together. Alter any recorded field and the hash no longer
+            matches — no key required to check it. This is the field the demo
+            receipt above actually carries.
           </Annotation>
           <Annotation
             icon={<PenLine size={16} aria-hidden="true" />}
-            field="signature"
+            field="signature · prevAuditHash"
             tone="neutral"
           >
-            <span className="font-medium text-ink">Non-repudiation.</span> A
-            cryptographic signature over the auditHash. It proves{" "}
-            <span className="italic">who</span> attests this record — so no one
-            can later deny producing it. Optional, but on when you need it.
+            <span className="font-medium text-ink">
+              Added by the production rail.
+            </span>{" "}
+            Non-repudiation (a signature over the auditHash, proving{" "}
+            <span className="italic">who</span> attests it) and the inter-record
+            hash-chain are minted by the impure shell when you wire a signer and
+            a ledger. The pure-kernel playground above wires neither, so this
+            demo receipt shows an <code className="font-mono">auditHash</code>{" "}
+            and no <code className="font-mono">signature</code>.
           </Annotation>
 
           {/* Persistence rail. */}
@@ -224,10 +235,11 @@ export async function StepReceipt() {
               />
               <p className="text-sm leading-snug text-muted">
                 <span className="font-medium text-ink">
-                  &rarr; saved to a database
+                  &rarr; persisted by the production rail
                 </span>{" "}
-                (Postgres). Append-only, queryable, replayable — every receipt
-                kept, none overwritten.
+                (e.g. Postgres). Append-only, queryable, replayable — every
+                receipt kept, none overwritten. The demo above keeps records in
+                memory only.
               </p>
             </div>
           </StaggerItem>

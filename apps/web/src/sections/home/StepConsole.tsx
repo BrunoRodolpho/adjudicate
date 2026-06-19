@@ -16,7 +16,8 @@ import { runPlayground } from "@/lib/kernel-runner";
  *
  * The highlighted REWRITE row carries the REAL intentHash from the same
  * deterministic kernel run that produced the Step-3 receipt — closing the
- * "black box recorder" loop: the signed receipt you just saw, read back here.
+ * "black box recorder" loop: the tamper-evident receipt you just saw, read
+ * back here.
  *
  * The rows animate in (staggered translateX + opacity, REWRITE row gently
  * pulsed) inside the client <ConsoleAuditRows>; everything else stays a server
@@ -69,10 +70,11 @@ export async function StepConsole() {
           Operators read every receipt.
         </h2>
         <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
-          The black box, read back. The signed receipt from Step 3 lands in the
-          Audit Explorer the moment it&apos;s written — same intentHash, now one
-          row in the live tail. Operators filter by outcome, replay any
-          decision, and pull the kill switch if anything looks wrong.
+          The black box, read back. The tamper-evident receipt from Step 3
+          lands in the Audit Explorer the moment it&apos;s written — same
+          intentHash, now one row in the live tail. Operators filter by
+          outcome, replay any decision, and pull the kill switch if anything
+          looks wrong.
         </p>
       </div>
 

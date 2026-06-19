@@ -158,7 +158,7 @@ export async function MagicMoment() {
           </span>{" "}
           with no recorded approval. adjudicate doesn&apos;t just block it — it
           returns a <span className="font-medium text-ink">safer action</span>{" "}
-          and a signed receipt.
+          and a tamper-evident receipt.
         </p>
       </div>
 

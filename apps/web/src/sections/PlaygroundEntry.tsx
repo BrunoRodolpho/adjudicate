@@ -34,7 +34,8 @@ export function PlaygroundEntry() {
             <p className="max-w-md text-sm text-muted">
               Packs are pre-built decision flows — deployments, charges, KYC.
               Pick one or build your own intent in the Decision Lab; every
-              decision returns a signed receipt and lands in a live audit log.
+              decision returns a tamper-evident, replayable receipt and lands
+              in a live audit log.
             </p>
           </div>
           <Button href="/playground" className="group flex-shrink-0">

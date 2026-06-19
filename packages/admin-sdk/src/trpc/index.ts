@@ -400,7 +400,14 @@ const auditRouter = t.router({
     }),
 });
 
-const emergencyRouter = t.router({
+// 111 — Write-isolation seam (router-level). The kill-switch READ procedures
+// (`state`, `history`) are extracted into a shared object so BOTH the full
+// `emergencyRouter` and the read-only plane spread the SAME procedure
+// definitions (single source of truth, no drift). The lone mutation
+// (`update`) is added ONLY to the full router below — the read-only plane never
+// sees it, so a read-only console structurally cannot engage/disengage the
+// kill switch (it can only READ status + timeline).
+const emergencyReadProcedures = {
   state: t.procedure
     .output(EmergencyStateSchema)
     .query(async ({ ctx }) => {
@@ -419,6 +426,10 @@ const emergencyRouter = t.router({
       });
       return handler.history(input.limit);
     }),
+} as const;
+
+const emergencyRouter = t.router({
+  ...emergencyReadProcedures,
 
   update: t.procedure
     .input(EmergencyUpdateInputSchema)
@@ -436,6 +447,11 @@ const emergencyRouter = t.router({
       return handler.update(input, ctx.actor);
     }),
 });
+
+// 111 — the read-only kill-switch namespace: status + history reads ONLY. NO
+// `update`. Mounted on the read-only plane (e.g. apps/adjudicant) so the
+// OBSERVER can see the switch state but never toggle it.
+const emergencyReadOnlyRouter = t.router({ ...emergencyReadProcedures });
 
 const replayRouter = t.router({
   /**
@@ -492,7 +508,20 @@ const replayRouter = t.router({
     }),
 });
 
-const governanceRouter = t.router({
+// 111 — the read-only replay namespace. `replay.run` is a MUTATION (it is an
+// explicit operator action that invokes the kernel synchronously) and is
+// EXCLUDED from the read-only plane. The namespace itself is empty on the read
+// plane: an OBSERVER cannot trigger a re-adjudication. (Downstream 113 surfaces
+// integrity views as `.query` procedures, NOT this mutation.)
+const replayReadOnlyRouter = t.router({});
+
+// 111 — Write-isolation seam (router-level). Every governance READ procedure
+// lives in this shared object; BOTH the full `governanceRouter` and the
+// read-only plane spread it (single source of truth). The lone mutation
+// (`recordOutcome`) is added ONLY to the full router below — so the read-only
+// plane (e.g. apps/adjudicant) structurally cannot record a retrospective
+// outcome (a write that could be used to launder a decision's history).
+const governanceReadProcedures = {
   /**
    * Time-bucketed distribution of `Decision.kind` over a window. Drives the
    * console's outcome-distribution dashboard.
@@ -867,33 +896,6 @@ const governanceRouter = t.router({
     }),
 
   /**
-   * Record a retrospective outcome — the upstream observation that the
-   * decision's action actually succeeded / failed / was withdrawn. Joins
-   * back to the AuditRecord by `intentHash`. Mutating procedure — requires
-   * the actor header.
-   */
-  recordOutcome: t.procedure
-    .input(RetrospectiveOutcomeSchema)
-    .mutation(async ({ input, ctx }) => {
-      if (!ctx.actor) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message:
-            "x-adjudicate-actor-id header required for mutating procedures",
-        });
-      }
-      if (!ctx.outcomeSink) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "Outcome sink not configured. Wire an OutcomeSink into the route handler context.",
-        });
-      }
-      const handler = createRecordOutcomeHandler({ sink: ctx.outcomeSink });
-      return handler(input);
-    }),
-
-  /**
    * Aggregate decision-accuracy stats: how many EXECUTE records in the
    * window have a matching observation, and how many of those reported
    * success vs failure vs withdrawn.
@@ -915,9 +917,50 @@ const governanceRouter = t.router({
       });
       return handler(input);
     }),
+} as const;
+
+const governanceRouter = t.router({
+  ...governanceReadProcedures,
+
+  /**
+   * Record a retrospective outcome — the upstream observation that the
+   * decision's action actually succeeded / failed / was withdrawn. Joins
+   * back to the AuditRecord by `intentHash`. Mutating procedure — requires
+   * the actor header. EXCLUDED from the read-only plane (write-isolation).
+   */
+  recordOutcome: t.procedure
+    .input(RetrospectiveOutcomeSchema)
+    .mutation(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message:
+            "x-adjudicate-actor-id header required for mutating procedures",
+        });
+      }
+      if (!ctx.outcomeSink) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Outcome sink not configured. Wire an OutcomeSink into the route handler context.",
+        });
+      }
+      const handler = createRecordOutcomeHandler({ sink: ctx.outcomeSink });
+      return handler(input);
+    }),
 });
 
-const approvalRouter = t.router({
+// 111 — the read-only governance namespace: every read, NO `recordOutcome`.
+const governanceReadOnlyRouter = t.router({ ...governanceReadProcedures });
+
+// 111 — Write-isolation seam (router-level). The approval READ procedures
+// (`list`, `history`, `chain`) live in this shared object; BOTH the full
+// `approvalRouter` and the read-only plane spread it. `resolve` is the APPROVER
+// write that RE-ADJUDICATES (and can therefore reach EXECUTE) — it belongs to
+// the apps/adjutant APPROVER plane and is added ONLY to the full router below.
+// The read-only OBSERVER plane (apps/adjudicant) can LIST/inspect approvals but
+// can NEVER resolve one (separation of powers: observe, never authorize).
+const approvalReadProcedures = {
   /** List approval requests (ADR-122). Requires an actor. */
   list: t.procedure
     .input(ApprovalListQuerySchema)
@@ -933,23 +976,6 @@ const approvalRouter = t.router({
         });
       }
       return [...(await ctx.approvalPort.list(input))];
-    }),
-
-  /** Approve or decline a pending confirmation. Mutating — requires an actor. */
-  resolve: t.procedure
-    .input(ApprovalResolveInputSchema)
-    .output(ApprovalRequestSchema)
-    .mutation(async ({ input, ctx }) => {
-      if (!ctx.actor) {
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "actor required" });
-      }
-      if (!ctx.approvalPort) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Approval engine not configured. Wire an approval port into context.",
-        });
-      }
-      return ctx.approvalPort.resolve(input, { id: ctx.actor.id, ...(ctx.actor.displayName ? { displayName: ctx.actor.displayName } : {}) });
     }),
 
   /**
@@ -997,7 +1023,36 @@ const approvalRouter = t.router({
       }
       return ctx.approvalPort.chain(input);
     }),
+} as const;
+
+const approvalRouter = t.router({
+  ...approvalReadProcedures,
+
+  /**
+   * Approve or decline a pending confirmation. Mutating — requires an actor.
+   * RE-ADJUDICATES the parked envelope (can reach EXECUTE) — the APPROVER write.
+   * EXCLUDED from the read-only plane (write-isolation): an OBSERVER must never
+   * authorize a decision.
+   */
+  resolve: t.procedure
+    .input(ApprovalResolveInputSchema)
+    .output(ApprovalRequestSchema)
+    .mutation(async ({ input, ctx }) => {
+      if (!ctx.actor) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "actor required" });
+      }
+      if (!ctx.approvalPort) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Approval engine not configured. Wire an approval port into context.",
+        });
+      }
+      return ctx.approvalPort.resolve(input, { id: ctx.actor.id, ...(ctx.actor.displayName ? { displayName: ctx.actor.displayName } : {}) });
+    }),
 });
+
+// 111 — the read-only approval namespace: list/history/chain, NO `resolve`.
+const approvalReadOnlyRouter = t.router({ ...approvalReadProcedures });
 
 const memoryRouter = t.router({
   /** Cross-session memory snapshot for a session (ADR-126). Requires an actor. */
@@ -1210,3 +1265,50 @@ export type AdminRouter = typeof adminRouter;
  *   await caller.replay.run({ intentHash: "0xabc..." });
  */
 export const createAdminCaller = t.createCallerFactory(adminRouter);
+
+// ─── 111 — Read-only (write-isolated) admin plane ───────────────────────────
+//
+// The §B/§G "Inspector-General" plane: `adminRouter` MINUS every mutation
+// procedure. This is the router-level write-isolation seam (NOT context-level:
+// passing `actor:null` would also break record-level reads — an invalid seam).
+// The read-only plane is assembled from:
+//   - the pure-query namespaces VERBATIM (`audit`, `pack`, `memory`,
+//     `adjutant`, `trace` — these have ZERO mutations), and
+//   - the read-only TWINS of the four mutation-bearing namespaces, each of
+//     which spreads the SAME shared read-procedure object the full router uses
+//     (single source of truth) and OMITS the mutation:
+//       emergency  → drops `emergency.update`        (kill-switch WRITE)
+//       replay     → drops `replay.run`              (re-adjudication WRITE)
+//       governance → drops `governance.recordOutcome`(retrospective WRITE)
+//       approval   → drops `approval.resolve`        (APPROVER re-adjudication)
+//
+// The invariant is NOT "the mutation count" — it is "the read plane exposes
+// ZERO mutations". When 114 adds `escalate` (the ONE friction-monotone write
+// the Inspector-General is permitted), it is added to THIS router's approval (or
+// a dedicated) namespace explicitly — never inherited, never a relaxation.
+//
+// A read-only console mounting THIS router physically cannot authorize, weaken,
+// or replay-mutate a decision: the procedures simply do not exist on the wire.
+export const readOnlyAdminRouter = t.router({
+  audit: auditRouter,
+  emergency: emergencyReadOnlyRouter,
+  replay: replayReadOnlyRouter,
+  governance: governanceReadOnlyRouter,
+  approval: approvalReadOnlyRouter,
+  pack: packRouter,
+  memory: memoryRouter,
+  adjutant: adjutantRouter,
+  trace: traceRouter,
+});
+
+export type ReadOnlyAdminRouter = typeof readOnlyAdminRouter;
+
+/**
+ * Server-side caller factory for the read-only plane (tests + same-process
+ * invocation). The returned caller has NO `.emergency.update`,
+ * `.replay.run`, `.governance.recordOutcome`, or `.approval.resolve` — calling
+ * any of them is a COMPILE error AND a runtime "no procedure" error, which is
+ * the structural write-isolation guarantee.
+ */
+export const createReadOnlyAdminCaller =
+  t.createCallerFactory(readOnlyAdminRouter);

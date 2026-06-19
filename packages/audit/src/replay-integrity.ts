@@ -148,9 +148,16 @@ export function replayWithIntegrity(
             derived: auditVerification.alg,
           },
         });
-      } else {
-        // "tampered" (auditHash mismatch) or "envelope_intent_mismatch" — both
-        // carry the stored/derived hash pair.
+      } else if (auditVerification.reason === "tampered") {
+        // T4 (111) — gate AUDIT_HASH_TAMPERED on reason === "tampered" ONLY.
+        // `verifyAuditRecord` checks envelope intent FIRST and returns
+        // `{verified:false, reason:"envelope_intent_mismatch"}` early — but that
+        // axis is ALREADY captured above as `INTENT_HASH_MISMATCH` (axis-1, the
+        // standalone `deriveIntentHash` check). Before this gate a
+        // forged-envelope / consistent-auditHash record yielded TWO failures: the
+        // correct `INTENT_HASH_MISMATCH` PLUS a spurious, mislabeled
+        // `AUDIT_HASH_TAMPERED`. The auditHash axis only legitimately fails when
+        // the record's OWN bytes were modified — i.e. reason === "tampered".
         integrityFailures.push({
           intentHash: record.intentHash,
           kind: "AUDIT_HASH_TAMPERED",
@@ -160,6 +167,11 @@ export function replayWithIntegrity(
           },
         });
       }
+      // reason === "envelope_intent_mismatch": deliberately NOT pushed here — it
+      // is the SAME defect already reported by axis-1 (`INTENT_HASH_MISMATCH`).
+      // `auditHashOk` stays false so a record with a forged envelope is never
+      // counted as `matched`; the single, correctly-labeled INTENT_HASH_MISMATCH
+      // carries the verdict.
     } else if (auditVerification.verified === null) {
       preV4++;
       // Don't penalize matched count for legacy records — the replay

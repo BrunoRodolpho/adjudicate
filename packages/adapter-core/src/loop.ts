@@ -75,6 +75,16 @@ const DEFAULT_MAX_ITERATIONS = 8;
  */
 const DEFAULT_CAPABILITY_TTL_SECONDS = 60;
 
+/**
+ * 042 / H4 — TTL (seconds) for a persisted session-contamination flag. The flag
+ * must outlive the turn that set it and survive across the subsequent turns that
+ * re-supply the laundered history, so the window is long (matches the in-memory
+ * memory-store default). Expiry only RAISES trust (drops the flag), so a too-
+ * short window fails OPEN; a generous default keeps the gate fail-CLOSED for the
+ * life of a normal multi-turn session. Adopters tune it on their store impl.
+ */
+const DEFAULT_CONTAMINATION_TTL_SECONDS = 24 * 60 * 60;
+
 export function createAdjudicatedAgent<K extends string, P, S, C, H>(
   options: AdjudicatedAgentOptions<K, P, S, C, H>,
 ): AdjudicatedAgent<K, P, S, C, H> {
@@ -99,9 +109,17 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
   // 042 — session contamination is OFF unless the adopter opts in. When ON, an
   // untrusted-origin datum entering the session (an authorized READ result)
   // lowers the taint of every subsequently minted LLM intent via the lattice
-  // meet. Cleared ONLY by the authenticated resume() path (a fresh runLoop with
-  // no flag), never by an LLM action.
+  // meet. Cleared ONLY by the authenticated resume() path, never by an LLM
+  // action.
   const contaminationEnabled = options.contamination?.enabled === true;
+  // 042 / H4 — the durable cross-turn contamination store. The flag is SESSION-
+  // scoped, but the laundered datum it guards lives on in session-scoped history
+  // re-supplied across turns; persisting the flag here closes the multi-turn
+  // launder (contaminate turn 1 → act turn 2). Only consulted when contamination
+  // is ENABLED *and* a store is supplied — with either absent the loop keeps the
+  // pre-H4 turn-local flag, byte-identical (no load / writeback / clear).
+  const contaminationStore =
+    contaminationEnabled ? options.contaminationStore : undefined;
 
   // Configuration-integrity seal gate (ADR-121, hardened by ADR-137). Verified at
   // the START of every public entry point (send/resume/confirm) per the `reverify`
@@ -264,13 +282,21 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
     const events: AgentEvent[] = [...seedEvents];
     let history = initialHistory;
     let lastDecision: Decision | null = null;
-    // 042 — per-turn session contamination flag. Starts clean (a fresh runLoop
-    // call, including the authenticated resume() path, never inherits a prior
-    // turn's contamination — clearing is structural). Set monotonically when an
-    // authorized READ serves an untrusted datum into context; folded into every
-    // subsequently minted LLM intent's taint. Only consulted when contamination
-    // is enabled, so the OFF path is byte-identical to pre-042.
-    let sessionContamination: SessionContamination | undefined = undefined;
+    // 042 / H4 — session contamination flag. LOADED from the durable, session-
+    // scoped store at the top of every runLoop so a flag set by an authorized
+    // READ on an earlier turn is re-supplied alongside the (still session-scoped)
+    // laundered history it guards — closing the multi-turn launder (contaminate
+    // turn 1 → act turn 2) that the pre-H4 turn-local `undefined` start let slip
+    // the origin gate. Folded monotonically within the turn (`contaminateSession`
+    // only lowers trust) and PERSISTED back on each contaminating READ. Cleared
+    // ONLY by the authenticated resume() path (see resume(), below), never by an
+    // LLM action. When contamination is disabled OR no store is supplied,
+    // `contaminationStore` is undefined and this stays `undefined` — no load, no
+    // writeback — so the disabled/no-store path is byte-identical to pre-042.
+    let sessionContamination: SessionContamination | undefined =
+      contaminationStore !== undefined
+        ? (await contaminationStore.get(sessionId)) ?? undefined
+        : undefined;
 
     if (seedDecision !== null) {
       const single = await processSingleDecision({
@@ -453,10 +479,39 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
           // the lattice meet. Monotonic (`contaminateSession` only lowers
           // trust) and gated on the adopter opt-in.
           if (contaminationEnabled && readRouted.served) {
-            sessionContamination = contaminateSession(sessionContamination, {
+            const next = contaminateSession(sessionContamination, {
               origin: "Retrieved",
               taint: "UNTRUSTED",
             });
+            // H4 — PERSIST the (monotonically meet-folded) flag so it survives
+            // into the NEXT turn that re-supplies this laundered datum. We write
+            // only when the fold actually produced a flag and it CHANGED (the
+            // first contaminating read, or a strictly-lower meet), so a repeated
+            // read on an already-contaminated session is a no-op write. The
+            // value written is always ≤ the loaded flag in trust, so the store
+            // mutation is monotonic (§C / invariant #7). Best-effort: a throwing
+            // store must not break the turn nor fail OPEN — the in-turn flag is
+            // already folded, so this turn's gate stands regardless.
+            if (
+              contaminationStore !== undefined &&
+              next !== undefined &&
+              next !== sessionContamination
+            ) {
+              try {
+                await contaminationStore.put(
+                  sessionId,
+                  next,
+                  DEFAULT_CONTAMINATION_TTL_SECONDS,
+                );
+              } catch (err) {
+                options.log?.warn?.({
+                  msg: "[adjudicate] contamination writeback failed; in-turn flag stands, cross-turn persistence skipped",
+                  sessionId,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+            }
+            sessionContamination = next;
           }
           continue;
         }
@@ -924,6 +979,26 @@ export function createAdjudicatedAgent<K extends string, P, S, C, H>(
         { kind: "intent_proposed", envelope },
         { kind: "decision", decision, envelope },
       ];
+
+      // 042 / H4 — CLEAR the persisted session contamination on the AUTHENTICATED
+      // resume() path (the only trust-RAISING seam). resume() has already
+      // validated a parked envelope for this (sessionId, signal) and elevated to
+      // {actor: system, taint: TRUSTED}; an adopter-driven resume is the explicit
+      // "this session is clean again" signal. An LLM action can never reach this
+      // path. Done BEFORE runLoop so the resumed turn (and every turn after) loads
+      // a clean flag. Best-effort: a throwing store leaves the flag standing
+      // (fail-CLOSED — friction never decreases on a clear failure, §C).
+      if (contaminationStore !== undefined) {
+        try {
+          await contaminationStore.clear(args.sessionId);
+        } catch (err) {
+          options.log?.warn?.({
+            msg: "[adjudicate] contamination clear on resume failed; flag left standing (fail-closed)",
+            sessionId: args.sessionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
 
       const fauxToolUseId = `resume-${result.parked.envelope.intentHash.slice(0, 8)}`;
       const seedDecision: SeedDecision<K, P> = {

@@ -27,11 +27,13 @@ import {
   createAdjudicatedAgent,
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
+  createInMemorySessionContaminationStore,
   createMemoryLedger,
   type AdopterExecutor,
   type AgentEvent,
   type AssistantTurn,
   type ProviderBridge,
+  type SessionContaminationStore,
   type ToolUseRequest,
 } from "../src/index.js";
 
@@ -318,6 +320,256 @@ describe("042: contamination enabled — the laundering leg lowers the next inte
     );
     if (decisionEv?.kind !== "decision") throw new Error("no decision");
     expect(decisionEv.envelope.origin).toBe("LLM");
+  });
+});
+
+// ── H4: multi-turn (cross-send) contamination launder ───────────────────────
+//
+// The pre-H4 loop held the contamination flag ONLY in a runLoop-local variable,
+// re-initialised to `undefined` every send()/turn. But the laundered READ result
+// is appended to SESSION-scoped history re-supplied across turns. So a launderer
+// could: READ a poisoned doc on turn 1 (contaminate), then on turn 2 — a FRESH
+// send()/runLoop that started clean — propose an origin-required intent off that
+// same poisoned history and have it minted origin:"LLM", slipping the gate.
+//
+// The fix persists the flag in a session-scoped store the loop owns: LOADED at
+// the top of runLoop, written back on a contaminating READ, cleared only on the
+// authenticated resume() path. These tests pin BOTH halves of the contract.
+
+/**
+ * One-tool-per-send bridge: each independent send() (a fresh runLoop) emits its
+ * configured single tool_use on the FIRST iteration, then completes on the next
+ * iteration of the SAME send (so a REFUSE/served-read does not spin the loop).
+ * The send counter persists across send() calls, modelling distinct turns on one
+ * long-lived session/agent — exactly the cross-turn surface H4 guards.
+ */
+function multiTurnBridge(turns: ToolUseRequest[][]): ProviderBridge<string[]> {
+  let sendCount = 0; // increments once per public send()/runLoop turn
+  let iterInTurn = 0;
+  return {
+    emptyHistory: () => [],
+    appendUserMessage: (h, m) => {
+      // A user message marks the start of a new send()/turn.
+      sendCount++;
+      iterInTurn = 0;
+      return [...h, `user:${m}`];
+    },
+    appendToolResults: (h, results) => [...h, `tool_results:${results.length}`],
+    async send(h) {
+      const tus = turns[sendCount - 1] ?? [];
+      const emit = iterInTurn === 0 ? tus : [];
+      iterInTurn++;
+      return {
+        history: [...h, `assistant:s${sendCount}.i${iterInTurn}`],
+        turn: { textBlocks: emit.length === 0 ? ["done"] : [], toolUses: emit } satisfies AssistantTurn,
+      };
+    },
+  };
+}
+
+function makeMultiTurnAgent(opts: {
+  contamination?: { enabled: boolean };
+  contaminationStore?: SessionContaminationStore;
+  sink?: AuditSink;
+  turns: ToolUseRequest[][];
+}) {
+  return createAdjudicatedAgent<Kind, Payload, State, Context, string[]>({
+    pack: buildPack(),
+    renderer,
+    bridge: multiTurnBridge(opts.turns),
+    deferStore: createInMemoryDeferStore(),
+    confirmationStore: createInMemoryConfirmationStore<string[]>(),
+    ledger: createMemoryLedger(),
+    auditSink: opts.sink ?? noopAuditSink(),
+    executor,
+    ...(opts.contamination ? { contamination: opts.contamination } : {}),
+    ...(opts.contaminationStore
+      ? { contaminationStore: opts.contaminationStore }
+      : {}),
+  });
+}
+
+describe("H4: cross-turn contamination launder is CAUGHT with a persisted store", () => {
+  it("contaminate on send #1 (READ) → propose sys.event on send #2 off the same history ⇒ propagation_violation/REFUSE", async () => {
+    const records: AuditRecord[] = [];
+    const sink: AuditSink = {
+      async emit(record) {
+        records.push(record);
+      },
+    };
+    const store = createInMemorySessionContaminationStore();
+    const agent = makeMultiTurnAgent({
+      contamination: { enabled: true },
+      contaminationStore: store,
+      sink,
+      // turn 1: a served READ contaminates. turn 2: an origin-required propose
+      // off the (now-poisoned, session-scoped) history.
+      turns: [[READ_TU], [SYS_TU]],
+    });
+
+    // Turn 1 — the launderer reads the poisoned doc. No intent proposed yet.
+    const t1 = await agent.send({
+      sessionId: "s-launder",
+      userMessage: "read the doc",
+      state: { step: "init" },
+      context: { userId: "u" },
+    });
+    // Sanity: the flag was persisted across the turn boundary.
+    expect(await store.get("s-launder")).toMatchObject({
+      origin: "Retrieved",
+      taint: "UNTRUSTED",
+    });
+
+    // Turn 2 — a NEW send()/runLoop. Pre-H4 this started clean and minted
+    // origin:"LLM" (launder succeeds). With the store, runLoop LOADS the flag.
+    const t2 = await agent.send({
+      sessionId: "s-launder",
+      userMessage: "now act on it",
+      state: { step: "next" },
+      context: { userId: "u" },
+      history: t1.history, // the session-scoped, poisoned history re-supplied
+    });
+
+    const env = mintedIntentEnvelope(t2.events, "sys.event");
+    expect(env).toBeDefined();
+    // CAUGHT: the cross-turn launder now mints the contaminating origin ...
+    expect(env?.origin).toBe("Retrieved");
+    expect(env?.taint).toBe("UNTRUSTED");
+
+    const decisionEv = t2.events.find(
+      (e) => e.kind === "decision" && e.envelope.kind === "sys.event",
+    );
+    if (decisionEv?.kind !== "decision") throw new Error("no decision");
+    // ... and the system-only kind REFUSES it as a propagation_violation.
+    expect(decisionEv.decision.kind).toBe("REFUSE");
+    const taintBasis = decisionEv.decision.basis.find(
+      (b) => b.category === "taint",
+    );
+    expect(taintBasis?.code).toBe("propagation_violation");
+    expect(taintBasis?.detail?.origin).toBe("Retrieved");
+
+    // Governance trail preserves the propagation attribution on turn 2's record.
+    const sysRecord = records.find((r) => r.envelope.kind === "sys.event");
+    expect(
+      sysRecord?.decision_basis.some(
+        (b) => b.category === "taint" && b.code === "propagation_violation",
+      ),
+    ).toBe(true);
+  });
+
+  it("NON-VACUOUS pin: WITHOUT the store, the SAME multi-turn launder slips through (origin LLM, bare level_insufficient)", async () => {
+    // This is the bug the fix closes. Identical scenario, only the store omitted:
+    // turn 2 starts from a clean turn-local flag and mints origin:"LLM", so the
+    // refusal is the bare declared-untrusted one — the launder is NOT attributed
+    // to propagation. This is exactly what FAILS the assertions above without the
+    // persisted store, proving the regression test is non-vacuous.
+    const agent = makeMultiTurnAgent({
+      contamination: { enabled: true },
+      // contaminationStore intentionally OMITTED.
+      turns: [[READ_TU], [SYS_TU]],
+    });
+    const t1 = await agent.send({
+      sessionId: "s-no-store",
+      userMessage: "read the doc",
+      state: { step: "init" },
+      context: { userId: "u" },
+    });
+    const t2 = await agent.send({
+      sessionId: "s-no-store",
+      userMessage: "now act on it",
+      state: { step: "next" },
+      context: { userId: "u" },
+      history: t1.history,
+    });
+    const env = mintedIntentEnvelope(t2.events, "sys.event");
+    expect(env?.origin).toBe("LLM"); // launder NOT caught (pre-H4 / no-store)
+    const decisionEv = t2.events.find(
+      (e) => e.kind === "decision" && e.envelope.kind === "sys.event",
+    );
+    if (decisionEv?.kind !== "decision") throw new Error("no decision");
+    expect(decisionEv.decision.kind).toBe("REFUSE");
+    const taintBasis = decisionEv.decision.basis.find(
+      (b) => b.category === "taint",
+    );
+    // bare declared-untrusted, NOT propagation — the launder slipped the gate.
+    expect(taintBasis?.code).toBe("level_insufficient");
+  });
+
+  it("default-OFF with a store supplied is byte-identical: no flag is ever persisted, origin stays LLM", async () => {
+    // The disabled path must be byte-identical even when an adopter wires a store
+    // but leaves contamination OFF: the loop never loads, writes, or clears it.
+    const store = createInMemorySessionContaminationStore();
+    const agent = makeMultiTurnAgent({
+      // contamination DISABLED (omitted) — store present but inert.
+      contaminationStore: store,
+      turns: [[READ_TU], [SYS_TU]],
+    });
+    const t1 = await agent.send({
+      sessionId: "s-off",
+      userMessage: "read the doc",
+      state: { step: "init" },
+      context: { userId: "u" },
+    });
+    // The served READ must NOT have written anything (disabled ⇒ no writeback).
+    expect(await store.get("s-off")).toBeNull();
+
+    const t2 = await agent.send({
+      sessionId: "s-off",
+      userMessage: "now act on it",
+      state: { step: "next" },
+      context: { userId: "u" },
+      history: t1.history,
+    });
+    const env = mintedIntentEnvelope(t2.events, "sys.event");
+    // Byte-identical to pre-042: declared UNTRUSTED, origin LLM.
+    expect(env?.origin).toBe("LLM");
+    expect(env?.taint).toBe("UNTRUSTED");
+    const decisionEv = t2.events.find(
+      (e) => e.kind === "decision" && e.envelope.kind === "sys.event",
+    );
+    if (decisionEv?.kind !== "decision") throw new Error("no decision");
+    const taintBasis = decisionEv.decision.basis.find(
+      (b) => b.category === "taint",
+    );
+    expect(taintBasis?.code).toBe("level_insufficient");
+  });
+
+  it("monotonic across turns: a clean turn after contamination does NOT raise trust (flag persists)", async () => {
+    // After contamination, a later turn that proposes a tolerant kind (no further
+    // read) must still carry the contaminating origin — the flag is not lowered
+    // by the absence of a new contaminating datum (trust only ever drops).
+    const store = createInMemorySessionContaminationStore();
+    const agent = makeMultiTurnAgent({
+      contamination: { enabled: true },
+      contaminationStore: store,
+      turns: [
+        [READ_TU], // turn 1: contaminate
+        [{ id: "tu-user", name: "user.act", input: {} }], // turn 2: tolerant kind
+      ],
+    });
+    const t1 = await agent.send({
+      sessionId: "s-mono",
+      userMessage: "read",
+      state: { step: "init" },
+      context: { userId: "u" },
+    });
+    const t2 = await agent.send({
+      sessionId: "s-mono",
+      userMessage: "act",
+      state: { step: "next" },
+      context: { userId: "u" },
+      history: t1.history,
+    });
+    const decisionEv = t2.events.find(
+      (e) => e.kind === "decision" && e.envelope.kind === "user.act",
+    );
+    if (decisionEv?.kind !== "decision") throw new Error("no decision");
+    // UNTRUSTED tolerates UNTRUSTED → still EXECUTEs (contamination adds no gate),
+    // but the carried origin proves the flag persisted across the turn boundary.
+    expect(decisionEv.decision.kind).toBe("EXECUTE");
+    expect(decisionEv.envelope.origin).toBe("Retrieved");
+    // And the persisted flag is unchanged (no trust raise).
+    expect(await store.get("s-mono")).toMatchObject({ origin: "Retrieved" });
   });
 });
 

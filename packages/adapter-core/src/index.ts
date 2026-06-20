@@ -80,16 +80,19 @@ export {
   createInMemoryConfirmationStore,
   createInMemoryDeferStore,
   createInMemoryMemoryStore,
+  createInMemorySessionContaminationStore,
 } from "./persistence.js";
 export type {
   BudgetStore,
   BurnStore,
   ConfirmationStore,
   CreateInMemoryMemoryStoreOptions,
+  CreateInMemorySessionContaminationStoreOptions,
   DeferRedis,
   MemoryStore,
   ParkRedis,
   PendingConfirmation,
+  SessionContaminationStore,
   VersionedMemory,
 } from "./persistence.js";
 export {

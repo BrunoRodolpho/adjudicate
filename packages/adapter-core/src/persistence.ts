@@ -18,7 +18,11 @@
  * their SDK's conversation-history shape through unchanged.
  */
 
-import type { Capability, IntentEnvelope } from "@adjudicate/core";
+import type {
+  Capability,
+  IntentEnvelope,
+  SessionContamination,
+} from "@adjudicate/core";
 
 // ── Defer / Park Redis surface ──────────────────────────────────────────────
 
@@ -629,4 +633,99 @@ export function createInMemoryMemoryStore<M = unknown>(
     },
   };
   return self;
+}
+
+// ── Session-contamination store (042 / H4) ──────────────────────────────────
+
+/**
+ * 042 / H4 — durable, session-scoped store for the contamination flag.
+ *
+ * The contamination flag (`SessionContamination`, set when an untrusted-origin
+ * datum entered the session) is SESSION-scoped, but the laundered datum it
+ * guards is appended to session-scoped conversation history that is re-supplied
+ * across turns. Holding the flag only in a turn-local variable (the pre-H4
+ * loop) let a multi-turn launder slip the origin gate: contaminate on turn 1,
+ * propose off the poisoned history on turn 2 — minted clean because turn 2's
+ * variable started `undefined`. This store gives the loop a place to PERSIST the
+ * flag across turns so the gate sees it on every subsequent turn.
+ *
+ * FIREWALL (mirrors `MemoryStore`): this is an IMPURE-SHELL store, NOT a kernel
+ * input. The flag it holds is folded into the minted taint at the
+ * envelope-minting seam BEFORE the `intentHash` is computed (so it IS inside the
+ * hashed pre-image, invariant #4), but the store itself never enters the kernel
+ * decision, state `S`, or the `auditHash` pre-image, and is never replayed.
+ *
+ * MONOTONIC (§C / invariant #7): the only mutator the loop calls is `put` with
+ * the meet-folded flag (`contaminateSession`), which can only LOWER trust. The
+ * sole trust-RAISING operation is `clear`, which the loop invokes ONLY on the
+ * adopter-authenticated `resume()` path — never from an LLM action.
+ */
+export interface SessionContaminationStore {
+  /** Load the persisted flag for a session (`null` when uncontaminated). */
+  get(sessionId: string): Promise<SessionContamination | null>;
+  /**
+   * Persist the (monotonically meet-folded) flag for a session. Callers MUST
+   * only ever `put` a flag whose trust is ≤ the currently-stored flag's (the
+   * loop folds via `contaminateSession` from the loaded value, guaranteeing it).
+   */
+  put(
+    sessionId: string,
+    contamination: SessionContamination,
+    ttlSeconds: number,
+  ): Promise<void>;
+  /**
+   * Drop the flag for a session — the trust-RAISING operation. The loop calls
+   * this ONLY on the authenticated `resume()` path (never an LLM action).
+   */
+  clear(sessionId: string): Promise<void>;
+}
+
+export interface CreateInMemorySessionContaminationStoreOptions {
+  readonly defaultTtlSeconds?: number;
+  /** Namespacing transform applied to `sessionId` (cross-tenant isolation). */
+  readonly keyFor?: (sessionId: string) => string;
+}
+
+/**
+ * In-memory reference `SessionContaminationStore` (tests + quickstart). TTL'd,
+ * with an opportunistic sweep. Production wires Redis with the same surface.
+ */
+export function createInMemorySessionContaminationStore(
+  opts: CreateInMemorySessionContaminationStoreOptions = {},
+): SessionContaminationStore {
+  const store = new Map<string, { value: SessionContamination; expiresAt: number }>();
+  const defaultTtl = opts.defaultTtlSeconds ?? 24 * 60 * 60;
+  const keyFor = opts.keyFor ?? ((s: string) => s);
+
+  function sweep(): void {
+    const now = Date.now();
+    let n = 0;
+    for (const [k, e] of store) {
+      if (e.expiresAt <= now) store.delete(k);
+      if (++n >= SWEEP_BATCH) break;
+    }
+  }
+
+  return {
+    async get(sessionId) {
+      const key = keyFor(sessionId);
+      const e = store.get(key);
+      if (e === undefined) return null;
+      if (e.expiresAt <= Date.now()) {
+        store.delete(key);
+        return null;
+      }
+      return e.value;
+    },
+    async put(sessionId, contamination, ttlSeconds) {
+      sweep();
+      store.set(keyFor(sessionId), {
+        value: contamination,
+        expiresAt: Date.now() + (ttlSeconds || defaultTtl) * 1000,
+      });
+    },
+    async clear(sessionId) {
+      store.delete(keyFor(sessionId));
+    },
+  };
 }

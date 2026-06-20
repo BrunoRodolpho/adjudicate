@@ -34,6 +34,7 @@ import type {
   DeferRedis,
   MemoryStore,
   ParkRedis,
+  SessionContaminationStore,
 } from "./persistence.js";
 import type { TraceSink } from "./trace.js";
 
@@ -623,6 +624,26 @@ export interface AdjudicatedAgentOptions<K extends string, P, S, C, H> {
    * unchanged, byte-identical to pre-042.
    */
   readonly contamination?: SessionContaminationConfig;
+  /**
+   * 042 / H4 — durable, session-scoped store for the contamination flag. The
+   * pre-H4 loop held the flag ONLY in a turn-local variable, so a flag set by an
+   * authorized READ on turn 1 was LOST when turn 2's `runLoop` re-initialised it
+   * to clean — even though the laundered datum lives on in the session-scoped
+   * conversation history re-supplied across turns. That let a multi-turn launder
+   * ("read poisoned doc turn 1, act on it turn 2") mint a clean-origin intent and
+   * slip the kernel's origin gate. Supplying this store persists the flag across
+   * turns so a later turn proposing off the contaminated history is gated.
+   *
+   * Loaded at the TOP of every `runLoop`, folded monotonically within the turn,
+   * and persisted whenever a served READ contaminates. Cleared ONLY on the
+   * authenticated `resume()` path — never by an LLM action.
+   *
+   * **Default OFF / no-store byte-identical:** only consulted when `contamination
+   * .enabled === true` AND this store is supplied. With either absent, the loop
+   * keeps the turn-local flag exactly as pre-H4 — no load, no writeback, no clear
+   * — so the contamination-disabled and no-store paths are byte-identical.
+   */
+  readonly contaminationStore?: SessionContaminationStore;
   /**
    * Optional low-cardinality trace sink. The loop emits one event per
    * iteration/decision/pause; sink must NOT throw. Defaults to no-op.

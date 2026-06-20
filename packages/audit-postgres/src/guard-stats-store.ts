@@ -143,10 +143,14 @@ export function createPostgresReservationStore(
 } {
   return {
     async reserve(key, delta) {
-      // §C: a non-positive (or non-finite) delta can never CLAIM headroom — it
-      // would either be a no-op or, if negative, fabricate cap room. Refuse it
+      // §C: a non-integer or non-positive delta can never CLAIM headroom — it
+      // would either be a no-op or, if negative, fabricate cap room. A FRACTIONAL
+      // delta in (0,0.5] casts to `$6::bigint` and Postgres rounds it to ZERO
+      // units, so a zero-unit INSERT would return rowCount===1 and report a
+      // phantom reserved:true (fail-OPEN headroom fabrication). `Number.isInteger`
+      // also subsumes the finite check (NaN/Infinity are non-integers). Refuse it
       // locally, fail-closed, before any DB round-trip.
-      if (!Number.isFinite(delta) || delta <= 0) {
+      if (!Number.isInteger(delta) || delta <= 0) {
         return { reserved: false, reason: "invalid_delta" };
       }
       // 052 — coerce the no-pack case to the '' PK sentinel (NOT NULL), so the

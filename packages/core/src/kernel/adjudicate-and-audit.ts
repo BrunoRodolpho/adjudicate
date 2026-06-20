@@ -235,12 +235,14 @@ export interface AdjudicateAndAuditDeps {
    *
    * FAIL-CLOSED (§D inv. 6): a signer that throws propagates out of
    * `buildAuditRecord` and aborts this call BEFORE `sink.emit` — no unsigned
-   * record is ever emitted when a signer was configured. (For a non-EXECUTE
-   * decision the rate-limit rollback still runs: the throw escapes the
-   * try/finally in step 6+7 only on the main path; on the kill-switch path the
-   * signer runs inside `buildAuditRecord` before `sink.emit`, so a throw there
-   * skips emission entirely — friction, never bypass.) Omitting the signer
-   * keeps records unsigned (a valid, tamper-evident-only OSS record).
+   * record is ever emitted when a signer was configured. H16/H15: `record` is
+   * built INSIDE the audit-emit `try` on BOTH the main and kill-switch paths, so
+   * a synchronous signer throw lands in the cleanup tail: the catch's ledger
+   * release fires for a claimed EXECUTE key (no orphaned dedup key suppressing
+   * legitimate retries for the full TTL) and the finally's rate-limit rollback
+   * fires for a non-EXECUTE decision (no poisoned counter). Friction, never
+   * bypass. Omitting the signer keeps records unsigned (a valid,
+   * tamper-evident-only OSS record).
    */
   readonly signer?: AuditSigner;
   /**
@@ -615,30 +617,39 @@ export async function adjudicateAndAudit<K extends string, P, S>(
         consecutiveFailures: 1,
       });
     }
-    const record = applyMeta(
-      buildAuditRecord({
-        envelope,
-        decision,
-        durationMs,
-        at: clock.nowIso(),
-        ...(deps.supersedes !== undefined ? { supersedes: deps.supersedes } : {}),
-        // 091: bind the injected policy/kernel version snapshots so a kill-switch
-        // REFUSE row carries the identity it was decided under. Conditional spread
-        // keeps the field omitted (no `undefined` key) when the shell injects nothing.
-        ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
-        ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
-        // 052: bind the injected aggregate snapshot so a kill-switch REFUSE row
-        // carries the aggregate/limit inputs it was decided against, replayable.
-        // Conditional spread keeps the field omitted (hash-stable) when absent.
-        ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
-        // 092: attach a real signature over the kill-switch REFUSE row's
-        // auditHash (signed AFTER the hash, excluded from the pre-image). A
-        // throwing signer FAILS CLOSED here — it propagates before sink.emit, so
-        // no unsigned record is emitted (§D inv. 6).
-        ...(deps.signer !== undefined ? { signer: deps.signer } : {}),
-      }),
-    );
+    // H16/H15: build the record INSIDE the try. A SYNCHRONOUS signer throw
+    // (audit.ts `signer.sign(auditHash)`) propagates out of buildAuditRecord;
+    // building it here means the throw lands in the `finally` below so the
+    // rate-limit rollback still fires. Pre-fix it was built BEFORE the try, so a
+    // signer throw on the kill-switch path skipped the rollback (fail-OPEN tail,
+    // a maintenance window poisoning legitimate users' budgets). The record
+    // CONTENT is identical (only WHERE it is built moved); the kill-switch path
+    // never claims the ledger, so there is no EXECUTE key to release here.
+    let record: AuditRecord;
     try {
+      record = applyMeta(
+        buildAuditRecord({
+          envelope,
+          decision,
+          durationMs,
+          at: clock.nowIso(),
+          ...(deps.supersedes !== undefined ? { supersedes: deps.supersedes } : {}),
+          // 091: bind the injected policy/kernel version snapshots so a kill-switch
+          // REFUSE row carries the identity it was decided under. Conditional spread
+          // keeps the field omitted (no `undefined` key) when the shell injects nothing.
+          ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
+          ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
+          // 052: bind the injected aggregate snapshot so a kill-switch REFUSE row
+          // carries the aggregate/limit inputs it was decided against, replayable.
+          // Conditional spread keeps the field omitted (hash-stable) when absent.
+          ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
+          // 092: attach a real signature over the kill-switch REFUSE row's
+          // auditHash (signed AFTER the hash, excluded from the pre-image). A
+          // throwing signer FAILS CLOSED here — it propagates before sink.emit, so
+          // no unsigned record is emitted (§D inv. 6).
+          ...(deps.signer !== undefined ? { signer: deps.signer } : {}),
+        }),
+      );
       await deps.sink.emit(record);
     } finally {
       // The tenant kill switch returns a non-EXECUTE decision — roll the
@@ -1048,42 +1059,6 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // validated REWRITE that is the rewritten envelope, so the indexed
   // `intentHash` equals the bytes that ran (not the original benign hash). The
   // `rewrite_executed` supersession preserves the original→rewritten provenance.
-  const record = applyMeta(
-    buildAuditRecord({
-      envelope: executedEnvelope,
-      decision,
-      durationMs,
-      at: clock.nowIso(),
-      ...(planSnapshot ? { plan: planSnapshot } : {}),
-      ...(supersedes !== undefined ? { supersedes } : {}),
-      ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
-      // 091: bind the injected policy/kernel version snapshots onto the main
-      // (and 011 REWRITE-executed) audit row. `executedEnvelope` is the bytes
-      // that ran, and these versions record the policy/kernel identity they ran
-      // under — part of the auditHash pre-image and the replayable record.
-      // Conditional spread keeps the field omitted (hash-stable) when absent.
-      ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
-      ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
-      // 052: bind the injected aggregate snapshot onto the main (and 011 REWRITE-
-      // executed) audit row. It records the cumulative/velocity inputs the
-      // decision ran against — part of the auditHash pre-image and the replayable
-      // record. The snapshot was injected READ-ONLY (the shell never mutates/
-      // refetches/timestamps it); conditional spread keeps the field omitted
-      // (hash-stable) when the shell injects nothing.
-      ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
-      // 092: attach a real signature over the main (and 011 REWRITE-executed)
-      // row's auditHash — signed in the shell AFTER the pure decision (§D),
-      // excluded from the auditHash pre-image so it never invalidates tamper-
-      // evidence. A throwing signer FAILS CLOSED: it propagates out of
-      // buildAuditRecord here, BEFORE the sink.emit in step 6+7, so no unsigned
-      // record is ever emitted when a signer was configured (§D inv. 6). The
-      // caller's await therefore rejects — the (already-computed) decision is
-      // never returned to the executor and the audit row never lands. This is
-      // friction-only (§C): a signing outage halts the path rather than passing
-      // an unsigned EXECUTE through.
-      ...(deps.signer !== undefined ? { signer: deps.signer } : {}),
-    }),
-  );
 
   // ── 6+7. Audit emission + rate-limit rollback (T5 #41) ─────────────
   // The rollback for a non-EXECUTE decision MUST fire even if sink.emit throws.
@@ -1091,7 +1066,56 @@ export async function adjudicateAndAudit<K extends string, P, S>(
   // audit-sink failure skipped it and poisoned the rate-limit counter for
   // legitimate users (audit consolidated-async-tail, case (a) — the
   // load-bearing one). try/finally guarantees the rollback.
+  //
+  // H16/H15: the `record` construction is built INSIDE this try. A SYNCHRONOUS
+  // signer throw (audit.ts `signer.sign(auditHash)`) propagates out of
+  // buildAuditRecord; building it here means that throw lands in the `catch`
+  // (ledger release for a claimed EXECUTE key) and the `finally` (rate-limit
+  // rollback for a non-EXECUTE) below — pre-fix it was built BEFORE the try, so a
+  // signer throw orphaned the EXECUTE dedup key for the full TTL and skipped the
+  // rollback (fail-OPEN tail). The record CONTENT is identical (only WHERE it is
+  // built moved); intentHash/auditHash/determinism are unaffected. `record` is
+  // hoisted so the success-path return below still sees it; on a signer/emit
+  // throw the function never reaches the return (the catch rethrows).
+  let record: AuditRecord;
   try {
+    record = applyMeta(
+      buildAuditRecord({
+        envelope: executedEnvelope,
+        decision,
+        durationMs,
+        at: clock.nowIso(),
+        ...(planSnapshot ? { plan: planSnapshot } : {}),
+        ...(supersedes !== undefined ? { supersedes } : {}),
+        ...(kernelIdentity !== undefined ? { kernelIdentity } : {}),
+        // 091: bind the injected policy/kernel version snapshots onto the main
+        // (and 011 REWRITE-executed) audit row. `executedEnvelope` is the bytes
+        // that ran, and these versions record the policy/kernel identity they ran
+        // under — part of the auditHash pre-image and the replayable record.
+        // Conditional spread keeps the field omitted (hash-stable) when absent.
+        ...(deps.policyVersion !== undefined ? { policyVersion: deps.policyVersion } : {}),
+        ...(deps.kernelVersion !== undefined ? { kernelVersion: deps.kernelVersion } : {}),
+        // 052: bind the injected aggregate snapshot onto the main (and 011 REWRITE-
+        // executed) audit row. It records the cumulative/velocity inputs the
+        // decision ran against — part of the auditHash pre-image and the replayable
+        // record. The snapshot was injected READ-ONLY (the shell never mutates/
+        // refetches/timestamps it); conditional spread keeps the field omitted
+        // (hash-stable) when the shell injects nothing.
+        ...(deps.aggregateSnapshot !== undefined ? { aggregateSnapshot: deps.aggregateSnapshot } : {}),
+        // 092: attach a real signature over the main (and 011 REWRITE-executed)
+        // row's auditHash — signed in the shell AFTER the pure decision (§D),
+        // excluded from the auditHash pre-image so it never invalidates tamper-
+        // evidence. A throwing signer FAILS CLOSED: it propagates out of
+        // buildAuditRecord here, BEFORE the sink.emit in step 6+7, so no unsigned
+        // record is ever emitted when a signer was configured (§D inv. 6). The
+        // caller's await therefore rejects — the (already-computed) decision is
+        // never returned to the executor and the audit row never lands. This is
+        // friction-only (§C): a signing outage halts the path rather than passing
+        // an unsigned EXECUTE through. H16/H15: building it INSIDE the try means
+        // that throw triggers the catch's ledger release + the finally's rollback.
+        ...(deps.signer !== undefined ? { signer: deps.signer } : {}),
+      }),
+    );
     await deps.sink.emit(record);
   } catch (emitErr) {
     // ConcurrencyReviewer-002: if THIS call claimed the ledger key and the

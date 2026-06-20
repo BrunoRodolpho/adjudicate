@@ -491,6 +491,34 @@ describe("installPack — 082 verifyOnLoad (fail-closed provenance gate)", () =>
     const result = installPack(makePack(), noSinks);
     expect(result.pack.id).toBe("pack-test");
   });
+
+  it("REFUSES (fail-closed) when a config seal is supplied but the verifier is OMITTED (H8)", () => {
+    // Trust PASSES (signed pack + matching key) so the only thing that can
+    // reject is the seal guard. A `seal` is injected but `verifyConfigSeal` is
+    // NOT — pre-fix the enforcement branch required BOTH, so this fell through
+    // to a successful install with the seal silently UNENFORCED (fail-open).
+    // The fix throws a config_seal PackLoadVerificationError instead.
+    const { publicKeyPem, privateKeyPem } = ed25519();
+    const pack = makePack();
+    const sig = { algorithm: "ed25519", keyId: "k", value: signFp(fingerprintOf(pack), privateKeyPem) };
+    const seal = sealOf(pack, privateKeyPem);
+    const verify: VerifyOnLoadOptions = {
+      verifyPackTrust: makeVerifyPackTrust(),
+      // verifyConfigSeal intentionally omitted
+      publicKeyPem,
+      signature: sig,
+      seal,
+    };
+    try {
+      installPack(pack, { ...noSinks, verifyOnLoad: verify });
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(PackLoadVerificationError);
+      const e = err as PackLoadVerificationError;
+      expect(e.axis).toBe("config_seal");
+      expect(e.errors.join(" ")).toMatch(/no verifier injected/);
+    }
+  });
 });
 
 // ── 083: change-control (maker/checker/signer + CI gates) is ORTHOGONAL to the

@@ -47,6 +47,21 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "error",
+      // H11: a load-bearing `@ts-expect-error` must carry a description (the
+      // WHY it is expected to error) and `@ts-ignore`/`@ts-nocheck` are banned
+      // outright. This keeps change-control directives self-documenting; their
+      // load-bearing-ness (a stale directive ⇒ TS2578) is enforced separately by
+      // the per-package test-typecheck (`tsc -p tsconfig.test.json --noEmit`).
+      "@typescript-eslint/ban-ts-comment": [
+        "error",
+        {
+          "ts-expect-error": "allow-with-description",
+          "ts-ignore": true,
+          "ts-nocheck": true,
+          "ts-check": false,
+          minimumDescriptionLength: 3,
+        },
+      ],
       // 061: monotonic-ceiling — forbid weakening a `decision` binding to EXECUTE
       // (friction-decreasing composition; index §C / invariant #7). The one
       // deterministic carve-out (confirmation-receipt) is allowlisted at its

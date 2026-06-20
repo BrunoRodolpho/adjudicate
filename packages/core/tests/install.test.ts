@@ -582,16 +582,35 @@ describe("installPack — 083 change-control is orthogonal to the load path", ()
       "authoritySnapshot",
       "verifyOnLoad",
     ];
-    // A typo / a smuggled `codeowners` | `npmToken` | `signer` key would fail to
-    // type-check above, but we also assert the runtime install ignores any
-    // such ambient property defensively.
+    // LOAD-BEARING (083 orthogonality): each smuggled change-control key must
+    // fail to type-check as an InstallPackOptions property. Each literal carries
+    // exactly ONE excess key so excess-property checking fires per key; the
+    // `@ts-expect-error` then legitimately suppresses it. If 083 ever leaked one
+    // of these into InstallPackOptions, the matching directive goes STALE and
+    // the test-typecheck fails (TS2578) — these assertions are only enforced by
+    // `tsc -p tsconfig.test.json` (wired into `lint`), never by vitest.
+    const _codeownersIsNotAnOption: InstallPackOptions = {
+      // @ts-expect-error — `codeowners` is not a real InstallPackOptions key.
+      codeowners: ["@adjudicate/release-checkers"],
+    };
+    const _requireCheckerApprovalIsNotAnOption: InstallPackOptions = {
+      // @ts-expect-error — `requireCheckerApproval` is not a real InstallPackOptions key.
+      requireCheckerApproval: true,
+    };
+    const _npmTokenIsNotAnOption: InstallPackOptions = {
+      // @ts-expect-error — `npmToken` is not a real InstallPackOptions key.
+      npmToken: "secret",
+    };
+    void _codeownersIsNotAnOption;
+    void _requireCheckerApprovalIsNotAnOption;
+    void _npmTokenIsNotAnOption;
+
+    // We also assert the runtime install ignores any such ambient property
+    // defensively (the `as` cast is the deliberate escape for the runtime path).
     const sneaky = {
       ...noSinks,
-      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
       codeowners: ["@adjudicate/release-checkers"],
-      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
       requireCheckerApproval: true,
-      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
       npmToken: "secret",
     } as InstallPackOptions;
     const result = installPack(makePack(), sneaky);
@@ -636,13 +655,32 @@ describe("installPack — 084 staged-rollout canary is external to the load path
       "authoritySnapshot",
       "verifyOnLoad",
     ];
+    // LOAD-BEARING (084 orthogonality): each smuggled canary/rollout/red-team
+    // key must fail to type-check as an InstallPackOptions property. One excess
+    // key per literal so excess-property checking fires per key; the
+    // `@ts-expect-error` legitimately suppresses it. If 084 ever leaked one of
+    // these into InstallPackOptions, the matching directive goes STALE and the
+    // test-typecheck fails (TS2578). Enforced only by `tsc -p tsconfig.test.json`.
+    const _canaryIsNotAnOption: InstallPackOptions = {
+      // @ts-expect-error — `canary` is not a real InstallPackOptions key.
+      canary: true,
+    };
+    const _rolloutStageIsNotAnOption: InstallPackOptions = {
+      // @ts-expect-error — `rolloutStage` is not a real InstallPackOptions key.
+      rolloutStage: "canary",
+    };
+    const _runRedTeamIsNotAnOption: InstallPackOptions = {
+      // @ts-expect-error — `runRedTeam` is not a real InstallPackOptions key.
+      runRedTeam: () => 0,
+    };
+    void _canaryIsNotAnOption;
+    void _rolloutStageIsNotAnOption;
+    void _runRedTeamIsNotAnOption;
+
     const sneaky = {
       ...noSinks,
-      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
       canary: true,
-      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
       rolloutStage: "canary",
-      // @ts-expect-error — not a real InstallPackOptions key; must be ignored.
       runRedTeam: () => 0,
     } as InstallPackOptions;
     const result = installPack(makePack(), sneaky);

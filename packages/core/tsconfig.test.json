@@ -1,0 +1,23 @@
+{
+  // Type-checks the change-control test file so the LOAD-BEARING
+  // `@ts-expect-error` directives in tests/install.test.ts (083/084
+  // orthogonality, ~lines 580-680) are actually compiled in CI. Without this,
+  // those directives are inert: the package `lint`/`build` only ever compile
+  // `src` (tsconfig.json has `include: ["src"]`), so a stale or smuggled
+  // change-control option key would never be caught.
+  //
+  // Scope is deliberately narrow — `src` plus the change-control test file —
+  // NOT the whole `tests/` tree. Many other test files use intentional
+  // negative-typing patterns (deliberately-invalid envelope versions, casts,
+  // etc.) that run fine under vitest but do not strictly type-check; widening
+  // this config to the whole suite is out of scope for this fix. Wired into the
+  // package `lint` script via `tsc -p tsconfig.test.json --noEmit`. noEmit —
+  // this config exists purely to type-check; `build` still uses tsconfig.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src", "tests/install.test.ts"]
+}

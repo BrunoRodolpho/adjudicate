@@ -476,6 +476,61 @@ describe("adjudicateAndAudit — ledger release on EXECUTE + sink failure (Concu
   });
 });
 
+describe("adjudicateAndAudit — synchronous signer throw runs the cleanup tail (H16/H15)", () => {
+  // A signer that throws SYNCHRONOUSLY out of `buildAuditRecord` (audit.ts
+  // `signer.sign(auditHash)`). Pre-fix the `record` was built BEFORE the audit-
+  // emit `try`, so this throw bypassed BOTH the catch (ledger release) and the
+  // finally (rate-limit rollback) — the EXECUTE dedup key was orphaned for the
+  // full TTL and a non-EXECUTE counter stayed poisoned. Building the record
+  // INSIDE the try lands the throw in those handlers.
+  const throwingSigner: AuditSigner = {
+    keyId: "kms://throwing",
+    sign() {
+      throw new Error("signer down");
+    },
+  };
+
+  it("releases an acquired EXECUTE ledger key exactly once when the signer throws (H16)", async () => {
+    const release = vi.fn(async (_intentHash: string) => {});
+    const ledger: Ledger = {
+      async checkLedger() {
+        return null;
+      },
+      async recordExecution(): Promise<LedgerRecordOutcome> {
+        return "acquired";
+      },
+      release,
+    };
+    const env = envFixture();
+    await expect(
+      adjudicateAndAudit(env, {}, passBundle, {
+        // an OK sink proves the throw originates from the signer, not sink.emit
+        sink: { async emit() {} },
+        ledger,
+        signer: throwingSigner,
+      }),
+    ).rejects.toThrow("signer down");
+    // Without the fix the throw escaped before the catch, so the orphaned key
+    // was never released. With the fix it is released exactly once.
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(env.intentHash);
+  });
+
+  it("fires rateLimitRollback for a non-EXECUTE decision when the signer throws (H15)", async () => {
+    const rollback = vi.fn(async () => {});
+    await expect(
+      adjudicateAndAudit(envFixture(), {}, refuseBundle, {
+        sink: { async emit() {} },
+        rateLimitRollback: rollback,
+        signer: throwingSigner,
+      }),
+    ).rejects.toThrow("signer down");
+    // Without the fix the throw escaped before the finally, so the counter
+    // stayed poisoned. With the fix the rollback runs.
+    expect(rollback).toHaveBeenCalledOnce();
+  });
+});
+
 describe("adjudicateAndAudit — LedgerOpEvent includes intentHash (SecurityReviewer-015)", () => {
   it("emits intentHash on the ledger check event for correlation", async () => {
     const ledgerOpEvents: Array<{ op: string; intentHash: string }> = [];

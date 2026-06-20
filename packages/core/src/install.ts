@@ -313,6 +313,21 @@ export function installPack<K extends string, P, S, C>(
       );
     }
 
+    // H8 (FAIL-CLOSED): a seal snapshot supplied WITHOUT a verifier must NOT
+    // install with the seal silently unenforced. Pre-fix the enforcement guard
+    // below required BOTH `seal` and `verifyConfigSeal`, so omitting the verifier
+    // (while still injecting a seal) fell through to a successful install with the
+    // seal never checked — fail-OPEN. Refuse the install instead. (The
+    // seal-ABSENT path is documented "trust only" by design and is unchanged: no
+    // seal means there is nothing to enforce.)
+    if (v.seal !== undefined && v.verifyConfigSeal === undefined) {
+      throw new PackLoadVerificationError(
+        pack.id ?? "<unknown>",
+        "config_seal",
+        ["seal supplied but no verifier injected — refusing to install fail-closed"],
+      );
+    }
+
     // Config-seal enforcement runs only when a seal snapshot is injected. The
     // verifier re-extracts + re-hashes the LIVE pack, so a swapped/tampered pack
     // surface drives a digest mismatch and aborts the install. Under the strict

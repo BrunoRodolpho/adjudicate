@@ -18,7 +18,7 @@
 // has no `@ibatexas/tools` dependency and is testable at the framework level.
 
 import { createHash } from "node:crypto"
-import type { IntentActor, Origin, Taint } from "@adjudicate/core"
+import type { IntentActor, Origin, ResourceRefs, Taint } from "@adjudicate/core"
 import { sha256Canonical, timingSafeHexEqual } from "@adjudicate/core"
 
 export const DEFER_PENDING_TTL_GRACE_SECONDS = 14 * 24 * 60 * 60 // 14d resume-token retention
@@ -55,6 +55,18 @@ export interface ParkedEnvelope {
      * the blob on the legacy `missing_fields` path.
      */
     readonly origin?: Origin
+    /**
+     * 031 — per-kind resource references (the envelope's authorization slot).
+     * Part of the intentHash recipe since plan 031, BUT canonical-drop-safe:
+     * `intentHashInput` (@adjudicate/core) emits it into the pre-image only as
+     * `e.resourceRefs`, which `canonicalize` omits when `undefined`. So a
+     * resource-BOUND DEFER (e.g. the pack-payments-pix charge-awaiting-webhook
+     * flow) MUST carry this for the resume re-derivation to reproduce its
+     * stored hash; a no-resource-refs blob simply has it absent and re-derives
+     * BYTE-IDENTICALLY (no golden-vector drift). Omitting it from the resume
+     * pre-image false-tampers every resource-bound resume.
+     */
+    readonly resourceRefs?: ResourceRefs
   }
   readonly signal: string
   readonly parkedAt: string
@@ -77,12 +89,20 @@ export type ParkVerificationResult =
 /**
  * 023 cross-drift note (T4): the resource-binding pre-image
  * (`verifyResourceBinding` / `deriveIntentHash` in `@adjudicate/core`) and the
- * parked-envelope pre-image below are the SAME canonical recipe —
- * `sha256Canonical({version, kind, payload, nonce, actor, taint, origin[,
- * resourceRefs]})` — and the SAME `timingSafeHexEqual` comparator. They re-derive
- * the SAME `intentHash` for the SAME envelope, so the executor-seam binding and
- * the resume-time park check cannot disagree (no drift; invariant #4/#5). A
+ * parked-envelope pre-image below MUST be the SAME canonical recipe —
+ * `sha256Canonical({version, kind, payload, nonce, actor, taint, origin,
+ * resourceRefs})` — and the SAME `timingSafeHexEqual` comparator, so the
+ * executor-seam binding and the resume-time park check re-derive the SAME
+ * `intentHash` for the SAME envelope and cannot disagree (invariant #4/#5). A
  * golden-vector lock in `@adjudicate/canonical` pins the shared pre-image.
+ *
+ * H2 (031 drift) — `resourceRefs` is part of the recipe and is now passed
+ * UNCONDITIONALLY below. It is canonical-drop-safe: a no-resource-refs blob
+ * passes `undefined`, which `canonicalize` omits, so its derived hash stays
+ * BYTE-IDENTICAL (no golden-vector regression). Before this fix the verifier
+ * OMITTED `resourceRefs` entirely, so any resource-BOUND resume (e.g. the
+ * pack-payments-pix charge-awaiting-webhook flow) re-derived a DIFFERENT hash
+ * than `deriveIntentHash` and false-tampered — refusing a legitimate resume.
  */
 export function verifyParkedEnvelopeHash(parked: ParkedEnvelope): ParkVerificationResult {
   const e = parked.envelope
@@ -105,6 +125,13 @@ export function verifyParkedEnvelopeHash(parked: ParkedEnvelope): ParkVerificati
     actor: { principal: e.actorPrincipal, sessionId: e.actor.sessionId },
     taint: e.taint,
     origin: e.origin,
+    // H2 — `resourceRefs` is part of the intentHash recipe (031) and MUST be
+    // re-derived here to match `deriveIntentHash`/`buildEnvelope`. Passed
+    // UNCONDITIONALLY: it is canonical-drop-safe, so a no-resource-refs blob
+    // (e.resourceRefs === undefined) is omitted by canonicalize and the derived
+    // hash stays byte-identical (no golden-vector regression); a resource-bound
+    // blob now re-derives the SAME hash it was constructed with (no false-tamper).
+    resourceRefs: e.resourceRefs,
   })
   // Constant-time compare (P3-CRYPTO-TIMINGSAFE): a `!==` string compare leaks
   // via timing how many leading hex chars of a tampered intentHash matched the

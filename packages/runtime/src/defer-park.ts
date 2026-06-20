@@ -12,7 +12,7 @@
 // On successful resume, defer-resume.ts DECRs the counter back; the TTL
 // guarantees zero-counter cleanup even if a resume was missed.
 
-import type { IntentActor, Origin, Taint } from "@adjudicate/core"
+import type { IntentActor, Origin, ResourceRefs, Taint } from "@adjudicate/core"
 import { recordResourceLimit } from "@adjudicate/core"
 import { DEFER_PENDING_TTL_GRACE_SECONDS } from "./defer-resume.js"
 
@@ -119,6 +119,14 @@ export interface ParkDeferredIntentArgs {
     readonly actorPrincipal?: IntentActor["principal"]
     /** 041 — provenance source axis; part of the intentHash recipe. */
     readonly origin?: Origin
+    /**
+     * 031 — per-kind resource references (the envelope's authorization slot),
+     * part of the intentHash recipe. Canonical-drop-safe: a no-resource-refs
+     * blob omits it and re-derives byte-identically, but a resource-BOUND DEFER
+     * MUST store it so `verifyParkedEnvelopeHash` re-derives the same hash
+     * `buildEnvelope`/`deriveIntentHash` produced (H2). Stored verbatim.
+     */
+    readonly resourceRefs?: ResourceRefs
   }
   readonly signal: string
   /** TTL for the parked envelope blob — typically `signal.timeoutMs / 1000 + grace`. */

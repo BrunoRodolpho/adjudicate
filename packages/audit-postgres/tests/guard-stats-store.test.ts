@@ -301,19 +301,34 @@ describe("createPostgresReservationStore — verdict mapping (053 T1)", () => {
     expect(out).toEqual({ reserved: false, reason: "over_cap" });
   });
 
-  it("refuses a non-positive / non-finite delta LOCALLY (never fabricates headroom, §C)", async () => {
+  it("refuses a non-integer / non-positive / non-finite delta LOCALLY (never fabricates headroom, §C)", async () => {
     const reserveGuardStat = vi.fn<ReservationWriter["reserveGuardStat"]>(
       async () => 1,
     );
     const store = createPostgresReservationStore({
       writer: { reserveGuardStat },
     });
-    for (const bad of [0, -1, -100, Number.NaN, Number.POSITIVE_INFINITY]) {
+    // H5: a FRACTIONAL delta in (0,0.5] casts to `$6::bigint` and Postgres
+    // rounds 0.5 → 0, so a zero-unit INSERT returns rowCount===1 and the store
+    // would report a phantom reserved:true (fail-OPEN headroom fabrication). It
+    // MUST be rejected locally as invalid_delta, alongside the existing
+    // non-positive / non-finite cases. 1.5 / 2.5 cover the round-half-up edge.
+    for (const bad of [
+      0,
+      -1,
+      -100,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      0.5,
+      0.1,
+      1.5,
+      2.5,
+    ]) {
       const out = await store.reserve(keyFor(10), bad);
       expect(out).toEqual({ reserved: false, reason: "invalid_delta" });
     }
     // None of those reached the DB — the over-commit guard is fail-closed even
-    // before the round-trip.
+    // before the round-trip (no zero-unit write is ever attempted).
     expect(reserveGuardStat).not.toHaveBeenCalled();
   });
 

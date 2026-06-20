@@ -632,6 +632,44 @@ describe("runBaselinedCanaryGate — strict gate measured against a committed ba
     expect(result.exitCode).toBe(2);
   });
 
+  it("a harness error can NEVER be baselined away (an errors:N baseline still ROLLS BACK on a fresh errors:N run)", () => {
+    // H12 regression — mirror of the EXECUTE test above for the errors axis. The
+    // pack rehydrates cleanly during GENERATION (`rehydrateState({})` → sentinel)
+    // but throws at EXECUTION (the runner re-rehydrates `rehydrateState(state)`,
+    // here the sentinel), so the canary produces real `status:"error"` results
+    // (errors>0) without breaking scenario generation. Even if a (stale/malicious)
+    // baseline RECORDED that errors:N posture, the gate must still roll back:
+    // errors>0 is unconditional, exactly like a reached EXECUTE.
+    const REHYDRATE_SENTINEL = { __redteamErrorSentinel: true };
+    const throwing: RedTeamPack = {
+      ...idorDefendedPack(),
+      id: "canary-errors",
+      rehydrateState: (raw: unknown) => {
+        if (raw === REHYDRATE_SENTINEL) throw new Error("rehydrate boom (execution-time)");
+        return REHYDRATE_SENTINEL;
+      },
+    };
+    const strict = runCanaryGate(throwing, { seed: 1, policy: "strict" });
+    expect(strict.report.summary.errors).toBeGreaterThan(0);
+    // deriveCanaryBaseline FORCES errors:0 — a baseline can never MINT an errors:N
+    // ceiling that would allowlist the harness errors.
+    expect(deriveCanaryBaseline(strict).errors).toBe(0);
+    // Hand-craft the worst case: a baseline that DOES record errors:N (bypassing
+    // derive). The gate must STILL roll back (errors>0 is baseline-independent).
+    const permissiveBaseline: CanaryBaseline = {
+      packId: throwing.id,
+      escaped: strict.report.summary.escaped,
+      errors: strict.report.summary.errors,
+      ownershipEscaped: strict.ownership.escaped,
+      taintVacuous: strict.taintVacuous,
+      scenarios: [],
+    };
+    const result = runBaselinedCanaryGate(throwing, permissiveBaseline, { seed: 1 });
+    expect(result.regressed).toBe(true);
+    expect(result.reasons.join(" ")).toMatch(/harness error\(s\) \(errors can never be baselined away\)/);
+    expect(result.exitCode).toBe(2);
+  });
+
   it("deriveCanaryBaseline round-trips a strict run into a committable, name-sorted baseline", () => {
     const strict = runCanaryGate(idorDefendedPack(), { seed: 1, policy: "strict" });
     const baseline = deriveCanaryBaseline(strict);

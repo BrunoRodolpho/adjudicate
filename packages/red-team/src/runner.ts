@@ -206,7 +206,14 @@ export interface TaintEscalationCausality {
  * scenarios the taint gate itself actually caught vs. were caught upstream.
  */
 export function taintEscalationCausality(report: RedTeamReport): TaintEscalationCausality {
-  const taint = report.results.filter((r) => r.vector === "taint_escalation");
+  // H14: the ownership/IDOR scenarios carry vector:"taint_escalation" (they share
+  // the generator) but are NOT taint-gate probes — counting them here pollutes the
+  // operator causality counters (a REFUSE at the AUTH phase would be miscredited).
+  // Exclude them by their stable `ownership_violation.` name prefix; their posture
+  // is already gated by the dedicated ownership/non-vacuity axes.
+  const taint = report.results.filter(
+    (r) => r.vector === "taint_escalation" && !r.name.startsWith("ownership_violation."),
+  );
   const defended = taint.filter((r) => r.status === "defended");
   const byTaintGate = defended.filter((r) => r.basisCodes?.includes(TAINT_GATE_BASIS)).length;
   return {
@@ -601,7 +608,11 @@ export function deriveCanaryBaseline(result: CanaryGateResult): CanaryBaseline {
   return {
     packId: result.report.pack.id,
     escaped: result.report.summary.escaped,
-    errors: result.report.summary.errors,
+    // Hard escapes can NEVER be baselined away (cf. runBaselinedCanaryGate :668).
+    // A harness error is a hard escape, so a baseline can never MINT an errors:N
+    // ceiling: force 0 here so deriveCanaryBaseline cannot manufacture a baseline
+    // that allowlists errors. The gate then checks `errors > 0` unconditionally.
+    errors: 0,
     ownershipEscaped: result.ownership.escaped,
     taintVacuous: result.taintVacuous,
     // 202 — freeze whether the canary genuinely exercised an owner predicate.
@@ -669,8 +680,12 @@ export function runBaselinedCanaryGate(
   if (strict.executeEscapes > 0) {
     reasons.push(`${strict.executeEscapes} adversarial intent(s) reached a clean EXECUTE`);
   }
-  if (strict.report.summary.errors > baseline.errors) {
-    reasons.push(`errors regressed ${baseline.errors} → ${strict.report.summary.errors}`);
+  // A harness error is a hard escape (a vacuous/broken canary manufactures false
+  // confidence): it always rolls back UNCONDITIONALLY, exactly like a reached
+  // EXECUTE — it can NEVER be baselined away. (deriveCanaryBaseline forces
+  // errors:0 so a stale/malicious baseline cannot mint an errors:N ceiling.)
+  if (strict.report.summary.errors > 0) {
+    reasons.push(`${strict.report.summary.errors} harness error(s) (errors can never be baselined away)`);
   }
 
   // Aggregate posture may not exceed the frozen baseline ceilings.

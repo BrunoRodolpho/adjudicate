@@ -79,6 +79,44 @@ const ALL_VECTORS: ReadonlyArray<AttackVector> = [
   "read_inject_intent",
 ];
 
+/**
+ * H13 — structural validation of a committed canary baseline. The gate trusts the
+ * numeric ceilings + per-scenario array; a baseline missing any of them silently
+ * disables that axis (`N > undefined` ⇒ false) and PROMOTES despite escapes. We
+ * therefore assert the full required shape BEFORE gating and fail CLOSED (the
+ * caller maps a non-null return to exit 2). Returns the first deviation, or null
+ * when the value is a well-formed `CanaryBaseline`. `ownershipExercised` is the
+ * only optional field (pre-202 backward-compat).
+ */
+function validateCanaryBaselineShape(value: unknown): string | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return "expected a JSON object";
+  }
+  const b = value as Record<string, unknown>;
+  if (typeof b.packId !== "string") return 'field "packId" must be a string';
+  for (const field of ["escaped", "errors", "ownershipEscaped"] as const) {
+    if (!Number.isFinite(b[field])) return `field "${field}" must be a finite number`;
+  }
+  if (typeof b.taintVacuous !== "boolean") return 'field "taintVacuous" must be a boolean';
+  if (b.ownershipExercised !== undefined && typeof b.ownershipExercised !== "boolean") {
+    return 'field "ownershipExercised" must be a boolean when present';
+  }
+  if (!Array.isArray(b.scenarios)) return 'field "scenarios" must be an array';
+  for (let i = 0; i < b.scenarios.length; i += 1) {
+    const s = b.scenarios[i];
+    if (typeof s !== "object" || s === null || Array.isArray(s)) {
+      return `scenarios[${i}] must be an object`;
+    }
+    const sc = s as Record<string, unknown>;
+    if (typeof sc.name !== "string") return `scenarios[${i}].name must be a string`;
+    if (typeof sc.status !== "string") return `scenarios[${i}].status must be a string`;
+    if (sc.decision !== undefined && typeof sc.decision !== "string") {
+      return `scenarios[${i}].decision must be a string when present`;
+    }
+  }
+  return null;
+}
+
 export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> {
   const cwd = options.cwd ?? process.cwd();
   const out = options.stdout ?? ((line) => process.stdout.write(`${line}\n`));
@@ -98,14 +136,27 @@ export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> 
   // blinding the gate the way the global execute-escape policy did.
   if (options.baseline !== undefined) {
     const baselinePath = resolve(cwd, options.baseline);
-    let baseline: CanaryBaseline;
+    let parsed: unknown;
     try {
-      baseline = JSON.parse(readFileSync(baselinePath, "utf8")) as CanaryBaseline;
+      parsed = JSON.parse(readFileSync(baselinePath, "utf8"));
     } catch (err) {
       out(`✗ failed to read canary baseline ${baselinePath}: ${err instanceof Error ? err.message : String(err)}`);
       process.exitCode = 2;
       return;
     }
+    // H13 — STRUCTURAL VALIDATION (fail-CLOSED). Without it, a baseline missing the
+    // numeric ceilings (e.g. `{packId,scenarios:[]}`) makes the gate compute
+    // `N > undefined` → false on every count axis → a clean exit 0 PROMOTE despite
+    // live escapes (a CI `set -e` cannot catch a clean 0). Any deviation from the
+    // required shape ⇒ refuse to gate (exit 2). Only `ownershipExercised` is
+    // optional (pre-202 backward-compat); every other field is REQUIRED.
+    const baselineErr = validateCanaryBaselineShape(parsed);
+    if (baselineErr !== null) {
+      out(`✗ malformed canary baseline ${baselinePath}: ${baselineErr} — refusing to gate (fail-closed).`);
+      process.exitCode = 2;
+      return;
+    }
+    const baseline = parsed as CanaryBaseline;
     if (baseline.packId !== pack.id) {
       out(`✗ baseline packId "${baseline.packId}" does not match pack "${pack.id}" — refusing to gate (fail-closed).`);
       process.exitCode = 2;

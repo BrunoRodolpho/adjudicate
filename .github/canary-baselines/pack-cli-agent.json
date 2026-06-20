@@ -4,6 +4,7 @@
   "errors": 0,
   "ownershipEscaped": 0,
   "taintVacuous": true,
+  "ownershipExercised": true,
   "scenarios": [
     {
       "name": "ownership_violation.terminal.run.forged_unbound.0",

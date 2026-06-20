@@ -4,6 +4,7 @@
   "errors": 0,
   "ownershipEscaped": 0,
   "taintVacuous": false,
+  "ownershipExercised": false,
   "scenarios": [
     {
       "name": "ownership_violation.access.request.forged_unbound.0",

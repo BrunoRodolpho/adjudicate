@@ -4,6 +4,7 @@
   "errors": 0,
   "ownershipEscaped": 0,
   "taintVacuous": false,
+  "ownershipExercised": true,
   "scenarios": [
     {
       "name": "ownership_violation.incident.escalate.forged_unbound.0",

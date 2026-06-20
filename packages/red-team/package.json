@@ -25,6 +25,9 @@
     "@adjudicate/core": "workspace:*"
   },
   "devDependencies": {
+    "@adjudicate/pack-cli-agent": "workspace:*",
+    "@adjudicate/pack-identity-kyc": "workspace:*",
+    "@adjudicate/pack-incident-response": "workspace:*",
     "@adjudicate/pack-payments-pix": "workspace:*",
     "@adjudicate/primitives": "workspace:*",
     "@vitest/coverage-v8": "^3.2.0",

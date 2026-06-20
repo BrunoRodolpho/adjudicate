@@ -1234,6 +1234,15 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@adjudicate/pack-cli-agent':
+        specifier: workspace:*
+        version: link:../pack-cli-agent
+      '@adjudicate/pack-identity-kyc':
+        specifier: workspace:*
+        version: link:../pack-identity-kyc
+      '@adjudicate/pack-incident-response':
+        specifier: workspace:*
+        version: link:../pack-incident-response
       '@adjudicate/pack-payments-pix':
         specifier: workspace:*
         version: link:../pack-payments-pix

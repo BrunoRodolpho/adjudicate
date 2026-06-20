@@ -72,6 +72,24 @@ export interface RedTeamScenario {
   readonly intent: ScenarioIntent;
   readonly state: unknown;
   readonly defense: { readonly acceptable: ReadonlyArray<DecisionKind> };
+  /**
+   * 202 — a FULLY-FORMED state the runner uses VERBATIM, bypassing
+   * `pack.rehydrateState`. Required for fixture-backed ownership probes: the
+   * fixture's `state.authority` (host-injected identity infra) is NOT carried by a
+   * pack's JSON `rehydrateState` (which strips unknown keys by design), so the
+   * generator pre-rehydrates the base state AND re-injects `authority` here, and the
+   * runner must NOT re-rehydrate it away. When absent the runner rehydrates `state`
+   * as before (byte-identical to pre-202 for every other vector).
+   */
+  readonly prebuiltState?: unknown;
+  /**
+   * 202 — true when this scenario was emitted from an `OwnershipFixture` (so it
+   * carries injected authority + a state-valid payload and is EXPECTED to reach the
+   * auth phase). The `reachedAuth` non-vacuity gate asserts every fixture-backed
+   * scenario actually reached auth; a fixture-backed probe that does NOT is a HARD
+   * NOT-EXERCISED fail (anti-gaming), never a silent pass.
+   */
+  readonly fixtureBacked?: boolean;
 }
 
 /** Minimal Pack surface the generators + runner need (core types only). */

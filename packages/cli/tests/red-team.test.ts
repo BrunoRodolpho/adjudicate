@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import * as path from "node:path";
+import * as os from "node:os";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { runRedTeamCommand } from "../src/commands/red-team.js";
 
@@ -103,5 +105,47 @@ describe("adjudicate red-team (CLI)", () => {
       expect(r.basisCodes).toContain("taint:propagation_violation");
       expect(r.basisCodes).not.toContain("taint:level_insufficient");
     }
+  });
+
+  // H13 — a baseline that PARSES but is structurally malformed (missing the numeric
+  // ceilings) must FAIL CLOSED (exit 2), not silently void the §C gate. The void
+  // case: `{packId:'<match>',scenarios:[]}` — the packId matches so the gate is
+  // reached, but `escaped`/`errors`/`ownershipEscaped` are undefined, so every
+  // `N > undefined` count check is false ⇒ a clean exit 0 PROMOTE despite escapes.
+  // Without the structural validation this test fails (exitCode would be 0/undef).
+  it("H13: a malformed baseline missing the numeric ceilings FAILS CLOSED (exit 2), not a clean PROMOTE", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "redteam-baseline-"));
+    const bad = path.join(dir, "baseline.json");
+    // packId MATCHES so we pass the packId guard and reach the gate; the body is
+    // the void-the-gate shape (no numeric ceilings, empty scenarios).
+    writeFileSync(bad, JSON.stringify({ packId: "pack-payments-pix", scenarios: [] }), "utf8");
+    const cap = capture();
+    await runRedTeamCommand({ pack: PIX_INDEX, baseline: bad, stdout: cap.write, format: "text" });
+    const text = cap.lines.join("\n");
+    expect(text).toContain("malformed canary baseline");
+    expect(process.exitCode).toBe(2); // fail-closed — never a clean 0 set -e cannot catch
+  });
+
+  it("H13: an empty-scenarios baseline that is otherwise WELL-FORMED is accepted (validation is shape-only, not posture)", async () => {
+    // Guard against over-rejection: a legitimately empty `scenarios` array with all
+    // numeric ceilings present is structurally valid and must NOT be rejected as
+    // malformed (the gate then evaluates posture normally).
+    const dir = mkdtempSync(path.join(os.tmpdir(), "redteam-baseline-ok-"));
+    const ok = path.join(dir, "baseline.json");
+    writeFileSync(
+      ok,
+      JSON.stringify({
+        packId: "pack-payments-pix",
+        escaped: 0,
+        errors: 0,
+        ownershipEscaped: 0,
+        taintVacuous: false,
+        scenarios: [],
+      }),
+      "utf8",
+    );
+    const cap = capture();
+    await runRedTeamCommand({ pack: PIX_INDEX, baseline: ok, stdout: cap.write, format: "text" });
+    expect(cap.lines.join("\n")).not.toContain("malformed canary baseline");
   });
 });

@@ -307,6 +307,12 @@ export async function translateDecision<K extends string, P, S, H>(
           taint: ctx.envelope.taint,
           actorPrincipal: ctx.envelope.actor.principal,
           origin: ctx.envelope.origin,
+          // H2 — `resourceRefs` (031) is also part of the intentHash recipe and
+          // is canonical-drop-safe: forwarded UNCONDITIONALLY so a resource-bound
+          // DEFER (e.g. pix charge-awaiting-webhook) re-derives its stored hash on
+          // resume instead of false-tampering. A no-resource-refs envelope carries
+          // it as `undefined`, which is dropped — no hash drift.
+          resourceRefs: ctx.envelope.resourceRefs,
         },
         signal: ctx.decision.signal,
         ttlSeconds,

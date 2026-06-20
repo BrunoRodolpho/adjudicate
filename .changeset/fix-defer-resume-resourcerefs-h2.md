@@ -1,0 +1,8 @@
+---
+"@adjudicate/runtime": patch
+"@adjudicate/adapter-core": patch
+---
+
+fix(runtime): H2 — `verifyParkedEnvelopeHash` (`defer-resume.ts`) re-derived the parked-envelope `intentHash` over `{version,kind,payload,nonce,actor,taint,origin}` while OMITTING `resourceRefs` — even though `buildEnvelope`/`deriveIntentHash` (`@adjudicate/core` `intentHashInput`) BIND `resourceRefs` (031) into the hash. So a resource-bound DEFER resume (the canonical pack-payments-pix charge-awaiting-webhook flow) re-derived a DIFFERENT hash → `{verified:false, reason:"tampered"}` → `park_blob_tampered` under the default strict policy, REFUSING a legitimate resume. Fix: pass `resourceRefs: e.resourceRefs` UNCONDITIONALLY into the verifier's `sha256Canonical({...})` — it is canonical-drop-safe, so a no-resource-refs blob (`undefined`) is omitted by `canonicalize` and its derived hash stays BYTE-IDENTICAL (NO golden-vector / replay-corpus regression; `@adjudicate/core` canonical encoder unchanged). Adds `readonly resourceRefs?: ResourceRefs` to `ParkedEnvelope.envelope` and `ParkDeferredIntentArgs.envelope`. Corrects the false comments in `defer-resume.ts` and `index.ts` that claimed the two recipes were already "the SAME … cannot disagree". Still fail-closed and §C-monotonic: a genuine tamper (changed payload / resourceRefs vs stored hash) still re-derives a mismatch and refuses.
+
+fix(adapter-core): H2 — forward `resourceRefs: ctx.envelope.resourceRefs` from the DEFER park caller (`decisions.ts` `runDeferDecision`) into `parkDeferredIntent`, so a resource-bound parked blob carries the field the resume-side verifier now re-derives over. Unconditional and drop-safe — a no-resource-refs envelope parks it as `undefined` (omitted), unchanged behavior.

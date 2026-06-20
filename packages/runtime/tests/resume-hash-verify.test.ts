@@ -444,3 +444,155 @@ describe("023 — resource-binding pre-image equals the parked-envelope pre-imag
     expect(verifyParkedEnvelopeHash(tamperedParked).verified).toBe(false)
   })
 })
+
+/**
+ * H2 — the parked-envelope verifier MUST include `resourceRefs` (031) in its
+ * re-derivation, because `buildEnvelope`/`deriveIntentHash` bind it into the
+ * `intentHash`. Before this fix the verifier OMITTED `resourceRefs`, so any
+ * resource-BOUND DEFER (the canonical pack-payments-pix charge-awaiting-webhook
+ * flow) re-derived a DIFFERENT hash and false-tampered → `park_blob_tampered`
+ * under the default strict policy, refusing a LEGITIMATE resume.
+ *
+ * Non-vacuity: `RES_ENVELOPE` carries NON-EMPTY `resourceRefs`, so its
+ * `intentHash` differs from the no-refs envelope's. With the verifier omitting
+ * `resourceRefs`, the round-trip below derives the no-refs hash and FAILS
+ * (`verified:false`/`park_blob_tampered`); the fix makes it match.
+ */
+const RES_ENVELOPE = buildEnvelope({
+  kind: "pix.charge.create",
+  payload: { amountCentavos: 1000 },
+  actor: { principal: "llm" as const, sessionId: "s-res" },
+  taint: "UNTRUSTED" as const,
+  nonce: "fixed-nonce-res-001",
+  resourceRefs: { account: "acct_7", owner: "user_42" },
+})
+
+describe("H2 — resource-bound DEFER resume includes resourceRefs in the verifier", () => {
+  it("non-vacuity guard: carrying resourceRefs changes the intentHash", () => {
+    // If resourceRefs did NOT affect the hash, omitting it from the verifier
+    // would be harmless and this whole suite would be vacuous. It DOES change it.
+    const noRefs = buildEnvelope({
+      kind: "pix.charge.create",
+      payload: { amountCentavos: 1000 },
+      actor: { principal: "llm" as const, sessionId: "s-res" },
+      taint: "UNTRUSTED" as const,
+      nonce: "fixed-nonce-res-001",
+    })
+    expect(RES_ENVELOPE.intentHash).not.toBe(noRefs.intentHash)
+    // The verifier's full recipe (incl. resourceRefs) reproduces the bound hash.
+    const derivedWithRefs = sha256Canonical({
+      version: RES_ENVELOPE.version,
+      kind: RES_ENVELOPE.kind,
+      payload: RES_ENVELOPE.payload,
+      nonce: RES_ENVELOPE.nonce,
+      actor: RES_ENVELOPE.actor,
+      taint: RES_ENVELOPE.taint,
+      origin: RES_ENVELOPE.origin,
+      resourceRefs: RES_ENVELOPE.resourceRefs,
+    })
+    expect(derivedWithRefs).toBe(RES_ENVELOPE.intentHash)
+    // …and the recipe that OMITS resourceRefs (the pre-fix verifier) does NOT.
+    const derivedWithoutRefs = sha256Canonical({
+      version: RES_ENVELOPE.version,
+      kind: RES_ENVELOPE.kind,
+      payload: RES_ENVELOPE.payload,
+      nonce: RES_ENVELOPE.nonce,
+      actor: RES_ENVELOPE.actor,
+      taint: RES_ENVELOPE.taint,
+      origin: RES_ENVELOPE.origin,
+    })
+    expect(derivedWithoutRefs).not.toBe(RES_ENVELOPE.intentHash)
+  })
+
+  it("verifyParkedEnvelopeHash verifies a resource-bound blob (not tampered)", () => {
+    const parked: ParkedEnvelope = {
+      envelope: {
+        intentHash: RES_ENVELOPE.intentHash,
+        kind: RES_ENVELOPE.kind,
+        actor: { sessionId: RES_ENVELOPE.actor.sessionId },
+        payload: RES_ENVELOPE.payload,
+        version: RES_ENVELOPE.version,
+        nonce: RES_ENVELOPE.nonce,
+        taint: RES_ENVELOPE.taint,
+        actorPrincipal: RES_ENVELOPE.actor.principal,
+        origin: RES_ENVELOPE.origin,
+        resourceRefs: RES_ENVELOPE.resourceRefs,
+      },
+      signal: "pix.confirmed",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    // Pre-fix this returned { verified:false, reason:"tampered" }.
+    expect(verifyParkedEnvelopeHash(parked).verified).toBe(true)
+  })
+
+  it("strict park → resume round-trip with NON-EMPTY resourceRefs resumes (not tampered)", async () => {
+    const redis = createMemoryRedis()
+    const parkResult = await parkDeferredIntent({
+      envelope: {
+        intentHash: RES_ENVELOPE.intentHash,
+        kind: RES_ENVELOPE.kind,
+        actor: { sessionId: RES_ENVELOPE.actor.sessionId },
+        payload: RES_ENVELOPE.payload,
+        version: RES_ENVELOPE.version,
+        nonce: RES_ENVELOPE.nonce,
+        taint: RES_ENVELOPE.taint,
+        actorPrincipal: RES_ENVELOPE.actor.principal,
+        origin: RES_ENVELOPE.origin,
+        resourceRefs: RES_ENVELOPE.resourceRefs,
+      },
+      signal: "pix.confirmed",
+      ttlSeconds: 600,
+      redis,
+      rk: RK,
+    })
+    expect(parkResult.parked).toBe(true)
+
+    const result = await resumeDeferredIntent({
+      sessionId: RES_ENVELOPE.actor.sessionId,
+      signal: "pix.confirmed",
+      redis,
+      rk: RK,
+      verifyHash: "strict",
+    })
+    // Pre-fix: { resumed:false, reason:"park_blob_tampered" } — a legitimate
+    // resume refused. Post-fix: resumes cleanly.
+    expect(result.resumed).toBe(true)
+    expect(result.reason).toBeUndefined()
+    expect(result.intentHash).toBe(RES_ENVELOPE.intentHash)
+  })
+
+  it("no-regression: a NO-resourceRefs blob still verifies byte-identically", () => {
+    // ENVELOPE has no resourceRefs. Passing `resourceRefs: undefined` is
+    // canonical-dropped, so the derived hash is byte-identical to the pre-fix
+    // verifier — this blob must STILL verify (no golden-vector regression).
+    const parked: ParkedEnvelope = {
+      envelope: {
+        intentHash: ENVELOPE.intentHash,
+        kind: ENVELOPE.kind,
+        actor: { sessionId: ENVELOPE.actor.sessionId },
+        payload: ENVELOPE.payload,
+        version: ENVELOPE.version,
+        nonce: ENVELOPE.nonce,
+        taint: ENVELOPE.taint,
+        actorPrincipal: ENVELOPE.actor.principal,
+        origin: ENVELOPE.origin,
+        // resourceRefs intentionally absent
+      },
+      signal: "any",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    expect(verifyParkedEnvelopeHash(parked).verified).toBe(true)
+    // Belt + braces: the verifier's no-refs derivation equals buildEnvelope's.
+    const derivedNoRefs = sha256Canonical({
+      version: ENVELOPE.version,
+      kind: ENVELOPE.kind,
+      payload: ENVELOPE.payload,
+      nonce: ENVELOPE.nonce,
+      actor: ENVELOPE.actor,
+      taint: ENVELOPE.taint,
+      origin: ENVELOPE.origin,
+      resourceRefs: undefined,
+    })
+    expect(derivedNoRefs).toBe(ENVELOPE.intentHash)
+  })
+})

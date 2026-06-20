@@ -42,10 +42,13 @@ export { DEADLINE_HIT, deadlinePromise } from "./with-deadlines.js"
 
 // 023 — re-export the resource-binding verifier so the parked-envelope hash
 // verifier (`verifyParkedEnvelopeHash`, above) and the executor-seam resource
-// binding share ONE importable surface and ONE pre-image: both re-derive
-// `sha256Canonical({version,kind,payload,nonce,actor,taint,origin[,resourceRefs]})`
-// via the untouched `intentHashInput` recipe and compare constant-time via
-// `timingSafeHexEqual` — they cannot drift (023 §3/T4).
+// binding share ONE importable surface and the SAME pre-image: both re-derive
+// `sha256Canonical({version,kind,payload,nonce,actor,taint,origin,resourceRefs})`
+// and compare constant-time via `timingSafeHexEqual` (023 §3/T4). `resourceRefs`
+// is canonical-drop-safe (031): omitting it on a no-refs blob is byte-identical,
+// but it MUST be re-derived so a resource-BOUND resume matches `deriveIntentHash`
+// — see the H2 fix in defer-resume.ts (`verifyResourceBinding` calls
+// `deriveIntentHash`, which includes `resourceRefs`).
 export {
   DEFAULT_RESOURCE_BINDING_POLICY,
   verifyResourceBinding,

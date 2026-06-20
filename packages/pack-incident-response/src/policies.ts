@@ -3,10 +3,12 @@ import {
   BASIS_CODES,
   decisionExecute,
   decisionRefuse,
+  resolveOwnership,
   type PolicyBundle,
 } from "@adjudicate/core";
 import { nameGuard, type Guard } from "@adjudicate/core/kernel";
 import {
+  createAuthorityGuard,
   createConfirmGuard,
   createEscalateGuard,
   createRewriteGuard,
@@ -146,9 +148,68 @@ const executeEscalate: IncidentGuard = nameGuard("executeEscalate", (envelope) =
     : null,
 );
 
+// ── Authority guard (034/201) ─────────────────────────────────────────────────
+
+/**
+ * The mutating UNTRUSTED-min kinds the constitutional authority guard (034)
+ * gates: `incident.remediation.execute` and `incident.escalate`. The TRUSTED-only
+ * `incident.monitor.callback` is EXCLUDED — the taint gate already short-circuits
+ * an UNTRUSTED proposal of it (it is system-only), so it is not an owner-predicate
+ * candidate (the same exclusion pix applies to `pix.charge.confirm`).
+ */
+const INCIDENT_AUTHORITY_GATED_KINDS: ReadonlySet<IncidentIntentKind> =
+  new Set<IncidentIntentKind>([
+    "incident.remediation.execute",
+    "incident.escalate",
+  ]);
+
+/**
+ * 201 — wire the constitutional authority guard (034) into incident `authGuards`,
+ * closing the §D #8 / 035-F1 violation that the mutating UNTRUSTED-min kinds
+ * previously shipped with `authGuards: []`. The guard reads its authority context
+ * from the INJECTED `state.authority` (032/033) — the kernel never hands a guard
+ * an identity arg.
+ *
+ * Engagement is gated on the host having injected `state.authority` (the
+ * documented host injection seam — see `IncidentAuthorityContext`). When absent
+ * the guard returns `null` (inert) — the pre-201 standalone-demo posture. §D #8
+ * is enforced STRUCTURALLY by AC-007 (the guard is present in authGuards) and
+ * becomes binding + fail-closed at runtime once the host injects authority. The
+ * `resource` an envelope names is the incident id / blast-radius target; the
+ * AUTHENTICATED principal comes from `state.authority.principalOf(actor.sessionId)`
+ * — NOT from `IncidentContext.operatorId`.
+ */
+const enforceResourceOwnership: IncidentGuard = createAuthorityGuard<
+  IncidentIntentKind,
+  unknown,
+  IncidentState
+>(
+  // Resolver: read ownership from the injected authority-graph store. `matches`
+  // gates out the no-authority case, so a throw here means the host injected
+  // authority but the store is broken (fail-closed: createAuthorityGuard REFUSEs).
+  (envelope, state) => resolveOwnership(state.authority!.store, envelope),
+  {
+    // Engage ONLY for the mutating UNTRUSTED kinds AND only when the host injected
+    // the authority context. No injected authority ⇒ inert (null).
+    matches: (envelope, state) =>
+      state.authority !== undefined &&
+      INCIDENT_AUTHORITY_GATED_KINDS.has(envelope.kind),
+    // IDOR-closing identity seam: resolve the AUTHENTICATED principal from the
+    // host session→identity map (NEVER from resourceRefs.owner, NEVER from
+    // IncidentContext.operatorId). A host that injects authority but supplies NO
+    // `principalOf` yields `null` here, which createAuthorityGuard treats as an
+    // unresolved authenticated principal and REFUSEs — fail-CLOSED.
+    authenticatedPrincipal: (envelope, state) =>
+      state.authority?.principalOf?.(envelope.actor.sessionId) ?? null,
+  },
+);
+
 export const incidentPolicyBundle: PolicyBundle<IncidentIntentKind, unknown, IncidentState> = {
   stateGuards: [validateRemediationTarget, validateBlastRadius],
-  authGuards: [],
+  // 201 — constitutional authority guard (034) gating the mutating UNTRUSTED
+  // kinds (§D #8). Runs after taint, before business (kernel order). Inert when
+  // the host injects no authority context; binding + fail-closed when it does.
+  authGuards: [enforceResourceOwnership],
   taint: incidentTaintPolicy,
   business: [
     deferOnDependencyDown,

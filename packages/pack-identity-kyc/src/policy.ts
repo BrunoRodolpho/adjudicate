@@ -4,6 +4,7 @@ import {
   decisionExecute,
   decisionRefuse,
   refuse,
+  resolveOwnership,
   type Guard,
   type PolicyBundle,
 } from "@adjudicate/core";
@@ -15,6 +16,7 @@ import {
   type ToolClassification,
 } from "@adjudicate/core/llm";
 import {
+  createAuthorityGuard,
   createEscalateGuard,
   createStateDeferGuard,
   createSystemTaintPolicy,
@@ -372,6 +374,65 @@ const executeOnHighScore = nameGuard(
   }),
 );
 
+// ─── Authority guard (034/201) ─────────────────────────────────────────────
+
+/**
+ * The mutating UNTRUSTED-min kinds the constitutional authority guard (034)
+ * gates: `kyc.start` and `kyc.document.upload`. The system-only
+ * `kyc.vendor.callback` is EXCLUDED — the taint gate already short-circuits an
+ * UNTRUSTED proposal of it (it is system-only), so it is not an owner-predicate
+ * candidate (the same exclusion pix applies to `pix.charge.confirm`).
+ */
+const KYC_AUTHORITY_GATED_KINDS: ReadonlySet<IdentityKycIntentKind> =
+  new Set<IdentityKycIntentKind>(["kyc.start", "kyc.document.upload"]);
+
+/**
+ * 201 — wire the constitutional authority guard (034) into kyc `authGuards`. This
+ * is the ONE genuinely-open §D #8 / 035-F1 hole: before 201 a forged/unbound/
+ * impersonated owner of `kyc.start` / `kyc.document.upload` passed the EMPTY auth
+ * slot and landed on the unconditional business DEFER guards
+ * (`requireDocumentUpload` / `waitForVerification`) ⇒ DEFER. Because the kernel
+ * evaluates state → taint → AUTH → business, wiring this guard makes a forged
+ * owner REFUSE at the AUTH phase, short-circuiting BEFORE the business DEFER ⇒ the
+ * outcome flips DEFER → REFUSE. No business-guard change is needed — it is the
+ * kernel phase ordering that converts it.
+ *
+ * Engagement is gated on the host having injected `state.authority` (the
+ * documented host injection seam — see `KycAuthorityContext`). When absent the
+ * guard returns `null` (inert) — the pre-201 standalone-demo posture. §D #8 is
+ * enforced STRUCTURALLY by AC-007 (the guard is present in authGuards) and
+ * becomes binding + fail-closed at runtime once the host injects authority. The
+ * `resource` an envelope names is the session's `userId`.
+ */
+const enforceResourceOwnership: Guard<
+  IdentityKycIntentKind,
+  IdentityKycPayload,
+  IdentityKycState
+> = createAuthorityGuard<
+  IdentityKycIntentKind,
+  IdentityKycPayload,
+  IdentityKycState
+>(
+  // Resolver: read ownership from the injected authority-graph store. `matches`
+  // gates out the no-authority case, so a throw here means the host injected
+  // authority but the store is broken (fail-closed: createAuthorityGuard REFUSEs).
+  (envelope, state) => resolveOwnership(state.authority!.store, envelope),
+  {
+    // Engage ONLY for the mutating UNTRUSTED kinds AND only when the host injected
+    // the authority context. No injected authority ⇒ inert (null).
+    matches: (envelope, state) =>
+      state.authority !== undefined &&
+      KYC_AUTHORITY_GATED_KINDS.has(envelope.kind),
+    // IDOR-closing identity seam: resolve the AUTHENTICATED principal from the
+    // host session→identity map (NEVER from resourceRefs.owner). A host that
+    // injects authority but supplies NO `principalOf` yields `null` here, which
+    // createAuthorityGuard treats as an unresolved authenticated principal and
+    // REFUSEs — fail-CLOSED.
+    authenticatedPrincipal: (envelope, state) =>
+      state.authority?.principalOf?.(envelope.actor.sessionId) ?? null,
+  },
+);
+
 // ─── PolicyBundle ──────────────────────────────────────────────────────────
 
 export const policy: PolicyBundle<
@@ -380,7 +441,12 @@ export const policy: PolicyBundle<
   IdentityKycState
 > = {
   stateGuards: [],
-  authGuards: [],
+  // 201 — constitutional authority guard (034) gating the mutating UNTRUSTED
+  // kinds (§D #8). Runs after taint, BEFORE business (kernel order) — so a forged
+  // owner REFUSEs at the auth phase, short-circuiting the business DEFER guards
+  // (the DEFER → REFUSE flip that closes the one real 035-F1 hole). Inert when the
+  // host injects no authority context; binding + fail-closed when it does.
+  authGuards: [enforceResourceOwnership],
   taint,
   business: [
     // DEFER guards — handle the async progression

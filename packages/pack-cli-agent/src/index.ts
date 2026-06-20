@@ -53,6 +53,10 @@ export const cliAgentPack = {
     "validation:command_blocked",
     "validation:command_flag_stripped",
     "state:transition_valid",
+    // 201 — the authority guard's REFUSE code (Refusal.code, bare — the form
+    // `withBasisAudit` drift-checks). Declaring it suppresses the observe-only
+    // `basis_code_drift` telemetry on the §D #8 owner-predicate refusal.
+    "tenant_binding_violation",
   ],
   signals: [CLI_MAINTENANCE_SIGNAL],
   rehydrateState: rehydrateCliState,

@@ -22,6 +22,8 @@
  * outcome + the runtime's signal-based resume complete the loop.
  */
 
+import type { AuthorityGraphStore } from "@adjudicate/core";
+
 // ─── Intent kinds ──────────────────────────────────────────────────────────
 
 export type IdentityKycIntentKind =
@@ -72,9 +74,58 @@ export interface KycSession {
 
 // ─── State + Context shapes ────────────────────────────────────────────────
 
+/**
+ * 201 — OPTIONAL injected authority context (032/033/034), mirroring
+ * `PixAuthorityContext`. When the host injects it, the authority guard in
+ * `authGuards` is BINDING for the mutating UNTRUSTED-min kinds `kyc.start` /
+ * `kyc.document.upload`; when absent the guard is inert (pre-201 demo posture).
+ *
+ * This is the SUBSTANTIVE §D #8 close (035-F1): before 201 a forged/unbound/
+ * impersonated owner of a `kyc.start`/`kyc.document.upload` intent passed the
+ * (empty) auth slot and landed on the unconditional business DEFER guards ⇒
+ * DEFER. Wiring this guard (auth phase runs BEFORE business) makes a forged owner
+ * REFUSE at the auth phase, short-circuiting before the business DEFER ⇒ the
+ * outcome flips DEFER → REFUSE.
+ *
+ * Host-injection contract for kyc: the `resource` an envelope's
+ * `resourceRefs.resource` names is the KYC session's `userId` (the subject whose
+ * identity is being verified — the payload carries `sessionId`/`userId`), and
+ * `resourceRefs.owner` is the principal the host's authority graph binds to that
+ * user. The AUTHENTICATED principal comes from
+ * `state.authority.principalOf(actor.sessionId)`.
+ *
+ * ⚠️ IDOR residual (034-F1/F2). `principalOf` is the seam that actually closes
+ * IDOR. The host MUST resolve the AUTHENTICATED acting principal from a trusted
+ * session→identity map keyed by `actor.sessionId` — NEVER from
+ * `resourceRefs.owner` (attacker-controlled) — and its namespace MUST match the
+ * authority-graph principal names. WITHOUT `principalOf`, the guard fails CLOSED
+ * (REFUSE) rather than falling back to bare declared-owner binding.
+ */
+export interface KycAuthorityContext {
+  /** The injected authority-graph snapshot store (032/033). */
+  readonly store: AuthorityGraphStore;
+  /**
+   * IDOR-closing host-identity seam. Resolves the AUTHENTICATED acting principal
+   * from `actor.sessionId` (a trusted host session→identity map) — NEVER from
+   * `resourceRefs.owner`. Return `null` for an unauthenticated/unknown session
+   * (the guard then REFUSEs, fail-closed). Omit only when the host has no
+   * identity model AND accepts the documented IDOR residual.
+   */
+  readonly principalOf?: (sessionId: string) => string | null;
+}
+
 export interface IdentityKycState {
   /** Active KYC sessions keyed by sessionId. */
   readonly sessions: ReadonlyMap<string, KycSession>;
+  /**
+   * 201 — OPTIONAL injected authority context (032/033/034). When present, the
+   * authority guard in `authGuards` is binding for the mutating UNTRUSTED-min
+   * kinds (`kyc.start` / `kyc.document.upload`); when absent the guard is inert.
+   * See `KycAuthorityContext` for the IDOR residual. NOT serialized by
+   * `rehydrateKycState` (the store / identity are host infra, not session state)
+   * → never enters the audit/replay hash (invariant #4/#5 safe).
+   */
+  readonly authority?: KycAuthorityContext;
 }
 
 export interface IdentityKycContext {

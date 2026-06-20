@@ -5,12 +5,14 @@ import {
   decisionExecute,
   decisionRefuse,
   refuse,
+  resolveOwnership,
   type IntentEnvelope,
   type PolicyBundle,
 } from "@adjudicate/core";
 import { nameGuard, type Guard } from "@adjudicate/core/kernel";
 import {
   classifyCommand,
+  createAuthorityGuard,
   createCommandRiskGuard,
   createStateDeferGuard,
 } from "@adjudicate/primitives";
@@ -238,9 +240,62 @@ const terminalDefaultDeny: CliGuard = nameGuard("terminalDefaultDeny", (envelope
     : null,
 );
 
+// ── Authority guard (034/201) ─────────────────────────────────────────────────
+
+/**
+ * The mutating UNTRUSTED-min kinds the constitutional authority guard (034)
+ * gates: just `terminal.run` (the only kind this pack ships, and an LLM-proposed,
+ * UNTRUSTED-floor mutator). There are no system-only callback kinds to exclude
+ * here (the pack declares `systemOnlyKinds: []`).
+ */
+const CLI_AUTHORITY_GATED_KINDS: ReadonlySet<CliIntentKind> = new Set<CliIntentKind>(
+  ["terminal.run"],
+);
+
+/**
+ * 201 — wire the constitutional authority guard (034) into cli `authGuards`,
+ * closing the §D #8 / 035-F1 violation that `terminal.run` previously shipped
+ * with `authGuards: []`. The guard reads its authority context from the INJECTED
+ * `state.authority` (032/033) — the kernel never hands a guard an identity arg.
+ *
+ * Engagement is gated on the host having injected `state.authority` (the
+ * documented host injection seam — see `CliAuthorityContext`). When absent the
+ * guard returns `null` (inert) — the pre-201 standalone-demo posture. §D #8 is
+ * enforced STRUCTURALLY by AC-007 (the guard is present in authGuards) and
+ * becomes binding + fail-closed at runtime once the host injects authority. The
+ * `resource` an envelope names is the cwd / host scope the command acts in.
+ */
+const enforceResourceOwnership: CliGuard = createAuthorityGuard<
+  CliIntentKind,
+  unknown,
+  CliState
+>(
+  // Resolver: read ownership from the injected authority-graph store. `matches`
+  // gates out the no-authority case, so a throw here means the host injected
+  // authority but the store is broken (fail-closed: createAuthorityGuard REFUSEs).
+  (envelope, state) => resolveOwnership(state.authority!.store, envelope),
+  {
+    // Engage ONLY for the mutating UNTRUSTED kind AND only when the host injected
+    // the authority context. No injected authority ⇒ inert (null).
+    matches: (envelope, state) =>
+      state.authority !== undefined &&
+      CLI_AUTHORITY_GATED_KINDS.has(envelope.kind),
+    // IDOR-closing identity seam: resolve the AUTHENTICATED principal from the
+    // host session→identity map (NEVER from resourceRefs.owner). A host that
+    // injects authority but supplies NO `principalOf` yields `null` here, which
+    // createAuthorityGuard treats as an unresolved authenticated principal and
+    // REFUSEs — fail-CLOSED (no false-sense-of-security bare-binding fallback).
+    authenticatedPrincipal: (envelope, state) =>
+      state.authority?.principalOf?.(envelope.actor.sessionId) ?? null,
+  },
+);
+
 export const cliAgentPolicyBundle: PolicyBundle<CliIntentKind, unknown, CliState> = {
   stateGuards: [validateTerminalPayload],
-  authGuards: [],
+  // 201 — constitutional authority guard (034) gating the mutating UNTRUSTED kind
+  // (§D #8). Runs after taint, before business (kernel order). Inert when the host
+  // injects no authority context; binding + fail-closed when it does.
+  authGuards: [enforceResourceOwnership],
   taint: cliTaintPolicy,
   business: [
     escalateCredentialCommands,

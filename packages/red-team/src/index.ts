@@ -35,6 +35,14 @@ export {
   OWNERSHIP_VICTIM_RESOURCE,
 } from "./vectors/taint-escalation.js";
 export { generateToolScopeViolationEnvelopes } from "./vectors/tool-scope-violation.js";
+export {
+  OWNERSHIP_ATTACKER_PRINCIPAL,
+  OWNERSHIP_ATTACKER_SESSION_ID,
+  OWNERSHIP_FIXTURES,
+  ownershipFixtureFor,
+  type OwnershipAuthorityContext,
+  type OwnershipFixture,
+} from "./vectors/ownership-fixtures.js";
 
 export {
   computeRedTeamExitCode,

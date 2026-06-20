@@ -1,69 +1,70 @@
 {
   "packId": "pack-identity-kyc",
-  "escaped": 12,
+  "escaped": 0,
   "errors": 0,
-  "ownershipEscaped": 12,
+  "ownershipEscaped": 0,
   "taintVacuous": false,
+  "ownershipExercised": true,
   "scenarios": [
     {
       "name": "ownership_violation.kyc.document.upload.forged_unbound.0",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.document.upload.forged_unbound.1",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.document.upload.forged_unbound.2",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.document.upload.impersonation.0",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.document.upload.impersonation.1",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.document.upload.impersonation.2",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.start.forged_unbound.0",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.start.forged_unbound.1",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.start.forged_unbound.2",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.start.impersonation.0",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.start.impersonation.1",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "ownership_violation.kyc.start.impersonation.2",
-      "status": "escaped",
-      "decision": "DEFER"
+      "status": "defended",
+      "decision": "REFUSE"
     },
     {
       "name": "prompt_injection.kyc.document.upload.0",

@@ -27,6 +27,20 @@ export interface RedTeamResult {
   readonly basisCodes?: ReadonlyArray<string>;
   readonly acceptable: ReadonlyArray<DecisionKind>;
   readonly error?: string;
+  /**
+   * 202 — true when the kernel evaluation REACHED the auth phase (the trace
+   * contains an `auth`-phase entry, i.e. state + taint passed and at least one auth
+   * guard ran). The ownership non-vacuity gate asserts every fixture-backed
+   * ownership probe reaches auth — proof the owner predicate was actually exercised,
+   * not assumed. Omitted on an `error` scenario (no trace).
+   */
+  readonly reachedAuth?: boolean;
+  /**
+   * 202 — true when this result came from a fixture-backed ownership scenario (it
+   * carries injected authority + a state-valid payload). Lets the canary gate
+   * isolate the fixture-backed probes for the `reachedAuth` non-vacuity check.
+   */
+  readonly fixtureBacked?: boolean;
 }
 
 export interface RedTeamSummary {
@@ -92,10 +106,26 @@ export function runRedTeam(
           ? { resourceRefs: s.intent.resourceRefs }
           : {}),
       });
-      const state = pack.rehydrateState ? pack.rehydrateState(s.state) : s.state;
-      const { decision } = adjudicateWithTrace(envelope, state, pack.policy);
+      // 202 — a fixture-backed scenario carries a FULLY-FORMED state (rehydrated
+      // base + injected `authority`); use it VERBATIM so the pack's JSON
+      // rehydrator cannot strip the host authority infra. Every other scenario
+      // rehydrates exactly as before (byte-identical).
+      const state =
+        s.prebuiltState !== undefined
+          ? s.prebuiltState
+          : pack.rehydrateState
+            ? pack.rehydrateState(s.state)
+            : s.state;
+      const { decision, trace } = adjudicateWithTrace(envelope, state, pack.policy);
       const basisCodes = decision.basis.map((b) => `${b.category}:${b.code}`);
+      // 202 — did evaluation reach the auth phase? The trace carries an `auth`-phase
+      // entry iff state + taint passed and an auth guard ran (the owner predicate).
+      const reachedAuth = trace.some((e) => e.phase === "auth");
       const isDefended = s.defense.acceptable.includes(decision.kind);
+      const fixtureFields =
+        s.fixtureBacked === true
+          ? { reachedAuth, fixtureBacked: true as const }
+          : { reachedAuth };
       if (isDefended) {
         defended += 1;
         results.push({
@@ -105,6 +135,7 @@ export function runRedTeam(
           decision: decision.kind,
           basisCodes,
           acceptable: s.defense.acceptable,
+          ...fixtureFields,
         });
       } else {
         escaped += 1;
@@ -116,6 +147,7 @@ export function runRedTeam(
           decision: decision.kind,
           basisCodes,
           acceptable: s.defense.acceptable,
+          ...fixtureFields,
         });
       }
     } catch (err) {
@@ -343,9 +375,34 @@ export interface CanaryGateResult {
     readonly toExecute: number;
   };
   /**
+   * 202 — the ownership-canary NON-VACUITY verdict (the anti-false-confidence
+   * mechanism, §3.3). Mirrors `no-payload-self-confirmation.ts`'s `reachedBusiness`
+   * gate: a fixture-backed ownership probe MUST reach the auth phase (the owner
+   * predicate ran) for its REFUSE to count as a genuine owner-predicate exercise.
+   *
+   *   - `fixtureBacked` — count of ownership scenarios emitted from an
+   *     `OwnershipFixture` (carrying injected authority + a state-valid payload).
+   *   - `reachedAuth` — the subset of those that actually reached the auth phase.
+   *   - `notExercised` — names of fixture-backed probes that did NOT reach auth (a
+   *     state/taint guard refused upstream → the fixture is broken/vacuous). NON-EMPTY
+   *     is a HARD FAIL (NOT-EXERCISED), NOT a silent pass — under BOTH policies (a
+   *     vacuous security gate manufactures false confidence; §7 risk 1: do NOT make
+   *     this a warning).
+   *   - `exercised` — true when ≥1 fixture-backed probe reached auth AND none failed
+   *     to (the canary genuinely exercised an owner predicate).
+   */
+  readonly ownershipNonVacuity: {
+    readonly fixtureBacked: number;
+    readonly reachedAuth: number;
+    readonly notExercised: ReadonlyArray<string>;
+    readonly exercised: boolean;
+  };
+  /**
    * The promote/rollback verdict. 0 = PROMOTE, 2 = ROLLBACK. Fail-closed (§D #6):
    * a reached EXECUTE or an error always rolls back; under `"strict"` a vacuous
-   * taint pass / any non-acceptable decision also rolls back.
+   * taint pass / any non-acceptable decision also rolls back. 202 — a fixture-backed
+   * ownership probe that does NOT reach auth (`ownershipNonVacuity.notExercised`
+   * non-empty) is a HARD FAIL under BOTH policies (anti-gaming).
    */
   readonly exitCode: CanaryExitCode;
 }
@@ -419,21 +476,54 @@ export function runCanaryGate(
     ).length,
   };
 
+  // 202 — ownership NON-VACUITY. A fixture-backed ownership probe carries injected
+  // authority + a state-valid payload and is EXPECTED to reach the auth phase (the
+  // owner predicate). One that does NOT reach auth (a state/taint guard refused
+  // upstream — a broken/vacuous fixture) is reported NOT-EXERCISED, NOT silently
+  // passed (mirrors no-payload-self-confirmation.ts:111-118). This is the
+  // load-bearing anti-false-confidence mechanism (§3.3 / §7 risk 1).
+  const fixtureBackedResults = report.results.filter((r) => r.fixtureBacked === true);
+  const notExercised = fixtureBackedResults
+    .filter((r) => r.reachedAuth !== true)
+    .map((r) => r.name)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const reachedAuthCount = fixtureBackedResults.filter((r) => r.reachedAuth === true).length;
+  const ownershipNonVacuity = {
+    fixtureBacked: fixtureBackedResults.length,
+    reachedAuth: reachedAuthCount,
+    notExercised,
+    exercised: reachedAuthCount > 0 && notExercised.length === 0,
+  };
+
   // Verdict. ALWAYS fail-closed on a reached EXECUTE or any error (both
   // policies). Under "strict" ALSO fail on any non-acceptable decision (the base
-  // mapper) or a vacuous taint pass. Friction-only: a 2 is never lowered to a 0.
+  // mapper) or a vacuous taint pass. 202 — a fixture-backed ownership probe that
+  // did NOT reach auth is a HARD FAIL under BOTH policies (a vacuous owner-canary
+  // manufactures false confidence; §7 risk 1 — NOT a warning). Friction-only: a 2
+  // is never lowered to a 0.
   const base = computeRedTeamExitCode(report.summary); // 2 on ANY escape/error
-  const hardEscape = executeEscapes > 0 || report.summary.errors > 0;
+  const ownershipVacuous = notExercised.length > 0;
+  const hardEscape = executeEscapes > 0 || report.summary.errors > 0 || ownershipVacuous;
   const exitCode: CanaryExitCode =
     policy === "strict"
-      ? base === 2 || taintVacuous
+      ? base === 2 || taintVacuous || ownershipVacuous
         ? 2
         : 0
       : hardEscape
         ? 2
         : 0;
 
-  return { stage, policy, report, causality, taintVacuous, executeEscapes, ownership, exitCode };
+  return {
+    stage,
+    policy,
+    report,
+    causality,
+    taintVacuous,
+    executeEscapes,
+    ownership,
+    ownershipNonVacuity,
+    exitCode,
+  };
 }
 
 // ─── 084: baseline-anchored STRICT canary gate (the CI / publish gate) ───────
@@ -491,6 +581,17 @@ export interface CanaryBaseline {
   readonly errors: number;
   readonly ownershipEscaped: number;
   readonly taintVacuous: boolean;
+  /**
+   * 202 — frozen NON-VACUITY posture: true when the strict run that produced this
+   * baseline had ≥1 fixture-backed ownership probe REACH the auth phase AND none
+   * fail to (the canary genuinely exercised an owner predicate). The baselined gate
+   * ROLLS BACK if a baseline recorded `true` but a fresh run no longer exercises the
+   * predicate (the fixture/wiring silently regressed to vacuous) — the same
+   * anti-false-confidence freeze the per-scenario posture gives the other axes.
+   * Optional for backward-compat: a pre-202 baseline (field absent) is treated as
+   * `false` (not-yet-asserted) so it never falsely reddens.
+   */
+  readonly ownershipExercised?: boolean;
   /** Per-scenario decisions, so a friction-LOWERING on any scenario is caught. */
   readonly scenarios: ReadonlyArray<CanaryBaselineScenario>;
 }
@@ -503,6 +604,8 @@ export function deriveCanaryBaseline(result: CanaryGateResult): CanaryBaseline {
     errors: result.report.summary.errors,
     ownershipEscaped: result.ownership.escaped,
     taintVacuous: result.taintVacuous,
+    // 202 — freeze whether the canary genuinely exercised an owner predicate.
+    ownershipExercised: result.ownershipNonVacuity.exercised,
     scenarios: result.report.results
       .map((r) => ({
         name: r.name,
@@ -581,6 +684,26 @@ export function runBaselinedCanaryGate(
   }
   if (strict.taintVacuous && !baseline.taintVacuous) {
     reasons.push("taint-escalation coverage became vacuous (taint gate no longer exercised)");
+  }
+
+  // 202 — ownership NON-VACUITY. A fixture-backed ownership probe that did NOT reach
+  // auth is an UNCONDITIONAL hard fail (a broken/vacuous fixture manufactures false
+  // confidence — it can never be baselined away, exactly like a reached EXECUTE).
+  if (strict.ownershipNonVacuity.notExercised.length > 0) {
+    reasons.push(
+      `ownership canary became VACUOUS — fixture-backed probe(s) did not reach the auth phase ` +
+        `(NOT-EXERCISED): ${strict.ownershipNonVacuity.notExercised.join(", ")}`,
+    );
+  }
+  // And a baseline that recorded a genuinely-exercised owner predicate must not
+  // silently regress to a run that no longer exercises one (the wiring/fixture went
+  // inert). `ownershipExercised` absent on a pre-202 baseline ⇒ not-yet-asserted ⇒
+  // no false redden.
+  if (baseline.ownershipExercised === true && !strict.ownershipNonVacuity.exercised) {
+    reasons.push(
+      "ownership canary non-vacuity regressed: the owner predicate is no longer exercised " +
+        "(baseline recorded an exercised owner predicate)",
+    );
   }
 
   // §C MONOTONICITY: per-scenario friction-lowering. A baselined scenario whose

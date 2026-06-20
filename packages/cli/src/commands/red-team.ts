@@ -126,6 +126,9 @@ export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> 
               taintVacuous: result.strict.taintVacuous,
               executeEscapes: result.strict.executeEscapes,
               ownership: result.strict.ownership,
+              // 202 — the ownership-canary non-vacuity verdict (did the owner
+              // predicate actually run for the fixture-backed probes?).
+              ownershipNonVacuity: result.strict.ownershipNonVacuity,
               summary: result.strict.report.summary,
             },
             baseline: {
@@ -141,10 +144,13 @@ export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> 
       );
     } else {
       out(renderRedTeamText(result.strict.report));
+      const nv = result.strict.ownershipNonVacuity;
       out(
         `  canary[baselined/strict] · escapes ${result.strict.report.summary.escaped}/baseline ${result.baseline.escaped}` +
           ` · ownership/IDOR escapes ${result.strict.ownership.escaped}/baseline ${result.baseline.ownershipEscaped}` +
           ` · vacuous ${result.strict.taintVacuous}/baseline ${result.baseline.taintVacuous}` +
+          // 202 — owner-predicate exercise: reachedAuth / fixtureBacked.
+          ` · owner-predicate exercised ${nv.reachedAuth}/${nv.fixtureBacked}` +
           ` · verdict ${result.exitCode === 0 ? "PROMOTE" : "ROLLBACK"}`,
       );
       for (const reason of result.reasons) out(`    ↳ rollback: ${reason}`);
@@ -172,6 +178,8 @@ export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> 
             taintVacuous: result.taintVacuous,
             executeEscapes: result.executeEscapes,
             ownership: result.ownership,
+            // 202 — owner-predicate exercise verdict (anti-false-confidence).
+            ownershipNonVacuity: result.ownershipNonVacuity,
             causality: result.causality,
             report: result.report,
           },
@@ -190,6 +198,11 @@ export async function runRedTeamCommand(options: RedTeamOptions): Promise<void> 
             : "") +
           ` · EXECUTE escapes ${result.executeEscapes}` +
           ` · ownership/IDOR escapes ${result.ownership.escaped} (to-EXECUTE ${result.ownership.toExecute})` +
+          // 202 — did the owner predicate actually run for the fixture-backed probes?
+          ` · owner-predicate exercised ${result.ownershipNonVacuity.reachedAuth}/${result.ownershipNonVacuity.fixtureBacked}` +
+          (result.ownershipNonVacuity.notExercised.length > 0
+            ? ` · OWNERSHIP CANARY VACUOUS (hard fail): ${result.ownershipNonVacuity.notExercised.join(", ")}`
+            : "") +
           ` · verdict ${result.exitCode === 0 ? "PROMOTE" : "ROLLBACK"}`,
       );
     }

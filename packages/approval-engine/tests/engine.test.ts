@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { confirmationBindingMatches } from "@adjudicate/core";
 import {
   createApprovalEngine,
   createConsoleLogChannel,
@@ -85,6 +86,70 @@ describe("createApprovalEngine — resolve", () => {
       channel: { confirmed: "console-log", requested: "console-log" },
     });
     expect(confirmCalls[0]!.binding).not.toHaveProperty("approver");
+  });
+
+  // ── H7 — channel-binding gate is meaningful (not tautological) ──────────────
+  // Pre-fix the engine sourced BOTH `requested` and `confirmed` from
+  // `existing.channel`, so the kernel gate `confirmationBindingMatches` always
+  // saw requested === confirmed and could NEVER refuse a confirmation arriving
+  // on a different channel than the request was minted on. After the fix
+  // `confirmed` comes from the CONFIRM-time `resolve({ channel })` while
+  // `requested` stays the REQUEST-time channel (`existing.channel`), so a
+  // cross-channel confirmation produces requested !== confirmed and the kernel
+  // gate REFUSES it (fail-closed). These tests feed the engine-produced binding
+  // straight into the real kernel gate to prove it is now non-vacuous.
+  it("H7: a confirm-time channel that DIFFERS from the request channel ⇒ kernel gate REFUSES (binding mismatch)", async () => {
+    const { engine, confirmCalls } = makeEngine();
+    await engine.request(baseRequest); // request minted on "console-log"
+    // The confirmation arrives on a DIFFERENT channel than the request.
+    await engine.resolve({
+      token: "tok-1",
+      accepted: true,
+      by: { id: "alice" },
+      channel: "email",
+    });
+    // The forwarded binding records the real, DISTINCT pair (not tautological).
+    expect(confirmCalls[0]!.binding).toEqual({
+      approver: { confirmed: "alice" },
+      channel: { confirmed: "email", requested: "console-log" },
+    });
+    // The kernel gate the engine feeds this into now REFUSES (requested !== confirmed).
+    expect(
+      confirmationBindingMatches(confirmCalls[0]!.binding),
+    ).toBe(false);
+  });
+
+  it("H7: a confirm-time channel that MATCHES the request channel ⇒ kernel gate PASSES", async () => {
+    const { engine, confirmCalls } = makeEngine();
+    await engine.request(baseRequest); // request minted on "console-log"
+    await engine.resolve({
+      token: "tok-1",
+      accepted: true,
+      by: { id: "alice" },
+      channel: "console-log", // same channel the request was issued on
+    });
+    expect(confirmCalls[0]!.binding).toEqual({
+      approver: { confirmed: "alice" },
+      channel: { confirmed: "console-log", requested: "console-log" },
+    });
+    expect(
+      confirmationBindingMatches(confirmCalls[0]!.binding),
+    ).toBe(true);
+  });
+
+  it("H7: an OMITTED confirm-time channel falls back to the request channel (back-compat, gate PASSES)", async () => {
+    const { engine, confirmCalls } = makeEngine();
+    await engine.request(baseRequest);
+    await engine.resolve({ token: "tok-1", accepted: true, by: { id: "alice" } });
+    // No `channel` supplied → confirmed falls back to existing.channel, so the
+    // pre-H7 byte-identical binding is preserved and the gate still passes.
+    expect(confirmCalls[0]!.binding).toEqual({
+      approver: { confirmed: "alice" },
+      channel: { confirmed: "console-log", requested: "console-log" },
+    });
+    expect(
+      confirmationBindingMatches(confirmCalls[0]!.binding),
+    ).toBe(true);
   });
 });
 

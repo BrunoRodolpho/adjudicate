@@ -358,18 +358,32 @@ export function createRemediationOrchestrator(
         // 071 — bind the post-confirmation EXECUTE to the (approver, channel) the
         // ops plane resolved it with, not just the bare intentHash + token. The
         // approver is `args.by` (the operator who approved); the channel is the
-        // single ops-plane channel the proposal was issued on (stamped into the
-        // ApprovalRequest above, so it is BOTH the issued-against `requested` and
-        // the resolved `confirmed` value). `intentHash` stays the load-bearing
-        // identity gate; the binding is an additional fail-closed gate + forensic
-        // record. The capability is not modeled in the ops plane. Each sub-field
-        // is conditionally spread so an approve with no `args.by` is byte-identical
-        // to pre-071 (§D-5).
+        // single ops-plane channel the proposal was issued on. `intentHash` stays
+        // the load-bearing identity gate; the binding is an additional fail-closed
+        // gate + forensic record. The capability is not modeled in the ops plane.
+        // Each sub-field is conditionally spread so an approve with no `args.by` is
+        // byte-identical to pre-071 (§D-5).
+        //
+        // H7 (channel-binding) — the ops plane has EXACTLY ONE confirmation
+        // channel (`ADJUTANT_CHANNEL`, see the const doc above): a REVIEW proposal
+        // is always issued on it and resolved on it, so there is no DISTINCT
+        // request-time vs confirm-time channel for this caller. Pre-fix the channel
+        // field carried `requested === confirmed === ADJUTANT_CHANNEL`, which made
+        // the kernel's `confirmationBindingMatches` gate TAUTOLOGICAL (always equal
+        // → always pass) — a check that can never fail is not a gate. Because no
+        // distinct request/confirm channel genuinely exists here, the channel is
+        // recorded RECORD-ONLY: `confirmed` is forensically recorded on
+        // `supersedes.binding.channel`, and `requested` is OMITTED so the kernel
+        // vacuously satisfies the channel field (`confirmationBindingMatches`
+        // treats a field with no `requested` as recorded-but-not-gated). The
+        // approver field (which CAN differ from the proposer) keeps its real
+        // fail-closed gating; the kernel gate is NOT weakened — only this caller's
+        // tautological always-pass is replaced by an honest record-only field.
         const binding: ConfirmationBinding = {
           ...(args.by?.id !== undefined
             ? { approver: { confirmed: args.by.id } }
             : {}),
-          channel: { confirmed: ADJUTANT_CHANNEL, requested: ADJUTANT_CHANNEL },
+          channel: { confirmed: ADJUTANT_CHANNEL },
         };
         const res = await adjudicateAndAudit(env, state, incidentPolicyBundle, {
           ...deps,

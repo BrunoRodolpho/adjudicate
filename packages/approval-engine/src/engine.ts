@@ -100,6 +100,20 @@ export interface ApprovalEngine<S, C, H> {
     accepted: boolean;
     by?: { id: string; displayName?: string };
     attestation?: Attestation;
+    /**
+     * H7 (channel-binding) — the channel the confirmation was ACTUALLY
+     * delivered on (the CONFIRM-time channel). Bound into the kernel receipt's
+     * `binding.channel.confirmed`, while the request-time channel
+     * (`request.channel`, stamped at `request()`) is the issued-against
+     * `binding.channel.requested`. When this differs from the request-time
+     * channel the kernel's `confirmationBindingMatches` gate REFUSES the
+     * override (fail-closed, §D-6) — a confirmation cannot be honored on a
+     * different channel than the request was minted on. OMITTED → falls back to
+     * the request-time channel, so the equality holds and the pre-H7 path is
+     * byte-identical (back-compat: a caller that does not yet plumb the
+     * confirm-time channel keeps today's behaviour).
+     */
+    channel?: string;
   }): Promise<{ request: ApprovalRequest; turn: AgentTurnResult<H> | null }>;
   list(filter?: {
     status?: ApprovalStatus;
@@ -375,16 +389,28 @@ export function createApprovalEngine<S, C, H>(
                 : undefined));
         // 071 — bind the post-confirmation EXECUTE to (capability, approver,
         // channel). The engine knows the APPROVER (the verified `effectiveBy.id`)
-        // and the CHANNEL the request was issued on (`existing.channel`, stamped at
-        // request() time and unchanged here, so it is BOTH the issued-against
-        // `requested` and the resolved `confirmed` value — a forwarded resolve
-        // cannot retroactively change the channel a request was minted on; a
-        // channel mismatch fails the kernel override closed). The capability is not
-        // modeled in this single-approver path. We forward the binding ONLY on an
-        // accepted resolve (a decline never overrides). The approver carries no
-        // `requested` value here: the proposer/requestedBy surface that would let
-        // the kernel enforce approver≠proposer separation-of-duty is plan 072 — 071
-        // only RECORDS the bound approver.
+        // and BOTH channel sides of the binding:
+        //   - `requested` = the channel the request was ISSUED on
+        //     (`existing.channel`, stamped at request() time, immutable here);
+        //   - `confirmed` = the channel the confirmation was actually DELIVERED on
+        //     (`input.channel`, the CONFIRM-time channel).
+        // H7 (channel-binding) — pre-fix BOTH sides were sourced from
+        // `existing.channel`, making the kernel's `confirmationBindingMatches`
+        // gate tautological (always equal → always pass), so it could never
+        // catch a confirmation arriving on a DIFFERENT channel than the request
+        // was minted on. Now `confirmed` comes from the confirm-time
+        // `input.channel`; when it differs from the issued-against `requested`
+        // the kernel REFUSES the override (fail-closed, §D-6) — a forwarded
+        // resolve cannot retroactively claim a different channel. `input.channel`
+        // is OPTIONAL: when omitted it falls back to `existing.channel`, so the
+        // equality still holds and the pre-H7 receipt is byte-identical
+        // (back-compat). The capability is not modeled in this single-approver
+        // path. We forward the binding ONLY on an accepted resolve (a decline
+        // never overrides). The approver carries no `requested` value here: the
+        // proposer/requestedBy surface that would let the kernel enforce
+        // approver≠proposer separation-of-duty is plan 072 — 071 only RECORDS the
+        // bound approver.
+        const confirmedChannel = input.channel ?? existing.channel;
         const binding: ConfirmationBinding = {
           ...(input.accepted && effectiveBy?.id !== undefined
             ? { approver: { confirmed: effectiveBy.id } }
@@ -392,7 +418,7 @@ export function createApprovalEngine<S, C, H>(
           ...(input.accepted
             ? {
                 channel: {
-                  confirmed: existing.channel,
+                  confirmed: confirmedChannel,
                   requested: existing.channel,
                 },
               }

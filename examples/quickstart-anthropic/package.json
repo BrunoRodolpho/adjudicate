@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@adjudicate/anthropic": "workspace:*",
+    "@adjudicate/openai": "workspace:*",
     "@adjudicate/core": "workspace:*",
     "@adjudicate/pack-payments-pix": "workspace:*",
     "@adjudicate/runtime": "workspace:*",

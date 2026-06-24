@@ -556,6 +556,9 @@ importers:
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@adjudicate/openai':
+        specifier: workspace:*
+        version: link:../../packages/openai
       '@adjudicate/pack-payments-pix':
         specifier: workspace:*
         version: link:../../packages/pack-payments-pix
@@ -1143,9 +1146,6 @@ importers:
         specifier: workspace:*
         version: link:../primitives
     devDependencies:
-      '@adjudicate/cli':
-        specifier: workspace:*
-        version: link:../cli
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

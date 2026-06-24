@@ -28,7 +28,6 @@
     "@adjudicate/primitives": "workspace:*"
   },
   "devDependencies": {
-    "@adjudicate/cli": "workspace:*",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   }

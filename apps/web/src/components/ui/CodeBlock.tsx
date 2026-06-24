@@ -4,7 +4,7 @@ import { CopyButton } from "@/components/ui/CopyButton";
 /**
  * Minimal code block. Keeps shiki out of the bundle — shipping syntax
  * highlighting is a follow-up; for v1 we render plain text in a monospace
- * dark surface so code reads cleanly against the light marketing canvas.
+ * dark surface so code reads cleanly against the console dark canvas.
  *
  * Three rendering paths, all server-renderable (CopyButton is the only
  * client island):
@@ -43,16 +43,16 @@ export function CodeBlock({
       className={cn(
         // min-w-0 + max-w-full so a long code line never forces the block wider
         // than its (possibly flex) parent — overflow-x-auto on <pre> scrolls it.
-        "relative min-w-0 max-w-full overflow-hidden rounded-lg border border-edge bg-zinc-900",
+        "relative min-w-0 max-w-full overflow-hidden rounded-lg border border-console-edge bg-console-panel",
         className,
       )}
     >
       {showChrome ? (
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
-          <span className="truncate font-mono text-[11px] text-zinc-400">
+        <div className="flex items-center justify-between gap-3 border-b border-console-edge px-4 py-2">
+          <span className="truncate font-mono text-[11px] text-console-muted">
             {filename}
             {language ? (
-              <span className="ml-2 uppercase tracking-section text-zinc-600">
+              <span className="ml-2 uppercase tracking-section text-console-faint">
                 {language}
               </span>
             ) : null}
@@ -63,12 +63,12 @@ export function CodeBlock({
       {showFloatingCopy ? (
         <CopyButton
           value={code}
-          className="absolute right-2 top-2 z-10 bg-zinc-900/80 backdrop-blur"
+          className="absolute right-2 top-2 z-10 bg-console-panel/80 backdrop-blur"
         />
       ) : null}
       <pre
         className={cn(
-          "px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-100",
+          "px-4 py-3 font-mono text-[13px] leading-relaxed text-console-ink",
           wrap ? "whitespace-pre-wrap break-words" : "overflow-x-auto",
           // reserve room so a single-line command never runs under the
           // floating copy button (fixes the truncated install-chip).
@@ -78,7 +78,7 @@ export function CodeBlock({
         {!showChrome && language ? (
           <div
             className={cn(
-              "mb-2 text-[10px] uppercase tracking-section text-zinc-500",
+              "mb-2 text-[10px] uppercase tracking-section text-console-muted",
               showFloatingCopy && "pr-16",
             )}
           >

@@ -273,7 +273,7 @@ export const SANDBOX_SCHEMAS: ReadonlyArray<SandboxPackSchema> = [
             min: 1,
             max: 100,
             control: "slider",
-            help: "Traffic percentage. Production is REWRITTEN to the 25% maximum production ramp.",
+            help: "Traffic percentage (1–100). In the sandbox, production has no prior approval, so it routes to a human (ESCALATE); staging EXECUTEs.",
           },
         ],
       },

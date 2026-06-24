@@ -27,7 +27,7 @@ export function PackInspector({ activeTab }: { activeTab: string }) {
   }
   if (!packs) {
     return (
-      <div className="rounded-lg border border-edge bg-canvas px-3 py-2 text-xs italic text-muted">
+      <div className="rounded-lg border border-console-edge bg-console-canvas px-3 py-2 text-xs italic text-console-muted">
         Loading Pack metadata…
       </div>
     );
@@ -63,31 +63,31 @@ function PackPanel({
       .map((g) => ({ phase: phase.phase, metadata: g.metadata })),
   );
   return (
-    <div className="rounded-lg border border-edge bg-canvas">
+    <div className="rounded-lg border border-console-edge bg-console-canvas">
       <button
         type="button"
         onClick={() => setOpen((x) => !x)}
-        className="flex w-full items-center justify-between gap-2 rounded-t-lg px-3 py-2 text-left transition-colors hover:bg-surface"
+        className="flex w-full items-center justify-between gap-2 rounded-t-lg px-3 py-2 text-left transition-colors hover:bg-console-panel"
       >
         <div className="flex flex-1 items-center gap-2 min-w-0">
           {open ? (
-            <ChevronDown size={14} className="flex-shrink-0 text-muted" />
+            <ChevronDown size={14} className="flex-shrink-0 text-console-muted" />
           ) : (
-            <ChevronRight size={14} className="flex-shrink-0 text-muted" />
+            <ChevronRight size={14} className="flex-shrink-0 text-console-muted" />
           )}
-          <span className="truncate text-sm font-semibold text-ink">
+          <span className="truncate text-sm font-semibold text-console-ink">
             Pack: {pack.name}
           </span>
-          <span className="text-[11px] text-muted">
+          <span className="text-[11px] text-console-muted">
             ({named.length} named guard{named.length === 1 ? "" : "s"})
           </span>
         </div>
-        <span className="text-[10px] uppercase tracking-section text-muted">
+        <span className="text-[10px] uppercase tracking-section text-console-muted">
           default {pack.descriptor.default}
         </span>
       </button>
       {open ? (
-        <div className="border-t border-edge px-3 py-3">
+        <div className="border-t border-console-edge px-3 py-3">
           <ol className="flex flex-col gap-1.5">
             {named.map((g, i) => {
               const info = guardKindInfo(g.metadata.description?.kind);
@@ -97,13 +97,13 @@ function PackPanel({
                     className={`mt-1.5 inline-block h-2 w-2 flex-shrink-0 rounded-full ${info.fill.replace(/\bstroke-\S+/, "")}`}
                   />
                   <div className="min-w-0 flex-1">
-                    <code className="text-[12px] text-ink">
-                      <span className="text-muted">{g.phase}</span>
-                      <span className="text-faint"> · </span>
+                    <code className="text-[12px] text-console-ink">
+                      <span className="text-console-muted">{g.phase}</span>
+                      <span className="text-console-faint"> · </span>
                       {g.metadata.name ?? "(unnamed)"}
                     </code>
                     {g.metadata.description ? (
-                      <span className="ml-2 text-[10px] uppercase tracking-section text-muted">
+                      <span className="ml-2 text-[10px] uppercase tracking-section text-console-muted">
                         {info.label}
                       </span>
                     ) : null}
@@ -116,12 +116,12 @@ function PackPanel({
               );
             })}
             {named.length === 0 ? (
-              <li className="text-[12px] italic text-muted">
+              <li className="text-[12px] italic text-console-muted">
                 No named guards in this Pack.
               </li>
             ) : null}
           </ol>
-          <p className="mt-3 text-[10px] uppercase tracking-section text-muted">
+          <p className="mt-3 text-[10px] uppercase tracking-section text-console-muted">
             Source: <code>packages/{pack.id}</code>
           </p>
         </div>

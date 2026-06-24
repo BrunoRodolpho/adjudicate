@@ -24,7 +24,7 @@ const ICONS: Record<DecisionContent["icon"], LucideIcon> = {
 
 export function DecisionsGrid() {
   return (
-    <section className="bg-surface py-20">
+    <section className="bg-console-panel py-20">
       <div className="mx-auto max-w-6xl px-6">
         <SectionHeading
           eyebrow="Six outcomes, not two"
@@ -43,7 +43,7 @@ export function DecisionsGrid() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-50px" }}
                 transition={{ duration: 0.4, delay: idx * 0.05 }}
-                className={`group rounded-xl border ${c.border} ${c.bg} p-5 transition-transform hover:-translate-y-1 hover:shadow-lg`}
+                className={`group rounded-xl border ${c.border} ${c.bg} p-5 transition-transform hover:-translate-y-1`}
               >
                 <div className="mb-3 flex items-center justify-between">
                   <Icon size={22} className={c.accent} />
@@ -56,7 +56,7 @@ export function DecisionsGrid() {
                 <h3 className={`text-lg font-semibold ${c.accent}`}>
                   {c.headline}
                 </h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted">
+                <p className="mt-2 text-sm leading-relaxed text-console-muted">
                   {c.oneLiner}
                 </p>
                 <a

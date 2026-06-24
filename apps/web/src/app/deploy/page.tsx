@@ -92,20 +92,20 @@ export default function DeployPage() {
       />
 
       {/* (a) Library / in-process — SHIPPING */}
-      <Section>
+      <Section tone="console">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-2xl font-semibold tracking-tight text-ink">
+          <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
             Library / in-process
           </h2>
           <Badge tone="shipped">Shipping</Badge>
         </div>
-        <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
-          <code className="font-mono text-sm text-ink">createAdjudicatedAgent</code>{" "}
+        <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
+          <code className="font-mono text-sm text-console-ink">createAdjudicatedAgent</code>{" "}
           from{" "}
-          <code className="font-mono text-sm text-ink">@adjudicate/adapter-core</code>{" "}
+          <code className="font-mono text-sm text-console-ink">@adjudicate/adapter-core</code>{" "}
           wraps your model call in-process and invokes the pure{" "}
-          <code className="font-mono text-sm text-ink">adjudicate()</code> kernel
-          on every proposed intent — <strong className="text-ink">before</strong>{" "}
+          <code className="font-mono text-sm text-console-ink">adjudicate()</code> kernel
+          on every proposed intent — <strong className="text-console-ink">before</strong>{" "}
           the side-effect runs. The loop never bypasses the kernel: it sits in
           your request path, between what the model wants to do and what your
           system actually does.
@@ -114,23 +114,23 @@ export default function DeployPage() {
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <Card href={githubTree("packages/anthropic")} external>
             <div className="flex items-start justify-between gap-3">
-              <p className="font-mono text-sm font-medium text-ink">
+              <p className="font-mono text-sm font-medium text-console-ink">
                 @adjudicate/anthropic
               </p>
-              <ArrowUpRight size={16} className="mt-0.5 shrink-0 text-faint" aria-hidden="true" />
+              <ArrowUpRight size={16} className="mt-0.5 shrink-0 text-console-faint" aria-hidden="true" />
             </div>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
+            <p className="mt-2 text-sm leading-relaxed text-console-muted">
               Anthropic adapter — wraps the Claude SDK loop around the kernel.
             </p>
           </Card>
           <Card href={githubTree("packages/openai")} external>
             <div className="flex items-start justify-between gap-3">
-              <p className="font-mono text-sm font-medium text-ink">
+              <p className="font-mono text-sm font-medium text-console-ink">
                 @adjudicate/openai
               </p>
-              <ArrowUpRight size={16} className="mt-0.5 shrink-0 text-faint" aria-hidden="true" />
+              <ArrowUpRight size={16} className="mt-0.5 shrink-0 text-console-faint" aria-hidden="true" />
             </div>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
+            <p className="mt-2 text-sm leading-relaxed text-console-muted">
               OpenAI adapter — same kernel, same six decisions, different SDK.
             </p>
           </Card>
@@ -151,20 +151,20 @@ export default function DeployPage() {
       </Section>
 
       {/* (b) Audit persistence — OPTIONAL */}
-      <Section tone="surface">
+      <Section tone="console">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-2xl font-semibold tracking-tight text-ink">
+          <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
             Audit persistence
           </h2>
           <Badge tone="neutral">Optional</Badge>
         </div>
-        <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+        <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
           Each decision produces an{" "}
-          <code className="font-mono text-sm text-ink">AuditRecord</code>. You can
+          <code className="font-mono text-sm text-console-ink">AuditRecord</code>. You can
           persist it to Postgres via{" "}
-          <code className="font-mono text-sm text-ink">@adjudicate/audit-postgres</code>,
+          <code className="font-mono text-sm text-console-ink">@adjudicate/audit-postgres</code>,
           which flattens each record into the partitioned-by-month{" "}
-          <code className="font-mono text-sm text-ink">intent_audit</code> table.
+          <code className="font-mono text-sm text-console-ink">intent_audit</code> table.
           This is opt-in and deployment-specific — the kernel decides identically
           with or without a durable trail, so persistence is never required to
           run.
@@ -177,12 +177,12 @@ export default function DeployPage() {
           code={AUDIT_SNIPPET}
         />
 
-        <p className="mt-8 max-w-3xl text-base leading-relaxed text-muted">
+        <p className="mt-8 max-w-3xl text-base leading-relaxed text-console-muted">
           To make the trail concrete: when the kernel{" "}
-          <strong className="text-ink">DEFERs</strong> an intent — parking it
+          <strong className="text-console-ink">DEFERs</strong> an intent — parking it
           until an external signal arrives — here is the kind of row that lands
-          in <code className="font-mono text-sm text-ink">intent_audit</code>.
-          The <code className="font-mono text-sm text-ink">metadata</code> jsonb
+          in <code className="font-mono text-sm text-console-ink">intent_audit</code>.
+          The <code className="font-mono text-sm text-console-ink">metadata</code> jsonb
           column carries the why (the awaited signal and its timeout); no raw
           payload or command text is ever stored in these illustrative fields.
         </p>
@@ -194,11 +194,11 @@ export default function DeployPage() {
           code={AUDIT_ROW_SNIPPET}
         />
 
-        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-muted">
+        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-console-muted">
           That same row is what an operator reads end-to-end in the{" "}
           <a
             href="#operator-console"
-            className="font-medium text-ink underline decoration-edge underline-offset-2 hover:decoration-ink"
+            className="font-medium text-console-ink underline decoration-console-edge underline-offset-2 hover:decoration-console-ink"
           >
             operator console
           </a>{" "}
@@ -213,11 +213,11 @@ export default function DeployPage() {
       </Section>
 
       {/* (c) Operator console */}
-      <Section id="operator-console">
-        <h2 className="text-2xl font-semibold tracking-tight text-ink">
+      <Section id="operator-console" tone="console">
+        <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
           Operator console
         </h2>
-        <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+        <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
           Once you are persisting audit records, the console gives operators a
           live tail of decisions and the reasons behind them.
         </p>
@@ -225,12 +225,12 @@ export default function DeployPage() {
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <Card>
             <div className="flex flex-wrap items-center gap-3">
-              <p className="font-medium text-ink">Self-host the OSS console</p>
+              <p className="font-medium text-console-ink">Self-host the OSS console</p>
               <Badge tone="shipped">Shipping</Badge>
             </div>
-            <p className="mt-3 text-sm leading-relaxed text-muted">
+            <p className="mt-3 text-sm leading-relaxed text-console-muted">
               The open-source console ships in{" "}
-              <code className="font-mono text-[13px] text-ink">apps/console</code>.
+              <code className="font-mono text-[13px] text-console-ink">apps/console</code>.
               Run it against your own Postgres and Redis: it reads the audit
               table over an admin SDK and streams real-time events to a live
               tail. You own the data and the deployment.
@@ -238,10 +238,10 @@ export default function DeployPage() {
           </Card>
           <Card>
             <div className="flex flex-wrap items-center gap-3">
-              <p className="font-medium text-ink">Hosted control plane</p>
+              <p className="font-medium text-console-ink">Hosted control plane</p>
               <Badge tone="roadmap">Roadmap</Badge>
             </div>
-            <p className="mt-3 text-sm leading-relaxed text-muted">
+            <p className="mt-3 text-sm leading-relaxed text-console-muted">
               A managed control plane — multi-tenant dashboards and aggregate
               governance reporting without operating the console yourself — is on
               the roadmap. Today, self-hosting is the shipping path.
@@ -251,11 +251,11 @@ export default function DeployPage() {
       </Section>
 
       {/* (d) Examples strip */}
-      <Section tone="surface">
-        <h2 className="text-2xl font-semibold tracking-tight text-ink">
+      <Section tone="console">
+        <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
           Runnable examples
         </h2>
-        <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+        <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
           Every snippet above is lifted from code that runs. Clone the repo and
           execute these end-to-end.
         </p>
@@ -264,13 +264,13 @@ export default function DeployPage() {
           {EXAMPLES.map((example) => (
             <Card key={example.slug} href={example.githubHref} external>
               <div className="flex items-start justify-between gap-3">
-                <p className="font-medium text-ink">{example.title}</p>
-                <ArrowUpRight size={16} className="mt-0.5 shrink-0 text-faint" aria-hidden="true" />
+                <p className="font-medium text-console-ink">{example.title}</p>
+                <ArrowUpRight size={16} className="mt-0.5 shrink-0 text-console-faint" aria-hidden="true" />
               </div>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
+              <p className="mt-2 text-sm leading-relaxed text-console-muted">
                 {example.description}
               </p>
-              <p className="mt-4 font-mono text-[11px] uppercase tracking-section text-muted">
+              <p className="mt-4 font-mono text-[11px] uppercase tracking-section text-console-muted">
                 {example.path}
               </p>
             </Card>

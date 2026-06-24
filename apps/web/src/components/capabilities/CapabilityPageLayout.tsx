@@ -16,23 +16,22 @@ import { maturityFor } from "@/lib/maturity";
  * capabilities (Tier 1 and Tier 2 alike) — `tier` is a maturity marker, not a
  * page-completeness one.
  *
- * SERVER component. Composed as alternating tonal bands so a long single-column
- * page gains pacing instead of reading as one flat white scroll (the R4
- * re-score's recurring note on the whole 14-page cluster):
+ * SERVER component. Composed as console-toned bands so a long single-column
+ * page reads as the dark constitutional control room rather than one flat
+ * scroll (the R4 re-score's recurring note on the whole 14-page cluster):
  *
- *   1. DepthHeader (canvas) — name + one-liner + back.
- *   2. INTRO band (surface) — badges + outcome chips, the "what it does"
+ *   1. DepthHeader — name + one-liner + back.
+ *   2. INTRO band (console) — badges + outcome chips, the "what it does"
  *      mechanism as a measured editorial lead (not a wide prose wall), and the
  *      Step-2 "Guard decides" context as a subtle inset.
- *   3. WORKED EXAMPLE band (canvas) — the signature moment, given its own band.
- *   4. PROVENANCE + WHERE IT SURFACES band (surface) — the governing ADR + the
+ *   3. WORKED EXAMPLE band (console) — the signature moment, its own band.
+ *   4. PROVENANCE + WHERE IT SURFACES band (console) — the governing ADR + the
  *      implementing source file, then the console replica and the public
  *      transparency projection merged into one "where an operator sees it" grid
  *      (previously two thin, placeholder-feeling sections).
  *
- * Cards sit a tone *above* their band (bg-canvas on a surface band) and lift on
- * shadow rather than a hairline border, so the surfaces read as material, not
- * boxed.
+ * Cards sit on a console panel and lift on a hairline edge rather than a light
+ * shadow, so the surfaces read as material on the dark canvas, not boxed.
  */
 export function CapabilityPageLayout({
   capability,
@@ -59,7 +58,7 @@ export function CapabilityPageLayout({
       />
 
       {/* ── Intro band ─────────────────────────────────────────────────── */}
-      <Section tone="surface" className="pt-8 md:pt-12">
+      <Section tone="console" className="pt-8 md:pt-12">
         <Stagger className="flex flex-col gap-8">
           <StaggerItem className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -80,7 +79,7 @@ export function CapabilityPageLayout({
               <h2 className="text-eyebrow uppercase tracking-section text-brand-ink">
                 What it does
               </h2>
-              <p className="mt-3 max-w-measure text-lead leading-relaxed text-muted-strong">
+              <p className="mt-3 max-w-measure text-lead leading-relaxed text-console-muted">
                 {capability.whatItDoes}
               </p>
             </section>
@@ -88,11 +87,11 @@ export function CapabilityPageLayout({
 
           {/* Step-2 context — a subtle inset, lifted off the band. */}
           <StaggerItem>
-            <div className="flex max-w-measure flex-col gap-3 rounded-xl bg-canvas p-5 shadow-xs">
+            <div className="flex max-w-measure flex-col gap-3 rounded-xl border border-console-edge bg-console-panel p-5">
               <StepStrip active={2} />
-              <p className="text-sm leading-relaxed text-muted">
+              <p className="text-sm leading-relaxed text-console-muted">
                 This is what happens at{" "}
-                <span className="font-medium text-ink">
+                <span className="font-medium text-console-ink">
                   Step 2 — Guard decides
                 </span>{" "}
                 for {capability.name.toLowerCase()}: the kernel adjudicates the
@@ -105,7 +104,7 @@ export function CapabilityPageLayout({
       </Section>
 
       {/* ── Worked example band (signature moment) ─────────────────────── */}
-      <Section tone="canvas">
+      <Section tone="console">
         <Block
           id="worked-example"
           title="Worked example"
@@ -120,7 +119,7 @@ export function CapabilityPageLayout({
       </Section>
 
       {/* ── Provenance + where it surfaces band ────────────────────────── */}
-      <Section tone="surface">
+      <Section tone="console">
         <Stagger className="flex flex-col gap-16">
           <StaggerItem>
             <Block
@@ -160,17 +159,17 @@ export function CapabilityPageLayout({
                     : "grid gap-4"
                 }
               >
-                <div className="flex flex-col gap-4 rounded-xl bg-canvas p-6 shadow-xs">
-                  <span className="text-xs uppercase tracking-section text-muted">
+                <div className="flex flex-col gap-4 rounded-xl border border-console-edge bg-console-panel p-6">
+                  <span className="text-xs uppercase tracking-section text-console-muted">
                     Operator console
                   </span>
-                  <p className="text-sm leading-relaxed text-muted">
+                  <p className="text-sm leading-relaxed text-console-muted">
                     {capability.consoleAppearance.surface}
                   </p>
                   {consoleHref ? (
                     <a
                       href={consoleHref}
-                      className="focus-ring mt-auto inline-flex w-fit items-center gap-1.5 rounded-lg bg-surface px-3 py-2 text-sm font-medium text-ink shadow-xs transition-shadow hover:shadow-sm"
+                      className="focus-ring-console mt-auto inline-flex w-fit items-center gap-1.5 rounded-lg border border-console-edge bg-console-canvas px-3 py-2 text-sm font-medium text-console-ink transition-colors hover:border-console-faint"
                     >
                       {capability.consoleAppearance.replicaRoute
                         ? "Open the console replica"
@@ -188,21 +187,21 @@ export function CapabilityPageLayout({
                 {transparencyRoute ? (
                   <a
                     href={transparencyRoute}
-                    className="focus-ring group flex flex-col gap-2 rounded-xl bg-canvas p-6 shadow-xs transition-shadow hover:shadow-sm"
+                    className="focus-ring-console group flex flex-col gap-2 rounded-xl border border-console-edge bg-console-panel p-6 transition-colors hover:border-console-faint"
                   >
-                    <span className="flex items-center justify-between text-xs uppercase tracking-section text-muted">
+                    <span className="flex items-center justify-between text-xs uppercase tracking-section text-console-muted">
                       Public transparency view
                       <ArrowUpRight
                         size={16}
-                        className="text-faint transition-colors group-hover:text-brand-ink"
+                        className="text-console-faint transition-colors group-hover:text-brand-ink"
                         aria-hidden="true"
                       />
                     </span>
-                    <p className="text-sm leading-relaxed text-muted">
+                    <p className="text-sm leading-relaxed text-console-muted">
                       Aggregate-only, illustrative sample data — no tenant
                       detail — published as a public projection.
                     </p>
-                    <code className="mt-auto break-all text-[11px] text-muted">
+                    <code className="mt-auto break-all text-[11px] text-console-muted">
                       {transparencyRoute}
                     </code>
                   </a>
@@ -232,9 +231,11 @@ function Block({
   return (
     <section id={id} className="flex flex-col gap-5">
       <div>
-        <h2 className="text-h3 text-ink">{title}</h2>
+        <h2 className="text-h3 text-console-ink">{title}</h2>
         {subtitle ? (
-          <p className="mt-1 max-w-measure text-body-sm text-muted">{subtitle}</p>
+          <p className="mt-1 max-w-measure text-body-sm text-console-muted">
+            {subtitle}
+          </p>
         ) : null}
       </div>
       {children}
@@ -260,21 +261,21 @@ function ProvenanceCard({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="focus-ring group flex flex-col gap-2 rounded-xl bg-canvas p-5 shadow-xs transition-shadow hover:shadow-sm"
+      className="focus-ring-console group flex flex-col gap-2 rounded-xl border border-console-edge bg-console-panel p-5 transition-colors hover:border-console-faint"
     >
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-xs uppercase tracking-section text-muted">
+        <span className="flex items-center gap-1.5 text-xs uppercase tracking-section text-console-muted">
           <Icon size={13} aria-hidden="true" />
           {eyebrow}
         </span>
         <ArrowUpRight
           size={14}
-          className="text-faint transition-colors group-hover:text-brand-ink"
+          className="text-console-faint transition-colors group-hover:text-brand-ink"
           aria-hidden="true"
         />
       </div>
-      <code className="text-base font-semibold text-ink">{primary}</code>
-      <code className="break-all text-[11px] text-muted">{secondary}</code>
+      <code className="text-base font-semibold text-console-ink">{primary}</code>
+      <code className="break-all text-[11px] text-console-muted">{secondary}</code>
     </a>
   );
 }

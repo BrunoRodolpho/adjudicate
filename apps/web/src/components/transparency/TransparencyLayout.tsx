@@ -40,62 +40,62 @@ export function TransparencyLayout({
   return (
     <main>
       {/* Header */}
-      <header className="bg-canvas pb-8 pt-10">
+      <header className="bg-console-canvas pb-8 pt-10">
         <div className="mx-auto max-w-6xl px-6">
           <Link
             href="/transparency"
-            className="inline-flex items-center gap-1.5 rounded-sm text-eyebrow uppercase text-muted transition-colors hover:text-ink focus-ring"
+            className="inline-flex items-center gap-1.5 rounded-sm text-eyebrow uppercase text-console-muted transition-colors hover:text-console-ink focus-ring-console"
           >
             <ArrowLeft size={12} aria-hidden="true" /> Back to transparency
           </Link>
-          <p className="mt-6 text-eyebrow uppercase text-muted">
+          <p className="mt-6 text-eyebrow uppercase text-console-muted">
             Public · transparency · {eyebrow}
           </p>
-          <h1 className="mt-2 text-h1 text-ink md:text-h1-lg">{title}</h1>
-          <p className="mt-3 max-w-measure text-lead text-muted">{lead}</p>
+          <h1 className="mt-2 text-h1 text-console-ink md:text-h1-lg">{title}</h1>
+          <p className="mt-3 max-w-measure text-lead text-console-muted">{lead}</p>
         </div>
       </header>
 
       {/* Hero metric band — tonal surface, the page's focal point. */}
       <section
         aria-label="Current signal"
-        className="relative overflow-hidden border-y border-edge bg-surface py-14"
+        className="relative overflow-hidden border-y border-console-edge bg-console-panel py-14"
       >
         <BrandGlow />
         <div className="relative z-10 mx-auto max-w-6xl px-6">{hero}</div>
       </section>
 
       {/* What this shows / does not show — de-containerized disclosure. */}
-      <section className="bg-canvas py-12">
+      <section className="bg-console-canvas py-12">
         <div className="mx-auto grid max-w-6xl gap-x-10 gap-y-8 px-6 md:grid-cols-2">
           <div className="border-l-2 border-execute/40 pl-4">
-            <h2 className="text-eyebrow uppercase text-execute-strong">
+            <h2 className="text-eyebrow uppercase text-execute">
               What this shows
             </h2>
-            <div className="mt-2 text-body-sm leading-relaxed text-muted [&_strong]:font-medium [&_strong]:text-ink">
+            <div className="mt-2 text-body-sm leading-relaxed text-console-muted [&_strong]:font-medium [&_strong]:text-console-ink">
               {shows}
             </div>
           </div>
-          <div className="border-l-2 border-edge-strong pl-4">
-            <h2 className="text-eyebrow uppercase text-muted-strong">
+          <div className="border-l-2 border-console-edge pl-4">
+            <h2 className="text-eyebrow uppercase text-console-muted">
               What this does not show
             </h2>
-            <div className="mt-2 text-body-sm leading-relaxed text-muted [&_strong]:font-medium [&_strong]:text-ink">
+            <div className="mt-2 text-body-sm leading-relaxed text-console-muted [&_strong]:font-medium [&_strong]:text-console-ink">
               {notShown}
             </div>
           </div>
         </div>
         {footnote ? (
           <div className="mx-auto mt-8 max-w-6xl px-6">
-            <p className="text-meta text-muted">{footnote}</p>
+            <p className="text-meta text-console-muted">{footnote}</p>
           </div>
         ) : null}
       </section>
 
       {/* Closing — other public signals. Kills the trailing void + cross-links. */}
-      <section className="border-t border-edge bg-surface py-14">
+      <section className="border-t border-console-edge bg-console-panel py-14">
         <div className="mx-auto max-w-6xl px-6">
-          <h2 className="text-eyebrow uppercase text-muted">
+          <h2 className="text-eyebrow uppercase text-console-muted">
             Other public signals
           </h2>
           <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -103,17 +103,17 @@ export function TransparencyLayout({
               <li key={s.slug}>
                 <Link
                   href={`/transparency/${s.slug}`}
-                  className="group flex h-full min-w-0 flex-col gap-1 rounded-xl bg-canvas p-4 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-sm focus-ring"
+                  className="group flex h-full min-w-0 flex-col gap-1 rounded-xl bg-console-canvas p-4 transition-all hover:-translate-y-0.5 focus-ring-console"
                 >
-                  <span className="flex items-center justify-between gap-2 text-body-sm font-medium text-ink">
+                  <span className="flex items-center justify-between gap-2 text-body-sm font-medium text-console-ink">
                     {s.label}
                     <ArrowUpRight
                       size={14}
                       aria-hidden="true"
-                      className="shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-ink"
+                      className="shrink-0 text-console-muted transition-transform group-hover:translate-x-0.5 group-hover:text-console-ink"
                     />
                   </span>
-                  <span className="text-meta text-muted">{s.blurb}</span>
+                  <span className="text-meta text-console-muted">{s.blurb}</span>
                 </Link>
               </li>
             ))}

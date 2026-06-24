@@ -25,23 +25,23 @@ export function DepthHeader({
   readonly className?: string;
 }) {
   return (
-    <header className={cn("relative overflow-hidden bg-canvas pb-6 pt-10", className)}>
+    <header className={cn("relative overflow-hidden bg-console-canvas pb-6 pt-10", className)}>
       <BrandGlow />
       <div className="relative z-10 mx-auto max-w-6xl px-6">
         <Link
           href={backHref}
-          className="inline-flex items-center gap-1.5 text-xs uppercase tracking-section text-muted transition-colors hover:text-ink"
+          className="inline-flex items-center gap-1.5 text-xs uppercase tracking-section text-console-muted transition-colors hover:text-console-ink"
         >
           <ArrowLeft size={12} aria-hidden="true" /> {backLabel}
         </Link>
         {eyebrow ? (
-          <p className="mt-6 text-eyebrow uppercase text-muted">{eyebrow}</p>
+          <p className="mt-6 text-eyebrow uppercase text-console-muted">{eyebrow}</p>
         ) : null}
         {/* Page H1 sits a full tier above section H2 (36/48 vs 30/36) so the
             hierarchy never collapses mid-scroll. */}
-        <h1 className="mt-2 text-h1 text-ink md:text-h1-lg">{title}</h1>
+        <h1 className="mt-2 text-h1 text-console-ink md:text-h1-lg">{title}</h1>
         {subtitle ? (
-          <p className="mt-3 max-w-measure text-lead text-muted">{subtitle}</p>
+          <p className="mt-3 max-w-measure text-lead text-console-muted">{subtitle}</p>
         ) : null}
       </div>
     </header>

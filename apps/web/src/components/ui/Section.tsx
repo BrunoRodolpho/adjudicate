@@ -4,9 +4,9 @@ import { cn } from "@/lib/cn";
 type SectionTone = "canvas" | "surface" | "console";
 
 const TONE_STYLES: Record<SectionTone, string> = {
-  canvas: "bg-canvas",
-  surface: "bg-surface",
-  console: "bg-zinc-950 text-zinc-100",
+  canvas: "bg-console-canvas",
+  surface: "bg-console-panel",
+  console: "bg-console-canvas text-console-ink",
 };
 
 /**

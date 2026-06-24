@@ -46,7 +46,7 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
       />
 
       {/* ── Intro band ─────────────────────────────────────────────────── */}
-      <Section tone="surface" className="pt-8 md:pt-12">
+      <Section tone="console" className="pt-8 md:pt-12">
         <div className="flex flex-col gap-8">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="neutral">{recipe.guardOrPack.npmPackage}</Badge>
@@ -58,7 +58,7 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
               <h2 className="text-eyebrow uppercase tracking-section text-brand-ink">
                 The problem
               </h2>
-              <p className="mt-3 max-w-measure text-lead leading-relaxed text-muted-strong">
+              <p className="mt-3 max-w-measure text-lead leading-relaxed text-console-muted">
                 {recipe.problem}
               </p>
             </section>
@@ -67,7 +67,7 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
       </Section>
 
       {/* ── Guard + outcome band (technical payoff) ────────────────────── */}
-      <Section tone="canvas">
+      <Section tone="console">
         <div className="flex flex-col gap-16">
           <Reveal>
             <Block
@@ -104,19 +104,19 @@ export function RecipeLayout({ recipe }: { readonly recipe: Recipe }) {
       </Section>
 
       {/* ── Try it + related band ──────────────────────────────────────── */}
-      <Section tone="surface">
+      <Section tone="console">
         <div className="flex flex-col gap-16">
           <Reveal>
             <Block id="try-it" title="Try it">
-              <div className="flex flex-col gap-4 rounded-xl bg-canvas p-6 shadow-xs sm:flex-row sm:items-center sm:justify-between">
-                <p className="max-w-measure text-sm leading-relaxed text-muted">
+              <div className="flex flex-col gap-4 rounded-xl border border-console-edge bg-console-panel p-6 sm:flex-row sm:items-center sm:justify-between">
+                <p className="max-w-measure text-sm leading-relaxed text-console-muted">
                   Run this guard against your own payload in the interactive
                   playground — watch the kernel reach this outcome live, with a
                   tamper-evident receipt.
                 </p>
                 <a
                   href={playgroundHref}
-                  className="focus-ring inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-surface px-4 py-2.5 text-sm font-medium text-ink shadow-xs transition-shadow hover:shadow-sm"
+                  className="focus-ring-console inline-flex w-fit shrink-0 items-center gap-2 rounded-lg border border-console-edge bg-console-panel px-4 py-2.5 text-sm font-medium text-console-ink transition-colors hover:bg-console-canvas"
                 >
                   <FlaskConical size={15} aria-hidden="true" />
                   Try it in the playground
@@ -149,9 +149,11 @@ function Block({
   return (
     <section id={id} className="flex flex-col gap-5">
       <div>
-        <h2 className="text-h3 text-ink">{title}</h2>
+        <h2 className="text-h3 text-console-ink">{title}</h2>
         {subtitle ? (
-          <p className="mt-1 max-w-measure text-body-sm text-muted">{subtitle}</p>
+          <p className="mt-1 max-w-measure text-body-sm text-console-muted">
+            {subtitle}
+          </p>
         ) : null}
       </div>
       {children}
@@ -161,8 +163,8 @@ function Block({
 
 function InstallCard({ npmPackage }: { readonly npmPackage: string }) {
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-surface p-4 shadow-xs">
-      <span className="flex items-center gap-1.5 text-xs uppercase tracking-section text-muted">
+    <div className="flex flex-col gap-2 rounded-xl border border-console-edge bg-console-panel p-4">
+      <span className="flex items-center gap-1.5 text-xs uppercase tracking-section text-console-muted">
         <Package size={13} aria-hidden="true" />
         Install
       </span>
@@ -239,23 +241,25 @@ function RelatedRow({ recipe }: { readonly recipe: Recipe }) {
             <StaggerItem key={`${link.eyebrow}-${link.href}`}>
               <a
                 href={link.href}
-                className="focus-ring group flex h-full flex-col gap-2 rounded-xl bg-canvas p-5 shadow-xs transition-shadow hover:shadow-sm"
+                className="focus-ring-console group flex h-full flex-col gap-2 rounded-xl border border-console-edge bg-console-panel p-5 transition-colors hover:bg-console-canvas"
               >
                 <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-xs uppercase tracking-section text-muted">
+                  <span className="flex items-center gap-1.5 text-xs uppercase tracking-section text-console-muted">
                     <link.icon size={13} aria-hidden="true" />
                     {link.eyebrow}
                   </span>
                   <ArrowUpRight
                     size={14}
-                    className="text-faint transition-colors group-hover:text-brand-ink"
+                    className="text-console-faint transition-colors group-hover:text-brand-ink"
                     aria-hidden="true"
                   />
                 </div>
-                <span className="text-base font-semibold text-ink">
+                <span className="text-base font-semibold text-console-ink">
                   {link.primary}
                 </span>
-                <span className="text-sm text-muted">{link.secondary}</span>
+                <span className="text-sm text-console-muted">
+                  {link.secondary}
+                </span>
               </a>
             </StaggerItem>
           ))}

@@ -69,7 +69,7 @@ export function AnimatedBarRows({
         {rows.map((row) => (
           <tr
             key={row.key}
-            className="border-b border-edge last:border-b-0"
+            className="border-b border-console-edge last:border-b-0"
           >
             {row.leading}
             <BarCell
@@ -97,7 +97,7 @@ export function AnimatedBarRows({
         <motion.tr
           key={row.key}
           variants={revealVariants}
-          className="group border-b border-edge last:border-b-0"
+          className="group border-b border-console-edge last:border-b-0"
         >
           {row.leading}
           <BarCell
@@ -129,12 +129,12 @@ function BarCell({
   readonly floor: number;
   readonly animate: boolean;
 }) {
-  const fill = tone ?? "bg-ink/70";
+  const fill = tone ?? "bg-console-ink/70";
   return (
     <td className="px-4 py-3">
       <div className="flex items-center gap-3">
         <div
-          className="h-2 flex-1 overflow-hidden rounded-sm bg-canvas"
+          className="h-2 flex-1 overflow-hidden rounded-sm bg-console-canvas"
           aria-hidden="true"
         >
           {animate ? (
@@ -156,7 +156,7 @@ function BarCell({
             />
           )}
         </div>
-        <span className="w-12 shrink-0 text-right font-medium tabular-nums text-ink">
+        <span className="w-12 shrink-0 text-right font-medium tabular-nums text-console-ink">
           {display}
         </span>
         {censored ? (

@@ -45,21 +45,21 @@ export const metadata: Metadata = {
 export default function TransparencyPage() {
   return (
     <main>
-      <header className="bg-canvas pb-8 pt-10">
+      <header className="bg-console-canvas pb-8 pt-10">
         <div className="mx-auto max-w-6xl px-6">
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 rounded-sm text-eyebrow uppercase text-muted transition-colors hover:text-ink focus-ring"
+            className="inline-flex items-center gap-1.5 rounded-sm text-eyebrow uppercase text-console-muted transition-colors hover:text-console-ink focus-ring-console"
           >
             <ArrowLeft size={12} aria-hidden="true" /> Back to homepage
           </Link>
-          <p className="mt-6 text-eyebrow uppercase text-muted">
+          <p className="mt-6 text-eyebrow uppercase text-console-muted">
             Public · transparency
           </p>
-          <h1 className="mt-2 text-h1 text-ink md:text-h1-lg">
+          <h1 className="mt-2 text-h1 text-console-ink md:text-h1-lg">
             Governance in the open.
           </h1>
-          <p className="mt-3 max-w-measure text-lead text-muted">
+          <p className="mt-3 max-w-measure text-lead text-console-muted">
             The same governance signals operators see in the console — published
             as public, aggregates-only summaries. No raw data ever crosses this
             boundary.
@@ -69,30 +69,30 @@ export default function TransparencyPage() {
 
       <section
         aria-labelledby="contract-heading"
-        className="bg-canvas pb-10"
+        className="bg-console-canvas pb-10"
       >
         <div className="mx-auto max-w-6xl px-6">
           <h2
             id="contract-heading"
-            className="text-xs uppercase tracking-section text-muted"
+            className="text-xs uppercase tracking-section text-console-muted"
           >
             The privacy contract
           </h2>
-          <ul className="mt-3 grid max-w-3xl gap-2 text-sm text-muted">
+          <ul className="mt-3 grid max-w-3xl gap-2 text-sm text-console-muted">
             <li>
-              <span className="text-ink">Aggregates only.</span> Counts, ratios,
+              <span className="text-console-ink">Aggregates only.</span> Counts, ratios,
               closed-enum categories, coarse time buckets, pack versions, and BOM
               hashes — never raw PII, command text, prompts, tokens, session/tenant
               ids, intent hashes, actors, or individual decisions.
             </li>
             <li>
-              <span className="text-ink">Small-cohort floor.</span> Any non-zero
+              <span className="text-console-ink">Small-cohort floor.</span> Any non-zero
               count below {PUBLIC_COHORT_FLOOR} is shown as{" "}
-              <code className="text-ink">&lt;{PUBLIC_COHORT_FLOOR}</code>, so a
+              <code className="text-console-ink">&lt;{PUBLIC_COHORT_FLOOR}</code>, so a
               low-volume deployment can&apos;t be de-anonymized from a public page.
             </li>
             <li>
-              <span className="text-ink">Allowlist by construction.</span> Public
+              <span className="text-console-ink">Allowlist by construction.</span> Public
               views are built field-by-field from an explicit projection; the
               operator console&apos;s authenticated API is never exposed here.
             </li>
@@ -100,19 +100,19 @@ export default function TransparencyPage() {
         </div>
       </section>
 
-      <section aria-labelledby="views-heading" className="bg-canvas pb-16">
+      <section aria-labelledby="views-heading" className="bg-console-canvas pb-16">
         <div className="mx-auto max-w-6xl px-6">
           <h2
             id="views-heading"
-            className="text-xs uppercase tracking-section text-muted"
+            className="text-xs uppercase tracking-section text-console-muted"
           >
             Public views
           </h2>
 
           {VIEW_GROUPS.map((group) => (
             <div key={group.title} className="mt-8 first:mt-4">
-              <h3 className="text-sm font-medium text-ink">{group.title}</h3>
-              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">
+              <h3 className="text-sm font-medium text-console-ink">{group.title}</h3>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-console-muted">
                 {group.blurb}
               </p>
               <RevealGrid className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -123,7 +123,7 @@ export default function TransparencyPage() {
             </div>
           ))}
 
-          <p className="mt-8 text-xs text-muted">
+          <p className="mt-8 text-xs text-console-muted">
             Operator-only surfaces — the Approval Center and the live audit tail —
             are never published here; they require authenticated console access.
           </p>
@@ -141,13 +141,13 @@ function ViewCard({ view }: { readonly view: PublicView }) {
         <Icon
           size={18}
           aria-hidden
-          className="shrink-0 text-muted transition-colors group-hover:text-ink"
+          className="shrink-0 text-console-muted transition-colors group-hover:text-console-ink"
         />
-        <h4 className="text-sm font-medium text-ink">{view.title}</h4>
+        <h4 className="text-sm font-medium text-console-ink">{view.title}</h4>
       </div>
-      <p className="mt-1.5 text-xs leading-relaxed text-muted">{view.exposes}</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-console-muted">{view.exposes}</p>
       {view.href ? (
-        <p className="mt-auto pt-3 text-xs uppercase tracking-section text-ink">
+        <p className="mt-auto pt-3 text-xs uppercase tracking-section text-console-ink">
           View
           <span className="ml-1 inline-block transition-transform group-hover:translate-x-0.5">
             →
@@ -161,12 +161,12 @@ function ViewCard({ view }: { readonly view: PublicView }) {
       {view.href ? (
         <Link
           href={view.href}
-          className="group flex h-full flex-col rounded-xl bg-surface p-4 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-sm focus-ring"
+          className="group flex h-full flex-col rounded-xl bg-console-panel p-4 transition-all hover:-translate-y-0.5 focus-ring-console"
         >
           {body}
         </Link>
       ) : (
-        <div className="flex h-full flex-col rounded-xl bg-surface p-4 shadow-xs">
+        <div className="flex h-full flex-col rounded-xl bg-console-panel p-4">
           {body}
         </div>
       )}

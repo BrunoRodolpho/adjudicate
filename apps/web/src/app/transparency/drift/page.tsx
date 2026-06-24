@@ -61,10 +61,10 @@ export default function DriftTransparencyPage() {
         >
           {status.topDimension ? (
             <div role="status" aria-label={`Drift severity ${SEVERITY_LABEL[status.severity]}, ${status.activeAlerts} active alerts, top dimension ${DIMENSION_LABEL[status.topDimension] ?? status.topDimension}`}>
-              <p className="text-eyebrow uppercase text-muted">Top dimension</p>
+              <p className="text-eyebrow uppercase text-console-muted">Top dimension</p>
               <span
                 data-testid="drift-top-dimension"
-                className="mt-3 inline-flex rounded-full border border-edge bg-canvas px-2.5 py-0.5 text-body-sm text-ink"
+                className="mt-3 inline-flex rounded-full border border-console-edge bg-console-canvas px-2.5 py-0.5 text-body-sm text-console-ink"
               >
                 {DIMENSION_LABEL[status.topDimension] ?? status.topDimension}
               </span>

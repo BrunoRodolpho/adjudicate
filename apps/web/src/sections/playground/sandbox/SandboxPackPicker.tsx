@@ -43,14 +43,14 @@ export function SandboxPackPicker({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-muted">
+      <p className="text-[13px] leading-relaxed text-console-muted">
         Choose an installed Pack (e.g. Payments, Deployments) and the intent
         kind you want to put through the kernel.
       </p>
 
       {/* ── Step 1 · Pack ─────────────────────────────────────────────── */}
       <fieldset className="flex flex-col gap-2">
-        <legend className="font-mono text-[10px] uppercase tracking-section text-muted">
+        <legend className="font-mono text-[10px] uppercase tracking-section text-console-muted">
           1 · Pick a pack
         </legend>
         <div
@@ -69,10 +69,10 @@ export function SandboxPackPicker({
                 onClick={() => onPickPack(pack, pack.intents[0]!)}
                 className={cn(
                   "rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-ink/40",
                   selected
                     ? "border-transparent bg-gradient-primary text-white shadow-sm"
-                    : "border-edge bg-surface text-muted hover:border-ink/30 hover:text-ink",
+                    : "border-console-edge bg-console-panel text-console-muted hover:border-console-ink/30 hover:text-console-ink",
                 )}
               >
                 {pack.displayName}
@@ -86,7 +86,7 @@ export function SandboxPackPicker({
       <div className="flex flex-col gap-2">
         <label
           htmlFor="sandbox-intent"
-          className="font-mono text-[10px] uppercase tracking-section text-muted"
+          className="font-mono text-[10px] uppercase tracking-section text-console-muted"
         >
           2 · Pick an intent
         </label>
@@ -101,8 +101,8 @@ export function SandboxPackPicker({
               if (next) onPickIntent(next);
             }}
             className={cn(
-              "w-full appearance-none rounded-lg border border-edge bg-surface py-2 pl-3 pr-9 text-sm text-ink",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30",
+              "w-full appearance-none rounded-lg border border-console-edge bg-console-panel py-2 pl-3 pr-9 text-sm text-console-ink",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-ink/40",
             )}
           >
             {activePack.intents.map((intent) => (
@@ -114,11 +114,11 @@ export function SandboxPackPicker({
           <ChevronDown
             size={16}
             aria-hidden="true"
-            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-faint"
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-console-faint"
           />
         </div>
-        <p className="text-[12px] leading-snug text-muted">
-          <code className="font-mono text-ink/80">
+        <p className="text-[12px] leading-snug text-console-muted">
+          <code className="font-mono text-console-ink/80">
             {activeIntent.intentKind}
           </code>{" "}
           — {activeIntent.label.toLowerCase()}.

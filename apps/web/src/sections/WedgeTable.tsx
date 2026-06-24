@@ -9,7 +9,7 @@ import { Stagger, StaggerItem } from "@/components/motion/Stagger";
 function Mark({ value }: { value: "yes" | "no" | "partial" | "seam" }) {
   if (value === "yes")
     return (
-      <span className="inline-flex items-center gap-1 text-execute-strong">
+      <span className="inline-flex items-center gap-1 text-execute">
         <Check size={14} /> yes
       </span>
     );
@@ -21,12 +21,12 @@ function Mark({ value }: { value: "yes" | "no" | "partial" | "seam" }) {
     );
   if (value === "partial")
     return (
-      <span className="inline-flex items-center gap-1 text-defer-strong">
+      <span className="inline-flex items-center gap-1 text-defer">
         <Minus size={14} /> partial
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 text-confirm-strong">
+    <span className="inline-flex items-center gap-1 text-confirm">
       <Minus size={14} /> seam
     </span>
   );
@@ -34,7 +34,7 @@ function Mark({ value }: { value: "yes" | "no" | "partial" | "seam" }) {
 
 export function WedgeTable() {
   return (
-    <section className="bg-canvas py-20">
+    <section className="bg-console-canvas py-20">
       <div className="mx-auto max-w-6xl px-6">
         <SectionHeading
           eyebrow="vs OPA / Cedar"
@@ -42,17 +42,17 @@ export function WedgeTable() {
           subtitle="Existing policy engines say allow or deny. Adjudicate adds the answers AI agent workflows actually need."
         />
 
-        <div className="mt-10 overflow-x-auto rounded-2xl border border-edge bg-surface">
+        <div className="mt-10 overflow-x-auto rounded-2xl border border-console-edge bg-console-panel">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-edge text-left">
-                <th className="px-5 py-3 text-xs uppercase tracking-section text-muted">
+              <tr className="border-b border-console-edge text-left">
+                <th className="px-5 py-3 text-xs uppercase tracking-section text-console-muted">
                   Capability
                 </th>
-                <th className="px-5 py-3 text-xs uppercase tracking-section text-muted">
+                <th className="px-5 py-3 text-xs uppercase tracking-section text-console-muted">
                   OPA / Cedar
                 </th>
-                <th className="px-5 py-3 text-xs uppercase tracking-section text-muted">
+                <th className="px-5 py-3 text-xs uppercase tracking-section text-console-muted">
                   adjudicate
                 </th>
               </tr>
@@ -62,9 +62,9 @@ export function WedgeTable() {
                 <StaggerItem
                   as="tr"
                   key={row.capability}
-                  className="group border-b border-edge/60 transition-shadow last:border-b-0 motion-safe:transition-transform motion-safe:hover:-translate-y-0.5 hover:shadow-md"
+                  className="group border-b border-console-edge/60 transition-shadow last:border-b-0 motion-safe:transition-transform motion-safe:hover:-translate-y-0.5"
                 >
-                  <td className="px-5 py-4 align-top text-ink">
+                  <td className="px-5 py-4 align-top text-console-ink">
                     {row.capability}
                     {row.snippet ? (
                       <div className="mt-2 max-w-xl">

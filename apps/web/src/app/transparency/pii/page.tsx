@@ -33,10 +33,10 @@ export default function PiiTransparencyPage() {
     tone: bucket.disposition === "blocked" ? "bg-refuse/70" : "bg-rewrite/70",
     leading: (
       <>
-        <th scope="row" className="px-4 py-3 font-medium text-ink">
+        <th scope="row" className="px-4 py-3 font-medium text-console-ink">
           {bucket.sensitivityLabel}
         </th>
-        <td className="px-4 py-3 text-muted">{bucket.dispositionLabel}</td>
+        <td className="px-4 py-3 text-console-muted">{bucket.dispositionLabel}</td>
       </>
     ),
   }));
@@ -49,7 +49,7 @@ export default function PiiTransparencyPage() {
       lead="Sensitive fields are never refused wholesale — they can only be redacted or blocked. This view shows how often each sensitivity class takes each path, so you can see the guard is actually containing data, not just logging it after the fact."
       hero={
         <div>
-          <h2 className="text-eyebrow uppercase text-muted">
+          <h2 className="text-eyebrow uppercase text-console-muted">
             Handlings by sensitivity &amp; disposition
           </h2>
           <div className="mt-4 overflow-x-auto rounded-sm">
@@ -60,14 +60,14 @@ export default function PiiTransparencyPage() {
                 shown as &ldquo;&lt;{PUBLIC_COHORT_FLOOR}&rdquo;.
               </caption>
               <thead>
-                <tr className="border-b border-edge">
-                  <th scope="col" className="px-4 py-2.5 text-eyebrow uppercase text-muted">
+                <tr className="border-b border-console-edge">
+                  <th scope="col" className="px-4 py-2.5 text-eyebrow uppercase text-console-muted">
                     Sensitivity
                   </th>
-                  <th scope="col" className="px-4 py-2.5 text-eyebrow uppercase text-muted">
+                  <th scope="col" className="px-4 py-2.5 text-eyebrow uppercase text-console-muted">
                     Disposition
                   </th>
-                  <th scope="col" className="w-1/2 px-4 py-2.5 text-eyebrow uppercase text-muted">
+                  <th scope="col" className="w-1/2 px-4 py-2.5 text-eyebrow uppercase text-console-muted">
                     Count
                   </th>
                 </tr>
@@ -75,7 +75,7 @@ export default function PiiTransparencyPage() {
               <AnimatedBarRows rows={rows} floor={PUBLIC_COHORT_FLOOR} />
             </table>
           </div>
-          <p className="mt-4 text-meta text-muted">
+          <p className="mt-4 text-meta text-console-muted">
             Bars are scaled to the largest visible cohort for relative comparison
             only; censored cohorts (&ldquo;&lt;{PUBLIC_COHORT_FLOOR}&rdquo;) are
             floored so they never reveal an exact small value.

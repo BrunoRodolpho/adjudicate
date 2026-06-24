@@ -210,7 +210,7 @@ const DISCIPLINE: ReadonlyArray<{ readonly title: string; readonly detail: strin
 export default function RoadmapPage() {
   return (
     <main>
-      <Section>
+      <Section tone="console">
         <Reveal>
           <DepthHeader
             eyebrow="Roadmap"
@@ -235,16 +235,16 @@ export default function RoadmapPage() {
       <Section tone="surface">
         <Reveal>
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-2xl font-semibold tracking-tight text-ink">
+            <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
               v1 — shipped &amp; frozen
             </h2>
             <Badge tone="shipped">Frozen</Badge>
           </div>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
             The kernel{" "}
-            <code className="font-mono text-sm text-ink">@adjudicate/core</code>{" "}
+            <code className="font-mono text-sm text-console-ink">@adjudicate/core</code>{" "}
             is at{" "}
-            <code className="font-mono text-sm text-ink">{SITE.coreVersion}</code>{" "}
+            <code className="font-mono text-sm text-console-ink">{SITE.coreVersion}</code>{" "}
             and production-grade. Its public API is frozen for the life of the v1
             line: the load-bearing invariants below never change. That is the
             point — adopters wire the kernel into their request path once and
@@ -262,8 +262,8 @@ export default function RoadmapPage() {
                   aria-hidden="true"
                 />
                 <div>
-                  <p className="font-medium text-ink">{inv.title}</p>
-                  <p className="mt-1.5 text-sm leading-relaxed text-muted">
+                  <p className="font-medium text-console-ink">{inv.title}</p>
+                  <p className="mt-1.5 text-sm leading-relaxed text-console-muted">
                     {inv.detail}
                   </p>
                 </div>
@@ -275,7 +275,7 @@ export default function RoadmapPage() {
         <Reveal className="mt-6">
           <Callout tone="info" title="The freeze is auditable, not a promise.">
             Every public export is classified in{" "}
-            <code className="font-mono text-[13px] text-ink">
+            <code className="font-mono text-[13px] text-console-ink">
               docs/release/V1_FREEZE_MATRIX.md
             </code>
             , and a CI check compares it against each package&rsquo;s exports.
@@ -284,7 +284,7 @@ export default function RoadmapPage() {
               href={githubBlob("docs/release/V1_FREEZE_MATRIX.md")}
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-ink underline decoration-edge underline-offset-4 hover:decoration-ink"
+              className="font-medium text-console-ink underline decoration-console-edge underline-offset-4 hover:decoration-console-ink"
             >
               freeze matrix
             </a>{" "}
@@ -293,7 +293,7 @@ export default function RoadmapPage() {
               href={githubBlob("docs/release/SEMVER_GOVERNANCE.md")}
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-ink underline decoration-edge underline-offset-4 hover:decoration-ink"
+              className="font-medium text-console-ink underline decoration-console-edge underline-offset-4 hover:decoration-console-ink"
             >
               SemVer governance
             </a>{" "}
@@ -303,16 +303,16 @@ export default function RoadmapPage() {
       </Section>
 
       {/* (2) The disciplined-evolution model */}
-      <Section>
+      <Section tone="console">
         <Reveal>
-          <h2 className="text-2xl font-semibold tracking-tight text-ink">
+          <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
             After v1 — disciplined, additive evolution
           </h2>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
             The framework is a governance substrate, not a product that needs to
             grow. Its job is to stay deterministic, replayable and auditable for
             years. So evolution happens in coordinated{" "}
-            <strong className="text-ink">MINOR waves</strong> under three rules:
+            <strong className="text-console-ink">MINOR waves</strong> under three rules:
           </p>
         </Reveal>
 
@@ -321,8 +321,8 @@ export default function RoadmapPage() {
             <StaggerItem key={d.title}>
               <HoverLift className="h-full">
                 <Card className="h-full">
-                  <p className="font-medium text-ink">{d.title}</p>
-                  <p className="mt-2 text-sm leading-relaxed text-muted">
+                  <p className="font-medium text-console-ink">{d.title}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-console-muted">
                     {d.detail}
                   </p>
                 </Card>
@@ -336,12 +336,12 @@ export default function RoadmapPage() {
       <Section tone="surface">
         <Reveal>
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-2xl font-semibold tracking-tight text-ink">
+            <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
               Recently shipped
             </h2>
             <Badge tone="shipped">MINOR wave</Badge>
           </div>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
             The most recent post-v1 wave is additive across the board — new
             guards, two governance packages, and two domain Packs graduating to
             stable. Each lands with an ADR and a changeset; the kernel API is
@@ -359,14 +359,14 @@ export default function RoadmapPage() {
                   className="flex h-full flex-col gap-3"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <p className="font-medium text-ink">{item.title}</p>
+                    <p className="font-medium text-console-ink">{item.title}</p>
                     <ArrowUpRight
                       size={16}
-                      className="mt-0.5 shrink-0 text-faint"
+                      className="mt-0.5 shrink-0 text-console-faint"
                       aria-hidden="true"
                     />
                   </div>
-                  <p className="text-sm leading-relaxed text-muted">
+                  <p className="text-sm leading-relaxed text-console-muted">
                     {item.summary}
                   </p>
                   <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
@@ -383,15 +383,15 @@ export default function RoadmapPage() {
       </Section>
 
       {/* (4) What's next — planned, additive */}
-      <Section>
+      <Section tone="console">
         <Reveal>
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-2xl font-semibold tracking-tight text-ink">
+            <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
               What&rsquo;s next
             </h2>
             <Badge tone="roadmap">Planned · additive</Badge>
           </div>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
             The next surfaces are web-parity read seams: history, timeline and
             list procedures layered on top of capabilities that already ship.
             They join the same combined MINOR wave — additive procedures and
@@ -402,7 +402,7 @@ export default function RoadmapPage() {
 
         <Stagger
           as="ol"
-          className="mt-8 space-y-4 border-l border-edge pl-6"
+          className="mt-8 space-y-4 border-l border-console-edge pl-6"
         >
           {NEXT.map((item, i) => (
             <StaggerItem as="li" key={item.title} className="relative">
@@ -412,8 +412,8 @@ export default function RoadmapPage() {
               >
                 {i + 1}
               </span>
-              <p className="font-medium text-ink">{item.title}</p>
-              <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-muted">
+              <p className="font-medium text-console-ink">{item.title}</p>
+              <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-console-muted">
                 {item.detail}
               </p>
             </StaggerItem>
@@ -436,7 +436,7 @@ export default function RoadmapPage() {
               href={githubTree("docs/roadmap")}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-ink underline decoration-edge underline-offset-4 hover:decoration-ink"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-console-ink underline decoration-console-edge underline-offset-4 hover:decoration-console-ink"
             >
               Roadmap docs
               <ArrowUpRight size={14} aria-hidden="true" />
@@ -445,7 +445,7 @@ export default function RoadmapPage() {
               href={githubBlob("docs/release/POST_V1_STRATEGY.md")}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-ink underline decoration-edge underline-offset-4 hover:decoration-ink"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-console-ink underline decoration-console-edge underline-offset-4 hover:decoration-console-ink"
             >
               Post-v1 strategy
               <ArrowUpRight size={14} aria-hidden="true" />
@@ -454,7 +454,7 @@ export default function RoadmapPage() {
               href={SITE.releaseNotesHref}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-ink underline decoration-edge underline-offset-4 hover:decoration-ink"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-console-ink underline decoration-console-edge underline-offset-4 hover:decoration-console-ink"
             >
               Release notes
               <ArrowUpRight size={14} aria-hidden="true" />
@@ -463,7 +463,7 @@ export default function RoadmapPage() {
               href={GITHUB_DOCS}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-ink underline decoration-edge underline-offset-4 hover:decoration-ink"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-console-ink underline decoration-console-edge underline-offset-4 hover:decoration-console-ink"
             >
               All docs
               <ArrowUpRight size={14} aria-hidden="true" />

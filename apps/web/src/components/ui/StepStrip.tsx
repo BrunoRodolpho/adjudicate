@@ -47,7 +47,7 @@ export function StepStrip({
                 "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors duration-300",
                 isActive
                   ? "border-transparent bg-gradient-primary text-white shadow-sm"
-                  : "border-edge bg-surface text-muted",
+                  : "border-console-edge bg-console-panel text-console-muted",
                 isActive && pulse && "motion-safe:animate-pulse",
               )}
               aria-current={isActive ? "step" : undefined}
@@ -57,7 +57,7 @@ export function StepStrip({
                   "flex size-5 items-center justify-center rounded-full font-mono text-[11px]",
                   isActive
                     ? "bg-white/20 text-white"
-                    : "bg-edge text-ink",
+                    : "bg-console-canvas text-console-ink",
                 )}
               >
                 {step}
@@ -65,7 +65,7 @@ export function StepStrip({
               {label}
             </span>
             {step < STEPS.length ? (
-              <span className="text-faint" aria-hidden="true">
+              <span className="text-console-faint" aria-hidden="true">
                 &rarr;
               </span>
             ) : null}

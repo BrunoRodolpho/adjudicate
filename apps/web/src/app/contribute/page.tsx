@@ -163,7 +163,7 @@ const PLACEMENT: ReadonlyArray<{
 export default function ContributePage() {
   return (
     <main>
-      <Section>
+      <Section tone="console">
         <Reveal>
           <DepthHeader
             eyebrow="Contribute"
@@ -176,15 +176,15 @@ export default function ContributePage() {
       </Section>
 
       {/* (1) Layered architecture L1-L5 */}
-      <Section tone="surface">
+      <Section tone="console">
         <Reveal>
           <div className="flex flex-wrap items-center gap-3">
-            <Layers size={20} className="text-ink" aria-hidden="true" />
-            <h2 className="text-2xl font-semibold tracking-tight text-ink">
+            <Layers size={20} className="text-console-ink" aria-hidden="true" />
+            <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
               The layered architecture
             </h2>
           </div>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
             Five layers, each with a clear job. The kernel at L1 is pure and
             frozen; everything outward is additive. Knowing which layer your
             change belongs to is the first decision — and the rest of this page
@@ -202,25 +202,25 @@ export default function ContributePage() {
                   className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-5"
                 >
                   <div className="flex shrink-0 items-center gap-3 sm:w-44">
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-edge bg-canvas font-mono text-sm font-semibold text-ink">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-console-edge bg-console-canvas font-mono text-sm font-semibold text-console-ink">
                       {layer.id}
                     </span>
-                    <span className="font-semibold text-ink">{layer.name}</span>
+                    <span className="font-semibold text-console-ink">{layer.name}</span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <code className="font-mono text-[13px] text-ink">
+                      <code className="font-mono text-[13px] text-console-ink">
                         {layer.pkg}
                       </code>
                       <Badge tone={layer.tone}>{layer.status}</Badge>
                     </div>
-                    <p className="mt-2 text-sm leading-relaxed text-muted">
+                    <p className="mt-2 text-sm leading-relaxed text-console-muted">
                       {layer.detail}
                     </p>
                   </div>
                   <ArrowUpRight
                     size={16}
-                    className="hidden shrink-0 text-faint sm:mt-0.5 sm:block"
+                    className="hidden shrink-0 text-console-faint sm:mt-0.5 sm:block"
                     aria-hidden="true"
                   />
                 </Card>
@@ -231,12 +231,12 @@ export default function ContributePage() {
       </Section>
 
       {/* (2) Get started */}
-      <Section>
+      <Section tone="console">
         <Reveal>
-          <h2 className="text-2xl font-semibold tracking-tight text-ink">
+          <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
             Get started
           </h2>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
             It is a pnpm workspace. Clone it, install once, and run the suite to
             confirm a green baseline before you change anything.
           </p>
@@ -247,10 +247,10 @@ export default function ContributePage() {
         </Reveal>
 
         <Reveal className="mt-8">
-          <h3 className="text-lg font-semibold tracking-tight text-ink">
+          <h3 className="text-lg font-semibold tracking-tight text-console-ink">
             Everyday commands
           </h3>
-          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted">
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-console-muted">
             Work one package at a time in watch mode; lint and build per-package;
             then run the full release-candidate gate before opening a PR.
           </p>
@@ -266,11 +266,11 @@ export default function ContributePage() {
 
         <Reveal className="mt-6">
           <Callout tone="info" title="Strict TypeScript is load-bearing.">
-            No <code className="font-mono text-[13px] text-ink">any</code>, no{" "}
-            <code className="font-mono text-[13px] text-ink">as unknown</code>,
+            No <code className="font-mono text-[13px] text-console-ink">any</code>, no{" "}
+            <code className="font-mono text-[13px] text-console-ink">as unknown</code>,
             no widening of the{" "}
-            <code className="font-mono text-[13px] text-ink">Decision</code> or{" "}
-            <code className="font-mono text-[13px] text-ink">Refusal</code>{" "}
+            <code className="font-mono text-[13px] text-console-ink">Decision</code> or{" "}
+            <code className="font-mono text-[13px] text-console-ink">Refusal</code>{" "}
             shapes. New code paths land with new tests, and a kernel type change
             that breaks the SDK fails the whole workspace build — that coupling
             is intentional.
@@ -279,12 +279,12 @@ export default function ContributePage() {
       </Section>
 
       {/* (3) Where does my change go? */}
-      <Section tone="surface">
+      <Section tone="console">
         <Reveal>
-          <h2 className="text-2xl font-semibold tracking-tight text-ink">
+          <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
             Where does my change go?
           </h2>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
             The single most useful question to answer before writing code. Match
             your change to a row below to find its home.
           </p>
@@ -295,8 +295,8 @@ export default function ContributePage() {
             <StaggerItem key={p.question}>
               <Card className="flex h-full flex-col gap-3">
                 <Badge tone="neutral">{p.layer}</Badge>
-                <p className="font-medium text-ink">{p.question}</p>
-                <p className="text-sm leading-relaxed text-muted">{p.answer}</p>
+                <p className="font-medium text-console-ink">{p.question}</p>
+                <p className="text-sm leading-relaxed text-console-muted">{p.answer}</p>
               </Card>
             </StaggerItem>
           ))}
@@ -308,11 +308,11 @@ export default function ContributePage() {
             title="What does not belong in framework packages."
           >
             Domain-specific code in{" "}
-            <code className="font-mono text-[13px] text-ink">
+            <code className="font-mono text-[13px] text-console-ink">
               @adjudicate/core
             </code>
             , convenience APIs that bypass{" "}
-            <code className="font-mono text-[13px] text-ink">adjudicate()</code>{" "}
+            <code className="font-mono text-[13px] text-console-ink">adjudicate()</code>{" "}
             and execute side-effects directly, or any type erosion. The whole
             point is that every state mutation crosses the kernel — helpers that
             skip it defeat the architecture.
@@ -321,12 +321,12 @@ export default function ContributePage() {
       </Section>
 
       {/* (4) Open a PR / good-first-issue */}
-      <Section>
+      <Section tone="console">
         <Reveal>
-          <h2 className="text-2xl font-semibold tracking-tight text-ink">
+          <h2 className="text-2xl font-semibold tracking-tight text-console-ink">
             Open your first PR
           </h2>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted">
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-console-muted">
             One concern per PR; every new code path ships with tests; commits
             stay single-purpose. For an architectural change, open a draft PR
             with the design first — an empty README in the new package is fine —
@@ -343,14 +343,14 @@ export default function ContributePage() {
                 className="flex h-full flex-col gap-2"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <p className="font-medium text-ink">CONTRIBUTING.md</p>
+                  <p className="font-medium text-console-ink">CONTRIBUTING.md</p>
                   <ArrowUpRight
                     size={16}
-                    className="mt-0.5 shrink-0 text-faint"
+                    className="mt-0.5 shrink-0 text-console-faint"
                     aria-hidden="true"
                   />
                 </div>
-                <p className="text-sm leading-relaxed text-muted">
+                <p className="text-sm leading-relaxed text-console-muted">
                   The full guide: setup, workflow, PR guidelines and the
                   schema-drift policy between core and the admin SDK.
                 </p>
@@ -366,14 +366,14 @@ export default function ContributePage() {
                 className="flex h-full flex-col gap-2"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <p className="font-medium text-ink">Good first issues</p>
+                  <p className="font-medium text-console-ink">Good first issues</p>
                   <ArrowUpRight
                     size={16}
-                    className="mt-0.5 shrink-0 text-faint"
+                    className="mt-0.5 shrink-0 text-console-faint"
                     aria-hidden="true"
                   />
                 </div>
-                <p className="text-sm leading-relaxed text-muted">
+                <p className="text-sm leading-relaxed text-console-muted">
                   Scoped, well-defined work labelled for newcomers — the fastest
                   way to land your first change.
                 </p>
@@ -390,16 +390,16 @@ export default function ContributePage() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <Github size={16} className="text-ink" aria-hidden="true" />
-                    <p className="font-medium text-ink">The repository</p>
+                    <Github size={16} className="text-console-ink" aria-hidden="true" />
+                    <p className="font-medium text-console-ink">The repository</p>
                   </div>
                   <ArrowUpRight
                     size={16}
-                    className="mt-0.5 shrink-0 text-faint"
+                    className="mt-0.5 shrink-0 text-console-faint"
                     aria-hidden="true"
                   />
                 </div>
-                <p className="text-sm leading-relaxed text-muted">
+                <p className="text-sm leading-relaxed text-console-muted">
                   Browse the source, the per-package READMEs and the ADRs under
                   docs/architecture before you start.
                 </p>

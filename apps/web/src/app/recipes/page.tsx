@@ -55,17 +55,17 @@ function RecipeCard({ recipe }: { readonly recipe: Recipe }) {
           </div>
 
           <div>
-            <h3 className="text-base font-semibold leading-tight text-ink">
+            <h3 className="text-base font-semibold leading-tight text-console-ink">
               {recipe.title}
             </h3>
-            <p className="mt-1.5 text-sm leading-relaxed text-muted">
+            <p className="mt-1.5 text-sm leading-relaxed text-console-muted">
               {recipe.problem}
             </p>
           </div>
 
           <div className="mt-auto flex flex-col gap-3 pt-1">
             <Badge tone="neutral">{recipe.guardOrPack.npmPackage}</Badge>
-            <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-section text-muted">
+            <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-section text-console-muted">
               Open recipe
               <ArrowRight size={12} aria-hidden="true" />
             </p>
@@ -88,7 +88,7 @@ function RecipeCard({ recipe }: { readonly recipe: Recipe }) {
 export default function RecipesPage() {
   return (
     <main>
-      <Section>
+      <Section tone="console">
         <Reveal>
           <DepthHeader
             eyebrow="Recipes"
@@ -107,10 +107,10 @@ export default function RecipesPage() {
           />
         </Reveal>
 
-        <div className="relative mt-10 overflow-hidden rounded-2xl border border-edge bg-surface px-6 py-10">
+        <div className="relative mt-10 overflow-hidden rounded-2xl border border-console-edge bg-console-panel px-6 py-10">
           <BrandGlow />
           <div className="relative z-10 mx-auto max-w-4xl">
-            <p className="mb-5 text-center text-eyebrow uppercase text-muted">
+            <p className="mb-5 text-center text-eyebrow uppercase text-console-muted">
               Every recipe resolves to one of six tamper-evident decisions
             </p>
             <div className="overflow-x-auto">

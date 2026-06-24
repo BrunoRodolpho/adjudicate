@@ -17,21 +17,21 @@ import { Button } from "@/components/ui/Button";
  */
 export function PlaygroundEntry() {
   return (
-    <section className="bg-canvas py-12 md:py-16">
+    <section className="bg-console-canvas py-12 md:py-16">
       <div className="mx-auto max-w-3xl px-6">
-        <div className="flex flex-col items-center gap-5 rounded-2xl border border-edge bg-surface px-8 py-8 text-center shadow-sm md:flex-row md:justify-between md:text-left">
+        <div className="flex flex-col items-center gap-5 rounded-2xl border border-console-edge bg-console-panel px-8 py-8 text-center shadow-sm md:flex-row md:justify-between md:text-left">
           <div className="flex flex-col items-center gap-2 md:items-start">
-            <span className="inline-flex items-center gap-2 text-[11px] uppercase tracking-section text-muted">
+            <span className="inline-flex items-center gap-2 text-[11px] uppercase tracking-section text-console-muted">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-execute opacity-75 motion-reduce:hidden" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-execute" />
               </span>
               Live · the real kernel runs server-side
             </span>
-            <p className="text-base font-medium text-ink md:text-lg">
+            <p className="text-base font-medium text-console-ink md:text-lg">
               Run your own scenarios through the real kernel.
             </p>
-            <p className="max-w-md text-sm text-muted">
+            <p className="max-w-md text-sm text-console-muted">
               Packs are pre-built decision flows — deployments, charges, KYC.
               Pick one or build your own intent in the Decision Lab; every
               decision returns a tamper-evident, replayable receipt and lands

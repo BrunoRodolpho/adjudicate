@@ -21,20 +21,20 @@ export function Prose({
   return (
     <div
       className={cn(
-        "flex max-w-measure flex-col gap-5 text-body text-muted-strong",
+        "flex max-w-measure flex-col gap-5 text-body text-console-muted",
         // headings
-        "[&_h2]:mt-block [&_h2]:text-h3 [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:text-ink",
-        "[&_h3]:mt-stack [&_h3]:text-h4 [&_h3]:font-semibold [&_h3]:text-ink",
+        "[&_h2]:mt-block [&_h2]:text-h3 [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:text-console-ink",
+        "[&_h3]:mt-stack [&_h3]:text-h4 [&_h3]:font-semibold [&_h3]:text-console-ink",
         // body paragraphs
-        "[&_p]:text-body [&_p]:text-muted-strong",
+        "[&_p]:text-body [&_p]:text-console-muted",
         // links
         "[&_a]:font-medium [&_a]:text-brand-ink [&_a]:underline [&_a]:decoration-brand/30 [&_a]:underline-offset-2 [&_a:hover]:decoration-brand-ink",
         // inline code (not the highlighted block)
-        "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-surface-2 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.85em] [&_:not(pre)>code]:text-ink",
+        "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-console-canvas [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.85em] [&_:not(pre)>code]:text-console-ink",
         // emphasis
-        "[&_strong]:font-semibold [&_strong]:text-ink [&_em]:italic",
+        "[&_strong]:font-semibold [&_strong]:text-console-ink [&_em]:italic",
         // lists
-        "[&_ul]:flex [&_ul]:list-disc [&_ul]:flex-col [&_ul]:gap-2 [&_ul]:pl-5 [&_ol]:flex [&_ol]:list-decimal [&_ol]:flex-col [&_ol]:gap-2 [&_ol]:pl-5 [&_li]:pl-1 [&_li]:marker:text-faint",
+        "[&_ul]:flex [&_ul]:list-disc [&_ul]:flex-col [&_ul]:gap-2 [&_ul]:pl-5 [&_ol]:flex [&_ol]:list-decimal [&_ol]:flex-col [&_ol]:gap-2 [&_ol]:pl-5 [&_li]:pl-1 [&_li]:marker:text-console-faint",
         className,
       )}
     >

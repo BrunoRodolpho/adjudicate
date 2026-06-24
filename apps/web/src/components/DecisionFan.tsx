@@ -1,16 +1,17 @@
+"use client";
+
 import type { DecisionKind } from "@adjudicate/core";
 import { DECISIONS_ORDER } from "@/content/decisions";
+import { DrawOnScroll } from "@/components/motion/DrawOnScroll";
 
 /**
- * DecisionFan — a hand-coded SVG centerpiece: one proposed intent fans through
- * the kernel into the six structured outcomes, each in its decision colour.
- * The literal "beyond block-or-allow" message made visible — EXECUTE / REFUSE
- * are the allow/deny pair; the other four are what a permission engine can't
- * express. Pure static SVG (server component, SSR-safe, no JS); scales to its
- * container via the viewBox.
+ * DecisionFan — the "beyond block-or-allow" centerpiece: one proposed intent
+ * fans through the kernel into the six structured outcomes, each in its decision
+ * colour. EXECUTE / REFUSE are the allow/deny pair; the other four are what a
+ * permission engine can't express. The fan strokes ink in on scroll
+ * (`DrawOnScroll`), reduced-motion-safe. Dark "control room" palette.
  */
 
-// Per-outcome colour utilities (token-driven) + a short visible label.
 const FILL: Record<DecisionKind, string> = {
   EXECUTE: "fill-execute",
   REFUSE: "fill-refuse",
@@ -27,13 +28,14 @@ const STROKE: Record<DecisionKind, string> = {
   ESCALATE: "stroke-escalate",
   REQUEST_CONFIRMATION: "stroke-confirm",
 };
+// On dark the base decision hues read AA — use them for label text (not -strong).
 const TEXT: Record<DecisionKind, string> = {
-  EXECUTE: "fill-execute-strong",
-  REFUSE: "fill-refuse-strong",
-  REWRITE: "fill-rewrite-strong",
-  DEFER: "fill-defer-strong",
-  ESCALATE: "fill-escalate-strong",
-  REQUEST_CONFIRMATION: "fill-confirm-strong",
+  EXECUTE: "fill-execute",
+  REFUSE: "fill-refuse",
+  REWRITE: "fill-rewrite",
+  DEFER: "fill-defer",
+  ESCALATE: "fill-escalate",
+  REQUEST_CONFIRMATION: "fill-confirm",
 };
 const SHORT: Record<DecisionKind, string> = {
   EXECUTE: "EXECUTE",
@@ -56,16 +58,16 @@ export function DecisionFan({ className }: { readonly className?: string }) {
   const kerMidY = KERNEL.y + KERNEL.h / 2;
 
   return (
-    <svg
+    <DrawOnScroll
       viewBox="0 0 800 400"
       role="img"
       aria-label="One AI-proposed action fans through the adjudicate kernel into six structured outcomes: execute, rewrite, defer, escalate, refuse, and request confirmation. Execute and refuse are the allow/deny pair; the other four are unique to adjudicate."
       className={className}
     >
       {/* intent → kernel connector */}
-      <path
+      <DrawOnScroll.Path
         d={`M 150 ${kerMidY} H ${KERNEL.x}`}
-        className="stroke-edge-strong"
+        className="stroke-console-edge"
         strokeWidth={2}
         fill="none"
       />
@@ -74,12 +76,12 @@ export function DecisionFan({ className }: { readonly className?: string }) {
         const y = TOP + i * STEP;
         const dim = ALLOW_DENY.has(kind);
         return (
-          <path
+          <DrawOnScroll.Path
             key={`p-${kind}`}
             d={`M ${kerRight} ${kerMidY} C ${kerRight + 80} ${kerMidY}, ${OUT_X - 90} ${y}, ${OUT_X - 14} ${y}`}
             className={STROKE[kind]}
             strokeWidth={3}
-            strokeOpacity={dim ? 0.45 : 1}
+            strokeOpacity={dim ? 0.5 : 1}
             fill="none"
           />
         );
@@ -93,14 +95,14 @@ export function DecisionFan({ className }: { readonly className?: string }) {
           width={122}
           height={44}
           rx={10}
-          className="fill-canvas stroke-edge-strong"
+          className="fill-console-panel stroke-console-edge"
           strokeWidth={1.5}
         />
         <text
           x={89}
           y={kerMidY - 3}
           textAnchor="middle"
-          className="fill-muted font-mono text-[10px] uppercase"
+          className="fill-console-muted font-mono text-[10px] uppercase"
           style={{ letterSpacing: "0.08em" }}
         >
           AI proposes
@@ -109,7 +111,7 @@ export function DecisionFan({ className }: { readonly className?: string }) {
           x={89}
           y={kerMidY + 12}
           textAnchor="middle"
-          className="fill-ink text-[12px] font-medium"
+          className="fill-console-ink text-[12px] font-medium"
         >
           an action
         </text>
@@ -123,14 +125,14 @@ export function DecisionFan({ className }: { readonly className?: string }) {
           width={KERNEL.w}
           height={KERNEL.h}
           rx={14}
-          className="fill-surface stroke-brand"
+          className="fill-console-panel stroke-brand"
           strokeWidth={1.75}
         />
         <text
           x={KERNEL.x + KERNEL.w / 2}
           y={kerMidY - 4}
           textAnchor="middle"
-          className="fill-ink font-mono text-[14px] font-semibold"
+          className="fill-console-ink font-mono text-[14px] font-semibold"
         >
           adjudicate
         </text>
@@ -138,7 +140,7 @@ export function DecisionFan({ className }: { readonly className?: string }) {
           x={KERNEL.x + KERNEL.w / 2}
           y={kerMidY + 13}
           textAnchor="middle"
-          className="fill-muted text-[10px] uppercase"
+          className="fill-console-muted text-[10px] uppercase"
           style={{ letterSpacing: "0.12em" }}
         >
           decision kernel
@@ -150,7 +152,7 @@ export function DecisionFan({ className }: { readonly className?: string }) {
         const y = TOP + i * STEP;
         const dim = ALLOW_DENY.has(kind);
         return (
-          <g key={`o-${kind}`} opacity={dim ? 0.75 : 1}>
+          <g key={`o-${kind}`} opacity={dim ? 0.7 : 1}>
             <circle cx={OUT_X} cy={y} r={6} className={FILL[kind]} />
             <text
               x={OUT_X + 16}
@@ -164,7 +166,7 @@ export function DecisionFan({ className }: { readonly className?: string }) {
               <text
                 x={OUT_X + 16}
                 y={y + 19}
-                className="fill-faint font-mono text-[9px] uppercase"
+                className="fill-console-faint font-mono text-[9px] uppercase"
                 style={{ letterSpacing: "0.1em" }}
               >
                 allow / deny
@@ -173,6 +175,6 @@ export function DecisionFan({ className }: { readonly className?: string }) {
           </g>
         );
       })}
-    </svg>
+    </DrawOnScroll>
   );
 }

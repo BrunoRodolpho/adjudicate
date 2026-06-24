@@ -59,7 +59,7 @@ export function GuidedCasePicker({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1.5">
-        <p className="text-[14px] leading-relaxed text-muted">
+        <p className="text-[14px] leading-relaxed text-console-muted">
           Pick a real business situation from an installed Pack. Each one is a
           short story you run a step at a time — the AI proposes an action, and
           you watch the real kernel decide. No JSON, no setup; best for a first
@@ -94,8 +94,8 @@ function GuidedCaseCard({
       type="button"
       onClick={() => onPick(guidedCase.id)}
       className={cn(
-        "group flex h-full w-full flex-col gap-4 rounded-2xl border border-edge bg-surface p-5 text-left transition",
-        "hover:border-ink/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30",
+        "group flex h-full w-full flex-col gap-4 rounded-2xl border border-console-edge bg-console-panel p-5 text-left transition",
+        "hover:border-console-ink/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-ink/40",
       )}
     >
       <div className="flex items-center gap-3">
@@ -105,15 +105,15 @@ function GuidedCaseCard({
         >
           <Icon className="h-5 w-5" />
         </span>
-        <h3 className="text-[16px] font-semibold leading-tight text-ink">
+        <h3 className="text-[16px] font-semibold leading-tight text-console-ink">
           {guidedCase.title}
         </h3>
       </div>
 
-      <p className="flex-1 text-[13px] leading-snug text-muted">{summary}</p>
+      <p className="flex-1 text-[13px] leading-snug text-console-muted">{summary}</p>
 
       <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-medium uppercase tracking-section text-muted">
+        <span className="text-[10px] font-medium uppercase tracking-section text-console-muted">
           Outcomes you&apos;ll see
         </span>
         <div className="flex flex-wrap items-center gap-1.5">

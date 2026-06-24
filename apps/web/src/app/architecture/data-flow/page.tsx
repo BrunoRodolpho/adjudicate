@@ -6,6 +6,7 @@ import { DepthHeader } from "@/components/ui/DepthHeader";
 import { StepStrip } from "@/components/ui/StepStrip";
 import { DataFlowDiagram } from "@/components/architecture/DataFlowDiagram";
 import { TrustBoundaryPanel } from "@/components/architecture/TrustBoundaryPanel";
+import { IntentAuthFlow } from "@/components/home/IntentAuthFlow";
 
 export const metadata: Metadata = {
   title: "Data flow · adjudicate",
@@ -48,28 +49,29 @@ export default function ArchitectureDataFlowPage() {
         backLabel="Back to architecture"
       />
 
-      <Section tone="canvas" className="pt-10">
+      <Section tone="console" className="pt-10">
         <StepStrip className="mb-12" />
 
         <div>
-          <h2 className="text-xs uppercase tracking-section text-muted">
+          <h2 className="text-xs uppercase tracking-section text-console-muted">
             The pipeline
           </h2>
-          <p className="mt-2 max-w-3xl text-base text-muted">
+          <p className="mt-2 max-w-3xl text-base text-console-muted">
             adjudicate is a library, not a service. There is no separate
             gateway or proxy — the kernel runs in-process, deciding before any
             side effect. What follows is the journey of exactly one decision,
             from the agent&apos;s intent to the receipt an operator can replay.
           </p>
+          <IntentAuthFlow className="mt-8" />
           <DataFlowDiagram className="mt-8" />
         </div>
       </Section>
 
-      <Section tone="surface">
-        <h2 className="text-xs uppercase tracking-section text-muted">
+      <Section tone="console">
+        <h2 className="text-xs uppercase tracking-section text-console-muted">
           The trust boundary
         </h2>
-        <p className="mt-2 max-w-3xl text-base text-muted">
+        <p className="mt-2 max-w-3xl text-base text-console-muted">
           The console reads the real database and the live bus. This public site
           reads neither. That separation is deliberate — and it is what makes a
           public governance surface safe to publish at all.
@@ -77,13 +79,13 @@ export default function ArchitectureDataFlowPage() {
         <TrustBoundaryPanel className="mt-8" />
       </Section>
 
-      <Section tone="canvas" className="py-16">
-        <div className="flex flex-col items-start gap-4 rounded-xl border border-edge bg-surface p-6 sm:flex-row sm:items-center sm:justify-between">
+      <Section tone="console" className="py-16">
+        <div className="flex flex-col items-start gap-4 rounded-xl border border-console-edge bg-console-panel p-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-ink">
+            <h2 className="text-lg font-semibold text-console-ink">
               Want to stand this up yourself?
             </h2>
-            <p className="mt-1 max-w-xl text-sm text-muted">
+            <p className="mt-1 max-w-xl text-sm text-console-muted">
               The console and its Postgres mirror are open source. See how the
               pieces wire together in a real deployment — library / in-process,
               self-hosted console.

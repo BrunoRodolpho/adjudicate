@@ -58,7 +58,7 @@ export function GuidedCaseRunner({
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex w-fit items-center gap-1.5 text-[13px] font-medium text-muted transition hover:text-ink"
+        className="inline-flex w-fit items-center gap-1.5 text-[13px] font-medium text-console-muted transition hover:text-console-ink"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
         Back to all scenarios
@@ -66,15 +66,15 @@ export function GuidedCaseRunner({
 
       {/* Story header */}
       <div className="flex flex-col gap-2">
-        <h3 className="text-xl font-semibold text-ink">{guidedCase.title}</h3>
-        <p className="max-w-2xl text-[14px] leading-relaxed text-muted">
+        <h3 className="text-xl font-semibold text-console-ink">{guidedCase.title}</h3>
+        <p className="max-w-2xl text-[14px] leading-relaxed text-console-muted">
           {guidedCase.blurb}
         </p>
       </div>
 
       {/* The story spine */}
-      <div className="rounded-xl border border-edge bg-canvas/60 px-4 py-3">
-        <p className="mb-2 text-[10px] font-medium uppercase tracking-section text-muted">
+      <div className="rounded-xl border border-console-edge bg-console-canvas/60 px-4 py-3">
+        <p className="mb-2 text-[10px] font-medium uppercase tracking-section text-console-muted">
           What happens on every run
         </p>
         <StepStrip active={stripPhase} pulse={running} />
@@ -105,7 +105,7 @@ export function GuidedCaseRunner({
                     type="button"
                     onClick={() => setActiveIndex((i) => i + 1)}
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border border-edge bg-canvas px-4 py-2 text-[13px] font-medium text-ink transition hover:border-ink/30",
+                      "inline-flex items-center gap-1.5 rounded-full border border-console-edge bg-console-canvas px-4 py-2 text-[13px] font-medium text-console-ink transition hover:border-console-ink/30",
                     )}
                   >
                     Next step →
@@ -119,13 +119,13 @@ export function GuidedCaseRunner({
 
       {/* End-of-story note */}
       {isLastStep && activeResult ? (
-        <div className="rounded-xl border border-edge bg-canvas/60 px-4 py-3 text-[13px] text-muted">
+        <div className="rounded-xl border border-console-edge bg-console-canvas/60 px-4 py-3 text-[13px] text-console-muted">
           That&apos;s the whole story. Every step above ran the real kernel and
           produced a tamper-evident receipt — pick{" "}
           <button
             type="button"
             onClick={onBack}
-            className="font-medium text-ink underline-offset-2 hover:underline"
+            className="font-medium text-console-ink underline-offset-2 hover:underline"
           >
             another scenario
           </button>{" "}

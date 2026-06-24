@@ -7,7 +7,7 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 
 export function PrimitivesDiagram() {
   return (
-    <section className="bg-surface py-20">
+    <section className="bg-console-panel py-20">
       <div className="mx-auto max-w-6xl px-6">
         <SectionHeading
           eyebrow="Seven primitives"
@@ -27,22 +27,22 @@ export function PrimitivesDiagram() {
               whileHover={{ scale: 1.02 }}
               viewport={{ once: true, margin: "-50px" }}
               transition={{ duration: 0.4, delay: idx * 0.04 }}
-              className="group flex min-w-0 flex-col gap-2 rounded-xl bg-canvas p-5 shadow-xs transition-all hover:-translate-y-0.5 hover:bg-brand/5 hover:shadow-sm"
+              className="group flex min-w-0 flex-col gap-2 rounded-xl border border-console-edge bg-console-canvas p-5 ring-1 ring-console-edge/70 transition-all hover:-translate-y-0.5 hover:bg-brand/5 hover:ring-console-edge"
             >
               <div className="flex items-center justify-between">
-                <code className="text-base font-semibold text-ink">{p.name}</code>
+                <code className="text-base font-semibold text-console-ink">{p.name}</code>
                 <ExternalLink
                   size={14}
-                  className="text-faint group-hover:text-brand-ink"
+                  className="text-console-faint group-hover:text-brand-ink"
                 />
               </div>
-              <span className="text-xs uppercase tracking-section text-muted">
+              <span className="text-xs uppercase tracking-section text-console-muted">
                 {p.tagline}
               </span>
-              <p className="mt-1 text-sm leading-relaxed text-muted">
+              <p className="mt-1 text-sm leading-relaxed text-console-muted">
                 {p.description}
               </p>
-              <code className="mt-2 break-all text-[11px] text-muted">
+              <code className="mt-2 break-all text-[11px] text-console-muted">
                 {p.sourcePath}
               </code>
             </motion.a>

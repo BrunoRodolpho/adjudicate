@@ -37,12 +37,12 @@ export default function AiBomTransparencyPage() {
       lead="An AI bill-of-materials answers a compliance question in one place: what model, tools, data, and guardrails does this pack actually run? Each card is a machine-readable manifest — aligned to EU AI Act (Art. 11) and the NIST AI RMF — so an auditor can verify the pack without trusting a screenshot."
       hero={
         boms.length === 0 ? (
-          <p className="text-body-sm italic text-muted">
+          <p className="text-body-sm italic text-console-muted">
             No published manifests yet.
           </p>
         ) : (
           <div className="flex flex-col gap-6">
-            <h2 className="text-eyebrow uppercase text-muted">
+            <h2 className="text-eyebrow uppercase text-console-muted">
               Reference pack manifests
             </h2>
             {boms.map((bom) => (
@@ -80,26 +80,26 @@ export default function AiBomTransparencyPage() {
 function healthTierTone(tier: string): string {
   switch (tier.toLowerCase()) {
     case "gold":
-      return "border-execute/40 bg-execute/10 text-execute-strong";
+      return "border-execute/40 bg-execute/10 text-execute";
     case "silver":
-      return "border-confirm/40 bg-confirm/10 text-confirm-strong";
+      return "border-confirm/40 bg-confirm/10 text-confirm";
     case "bronze":
-      return "border-defer/40 bg-defer/10 text-defer-strong";
+      return "border-defer/40 bg-defer/10 text-defer";
     default:
-      return "border-edge text-muted";
+      return "border-console-edge text-console-muted";
   }
 }
 
 function BomCard({ bom }: { bom: PublicAiBom }) {
   return (
-    <RevealArticle className="overflow-hidden rounded-xl bg-canvas shadow-xs">
-      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-edge px-5 py-4">
+    <RevealArticle className="overflow-hidden rounded-xl bg-console-canvas">
+      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-console-edge px-5 py-4">
         <div>
-          <h3 className="text-base font-semibold text-ink">
+          <h3 className="text-base font-semibold text-console-ink">
             {bom.packId}
-            <span className="ml-1.5 text-muted">@{bom.packVersion}</span>
+            <span className="ml-1.5 text-console-muted">@{bom.packVersion}</span>
           </h3>
-          <p className="mt-1 text-xs text-muted">
+          <p className="mt-1 text-xs text-console-muted">
             contract {bom.contract} · kernel {bom.kernelMinVersion} · BOM{" "}
             {bom.bomVersion}
           </p>
@@ -108,7 +108,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
           {bom.frameworks.map((f) => (
             <span
               key={f}
-              className="rounded-sm border border-edge px-2 py-0.5 text-[10px] uppercase tracking-section text-muted"
+              className="rounded-sm border border-console-edge px-2 py-0.5 text-[10px] uppercase tracking-section text-console-muted"
             >
               {f}
             </span>
@@ -116,8 +116,8 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
           <span
             className={
               bom.signed
-                ? "rounded-sm border border-edge px-2 py-0.5 text-[10px] uppercase tracking-section text-ink"
-                : "rounded-sm border border-edge px-2 py-0.5 text-[10px] uppercase tracking-section text-muted"
+                ? "rounded-sm border border-console-edge px-2 py-0.5 text-[10px] uppercase tracking-section text-console-ink"
+                : "rounded-sm border border-console-edge px-2 py-0.5 text-[10px] uppercase tracking-section text-console-muted"
             }
           >
             {bom.signed ? "signed" : "unsigned"}
@@ -125,9 +125,9 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
         </div>
       </header>
 
-      <div className="flex flex-col gap-px bg-edge">
+      <div className="flex flex-col gap-px bg-console-edge">
         {/* Model & conformance — "what runs, and does it pass the bar?" */}
-        <RevealSection className="bg-surface px-5 py-4">
+        <RevealSection className="bg-console-panel px-5 py-4">
           <SectionHeader
             title="Model & conformance"
             hint="What LLM powers this pack, and whether it passes its declared compliance checks."
@@ -135,12 +135,12 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
           <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
             <Field label="Model">
               {bom.model ? (
-                <p className="text-sm text-ink">
+                <p className="text-sm text-console-ink">
                   {bom.model.provider}/{bom.model.model}
                   {bom.model.modelVersion ? ` @${bom.model.modelVersion}` : ""}
                 </p>
               ) : (
-                <p className="text-sm italic text-muted">Not declared.</p>
+                <p className="text-sm italic text-console-muted">Not declared.</p>
               )}
             </Field>
             <Field label="Conformance & health">
@@ -148,13 +148,13 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
                 <span
                   className={
                     bom.conformance.passed
-                      ? "rounded-sm border border-execute/40 bg-execute/10 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-execute-strong"
-                      : "rounded-sm border border-refuse/50 bg-refuse/10 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-refuse-strong"
+                      ? "rounded-sm border border-execute/40 bg-execute/10 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-execute"
+                      : "rounded-sm border border-refuse/50 bg-refuse/10 px-1.5 py-0.5 text-[10px] uppercase tracking-section text-refuse"
                   }
                 >
                   {bom.conformance.passed ? "Passed" : "FAILED"}
                 </span>
-                <span className="text-sm tabular-nums text-muted">
+                <span className="text-sm tabular-nums text-console-muted">
                   {bom.conformance.passedCount}/{bom.conformance.total} checks
                 </span>
                 {bom.healthTier ? (
@@ -173,7 +173,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
         </RevealSection>
 
         {/* Decision surface — intents / signals / basis the pack governs. */}
-        <RevealSection className="bg-surface px-5 py-4">
+        <RevealSection className="bg-console-panel px-5 py-4">
           <SectionHeader
             title="Decision surface"
             hint="The actions this pack adjudicates, the signals it reads, and the basis codes its decisions carry."
@@ -192,7 +192,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
         </RevealSection>
 
         {/* Guardrails & tools — what the kernel enforces and can reach. */}
-        <RevealSection className="bg-surface px-5 py-4">
+        <RevealSection className="bg-console-panel px-5 py-4">
           <SectionHeader
             title="Guardrails & tools"
             hint="The safeguard rules the kernel enforces, plus the tools and retrieval stores this pack is allowed to reach."
@@ -205,39 +205,39 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
               {bom.tools.length > 0 ? (
                 <ul className="flex flex-col gap-1 text-sm">
                   {bom.tools.map((t) => (
-                    <li key={t.name} className="text-ink">
+                    <li key={t.name} className="text-console-ink">
                       {t.name}
                       {t.description ? (
-                        <span className="text-muted"> — {t.description}</span>
+                        <span className="text-console-muted"> — {t.description}</span>
                       ) : null}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm italic text-muted">None declared.</p>
+                <p className="text-sm italic text-console-muted">None declared.</p>
               )}
             </Field>
             <Field label="Vector stores (RAG)">
               {bom.rag.length > 0 ? (
                 <ul className="flex flex-col gap-1 text-sm">
                   {bom.rag.map((r) => (
-                    <li key={r.name} className="text-ink">
+                    <li key={r.name} className="text-console-ink">
                       {r.name}
                       {r.kind ? (
-                        <span className="text-muted"> · {r.kind}</span>
+                        <span className="text-console-muted"> · {r.kind}</span>
                       ) : null}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm italic text-muted">None declared.</p>
+                <p className="text-sm italic text-console-muted">None declared.</p>
               )}
             </Field>
           </div>
         </RevealSection>
 
         {/* Manifest hashes — the verifiable fingerprints. */}
-        <RevealSection className="bg-surface px-5 py-4">
+        <RevealSection className="bg-console-panel px-5 py-4">
           <SectionHeader
             title="Manifest hashes"
             hint="Prompt-template fingerprints plus the pack and BOM digests — references only, never the underlying text."
@@ -251,27 +251,27 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
                       key={p.id}
                       className="flex flex-wrap items-baseline gap-2"
                     >
-                      <span className="text-ink">{p.id}</span>
-                      <code className="break-all font-mono text-xs text-muted">
+                      <span className="text-console-ink">{p.id}</span>
+                      <code className="break-all font-mono text-xs text-console-muted">
                         {p.sha256}
                       </code>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm italic text-muted">
+                <p className="text-sm italic text-console-muted">
                   No declared prompt templates.
                 </p>
               )}
             </Field>
             <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
               <Field label="Fingerprint">
-                <code className="break-all font-mono text-xs text-muted">
+                <code className="break-all font-mono text-xs text-console-muted">
                   {bom.fingerprint}
                 </code>
               </Field>
               <Field label="BOM digest">
-                <code className="break-all font-mono text-xs text-muted">
+                <code className="break-all font-mono text-xs text-console-muted">
                   {bom.bomDigest}
                 </code>
               </Field>
@@ -280,7 +280,7 @@ function BomCard({ bom }: { bom: PublicAiBom }) {
         </RevealSection>
       </div>
 
-      <footer className="border-t border-edge px-5 py-3 text-xs text-muted">
+      <footer className="border-t border-console-edge px-5 py-3 text-xs text-console-muted">
         Generated at {bom.generatedAt} (illustrative). The BOM digest is
         recomputable from this manifest, so anyone can verify it hasn&apos;t been
         tampered with.
@@ -298,8 +298,8 @@ function SectionHeader({
 }) {
   return (
     <div className="mb-3">
-      <h4 className="text-xs uppercase tracking-section text-ink">{title}</h4>
-      <p className="mt-1 text-xs leading-relaxed text-muted">{hint}</p>
+      <h4 className="text-xs uppercase tracking-section text-console-ink">{title}</h4>
+      <p className="mt-1 text-xs leading-relaxed text-console-muted">{hint}</p>
     </div>
   );
 }
@@ -313,7 +313,7 @@ function Field({
 }) {
   return (
     <div>
-      <h5 className="mb-1.5 text-[10px] uppercase tracking-section text-muted">
+      <h5 className="mb-1.5 text-[10px] uppercase tracking-section text-console-muted">
         {label}
       </h5>
       {children}
@@ -323,14 +323,14 @@ function Field({
 
 function ChipList({ items }: { items: readonly string[] }) {
   if (items.length === 0) {
-    return <p className="text-sm italic text-muted">None.</p>;
+    return <p className="text-sm italic text-console-muted">None.</p>;
   }
   return (
     <div className="flex flex-wrap gap-1.5">
       {items.map((item) => (
         <code
           key={item}
-          className="rounded-sm border border-edge bg-canvas px-1.5 py-0.5 font-mono text-xs text-ink"
+          className="rounded-sm border border-console-edge bg-console-canvas px-1.5 py-0.5 font-mono text-xs text-console-ink"
         >
           {item}
         </code>

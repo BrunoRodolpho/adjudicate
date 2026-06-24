@@ -86,17 +86,17 @@ export function TrustBoundaryPanel({
 }) {
   return (
     <div className={className}>
-      <div className="overflow-hidden rounded-xl border border-edge bg-surface">
+      <div className="overflow-hidden rounded-xl border border-console-edge bg-console-panel">
         {/* Column headers — hidden on mobile, where each row labels its side. */}
-        <div className="hidden border-b border-edge md:grid md:grid-cols-[10rem_1fr_1fr]">
-          <div className="bg-canvas p-4" />
+        <div className="hidden border-b border-console-edge md:grid md:grid-cols-[10rem_1fr_1fr]">
+          <div className="bg-console-canvas p-4" />
           {COLS.map((c) => (
             <div
               key={c.key}
-              className={cn("border-l-2 bg-canvas p-4", c.accent)}
+              className={cn("border-l-2 bg-console-canvas p-4", c.accent)}
             >
-              <h3 className="text-sm font-semibold text-ink">{c.title}</h3>
-              <code className="mt-0.5 block text-[11px] text-muted">
+              <h3 className="text-sm font-semibold text-console-ink">{c.title}</h3>
+              <code className="mt-0.5 block text-[11px] text-console-muted">
                 {c.sub}
               </code>
             </div>
@@ -110,11 +110,11 @@ export function TrustBoundaryPanel({
               className={cn(
                 "relative transition-shadow md:grid md:grid-cols-[10rem_1fr_1fr]",
                 "motion-safe:transition-transform motion-safe:hover:-translate-y-0.5 hover:z-10 hover:shadow-md",
-                idx > 0 && "border-t border-edge",
+                idx > 0 && "border-t border-console-edge",
               )}
             >
-              <div className="bg-canvas p-4">
-                <p className="text-xs font-semibold uppercase tracking-section text-muted">
+              <div className="bg-console-canvas p-4">
+                <p className="text-xs font-semibold uppercase tracking-section text-console-muted">
                   {row.label}
                 </p>
               </div>
@@ -122,18 +122,18 @@ export function TrustBoundaryPanel({
                 <div
                   key={c.key}
                   className={cn(
-                    "border-t border-edge p-4 md:border-l-2 md:border-t-0",
+                    "border-t border-console-edge p-4 md:border-l-2 md:border-t-0",
                     c.accent,
                   )}
                 >
                   {/* Mobile-only side label. */}
-                  <p className="mb-1 text-[11px] font-medium text-ink md:hidden">
+                  <p className="mb-1 text-[11px] font-medium text-console-ink md:hidden">
                     {c.title}
-                    <span className="ml-1.5 font-normal text-muted">
+                    <span className="ml-1.5 font-normal text-console-muted">
                       {c.sub}
                     </span>
                   </p>
-                  <p className="text-sm leading-relaxed text-muted">
+                  <p className="text-sm leading-relaxed text-console-muted">
                     {row[c.key]}
                   </p>
                 </div>

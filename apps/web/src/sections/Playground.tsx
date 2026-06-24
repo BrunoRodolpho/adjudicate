@@ -64,7 +64,7 @@ export function Playground() {
   }
 
   return (
-    <section id="playground" className="bg-surface py-20">
+    <section id="playground" className="bg-console-panel py-20">
       <div className="mx-auto max-w-5xl px-6">
         <SectionHeading
           eyebrow="Live playground"
@@ -79,7 +79,7 @@ export function Playground() {
             role="tablist"
             aria-label="Playground mode"
             aria-orientation="horizontal"
-            className="inline-flex gap-1 rounded-2xl border border-edge bg-canvas p-1 shadow-sm"
+            className="inline-flex gap-1 rounded-2xl border border-console-edge bg-console-canvas p-1 shadow-sm"
           >
             {SEGMENTS.map((seg) => {
               const selected = mode === seg.id;
@@ -99,10 +99,10 @@ export function Playground() {
                   onKeyDown={onKeyDown}
                   className={cn(
                     "flex flex-col items-center gap-0.5 rounded-xl px-6 py-2.5 text-center transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/40",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-ink/40",
                     selected
-                      ? "bg-surface text-ink shadow-sm"
-                      : "text-muted hover:text-ink",
+                      ? "bg-console-panel text-console-ink shadow-sm"
+                      : "text-console-muted hover:text-console-ink",
                   )}
                 >
                   <span className="flex items-center gap-2 text-sm font-semibold">
@@ -112,15 +112,15 @@ export function Playground() {
                         className={cn(
                           "rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
                           selected
-                            ? "bg-ink/10 text-ink"
-                            : "bg-edge/60 text-muted",
+                            ? "bg-console-ink/10 text-console-ink"
+                            : "bg-console-edge/60 text-console-muted",
                         )}
                       >
                         {seg.hint}
                       </span>
                     ) : null}
                   </span>
-                  <span className="text-[11px] font-normal text-muted">
+                  <span className="text-[11px] font-normal text-console-muted">
                     {seg.description}
                   </span>
                 </button>

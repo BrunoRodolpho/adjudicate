@@ -9,17 +9,13 @@ import { SITE } from "@/content/site";
 const DISMISS_KEY = "adj-banner-v1";
 
 /**
- * Slim, dismissible announcement strip mounted above the sticky nav. Advertises
- * that the kernel is v1 / API-frozen and links to the release notes.
- *
- * CLS-safe: the banner is laid out in normal flow above the sticky header, so
- * dismissing it removes a real element rather than collapsing reserved space
- * mid-paint. The first client paint mirrors the SSR markup (always rendered),
- * then an effect hides it if a prior dismissal is stored — no entrance
- * animation, so there is no layout shift to perceive and nothing for
- * prefers-reduced-motion to suppress.
+ * Slim, dismissible announcement strip mounted above the sticky nav. On the
+ * dark homepage it switches to the console palette so it reads as part of the
+ * control room. CLS-safe: laid out in normal flow above the sticky header.
  */
 export function AnnouncementBanner() {
+  // Whole site is now the dark "constitutional control room".
+  const dark = true;
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
@@ -47,24 +43,31 @@ export function AnnouncementBanner() {
     <div
       role="region"
       aria-label="Site announcement"
-      className="border-b border-edge bg-surface"
+      className={cn(
+        "border-b",
+        dark ? "border-console-edge bg-console-panel" : "border-edge bg-surface",
+      )}
     >
       <div className="mx-auto flex max-w-6xl items-center justify-center gap-x-3 gap-y-1 px-6 py-2 text-center text-xs">
-        <p className="text-muted">
-          <span className="font-mono text-ink">{SITE.name} core</span> is{" "}
-          {SITE.versionLabel}
-          <span className="hidden sm:inline">
-            {" "}
-            — production-ready &amp; API-frozen
-          </span>
+        <p className={dark ? "text-console-muted" : "text-muted"}>
+          <span
+            className={cn(
+              "font-mono",
+              dark ? "text-console-ink" : "text-ink",
+            )}
+          >
+            {SITE.name} core
+          </span>{" "}
+          is {SITE.versionLabel}
+          <span className="hidden sm:inline"> — production-ready &amp; API-frozen</span>
         </p>
         <a
           href={SITE.releaseNotesHref}
           target="_blank"
           rel="noreferrer"
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-sm font-medium text-ink focus-ring",
-            "underline-offset-4 hover:underline",
+            "inline-flex shrink-0 items-center gap-1 rounded-sm font-medium underline-offset-4 hover:underline focus-ring",
+            dark ? "text-console-ink" : "text-ink",
           )}
         >
           release notes
@@ -74,7 +77,12 @@ export function AnnouncementBanner() {
           type="button"
           onClick={handleDismiss}
           aria-label="Dismiss announcement"
-          className="ml-auto inline-flex shrink-0 items-center justify-center rounded-full p-1 text-muted transition-colors hover:bg-edge hover:text-ink focus-ring"
+          className={cn(
+            "ml-auto inline-flex shrink-0 items-center justify-center rounded-full p-1 transition-colors focus-ring",
+            dark
+              ? "text-console-muted hover:bg-console-edge hover:text-console-ink"
+              : "text-muted hover:bg-edge hover:text-ink",
+          )}
         >
           <X size={14} aria-hidden="true" />
         </button>

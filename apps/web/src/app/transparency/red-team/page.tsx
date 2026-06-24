@@ -63,7 +63,7 @@ export default function RedTeamTransparencyPage() {
           ) : (
             <p
               data-testid="red-team-empty"
-              className="text-body-sm text-muted"
+              className="text-body-sm text-console-muted"
             >
               Transparency data temporarily unavailable.
             </p>
@@ -111,19 +111,19 @@ function DefenseCard({ defense }: { defense: PublicRedTeamDefense }) {
       data-pack={defense.packId}
       role="group"
       aria-label={cardAriaLabel(defense)}
-      className="flex flex-col rounded-xl bg-canvas p-4 shadow-xs"
+      className="flex flex-col rounded-xl bg-console-canvas p-4"
     >
       <div className="flex items-center gap-3">
         {clean ? (
-          <ShieldCheck size={24} aria-hidden className="shrink-0 text-execute-strong" />
+          <ShieldCheck size={24} aria-hidden className="shrink-0 text-execute" />
         ) : (
-          <ShieldAlert size={24} aria-hidden className="shrink-0 text-refuse-strong" />
+          <ShieldAlert size={24} aria-hidden className="shrink-0 text-refuse" />
         )}
         <div className="flex min-w-0 flex-col">
-          <span className="text-body-sm font-medium text-ink">
+          <span className="text-body-sm font-medium text-console-ink">
             {defense.displayName}
           </span>
-          <span className="text-meta tabular-nums text-muted">
+          <span className="text-meta tabular-nums text-console-muted">
             {defense.defended} of {defense.total} attack scenarios defended
           </span>
         </div>
@@ -133,8 +133,8 @@ function DefenseCard({ defense }: { defense: PublicRedTeamDefense }) {
           data-testid="red-team-status"
           className={`inline-flex rounded-full border px-2.5 py-0.5 text-eyebrow uppercase ${
             clean
-              ? "border-execute/40 bg-execute/10 text-execute-strong"
-              : "border-refuse/40 bg-refuse/10 text-refuse-strong"
+              ? "border-execute/40 bg-execute/10 text-execute"
+              : "border-refuse/40 bg-refuse/10 text-refuse"
           }`}
         >
           {clean ? "Clean" : "Regressed"}

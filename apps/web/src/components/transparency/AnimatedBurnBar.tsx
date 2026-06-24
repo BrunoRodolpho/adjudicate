@@ -38,7 +38,7 @@ export function AnimatedBurnBar({
   return (
     <>
       <div className="flex items-baseline justify-between">
-        <span className="text-2xl font-semibold tabular-nums text-ink">
+        <span className="text-2xl font-semibold tabular-nums text-console-ink">
           <CountUp value={pctUsed} suffix="%" />
         </span>
         <span
@@ -55,10 +55,10 @@ export function AnimatedBurnBar({
       <div
         role="img"
         aria-label={`Token budget: ${pctUsed}% used, ${bandLabel}`}
-        className="mt-3 h-3 w-full overflow-hidden rounded-sm bg-canvas"
+        className="mt-3 h-3 w-full overflow-hidden rounded-sm bg-console-canvas"
       >
         <div
-          className="h-full w-full origin-left rounded-sm bg-canvas"
+          className="h-full w-full origin-left rounded-sm bg-console-canvas"
           style={{ transform: `scaleX(${pctUsed / 100})` }}
           aria-hidden="true"
         >

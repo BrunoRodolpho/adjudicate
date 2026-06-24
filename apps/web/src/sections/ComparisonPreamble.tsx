@@ -41,7 +41,7 @@ function OutcomeLeaf({
         className={cn("mt-1 size-2 shrink-0 rounded-full", dot)}
         aria-hidden="true"
       />
-      <p className="text-sm leading-snug text-muted">
+      <p className="text-sm leading-snug text-console-muted">
         <span className={cn("font-semibold", accent)}>{label}</span>
         {" — "}
         {meaning}
@@ -52,20 +52,20 @@ function OutcomeLeaf({
 
 export function ComparisonPreamble() {
   return (
-    <Section tone="canvas" className="pt-12">
+    <Section tone="console" className="pt-12">
       <Reveal className="max-w-3xl">
-        <p className="text-[11px] uppercase tracking-section text-muted">
+        <p className="text-[11px] uppercase tracking-section text-console-muted">
           Why allow/deny falls short
         </p>
-        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-ink md:text-3xl">
+        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-console-ink md:text-3xl">
           A permission engine answers one question. An AI workflow asks four
           more.
         </h2>
-        <div className="mt-5 space-y-4 text-base leading-relaxed text-muted">
+        <div className="mt-5 space-y-4 text-base leading-relaxed text-console-muted">
           <p>
             OPA and Cedar are excellent at what they were built for: given a
-            single proposed action, return <strong className="text-ink">yes</strong>{" "}
-            or <strong className="text-ink">no</strong>. That model assumes the
+            single proposed action, return <strong className="text-console-ink">yes</strong>{" "}
+            or <strong className="text-console-ink">no</strong>. That model assumes the
             action is fixed and the only decision left is whether to let it
             through. It fits human-driven systems, where the request was already
             shaped by a person before it ever reached the policy layer.
@@ -90,7 +90,7 @@ export function ComparisonPreamble() {
         >
           A yes/no engine has two moves — approve the full $10k (wrong) or block
           the transfer entirely (a dead end the agent can&apos;t recover from).
-          Adjudicate has a third: <strong className="text-ink">REWRITE</strong>{" "}
+          Adjudicate has a third: <strong className="text-console-ink">REWRITE</strong>{" "}
           the intent down to the $5,000 cap and let it proceed — the kernel owns
           the corrected action, so the agent never executes the over-limit one.
           And if the right move is to wait for a settlement webhook, route to a
@@ -102,29 +102,29 @@ export function ComparisonPreamble() {
       {/* Side-by-side: the binary tree vs the six-outcome tree. */}
       <div className="mt-10 grid gap-4 lg:grid-cols-2">
         {/* Left — OPA / Cedar: two terminal leaves. */}
-        <Reveal className="flex h-full flex-col rounded-2xl border border-edge bg-surface p-6">
+        <Reveal className="flex h-full flex-col rounded-2xl border border-console-edge bg-console-panel p-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-ink">OPA / Cedar</h3>
-            <span className="rounded-full border border-edge bg-canvas px-2.5 py-0.5 text-[10px] uppercase tracking-section text-muted">
+            <h3 className="text-sm font-semibold text-console-ink">OPA / Cedar</h3>
+            <span className="rounded-full border border-console-edge bg-console-canvas px-2.5 py-0.5 text-[10px] uppercase tracking-section text-console-muted">
               2 outcomes
             </span>
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-muted">
+          <p className="mt-2 text-sm leading-relaxed text-console-muted">
             One proposed action in, a single verdict out. Both branches are
             terminal — there is no path that returns a <em>different</em> action.
           </p>
           <div className="mt-5 flex flex-col gap-3">
             <div className="flex items-center gap-2 rounded-lg border border-execute/40 bg-execute/10 px-3 py-2.5">
-              <Check size={15} className="shrink-0 text-execute-strong" aria-hidden="true" />
-              <p className="text-sm text-muted">
-                <span className="font-semibold text-execute-strong">allow</span> — run
+              <Check size={15} className="shrink-0 text-execute" aria-hidden="true" />
+              <p className="text-sm text-console-muted">
+                <span className="font-semibold text-execute">allow</span> — run
                 the action exactly as proposed (the full $10k).
               </p>
             </div>
             <div className="flex items-center gap-2 rounded-lg border border-refuse/40 bg-refuse/10 px-3 py-2.5">
-              <Ban size={15} className="shrink-0 text-refuse-strong" aria-hidden="true" />
-              <p className="text-sm text-muted">
-                <span className="font-semibold text-refuse-strong">deny</span> — block
+              <Ban size={15} className="shrink-0 text-refuse" aria-hidden="true" />
+              <p className="text-sm text-console-muted">
+                <span className="font-semibold text-refuse">deny</span> — block
                 the action; the agent gets nothing back to act on.
               </p>
             </div>
@@ -132,14 +132,14 @@ export function ComparisonPreamble() {
         </Reveal>
 
         {/* Right — adjudicate: six structured outcomes. */}
-        <Reveal className="flex h-full flex-col rounded-2xl border border-edge bg-surface p-6">
+        <Reveal className="flex h-full flex-col rounded-2xl border border-console-edge bg-console-panel p-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-ink">adjudicate</h3>
-            <span className="rounded-full border border-edge bg-canvas px-2.5 py-0.5 text-[10px] uppercase tracking-section text-muted">
+            <h3 className="text-sm font-semibold text-console-ink">adjudicate</h3>
+            <span className="rounded-full border border-console-edge bg-console-canvas px-2.5 py-0.5 text-[10px] uppercase tracking-section text-console-muted">
               6 outcomes
             </span>
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-muted">
+          <p className="mt-2 text-sm leading-relaxed text-console-muted">
             The same proposed action in — but the kernel can keep it, reshape it,
             park it, or route it onward. Four of these six have no expression in
             allow/deny at all.
@@ -148,13 +148,13 @@ export function ComparisonPreamble() {
             <OutcomeLeaf
               label={DECISIONS.EXECUTE.kind}
               dot="bg-execute"
-              accent="text-execute-strong"
+              accent="text-execute"
               meaning="run it as proposed (transfer is within cap)."
             />
             <OutcomeLeaf
               label={DECISIONS.REFUSE.kind}
               dot="bg-refuse"
-              accent="text-refuse-strong"
+              accent="text-refuse"
               meaning="reject it with a structured reason the agent can read."
             />
             <OutcomeLeaf
@@ -166,19 +166,19 @@ export function ComparisonPreamble() {
             <OutcomeLeaf
               label={DECISIONS.DEFER.kind}
               dot="bg-defer"
-              accent="text-defer-strong"
+              accent="text-defer"
               meaning="park it until a settlement webhook or queue signal arrives."
             />
             <OutcomeLeaf
               label={DECISIONS.ESCALATE.kind}
               dot="bg-escalate"
-              accent="text-escalate-strong"
+              accent="text-escalate"
               meaning="route it to a human approver before anything runs."
             />
             <OutcomeLeaf
               label={DECISIONS.REQUEST_CONFIRMATION.kind}
               dot="bg-confirm"
-              accent="text-confirm-strong"
+              accent="text-confirm"
               meaning="ask the caller to re-confirm before proceeding."
             />
           </Stagger>
@@ -187,7 +187,7 @@ export function ComparisonPreamble() {
 
       {/* Anchored read-down to the detailed grid + wedge table. */}
       <Reveal className="mt-8">
-        <p className="inline-flex items-center gap-1.5 text-sm text-muted">
+        <p className="inline-flex items-center gap-1.5 text-sm text-console-muted">
           The full algebra and a feature-by-feature comparison follow below
           <ArrowRight size={14} aria-hidden="true" />
         </p>

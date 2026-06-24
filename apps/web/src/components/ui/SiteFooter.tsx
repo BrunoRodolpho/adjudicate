@@ -5,21 +5,21 @@ import { FOOTER_COLUMNS, type NavLink } from "@/content/nav";
 import { SITE } from "@/content/site";
 
 /**
- * Global site footer. Every column comes from `content/nav.ts`; the Trust
- * column lists all seven public transparency sub-views, which is what
- * de-orphans those routes from the link graph. The bottom bar carries the
- * version line plus the six decision chips as a brand signature.
+ * Global site footer — a dark control-room base that anchors the dark homepage
+ * and reads as an intentional, premium footer under the lighter interior pages.
+ * Every column comes from `content/nav.ts`. The bottom bar carries the version
+ * line plus the six decision chips as a brand signature.
  *
  * Server component — no interactivity.
  */
 export function SiteFooter() {
   return (
-    <footer className="border-t border-edge bg-canvas">
+    <footer className="border-t border-console-edge bg-console-canvas">
       <div className="mx-auto max-w-6xl px-6 py-14">
         <Reveal className="grid grid-cols-2 gap-8 md:grid-cols-4">
           {FOOTER_COLUMNS.map((column) => (
             <div key={column.title}>
-              <h2 className="text-[11px] uppercase tracking-section text-muted">
+              <h2 className="text-[11px] uppercase tracking-section text-console-muted">
                 {column.title}
               </h2>
               <ul className="mt-4 flex flex-col gap-2.5">
@@ -33,10 +33,10 @@ export function SiteFooter() {
           ))}
         </Reveal>
 
-        <div className="mt-12 flex flex-col gap-5 border-t border-edge pt-6 md:flex-row md:items-center md:justify-between">
-          <p className="text-xs text-muted">
-            <span className="font-mono text-ink">{SITE.name}</span>
-            <span className="text-muted">
+        <div className="mt-12 flex flex-col gap-5 border-t border-console-edge pt-6 md:flex-row md:items-center md:justify-between">
+          <p className="text-xs text-console-muted">
+            <span className="font-mono text-console-ink">{SITE.name}</span>
+            <span className="text-console-muted">
               {` · ${SITE.versionLabel} · ${SITE.status}`}
             </span>
           </p>
@@ -49,15 +49,10 @@ export function SiteFooter() {
 
 function FooterLink({ link }: { readonly link: NavLink }) {
   const className =
-    "rounded-sm text-sm text-muted transition-colors hover:text-ink focus-ring";
+    "rounded-sm text-sm text-console-muted transition-colors hover:text-console-ink focus-ring-console";
   if (link.external) {
     return (
-      <a
-        href={link.href}
-        target="_blank"
-        rel="noreferrer"
-        className={className}
-      >
+      <a href={link.href} target="_blank" rel="noreferrer" className={className}>
         {link.label}
       </a>
     );

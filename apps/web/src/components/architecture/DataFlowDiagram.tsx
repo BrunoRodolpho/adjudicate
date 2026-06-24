@@ -35,7 +35,7 @@ import { Reveal } from "@/components/home/Reveal";
 type NodeTone = "agent" | "kernel" | "audit" | "store" | "bus" | "console";
 
 const TONE_RING: Record<NodeTone, string> = {
-  agent: "border-edge",
+  agent: "border-console-edge",
   kernel: "border-escalate/40",
   audit: "border-confirm/40",
   store: "border-execute/40",
@@ -44,7 +44,7 @@ const TONE_RING: Record<NodeTone, string> = {
 };
 
 const TONE_DOT: Record<NodeTone, string> = {
-  agent: "bg-faint",
+  agent: "bg-console-faint",
   kernel: "bg-escalate",
   audit: "bg-confirm",
   store: "bg-execute",
@@ -71,7 +71,7 @@ function PipelineNode({
   return (
     <StaggerItem
       className={cn(
-        "flex h-full flex-col rounded-xl border bg-surface p-4 shadow-sm",
+        "flex h-full flex-col rounded-xl border bg-console-panel p-4",
         TONE_RING[tone],
         className,
       )}
@@ -81,12 +81,12 @@ function PipelineNode({
           className={cn("size-2 shrink-0 rounded-full", TONE_DOT[tone])}
           aria-hidden="true"
         />
-        <h3 className="text-sm font-semibold leading-tight text-ink">{label}</h3>
+        <h3 className="text-sm font-semibold leading-tight text-console-ink">{label}</h3>
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-muted">{detail}</p>
+      <p className="mt-2 text-xs leading-relaxed text-console-muted">{detail}</p>
       {children}
       {source ? (
-        <code className="mt-auto block pt-3 text-[10.5px] leading-snug text-muted">
+        <code className="mt-auto block pt-3 text-[10.5px] leading-snug text-console-muted">
           {source}
         </code>
       ) : null}
@@ -99,18 +99,18 @@ function FlowEdge({ children }: { readonly children: ReactNode }) {
   return (
     <StaggerItem className="flex items-center justify-center gap-2 py-1 lg:flex-col lg:py-0">
       <span
-        className="text-faint lg:hidden"
+        className="text-console-faint lg:hidden"
         aria-hidden="true"
       >
         &darr;
       </span>
       <span
-        className="hidden text-faint lg:inline"
+        className="hidden text-console-faint lg:inline"
         aria-hidden="true"
       >
         &rarr;
       </span>
-      <code className="rounded-full border border-edge bg-canvas px-2 py-0.5 text-center text-[10px] leading-tight text-muted">
+      <code className="rounded-full border border-console-edge bg-console-canvas px-2 py-0.5 text-center text-[10px] leading-tight text-console-muted">
         {children}
       </code>
     </StaggerItem>
@@ -123,7 +123,7 @@ const OUTCOMES: ReadonlyArray<{ kind: string; dot: string; text: string }> = [
   { kind: "ESCALATE", dot: "bg-escalate", text: "text-escalate" },
   { kind: "REQUEST_CONFIRMATION", dot: "bg-confirm", text: "text-confirm" },
   { kind: "DEFER", dot: "bg-defer", text: "text-defer" },
-  { kind: "REWRITE", dot: "bg-rewrite", text: "text-rewrite-strong" },
+  { kind: "REWRITE", dot: "bg-rewrite", text: "text-rewrite" },
 ];
 
 /** The 6-outcome chip cluster, using the decision tokens. */
@@ -139,7 +139,7 @@ function OutcomeChips() {
         <StaggerItem
           as="li"
           key={o.kind}
-          className="inline-flex items-center gap-1 rounded-full border border-edge bg-canvas px-1.5 py-0.5"
+          className="inline-flex items-center gap-1 rounded-full border border-console-edge bg-console-canvas px-1.5 py-0.5"
         >
           <span
             className={cn("size-1.5 rounded-full", o.dot)}
@@ -209,7 +209,7 @@ export function DataFlowDiagram({ className }: { readonly className?: string }) 
 
       {/* Branch marker. */}
       <Reveal className="mt-3 flex items-center justify-center">
-        <span className="rounded-full border border-edge bg-canvas px-3 py-1 text-[10px] uppercase tracking-section text-muted">
+        <span className="rounded-full border border-console-edge bg-console-canvas px-3 py-1 text-[10px] uppercase tracking-section text-console-muted">
           fans out to two destinations
         </span>
       </Reveal>

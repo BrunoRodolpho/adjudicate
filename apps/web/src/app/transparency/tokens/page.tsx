@@ -44,18 +44,18 @@ export default function TokenGovernanceTransparencyPage() {
           detail={`${b.consumedDisplay} of ${b.budgetDisplay} tokens used this period.`}
         >
           <div data-testid="token-budget-bar">
-            <div className="flex items-center justify-between text-eyebrow uppercase text-muted">
+            <div className="flex items-center justify-between text-eyebrow uppercase text-console-muted">
               <span>Budget consumed</span>
               <span className="tabular-nums">{b.pctUsed}%</span>
             </div>
-            <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-edge">
+            <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-console-edge">
               <div
                 className={`h-full rounded-full ${band.bar}`}
                 style={{ width: `${b.pctUsed}%` }}
                 aria-hidden="true"
               />
             </div>
-            <p className="mt-2 text-meta text-muted">
+            <p className="mt-2 text-meta text-console-muted">
               Banded, coarsely rounded — the band, not a precise count, is the
               only signal exposed.
             </p>

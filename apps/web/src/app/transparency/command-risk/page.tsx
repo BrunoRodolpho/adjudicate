@@ -32,7 +32,7 @@ export default function CommandRiskTransparencyPage() {
     display: bucket.display,
     censored: bucket.censored,
     leading: (
-      <th scope="row" className="px-4 py-3 font-medium text-ink">
+      <th scope="row" className="px-4 py-3 font-medium text-console-ink">
         {bucket.categoryLabel}
       </th>
     ),
@@ -46,7 +46,7 @@ export default function CommandRiskTransparencyPage() {
       lead="Every command an agent proposes is classified by risk — destructive, network, credential, or safe. This view is the aggregate shape of that risk: how much of what your agents attempt is dangerous enough to need guarding. Counts only — never the commands themselves or the rules they tripped."
       hero={
         <div>
-          <h2 className="text-eyebrow uppercase text-muted">
+          <h2 className="text-eyebrow uppercase text-console-muted">
             Risk distribution by category
           </h2>
           <div className="mt-4 overflow-x-auto rounded-sm">
@@ -57,11 +57,11 @@ export default function CommandRiskTransparencyPage() {
                 &ldquo;&lt;{PUBLIC_COHORT_FLOOR}&rdquo;.
               </caption>
               <thead>
-                <tr className="border-b border-edge">
-                  <th scope="col" className="px-4 py-2.5 text-eyebrow uppercase text-muted">
+                <tr className="border-b border-console-edge">
+                  <th scope="col" className="px-4 py-2.5 text-eyebrow uppercase text-console-muted">
                     Category
                   </th>
-                  <th scope="col" className="w-1/2 px-4 py-2.5 text-eyebrow uppercase text-muted">
+                  <th scope="col" className="w-1/2 px-4 py-2.5 text-eyebrow uppercase text-console-muted">
                     Count
                   </th>
                 </tr>
@@ -69,7 +69,7 @@ export default function CommandRiskTransparencyPage() {
               <AnimatedBarRows rows={rows} floor={PUBLIC_COHORT_FLOOR} />
             </table>
           </div>
-          <p className="mt-4 text-meta text-muted">
+          <p className="mt-4 text-meta text-console-muted">
             Bars are scaled to the largest visible cohort; censored cohorts
             (&ldquo;&lt;{PUBLIC_COHORT_FLOOR}&rdquo;) are floored. Safe commands
             produce no audit basis, so their public count is always 0.

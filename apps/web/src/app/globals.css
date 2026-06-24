@@ -4,10 +4,10 @@
 
 @layer base {
   html {
-    color-scheme: light;
+    color-scheme: dark;
   }
   body {
-    @apply bg-canvas text-ink font-sans antialiased;
+    @apply bg-console-canvas text-console-ink font-sans antialiased;
     text-rendering: optimizeLegibility;
     /* Inter optical refinements — single-story 'a' + tighter punctuation. */
     font-feature-settings: "cv11", "ss01";

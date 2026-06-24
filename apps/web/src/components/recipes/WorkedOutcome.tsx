@@ -73,17 +73,17 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
   return (
     <div className="flex flex-col gap-3">
       <RealKernelLabel />
-      <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-sm">
-        <header className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
+      <div className="overflow-hidden rounded-2xl border border-console-edge bg-console-panel">
+        <header className="flex items-center justify-between gap-3 border-b border-console-edge px-4 py-3">
           <DecisionChip kind={decision.kind} size="md" />
-          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+          <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
             command-risk · summary
           </span>
         </header>
 
         <div className="flex flex-col gap-4 px-4 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+            <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
               risk category:
             </span>
             <span className="rounded-md border border-escalate/30 bg-escalate/10 px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-section text-escalate">
@@ -92,13 +92,13 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+            <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
               basis · {codes.length}
             </span>
             <ul className="flex flex-wrap gap-1.5">
               {codes.map((code) => (
                 <li key={code}>
-                  <code className="rounded-md border border-edge bg-canvas px-2 py-0.5 font-mono text-[11px] text-ink/85">
+                  <code className="rounded-md border border-console-edge bg-console-canvas px-2 py-0.5 font-mono text-[11px] text-console-ink/85">
                     {code}
                   </code>
                 </li>
@@ -110,8 +110,8 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
             By policy (ADR-123) the raw command, the basis detail, and the
             confirmation prompt are withheld from every surface. The kernel
             still made a real, audited decision — this outcome is reported by{" "}
-            <span className="text-ink">category</span> and{" "}
-            <span className="text-ink">basis</span> alone.
+            <span className="text-console-ink">category</span> and{" "}
+            <span className="text-console-ink">basis</span> alone.
           </Callout>
         </div>
       </div>
@@ -148,19 +148,19 @@ function IllustrativeOutcome({ recipe }: { readonly recipe: Recipe }) {
   return (
     <div className="flex flex-col gap-3">
       <IllustrativeLabel />
-      <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-sm">
-        <header className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
+      <div className="overflow-hidden rounded-2xl border border-console-edge bg-console-panel">
+        <header className="flex items-center justify-between gap-3 border-b border-console-edge px-4 py-3">
           <DecisionChip kind={recipe.outcome} size="md" />
-          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+          <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
             described outcome
           </span>
         </header>
         <div className="flex flex-col gap-4 px-4 py-4">
-          <p className="text-sm leading-relaxed text-muted">
+          <p className="text-sm leading-relaxed text-console-muted">
             {whatTheKernelReturns(recipe)}
           </p>
           <Callout tone="info" title="Illustrative — not a live run">
-            The <code className="font-mono text-ink/85">{recipe.guardOrPack.npmPackage}</code>{" "}
+            The <code className="font-mono text-console-ink/85">{recipe.guardOrPack.npmPackage}</code>{" "}
             pack isn&apos;t installed in the web playground, so this outcome is
             described from the pack&apos;s policy rather than run through the
             kernel here. Install the pack in your own kernel and the same guard
@@ -193,7 +193,7 @@ function whatTheKernelReturns(recipe: Recipe): string {
 
 function RealKernelLabel() {
   return (
-    <p className="flex items-center gap-2 text-[11px] uppercase tracking-section text-muted">
+    <p className="flex items-center gap-2 text-[11px] uppercase tracking-section text-console-muted">
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-execute" />
       Real kernel · run server-side at render time
     </p>
@@ -202,12 +202,12 @@ function RealKernelLabel() {
 
 function IllustrativeLabel() {
   return (
-    <p className="flex items-center gap-2 text-[11px] uppercase tracking-section text-muted">
+    <p className="flex items-center gap-2 text-[11px] uppercase tracking-section text-console-muted">
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-defer" />
       <span className="rounded-sm border border-defer/40 bg-defer/10 px-1.5 py-0.5 text-defer">
         Illustrative
       </span>
-      <span className="normal-case tracking-normal text-muted">
+      <span className="normal-case tracking-normal text-console-muted">
         this pack isn&apos;t in the web playground
       </span>
     </p>

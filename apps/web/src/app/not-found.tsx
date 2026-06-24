@@ -8,14 +8,14 @@ import { Button } from "@/components/ui/Button";
  */
 export default function NotFound() {
   return (
-    <main className="mx-auto flex min-h-[60vh] max-w-content flex-col items-center justify-center gap-6 px-6 py-section text-center">
-      <span className="inline-flex items-center gap-2 rounded-full border border-refuse/40 bg-refuse/10 px-3 py-1 text-eyebrow uppercase text-refuse-strong">
+    <main className="mx-auto flex min-h-[60vh] max-w-content flex-col items-center justify-center gap-6 bg-console-canvas px-6 py-section text-center">
+      <span className="inline-flex items-center gap-2 rounded-full border border-refuse/40 bg-refuse/10 px-3 py-1 text-eyebrow uppercase text-refuse">
         404 · refused
       </span>
-      <h1 className="text-h1 text-ink md:text-h1-lg">
+      <h1 className="text-h1 text-console-ink md:text-h1-lg">
         This route doesn&apos;t exist.
       </h1>
-      <p className="max-w-measure text-lead text-muted">
+      <p className="max-w-measure text-lead text-console-muted">
         The page you asked for couldn&apos;t be adjudicated — it isn&apos;t part
         of the site. Head back, or jump straight to what most people are
         looking for.
@@ -42,7 +42,7 @@ export default function NotFound() {
           <Link
             key={l.href}
             href={l.href}
-            className="rounded-sm text-muted transition-colors hover:text-ink focus-ring"
+            className="rounded-sm text-console-muted transition-colors hover:text-console-ink focus-ring-console"
           >
             {l.label}
           </Link>

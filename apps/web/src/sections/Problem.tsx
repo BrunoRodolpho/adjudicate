@@ -18,7 +18,7 @@ const PHASES = [
 
 export function Problem() {
   return (
-    <section className="bg-canvas py-20">
+    <section className="bg-console-canvas py-20">
       <div className="mx-auto max-w-6xl px-6">
         <SectionHeading
           eyebrow="The problem"
@@ -31,7 +31,7 @@ export function Problem() {
           <Panel
             title="Without adjudicate"
             tint="rose"
-            statusIcon={<AlertTriangle size={18} className="text-refuse-strong" />}
+            statusIcon={<AlertTriangle size={18} className="text-refuse" />}
           >
             <div className="flex items-center justify-between gap-3 text-sm">
               <Pill label="LLM" />
@@ -39,13 +39,13 @@ export function Problem() {
                 aria-hidden
                 animate={{ x: [0, 8, 0] }}
                 transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-                className="text-refuse-strong"
+                className="text-refuse"
               >
                 <ArrowRight size={20} />
               </motion.div>
               <Pill label="Production" icon={<Database size={14} />} tone="danger" />
             </div>
-            <p className="mt-4 text-sm text-muted">
+            <p className="mt-4 text-sm text-console-muted">
               The model proposes. The system executes. No structured outcome,
               no replay protection, no audit trail beyond logs you have to
               parse.
@@ -56,14 +56,14 @@ export function Problem() {
             title="With adjudicate"
             tint="brand"
             statusIcon={
-              <span className="rounded-full bg-execute/15 px-2 py-0.5 text-[10px] uppercase tracking-section text-execute-strong">
+              <span className="rounded-full bg-execute/15 px-2 py-0.5 text-[10px] uppercase tracking-section text-execute">
                 Kernel
               </span>
             }
           >
             <div className="flex min-w-0 items-center justify-between gap-2 text-sm">
               <Pill label="LLM" />
-              <ArrowRight size={16} className="shrink-0 text-faint" />
+              <ArrowRight size={16} className="shrink-0 text-console-faint" />
               <div className="flex min-w-0 flex-1 items-center gap-1">
                 {PHASES.map((p, idx) => (
                   <motion.div
@@ -78,16 +78,16 @@ export function Problem() {
                     tabIndex={0}
                     title={`${p.id} — ${p.gates}`}
                     aria-label={`${p.id} phase: ${p.gates}`}
-                    className="flex-1 cursor-help rounded-sm border border-edge bg-canvas px-1.5 py-1 text-center text-[10px] uppercase tracking-section text-muted transition-colors hover:border-brand/40 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                    className="flex-1 cursor-help rounded-sm border border-console-edge bg-console-canvas px-1.5 py-1 text-center text-[10px] uppercase tracking-section text-console-muted transition-colors hover:border-brand/40 hover:text-console-ink focus-ring-console"
                   >
                     {p.id}
                   </motion.div>
                 ))}
               </div>
-              <ArrowRight size={16} className="text-faint" />
+              <ArrowRight size={16} className="text-console-faint" />
               <Pill label="DB / API" icon={<Database size={14} />} />
             </div>
-            <p className="mt-4 text-sm text-muted">
+            <p className="mt-4 text-sm text-console-muted">
               The kernel reads the envelope, runs the policy phases in order,
               and emits a structured Decision (EXECUTE, REFUSE, REWRITE, DEFER,
               ESCALATE, or REQUEST_CONFIRMATION) plus a replay-safe AuditRecord.
@@ -110,12 +110,12 @@ function Panel({
   tint: "brand" | "rose";
   statusIcon: React.ReactNode;
 }) {
-  const tintBorder = tint === "brand" ? "border-brand/30" : "border-rose-200";
-  const tintBg = tint === "brand" ? "bg-brand/5" : "bg-rose-50";
+  const tintBorder = tint === "brand" ? "border-brand/30" : "border-refuse/30";
+  const tintBg = tint === "brand" ? "bg-brand/10" : "bg-refuse/10";
   return (
-    <div className={`min-w-0 rounded-2xl border ${tintBorder} ${tintBg} p-6 shadow-sm`}>
+    <div className={`min-w-0 rounded-2xl border ${tintBorder} ${tintBg} p-6`}>
       <div className="mb-5 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-ink">{title}</h3>
+        <h3 className="text-lg font-semibold text-console-ink">{title}</h3>
         {statusIcon}
       </div>
       {children}
@@ -134,8 +134,8 @@ function Pill({
 }) {
   const cls =
     tone === "danger"
-      ? "border-refuse/40 bg-refuse/10 text-refuse-strong"
-      : "border-edge bg-surface text-ink";
+      ? "border-refuse/40 bg-refuse/10 text-refuse"
+      : "border-console-edge bg-console-panel text-console-ink";
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${cls}`}

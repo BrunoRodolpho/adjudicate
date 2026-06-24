@@ -55,8 +55,8 @@ export function GuardDescriptionDetail({
   return (
     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 pl-0.5">
       {fields.map(([k, v]) => (
-        <span key={k} className={`font-mono ${fontSize} text-muted`}>
-          <span className="text-muted">{k}:</span> {String(v)}
+        <span key={k} className={`font-mono ${fontSize} text-console-muted`}>
+          <span className="text-console-muted">{k}:</span> {String(v)}
         </span>
       ))}
     </div>

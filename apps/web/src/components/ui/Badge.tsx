@@ -4,10 +4,10 @@ import { cn } from "@/lib/cn";
 type BadgeTone = "neutral" | "shipped" | "roadmap" | "adr";
 
 const TONE_STYLES: Record<BadgeTone, string> = {
-  neutral: "border-edge bg-surface text-muted",
-  shipped: "border-execute/40 bg-execute/10 text-execute-strong",
-  roadmap: "border-defer/40 bg-defer/10 text-defer-strong",
-  adr: "border-escalate/40 bg-escalate/10 text-escalate-strong",
+  neutral: "border-console-edge bg-console-panel text-console-muted",
+  shipped: "border-execute/40 bg-execute/10 text-execute",
+  roadmap: "border-defer/40 bg-defer/10 text-defer",
+  adr: "border-escalate/40 bg-escalate/10 text-escalate",
 };
 
 /**

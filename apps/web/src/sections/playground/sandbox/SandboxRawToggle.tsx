@@ -51,18 +51,18 @@ export function SandboxRawToggle({
     <details
       open={open}
       onToggle={(e) => onOpenChange((e.target as HTMLDetailsElement).open)}
-      className="rounded-xl border border-edge bg-canvas/40"
+      className="rounded-xl border border-console-edge bg-console-canvas/40"
     >
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-[13px] font-medium text-muted transition hover:text-ink">
-        <Code2 size={15} aria-hidden="true" className="text-faint" />
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-[13px] font-medium text-console-muted transition hover:text-console-ink">
+        <Code2 size={15} aria-hidden="true" className="text-console-faint" />
         Advanced: edit raw JSON
-        <span className="ml-auto font-mono text-[10px] uppercase tracking-section text-muted">
+        <span className="ml-auto font-mono text-[10px] uppercase tracking-section text-console-muted">
           {open ? "hide" : "expert"}
         </span>
       </summary>
 
-      <div className="flex flex-col gap-4 border-t border-edge px-4 py-4">
-        <p className="text-[11px] leading-snug text-muted">
+      <div className="flex flex-col gap-4 border-t border-console-edge px-4 py-4">
+        <p className="text-[11px] leading-snug text-console-muted">
           Editing here overrides the form above — runs send this JSON verbatim
           and a &ldquo;raw mode&rdquo; badge appears on the Run button.
         </p>
@@ -110,7 +110,7 @@ function RawBox({
     <div className="flex flex-col gap-1.5">
       <label
         htmlFor={id}
-        className="font-mono text-[10px] uppercase tracking-section text-muted"
+        className="font-mono text-[10px] uppercase tracking-section text-console-muted"
       >
         {label}
       </label>
@@ -123,9 +123,9 @@ function RawBox({
         aria-describedby={error ? errId : undefined}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          "w-full resize-y rounded-lg border bg-surface px-3 py-2 font-mono text-[12px] leading-relaxed text-ink",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30",
-          error ? "border-refuse/60" : "border-edge",
+          "w-full resize-y rounded-lg border bg-console-panel px-3 py-2 font-mono text-[12px] leading-relaxed text-console-ink placeholder:text-console-faint",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-ink/40",
+          error ? "border-refuse/60" : "border-console-edge",
         )}
       />
       {error ? (

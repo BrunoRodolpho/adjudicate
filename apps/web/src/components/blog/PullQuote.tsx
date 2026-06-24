@@ -14,7 +14,7 @@ export function Lead({
   readonly className?: string;
 }) {
   return (
-    <p className={cn("text-lead-lg leading-relaxed text-ink", className)}>
+    <p className={cn("text-lead-lg leading-relaxed text-console-ink", className)}>
       {children}
     </p>
   );
@@ -36,13 +36,13 @@ export function PullQuote({
   return (
     <blockquote
       className={cn(
-        "my-stack border-l-2 border-brand pl-5 text-lead font-medium text-ink",
+        "my-stack border-l-2 border-brand pl-5 text-lead font-medium text-console-ink",
         className,
       )}
     >
       {children}
       {cite ? (
-        <cite className="mt-2 block text-body-sm not-italic text-muted">
+        <cite className="mt-2 block text-body-sm not-italic text-console-muted">
           — {cite}
         </cite>
       ) : null}

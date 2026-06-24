@@ -12,13 +12,13 @@ const TONE_STYLES: Record<
     container: "border-confirm/30 bg-confirm/5",
     icon: Info,
     iconColor: "text-confirm",
-    title: "text-ink",
+    title: "text-console-ink",
   },
   warn: {
     container: "border-defer/40 bg-defer/5",
     icon: TriangleAlert,
     iconColor: "text-defer",
-    title: "text-ink",
+    title: "text-console-ink",
   },
 };
 
@@ -55,7 +55,7 @@ export function Callout({
         {title ? (
           <p className={cn("text-sm font-semibold", t.title)}>{title}</p>
         ) : null}
-        <div className="text-sm leading-relaxed text-muted">{children}</div>
+        <div className="text-sm leading-relaxed text-console-muted">{children}</div>
       </div>
     </div>
   );

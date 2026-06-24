@@ -39,7 +39,7 @@ export default function ComparisonsPage() {
         }
         subtitle="Permission engines like OPA and Cedar return yes/no on a single proposed action. Adjudicate returns six structured decisions — including the four that AI-mediated systems actually need."
       />
-      <section className="relative overflow-hidden border-b border-edge bg-surface py-12">
+      <section className="relative overflow-hidden border-b border-console-edge bg-console-panel py-12">
         <BrandGlow />
         <div className="relative z-10 mx-auto max-w-5xl overflow-x-auto px-6">
           <DecisionFan className="h-auto w-full min-w-[600px]" />

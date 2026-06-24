@@ -21,9 +21,9 @@ export function Card({
   const classes = cn(
     // Hairline ring + soft elevation at rest; interactive cards lift + bloom on
     // hover and settle on press (reduced-motion-safe).
-    "block rounded-xl bg-surface p-5 shadow-sm ring-1 ring-edge/70",
+    "block rounded-xl bg-console-panel p-5 ring-1 ring-console-edge/70",
     href &&
-      "transition-all duration-150 hover:shadow-md hover:ring-edge-strong motion-safe:hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm focus-ring",
+      "transition-all duration-150 hover:ring-console-edge motion-safe:hover:-translate-y-0.5 active:translate-y-0 focus-ring-console",
     className,
   );
 

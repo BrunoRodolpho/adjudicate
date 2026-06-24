@@ -86,10 +86,10 @@ function CapabilityCard({ cap }: { readonly cap: CapabilityContent }) {
           </div>
 
           <div>
-            <h3 className="text-base font-semibold leading-tight text-ink">
+            <h3 className="text-base font-semibold leading-tight text-console-ink">
               {cap.name}
             </h3>
-            <p className="mt-1.5 text-sm leading-relaxed text-muted">
+            <p className="mt-1.5 text-sm leading-relaxed text-console-muted">
               {cap.oneLiner}
             </p>
           </div>
@@ -100,7 +100,7 @@ function CapabilityCard({ cap }: { readonly cap: CapabilityContent }) {
             ))}
           </div>
 
-          <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-section text-muted">
+          <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-section text-console-muted">
             Open capability
             <ArrowRight size={12} aria-hidden="true" />
           </p>
@@ -119,7 +119,7 @@ function CapabilityCard({ cap }: { readonly cap: CapabilityContent }) {
 export default function CapabilitiesPage() {
   return (
     <main>
-      <Section>
+      <Section tone="console">
         <Reveal>
           <DepthHeader
             eyebrow="Capabilities"
@@ -135,7 +135,7 @@ export default function CapabilitiesPage() {
           />
         </Reveal>
 
-        <div className="relative mt-10 overflow-hidden rounded-2xl border border-edge bg-surface px-6 py-10">
+        <div className="relative mt-10 overflow-hidden rounded-2xl border border-console-edge bg-console-panel px-6 py-10">
           <BrandGlow />
           <div className="relative z-10 mx-auto max-w-4xl overflow-x-auto">
             <FamilyMap className="h-auto w-full min-w-[560px]" />
@@ -148,8 +148,8 @@ export default function CapabilitiesPage() {
             return (
               <div key={family.id}>
                 <div>
-                  <h2 className="text-h3 text-ink">{family.label}</h2>
-                  <p className="mt-1 text-body-sm text-muted">{family.blurb}</p>
+                  <h2 className="text-h3 text-console-ink">{family.label}</h2>
+                  <p className="mt-1 text-body-sm text-console-muted">{family.blurb}</p>
                 </div>
                 <Stagger className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {caps.map((cap) => (

@@ -51,7 +51,7 @@ export function SandboxResult({
       aria-busy={busy}
     >
       {busy ? (
-        <div className="flex items-center gap-3 rounded-xl border border-edge bg-surface px-4 py-3 text-sm text-muted">
+        <div className="flex items-center gap-3 rounded-xl border border-console-edge bg-console-panel px-4 py-3 text-sm text-console-muted">
           <Loader2
             size={16}
             aria-hidden="true"
@@ -73,10 +73,10 @@ export function SandboxResult({
             className="mt-0.5 shrink-0 text-refuse"
           />
           <div className="flex min-w-0 flex-col gap-1">
-            <p className="text-sm font-semibold text-ink">
+            <p className="text-sm font-semibold text-console-ink">
               That run could not be adjudicated
             </p>
-            <p className="break-words text-sm leading-relaxed text-muted">
+            <p className="break-words text-sm leading-relaxed text-console-muted">
               {error}
             </p>
           </div>
@@ -94,7 +94,7 @@ export function SandboxResult({
         <EmptyState
           title="Your receipt will appear here"
           hint="Configure a Pack and intent, edit the payload, and run the real kernel. The receipt below shows every decision step, guard match, and signature — ideal for testing edge cases or debugging policy rules."
-          className="border-edge text-muted"
+          className="border-console-edge text-console-muted"
         />
       ) : null}
     </div>

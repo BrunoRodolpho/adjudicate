@@ -232,9 +232,9 @@ export function SandboxMode({ className }: { readonly className?: string }) {
             disabled={runDisabled}
             className={cn(
               "inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium tracking-tight transition-shadow",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-ink/40",
               runDisabled
-                ? "cursor-not-allowed bg-edge text-muted"
+                ? "cursor-not-allowed bg-console-edge text-console-faint"
                 : "bg-gradient-primary text-white shadow-lg hover:shadow-xl",
             )}
           >
@@ -249,7 +249,7 @@ export function SandboxMode({ className }: { readonly className?: string }) {
           ) : null}
 
           {(rawMode ? rawInvalid : formInvalid) && !busy ? (
-            <span className="text-[12px] text-muted">
+            <span className="text-[12px] text-console-muted">
               Resolve the highlighted field
               {rawMode ? " JSON" : "s"} to run.
             </span>

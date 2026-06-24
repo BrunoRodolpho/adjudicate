@@ -68,7 +68,7 @@ interface ReceiptCardProps {
 const OUTCOME_TEXT_CLASS: Record<DecisionKind, string> = {
   EXECUTE: "text-execute",
   REFUSE: "text-refuse",
-  REWRITE: "text-rewrite-strong",
+  REWRITE: "text-rewrite",
   DEFER: "text-defer",
   ESCALATE: "text-escalate",
   REQUEST_CONFIRMATION: "text-confirm",
@@ -179,21 +179,21 @@ export function ReceiptCard(props: ReceiptCardProps) {
     <section
       aria-label={`Decision receipt: ${kind.toLowerCase()}`}
       className={cn(
-        "overflow-hidden rounded-2xl border border-edge bg-surface shadow-sm",
+        "overflow-hidden rounded-2xl border border-console-edge bg-console-panel shadow-sm",
         props.className,
       )}
     >
       {props.hideHeader ? null : (
-        <header className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
+        <header className="flex items-center justify-between gap-3 border-b border-console-edge px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <DecisionChip kind={kind} size={compact ? "sm" : "md"} />
             {model.packName ? (
-              <span className="truncate text-xs text-muted">
+              <span className="truncate text-xs text-console-muted">
                 {model.packName}
               </span>
             ) : null}
           </div>
-          <div className="flex items-center gap-3 text-[10px] text-muted">
+          <div className="flex items-center gap-3 text-[10px] text-console-muted">
             <span className="font-mono uppercase tracking-section">
               {compactTime || "—"}
             </span>
@@ -238,13 +238,13 @@ function SectionHeader({
   readonly emphasis?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between border-b border-edge px-4 py-2.5">
+    <div className="flex items-center justify-between border-b border-console-edge px-4 py-2.5">
       <span
         className={cn(
           "font-mono uppercase tracking-section",
           emphasis
-            ? cn("text-[11px] font-semibold", outcomeText ?? "text-ink")
-            : "text-[10px] text-muted",
+            ? cn("text-[11px] font-semibold", outcomeText ?? "text-console-ink")
+            : "text-[10px] text-console-muted",
         )}
       >
         {label}
@@ -271,18 +271,18 @@ function InputSection({
 }) {
   const segments = envelopeToSegments(envelope);
   return (
-    <details className="border-b border-edge">
+    <details className="border-b border-console-edge">
       <summary aria-label="Show input envelope" className="cursor-pointer list-none">
         <SectionHeader
           label="INPUT · envelope"
           outcome={envelope.taint}
-          outcomeText="text-muted"
+          outcomeText="text-console-muted"
         />
       </summary>
       <div className="flex flex-col gap-2 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
-          <span className="rounded-md border border-edge bg-canvas px-2 py-0.5 text-muted">
-            kind: <span className="text-ink/80">{envelope.kind}</span>
+          <span className="rounded-md border border-console-edge bg-console-canvas px-2 py-0.5 text-console-muted">
+            kind: <span className="text-console-ink/80">{envelope.kind}</span>
           </span>
           <TaintChip taint={envelope.taint} />
         </div>
@@ -326,10 +326,10 @@ function TraceSection({
 }) {
   if (trace.length === 0) {
     return (
-      <div className="border-b border-edge">
+      <div className="border-b border-console-edge">
         <SectionHeader label="TRACE · evaluation" />
         <div className="px-4 py-3">
-          <p className="text-[11px] text-muted">
+          <p className="text-[11px] text-console-muted">
             Trace not captured — short-circuit path (e.g. ledger replay
             suppression).
           </p>
@@ -338,7 +338,7 @@ function TraceSection({
     );
   }
   return (
-    <div className="border-b border-edge">
+    <div className="border-b border-console-edge">
       <SectionHeader
         label="TRACE · evaluation"
         outcomeText={OUTCOME_TEXT_CLASS[kind]}
@@ -369,16 +369,16 @@ function TraceRow({
         "flex items-center gap-3 border-l-2 py-1.5 pl-3",
         isMatch
           ? cn(OUTCOME_BORDER_CLASS[kind], OUTCOME_BG_TINT[kind], "opacity-100")
-          : "border-edge opacity-70",
+          : "border-console-edge opacity-70",
       )}
     >
-      <span className="min-w-[88px] flex-none rounded-md border border-edge bg-canvas px-2 py-0.5 font-mono text-[10px] uppercase tracking-section text-muted">
+      <span className="min-w-[88px] flex-none rounded-md border border-console-edge bg-console-canvas px-2 py-0.5 font-mono text-[10px] uppercase tracking-section text-console-muted">
         {phaseLabel}
       </span>
       <span
         className={cn(
           "min-w-0 flex-1 truncate font-mono text-[12px]",
-          isMatch ? "text-ink" : "text-ink/80",
+          isMatch ? "text-console-ink" : "text-console-ink/80",
         )}
       >
         {isDefault ? `policy.default → ${kind}` : (entry.guardName ?? "—")}
@@ -393,7 +393,7 @@ function TraceRow({
                 "border",
                 OUTCOME_TEXT_CLASS[kind],
               )
-            : "text-muted",
+            : "text-console-muted",
         )}
       >
         {entry.outcome}
@@ -417,7 +417,7 @@ function DecisionSection({
   return (
     <div
       className={cn(
-        "border-b border-edge border-l-4",
+        "border-b border-console-edge border-l-4",
         OUTCOME_BORDER_CLASS[kind],
         OUTCOME_BG_TINT[kind],
       )}
@@ -452,10 +452,10 @@ function DecisionBody({
     case "EXECUTE":
       return (
         <div className="flex flex-col gap-1">
-          <p className="text-[12px] text-muted">
+          <p className="text-[12px] text-console-muted">
             Intent runs against the side-effect.
           </p>
-          <p className="font-mono text-[11px] text-ink/80">
+          <p className="font-mono text-[11px] text-console-ink/80">
             intent.kind: {record.envelope.kind}
           </p>
         </div>
@@ -467,19 +467,19 @@ function DecisionBody({
             <span className="rounded-full border border-refuse/30 bg-refuse/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-section text-refuse">
               {decision.refusal.kind}
             </span>
-            <span className="font-mono text-[11px] text-ink/80">
+            <span className="font-mono text-[11px] text-console-ink/80">
               code: {decision.refusal.code}
             </span>
           </div>
-          <blockquote className="border-l-2 border-refuse/40 pl-3 text-[13px] italic text-ink">
+          <blockquote className="border-l-2 border-refuse/40 pl-3 text-[13px] italic text-console-ink">
             {decision.refusal.userFacing}
           </blockquote>
           {decision.refusal.detail ? (
-            <details className="text-[11px] text-muted">
-              <summary className="cursor-pointer font-mono uppercase tracking-section text-muted">
+            <details className="text-[11px] text-console-muted">
+              <summary className="cursor-pointer font-mono uppercase tracking-section text-console-muted">
                 operator detail
               </summary>
-              <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-muted">
+              <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-console-muted">
                 {decision.refusal.detail}
               </pre>
             </details>
@@ -503,38 +503,38 @@ function DecisionBody({
       return (
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            <div className="rounded-md border border-edge bg-canvas/60 px-3 py-2">
-              <p className="mb-1 font-mono text-[9px] uppercase tracking-section text-muted">
+            <div className="rounded-md border border-console-edge bg-console-canvas/60 px-3 py-2">
+              <p className="mb-1 font-mono text-[9px] uppercase tracking-section text-console-muted">
                 PROPOSED · payload
               </p>
               <JsonSegmentView
                 segments={diff.left}
-                highlightClass="text-rewrite-strong font-semibold"
+                highlightClass="text-rewrite font-semibold"
               />
             </div>
             <div className="rounded-md border border-rewrite/60 bg-rewrite/5 px-3 py-2">
-              <p className="mb-1 font-mono text-[9px] uppercase tracking-section text-rewrite-strong">
+              <p className="mb-1 font-mono text-[9px] uppercase tracking-section text-rewrite">
                 REWRITTEN · payload
               </p>
               <JsonSegmentView
                 segments={diff.right}
-                highlightClass="text-rewrite-strong font-semibold"
+                highlightClass="text-rewrite font-semibold"
               />
             </div>
           </div>
-          <p className="text-[13px] italic text-ink">
+          <p className="text-[13px] italic text-console-ink">
             reason: &ldquo;{decision.reason}&rdquo;
           </p>
           <div className="flex flex-col gap-1">
-            <p className="font-mono text-[9px] uppercase tracking-section text-muted">
+            <p className="font-mono text-[9px] uppercase tracking-section text-console-muted">
               INTENT HASH CHANGED
             </p>
             <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
-              <span className="rounded-md border border-edge bg-canvas px-2 py-0.5 text-muted">
+              <span className="rounded-md border border-console-edge bg-console-canvas px-2 py-0.5 text-console-muted">
                 proposed: {beforeHash}
               </span>
-              <span className="text-faint">→</span>
-              <span className="rounded-md border border-rewrite/60 bg-rewrite/10 px-2 py-0.5 font-semibold text-rewrite-strong">
+              <span className="text-console-faint">→</span>
+              <span className="rounded-md border border-rewrite/60 bg-rewrite/10 px-2 py-0.5 font-semibold text-rewrite">
                 rewritten: {afterHash}
               </span>
             </div>
@@ -545,19 +545,19 @@ function DecisionBody({
     case "DEFER":
       return (
         <div className="flex flex-col gap-1">
-          <p className="font-mono text-[11px] text-ink/80">
+          <p className="font-mono text-[11px] text-console-ink/80">
             signal:{" "}
             <span className="font-semibold text-defer">{decision.signal}</span>
           </p>
-          <p className="font-mono text-[11px] text-ink/80">
+          <p className="font-mono text-[11px] text-console-ink/80">
             timeoutMs: {decision.timeoutMs}{" "}
-            <span className="text-muted">
+            <span className="text-console-muted">
               ({humaniseTimeoutMs(decision.timeoutMs)})
             </span>
           </p>
-          <p className="text-[12px] text-muted">
+          <p className="text-[12px] text-console-muted">
             The kernel parks the intent until{" "}
-            <code className="font-mono text-ink/80">{decision.signal}</code>{" "}
+            <code className="font-mono text-console-ink/80">{decision.signal}</code>{" "}
             fires or {humaniseTimeoutMs(decision.timeoutMs)} elapses.
           </p>
         </div>
@@ -567,7 +567,7 @@ function DecisionBody({
       return (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+            <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
               routed to:
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-escalate/30 bg-escalate/10 px-3 py-1 text-[12px] font-medium text-escalate">
@@ -575,10 +575,10 @@ function DecisionBody({
               {decision.to}
             </span>
           </div>
-          <p className="font-mono text-[11px] italic text-ink">
+          <p className="font-mono text-[11px] italic text-console-ink">
             reason: {decision.reason}
           </p>
-          <p className="text-[12px] text-muted">
+          <p className="text-[12px] text-console-muted">
             Pending operator action — no side effect runs until cleared.
           </p>
         </div>
@@ -591,11 +591,11 @@ function DecisionBody({
             <p className="mb-1.5 font-mono text-[9px] uppercase tracking-section text-confirm">
               KERNEL ASKS
             </p>
-            <blockquote className="text-[13px] italic text-ink">
+            <blockquote className="text-[13px] italic text-console-ink">
               {decision.prompt}
             </blockquote>
           </div>
-          <p className="text-[12px] text-muted">
+          <p className="text-[12px] text-console-muted">
             The caller re-confirms by re-submitting with a confirmation receipt.
           </p>
         </div>
@@ -614,7 +614,7 @@ function BasisSection({
 }) {
   if (basis.length === 0) return null;
   return (
-    <details className="border-b border-edge">
+    <details className="border-b border-console-edge">
       <summary aria-label="Show decision basis" className="cursor-pointer list-none">
         <SectionHeader
           label={`BASIS · ${basis.length}`}
@@ -649,22 +649,22 @@ function BasisRow({
       <div className="flex flex-wrap items-center gap-2">
         <code
           className={cn(
-            "rounded-md border border-edge bg-canvas px-2 py-0.5 font-mono text-[11px]",
-            universal ? "text-muted" : OUTCOME_TEXT_CLASS[kind],
+            "rounded-md border border-console-edge bg-console-canvas px-2 py-0.5 font-mono text-[11px]",
+            universal ? "text-console-muted" : OUTCOME_TEXT_CLASS[kind],
           )}
         >
           {key}
         </code>
         {detail ? (
-          <code className="font-mono text-[10px] text-muted">
+          <code className="font-mono text-[10px] text-console-muted">
             {JSON.stringify(detail)}
           </code>
         ) : null}
       </div>
       {plain ? (
-        <p className="text-[12px] leading-snug text-muted">{plain}</p>
+        <p className="text-[12px] leading-snug text-console-muted">{plain}</p>
       ) : (
-        <p className="text-[11px] italic leading-snug text-muted">
+        <p className="text-[11px] italic leading-snug text-console-muted">
           No canonical explanation for this code.
         </p>
       )}
@@ -683,7 +683,7 @@ function AuditSection({
 }) {
   const segments = auditToSegments(record);
   return (
-    <details className="border-b border-edge">
+    <details className="border-b border-console-edge">
       <summary aria-label="Show audit record" className="cursor-pointer list-none">
         <SectionHeader
           label={`AUDIT · record v${record.version}`}
@@ -693,10 +693,10 @@ function AuditSection({
       </summary>
       <div className="flex flex-col gap-2 px-4 py-3">
         {kind === "REWRITE" ? (
-          <p className="text-[11px] text-muted">
+          <p className="text-[11px] text-console-muted">
             Note: this is the proposed envelope&apos;s intentHash. The rewritten
             envelope&apos;s hash (
-            <code className="font-mono text-ink/80">
+            <code className="font-mono text-console-ink/80">
               decision.rewritten.intentHash
             </code>
             ) differs — see DECISION above.
@@ -772,19 +772,19 @@ function CryptoSection({
         {rows.map((row) => (
           <div
             key={row.label}
-            className="flex flex-col gap-0.5 border-b border-edge/60 pb-1.5 last:border-0 last:pb-0 md:flex-row md:items-baseline md:gap-3"
+            className="flex flex-col gap-0.5 border-b border-console-edge/60 pb-1.5 last:border-0 last:pb-0 md:flex-row md:items-baseline md:gap-3"
           >
-            <span className="min-w-[140px] flex-none font-mono text-[10px] uppercase tracking-section text-muted">
+            <span className="min-w-[140px] flex-none font-mono text-[10px] uppercase tracking-section text-console-muted">
               {row.label}
             </span>
-            <span className="min-w-0 break-all font-mono text-[11px] text-ink/85">
+            <span className="min-w-0 break-all font-mono text-[11px] text-console-ink/85">
               {row.value}
             </span>
           </div>
         ))}
         {metadataEntries.length > 0 ? (
           <div className="mt-1 flex flex-col gap-1">
-            <span className="font-mono text-[9px] uppercase tracking-section text-muted">
+            <span className="font-mono text-[9px] uppercase tracking-section text-console-muted">
               metadata · v5
             </span>
             {metadataEntries.map(([k, v]) => (
@@ -792,10 +792,10 @@ function CryptoSection({
                 key={k}
                 className="flex flex-col gap-0.5 md:flex-row md:items-baseline md:gap-3"
               >
-                <span className="min-w-[140px] flex-none font-mono text-[10px] text-muted">
+                <span className="min-w-[140px] flex-none font-mono text-[10px] text-console-muted">
                   {k}
                 </span>
-                <span className="min-w-0 break-all font-mono text-[11px] text-ink/85">
+                <span className="min-w-0 break-all font-mono text-[11px] text-console-ink/85">
                   {typeof v === "string" ||
                   typeof v === "number" ||
                   typeof v === "boolean"
@@ -826,15 +826,15 @@ function JsonSegmentView({
   return (
     <pre
       aria-label={label}
-      className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-ink/85"
+      className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-console-ink/85"
     >
       {segments.map((seg, i) => (
         <span key={i}>
-          <span className="text-muted">{seg.before}</span>
+          <span className="text-console-muted">{seg.before}</span>
           {seg.highlight ? (
             <span className={highlightClass}>{seg.highlight}</span>
           ) : null}
-          {seg.after ? <span className="text-muted">{seg.after}</span> : null}
+          {seg.after ? <span className="text-console-muted">{seg.after}</span> : null}
           {i < segments.length - 1 ? "\n" : null}
         </span>
       ))}

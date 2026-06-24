@@ -4,10 +4,10 @@ import { cn } from "@/lib/cn";
 type MetricTone = "ok" | "warn" | "crit" | "neutral";
 
 const TONE: Record<MetricTone, { value: string; badge: string }> = {
-  ok: { value: "text-execute-strong", badge: "border-execute/40 bg-execute/10 text-execute-strong" },
-  warn: { value: "text-defer-strong", badge: "border-defer/40 bg-defer/10 text-defer-strong" },
-  crit: { value: "text-refuse-strong", badge: "border-refuse/40 bg-refuse/10 text-refuse-strong" },
-  neutral: { value: "text-ink", badge: "border-edge bg-canvas text-muted" },
+  ok: { value: "text-execute", badge: "border-execute/40 bg-execute/10 text-execute" },
+  warn: { value: "text-defer", badge: "border-defer/40 bg-defer/10 text-defer" },
+  crit: { value: "text-refuse", badge: "border-refuse/40 bg-refuse/10 text-refuse" },
+  neutral: { value: "text-console-ink", badge: "border-console-edge bg-console-canvas text-console-muted" },
 };
 
 /**
@@ -40,7 +40,7 @@ export function TransparencyMetric({
   return (
     <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
       <div className="min-w-0">
-        <p className="text-eyebrow uppercase text-muted">{label}</p>
+        <p className="text-eyebrow uppercase text-console-muted">{label}</p>
         <div className="mt-3 flex items-baseline gap-2">
           <span
             className={cn(
@@ -51,10 +51,10 @@ export function TransparencyMetric({
             {value}
           </span>
           {unit ? (
-            <span className="text-h3 font-semibold text-muted">{unit}</span>
+            <span className="text-h3 font-semibold text-console-muted">{unit}</span>
           ) : null}
         </div>
-        {detail ? <p className="mt-3 text-body text-muted">{detail}</p> : null}
+        {detail ? <p className="mt-3 text-body text-console-muted">{detail}</p> : null}
         {status ? (
           <span
             className={cn(

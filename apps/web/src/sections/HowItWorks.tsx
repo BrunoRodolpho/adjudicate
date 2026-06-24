@@ -10,6 +10,8 @@ import {
   UserCheck,
   type LucideIcon,
 } from "lucide-react";
+import { BoundariesRail } from "@/components/home/BoundariesRail";
+import { IntentAuthFlow } from "@/components/home/IntentAuthFlow";
 
 /**
  * HowItWorks — the conceptual story (Tier 0b: scroll-triggered detail).
@@ -30,17 +32,17 @@ import {
  */
 export function HowItWorks() {
   return (
-    <section id="how-it-works" className="bg-canvas">
+    <section id="how-it-works" className="bg-console-canvas">
       {/* Bridge sentence between Hero and the story */}
       <div className="mx-auto max-w-3xl px-6 pt-20 text-center">
-        <p className="text-2xl font-semibold leading-snug text-ink md:text-3xl">
+        <p className="text-2xl font-semibold leading-snug text-console-ink md:text-3xl">
           LLMs generate possibilities.
           <br />
           <span className="bg-gradient-primary bg-clip-text text-transparent">
             Production systems require decisions.
           </span>
         </p>
-        <p className="mt-4 text-sm uppercase tracking-section text-muted">
+        <p className="mt-4 text-sm uppercase tracking-section text-console-muted">
           Scroll to see what sits between them.
         </p>
       </div>
@@ -54,13 +56,25 @@ export function HowItWorks() {
       <Frame1 />
       <Frame2 />
       <Frame3 />
+      {/* The same intent, alive: from the LLM's proposal through classification,
+          policy/IBAC, and the gateway to the real systems — the control layer
+          Frame 3 just introduced, running stage by stage. */}
+      <div className="mx-auto max-w-6xl px-6 pb-4">
+        <IntentAuthFlow />
+      </div>
       <Frame4 />
       <Frame5 />
+      {/* Defense in depth, alive: the five trust boundaries every requested
+          action crosses — the universal mechanism Frame 5 describes, lighting
+          boundary by boundary, fail-closed. */}
+      <div className="mx-auto max-w-6xl px-6 pb-4">
+        <BoundariesRail />
+      </div>
       <Frame6 />
 
       {/* Closing CTA */}
       <div className="mx-auto max-w-3xl px-6 pb-24 pt-12 text-center">
-        <p className="text-lg text-muted">
+        <p className="text-lg text-console-muted">
           You&apos;ve seen the mechanism. Now run it against the real kernel
           with the real Packs.
         </p>
@@ -84,7 +98,7 @@ function SizzleReel() {
   const reduce = useReducedMotion();
   return (
     <div className="mx-auto mt-10 max-w-4xl px-6">
-      <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-lg">
+      <div className="overflow-hidden rounded-2xl border border-console-edge bg-console-panel shadow-lg">
         {reduce ? (
           <img
             src="/how-it-works-poster.jpg"
@@ -99,7 +113,7 @@ function SizzleReel() {
             playsInline
             poster="/how-it-works-poster.jpg"
             aria-label={SIZZLE_ALT}
-            className="block h-auto w-full bg-canvas"
+            className="block h-auto w-full bg-console-canvas"
           >
             {/* MP4 first (universal H.264 support); WebM second.
                 Browsers don't auto-fall-through after a decode error,
@@ -127,15 +141,15 @@ function FrameShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto grid max-w-6xl items-center gap-8 border-t border-edge/60 px-6 py-12 first:border-t-0 md:grid-cols-2 md:gap-12 md:py-16">
+    <div className="mx-auto grid max-w-6xl items-center gap-8 border-t border-console-edge/60 px-6 py-12 first:border-t-0 md:grid-cols-2 md:gap-12 md:py-16">
       <div className="flex flex-col gap-3">
-        <span className="text-xs uppercase tracking-section text-muted">
+        <span className="text-xs uppercase tracking-section text-console-muted">
           Frame {num} of 6
         </span>
-        <h3 className="text-2xl font-semibold leading-tight tracking-tight text-ink md:text-3xl">
+        <h3 className="text-2xl font-semibold leading-tight tracking-tight text-console-ink md:text-3xl">
           {title}
         </h3>
-        <div className="text-sm leading-relaxed text-muted md:text-base">
+        <div className="text-sm leading-relaxed text-console-muted md:text-base">
           {caption}
         </div>
       </div>
@@ -156,7 +170,7 @@ function Frame1() {
       caption={
         <>
           A normal request flow. Whatever the agent proposes — a deploy, a
-          payment, a refund, a write — the system runs it. <span className="text-ink">This is fine, until it isn&apos;t.</span>
+          payment, a refund, a write — the system runs it. <span className="text-console-ink">This is fine, until it isn&apos;t.</span>
         </>
       }
     >
@@ -196,7 +210,7 @@ function Frame2() {
           <p className="font-mono text-xs uppercase tracking-section text-rewrite">
             Requested action
           </p>
-          <pre className="mt-2 whitespace-pre-wrap text-xs text-ink">{`{
+          <pre className="mt-2 whitespace-pre-wrap text-xs text-console-ink">{`{
   service: "api",
   environment: "production",
   rampPercent: 100
@@ -219,7 +233,7 @@ function Frame3() {
           Before your system acts, the requested action passes through a
           control layer. The agent no longer decides what happens — the
           control layer does. The action becomes a{" "}
-          <span className="font-mono text-sm text-ink">decision</span>.
+          <span className="font-mono text-sm text-console-ink">decision</span>.
         </>
       }
     >
@@ -231,7 +245,7 @@ function Frame3() {
           <Arrow size="sm" />
           <ProductionCluster size="sm" />
         </div>
-        <p className="mt-2 text-center text-xs uppercase tracking-section text-muted">
+        <p className="mt-2 text-center text-xs uppercase tracking-section text-console-muted">
           Same scenario · routed through the kernel
         </p>
       </div>
@@ -314,7 +328,7 @@ function Frame4() {
       caption={
         <>
           Allow/deny isn&apos;t enough for autonomous systems. The control
-          layer can <span className="font-semibold text-ink">execute, rewrite, refuse, defer, escalate, or request confirmation</span>. The
+          layer can <span className="font-semibold text-console-ink">execute, rewrite, refuse, defer, escalate, or request confirmation</span>. The
           rewrite is what makes this not a permission
           engine. Watch what it does to that 100% production deploy.
         </>
@@ -368,7 +382,7 @@ function Frame4Visual() {
               <p className={`text-sm font-semibold ${branch.color}`}>
                 {branch.label}
               </p>
-              <p className="text-xs text-muted">{branch.plain}</p>
+              <p className="text-xs text-console-muted">{branch.plain}</p>
               {isRewrite ? (
                 <p className="mt-1 font-mono text-[11px] text-rewrite">
                   rampPercent: 100 → 25
@@ -403,14 +417,14 @@ function Frame5() {
           {(["pix", "kyc", "deployments"] as const).map((p) => (
             <div
               key={p}
-              className="rounded-md border border-edge bg-surface px-3 py-1 font-mono text-xs text-muted"
+              className="rounded-md border border-console-edge bg-console-panel px-3 py-1 font-mono text-xs text-console-muted"
             >
               {p}
             </div>
           ))}
         </div>
         <div className="flex flex-col items-center gap-1">
-          <span className="text-xs text-muted">↓ snap into ↓</span>
+          <span className="text-xs text-console-muted">↓ snap into ↓</span>
         </div>
         <KernelBlock size="lg" />
       </div>
@@ -433,11 +447,11 @@ function Frame6() {
         </>
       }
     >
-      <div className="w-full max-w-md rounded-xl border border-edge bg-surface p-5 shadow-sm">
-        <p className="text-xs uppercase tracking-section text-muted">
+      <div className="w-full max-w-md rounded-xl border border-console-edge bg-console-panel p-5 shadow-sm">
+        <p className="text-xs uppercase tracking-section text-console-muted">
           AuditRecord (real fields, real values)
         </p>
-        <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-md bg-canvas p-3 font-mono text-[11px] leading-relaxed text-ink">{`{
+        <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-md bg-console-canvas p-3 font-mono text-[11px] leading-relaxed text-console-ink">{`{
   intentHash: "sha256:9f4c…",
   intentKind: "deployment.approval.request",
   decision: "REWRITE",
@@ -469,7 +483,7 @@ function NodeBox({
   const cls =
     tone === "danger"
       ? "border-refuse/40 bg-refuse/10 text-refuse"
-      : "border-edge bg-surface text-ink";
+      : "border-console-edge bg-console-panel text-console-ink";
   return (
     <div className={`rounded-md border font-mono ${cls} ${padding}`}>{label}</div>
   );
@@ -483,7 +497,7 @@ function Arrow({
   size?: "sm" | "md";
 }) {
   const reduce = useReducedMotion();
-  const color = tone === "danger" ? "text-refuse/70" : "text-faint";
+  const color = tone === "danger" ? "text-refuse/70" : "text-console-faint";
   const w = size === "sm" ? 18 : 22;
   return (
     <motion.span
@@ -519,8 +533,8 @@ function KernelBlock({ size = "md" }: { size?: "md" | "lg" }) {
 function ProductionCluster({ size = "md" }: { size?: "sm" | "md" }) {
   const padding = size === "sm" ? "px-2 py-1.5 text-[10px]" : "px-3 py-2 text-[11px]";
   return (
-    <div className={`flex flex-col items-center gap-1 rounded-md border border-edge bg-surface ${padding}`}>
-      <span className="font-mono text-muted">production systems</span>
+    <div className={`flex flex-col items-center gap-1 rounded-md border border-console-edge bg-console-panel ${padding}`}>
+      <span className="font-mono text-console-muted">production systems</span>
       <div className="flex gap-1.5 text-base">
         <span title="database">🗄️</span>
         <span title="cloud">☁️</span>

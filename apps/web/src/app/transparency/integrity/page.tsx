@@ -33,10 +33,10 @@ const STABILITY_ORDER: readonly KillSwitchStabilityClass[] = [
 ];
 
 const STABILITY_TONE: Record<KillSwitchStabilityClass, string> = {
-  stable: "border-execute/50 bg-execute/10 text-execute-strong",
-  single_incident: "border-defer/50 bg-defer/10 text-defer-strong",
-  recurring_incidents: "border-rewrite/50 bg-rewrite/10 text-rewrite-strong",
-  storm: "border-refuse/50 bg-refuse/10 text-refuse-strong",
+  stable: "border-execute/50 bg-execute/10 text-execute",
+  single_incident: "border-defer/50 bg-defer/10 text-defer",
+  recurring_incidents: "border-rewrite/50 bg-rewrite/10 text-rewrite",
+  storm: "border-refuse/50 bg-refuse/10 text-refuse",
 };
 
 /**
@@ -73,7 +73,7 @@ export default function ConfigIntegrityTransparencyPage() {
             aria-label={badgeAriaLabel(badge)}
             data-testid="integrity-badge"
           >
-            <p className="text-eyebrow uppercase text-muted">
+            <p className="text-eyebrow uppercase text-console-muted">
               Kill-switch stability
             </p>
             <ol
@@ -91,14 +91,14 @@ export default function ConfigIntegrityTransparencyPage() {
                       className={
                         isCurrent
                           ? `rounded-full border px-2 py-0.5 ${STABILITY_TONE[cls]}`
-                          : "rounded-full border border-edge px-2 py-0.5 text-muted"
+                          : "rounded-full border border-console-edge px-2 py-0.5 text-console-muted"
                       }
                     >
                       {STABILITY_LABEL[cls]}
                       {isCurrent ? <span className="sr-only"> (current)</span> : null}
                     </span>
                     {i < STABILITY_ORDER.length - 1 ? (
-                      <span aria-hidden className="text-faint">
+                      <span aria-hidden className="text-console-faint">
                         →
                       </span>
                     ) : null}

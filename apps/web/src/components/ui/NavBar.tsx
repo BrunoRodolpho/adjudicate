@@ -35,11 +35,13 @@ function isGroupActive(pathname: string, group: NavGroup): boolean {
 /**
  * Global sticky header. Reads every link from `content/nav.ts`. Translucent
  * with a backdrop blur; the bottom border fades in once the page scrolls.
- * Architecture renders as a hover/focus dropdown on desktop; on mobile the
- * whole graph opens in a full-screen sheet. Respects prefers-reduced-motion.
+ * On the dark homepage (`/`) it switches to a dark-glass treatment so it reads
+ * over the constitutional control room. Respects prefers-reduced-motion.
  */
 export function NavBar() {
   const pathname = usePathname() ?? "/";
+  // Whole site is now the dark "constitutional control room".
+  const dark = true;
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -58,8 +60,13 @@ export function NavBar() {
   return (
     <header
       className={cn(
-        "sticky top-0 z-50 bg-canvas/80 backdrop-blur transition-colors",
-        scrolled ? "border-b border-edge" : "border-b border-transparent",
+        "sticky top-0 z-50 backdrop-blur transition-colors",
+        dark ? "bg-console-canvas/80" : "bg-canvas/80",
+        scrolled
+          ? dark
+            ? "border-b border-console-edge"
+            : "border-b border-edge"
+          : "border-b border-transparent",
       )}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-6">
@@ -69,27 +76,49 @@ export function NavBar() {
           className="flex items-baseline gap-1.5"
           aria-label="adjudicate home"
         >
-          <span className="font-mono text-sm font-medium tracking-tight text-ink">
+          <span
+            className={cn(
+              "font-mono text-sm font-medium tracking-tight",
+              dark ? "text-console-ink" : "text-ink",
+            )}
+          >
             adjudicate
           </span>
-          <span className="rounded-sm border border-edge px-1 py-px font-mono text-[10px] uppercase tracking-section text-muted">
+          <span
+            className={cn(
+              "rounded-sm border px-1 py-px font-mono text-[10px] uppercase tracking-section",
+              dark
+                ? "border-console-edge text-console-muted"
+                : "border-edge text-muted",
+            )}
+          >
             {SITE.versionLabel}
           </span>
         </Link>
 
         {/* Desktop nav */}
-        <nav
-          aria-label="Primary"
-          className="hidden items-center gap-1 lg:flex"
-        >
+        <nav aria-label="Primary" className="hidden items-center gap-1 lg:flex">
           {PRIMARY_NAV.map((entry) => (
-            <DesktopEntry key={entry.label} entry={entry} pathname={pathname} />
+            <DesktopEntry
+              key={entry.label}
+              entry={entry}
+              pathname={pathname}
+              dark={dark}
+            />
           ))}
         </nav>
 
         {/* Desktop CTAs */}
         <div className="hidden items-center gap-2 lg:flex">
-          <Button href={NAV_CONSOLE_HREF} variant="ghost">
+          <Button
+            href={NAV_CONSOLE_HREF}
+            variant="ghost"
+            className={
+              dark
+                ? "text-console-muted hover:bg-console-edge/60 hover:text-console-ink"
+                : undefined
+            }
+          >
             Open console
           </Button>
           <Button href={NAV_GITHUB_HREF} external>
@@ -103,7 +132,12 @@ export function NavBar() {
           onClick={() => setOpen(true)}
           aria-label="Open menu"
           aria-expanded={open}
-          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-2 text-ink transition-colors hover:bg-edge focus-ring lg:hidden"
+          className={cn(
+            "inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-2 transition-colors focus-ring lg:hidden",
+            dark
+              ? "text-console-ink hover:bg-console-edge"
+              : "text-ink hover:bg-edge",
+          )}
         >
           <Menu size={20} aria-hidden="true" />
         </button>
@@ -113,6 +147,7 @@ export function NavBar() {
         open={open}
         onClose={() => setOpen(false)}
         pathname={pathname}
+        dark={dark}
       />
     </header>
   );
@@ -122,26 +157,29 @@ export function NavBar() {
 function DesktopEntry({
   entry,
   pathname,
+  dark,
 }: {
   readonly entry: NavEntry;
   readonly pathname: string;
+  readonly dark: boolean;
 }) {
   if (isNavGroup(entry)) {
-    return <DesktopDropdown group={entry} pathname={pathname} />;
+    return <DesktopDropdown group={entry} pathname={pathname} dark={dark} />;
   }
   const active = !entry.external && isActive(pathname, entry.href);
   const className = cn(
     "whitespace-nowrap rounded-full px-3 py-2 text-sm transition-colors focus-ring",
-    active ? "text-ink" : "text-muted hover:text-ink",
+    dark
+      ? active
+        ? "text-console-ink"
+        : "text-console-muted hover:text-console-ink"
+      : active
+        ? "text-ink"
+        : "text-muted hover:text-ink",
   );
   if (entry.external) {
     return (
-      <a
-        href={entry.href}
-        target="_blank"
-        rel="noreferrer"
-        className={className}
-      >
+      <a href={entry.href} target="_blank" rel="noreferrer" className={className}>
         {entry.label}
       </a>
     );
@@ -158,28 +196,22 @@ function DesktopEntry({
 }
 
 /**
- * Hover/focus dropdown for a nav group (desktop). Opens on pointer hover and on
- * keyboard focus; closes on mouse-leave, on focus leaving the subtree, on Escape,
- * and — crucially — once an item is chosen.
- *
- * This is controlled rather than pure-CSS on purpose: client-side navigation
- * keeps the NavBar mounted, so a `:hover`/`:focus-within` panel would stay open
- * after a click (the chosen link keeps focus and the cursor stays over the
- * panel). The `open` state plus the pathname effect force it shut on navigation.
+ * Hover/focus dropdown for a nav group (desktop). Controlled rather than
+ * pure-CSS so it closes on navigation, Escape, and focus leaving the subtree.
  */
 function DesktopDropdown({
   group,
   pathname,
+  dark,
 }: {
   readonly group: NavGroup;
   readonly pathname: string;
+  readonly dark: boolean;
 }) {
   const active = isGroupActive(pathname, group);
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
 
-  // Route changed (client-side nav keeps this mounted) — drop the panel so the
-  // chosen item's retained focus/hover can't hold it open.
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
@@ -191,7 +223,6 @@ function DesktopDropdown({
       onMouseLeave={() => setOpen(false)}
       onFocus={() => setOpen(true)}
       onBlur={(e) => {
-        // Close only when focus leaves the dropdown subtree entirely.
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
           setOpen(false);
         }
@@ -206,7 +237,13 @@ function DesktopDropdown({
         aria-expanded={open}
         className={cn(
           "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-2 text-sm transition-colors focus-ring",
-          active ? "text-ink" : "text-muted hover:text-ink",
+          dark
+            ? active
+              ? "text-console-ink"
+              : "text-console-muted hover:text-console-ink"
+            : active
+              ? "text-ink"
+              : "text-muted hover:text-ink",
         )}
       >
         {group.label}
@@ -226,12 +263,17 @@ function DesktopDropdown({
             transition={{ duration: 0.18, ease: EASE_OUT }}
           >
             <ul
-              className="w-72 rounded-xl border border-edge bg-surface p-2 shadow-xl"
+              className={cn(
+                "w-72 rounded-xl border p-2 shadow-xl",
+                dark
+                  ? "border-console-edge bg-console-panel"
+                  : "border-edge bg-surface",
+              )}
               onClick={() => setOpen(false)}
             >
               {group.items.map((item) => (
                 <li key={item.label}>
-                  <DropdownItem item={item} pathname={pathname} />
+                  <DropdownItem item={item} pathname={pathname} dark={dark} />
                 </li>
               ))}
             </ul>
@@ -245,22 +287,37 @@ function DesktopDropdown({
 function DropdownItem({
   item,
   pathname,
+  dark,
 }: {
   readonly item: NavLink;
   readonly pathname: string;
+  readonly dark: boolean;
 }) {
   const active = !item.external && isActive(pathname, item.href);
   const className = cn(
     "block rounded-lg px-3 py-2 transition-colors focus-ring",
-    active ? "bg-edge" : "hover:bg-edge",
+    dark
+      ? active
+        ? "bg-console-edge"
+        : "hover:bg-console-edge"
+      : active
+        ? "bg-edge"
+        : "hover:bg-edge",
   );
   const body = (
     <>
-      <span className={cn("block text-sm", active ? "text-ink" : "text-ink")}>
+      <span
+        className={cn("block text-sm", dark ? "text-console-ink" : "text-ink")}
+      >
         {item.label}
       </span>
       {item.description ? (
-        <span className="mt-0.5 block text-xs text-muted">
+        <span
+          className={cn(
+            "mt-0.5 block text-xs",
+            dark ? "text-console-muted" : "text-muted",
+          )}
+        >
           {item.description}
         </span>
       ) : null}
@@ -284,66 +341,90 @@ function DropdownItem({
   );
 }
 
-/** Full-screen mobile navigation sheet — an accessible Dialog (focus trap,
- *  Escape, focus restore, scroll lock). */
+/** Full-screen mobile navigation sheet — an accessible Dialog. */
 function MobileSheet({
   open,
   onClose,
   pathname,
+  dark,
 }: {
   readonly open: boolean;
   readonly onClose: () => void;
   readonly pathname: string;
+  readonly dark: boolean;
 }) {
   return (
     <Dialog
       open={open}
       onClose={onClose}
       label="Site navigation"
-      className="bg-canvas lg:hidden"
+      className={cn("lg:hidden", dark ? "bg-console-canvas" : "bg-canvas")}
     >
       <div className="flex h-16 items-center justify-between px-6">
-            <span className="flex items-baseline gap-1.5">
-              <span className="font-mono text-sm font-medium text-ink">
-                adjudicate
-              </span>
-              <span className="font-mono text-[11px] text-muted">
-                {SITE.versionLabel}
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close menu"
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-2 text-ink transition-colors hover:bg-edge focus-ring"
-            >
-              <X size={20} aria-hidden="true" />
-            </button>
-          </div>
-          <nav
-            aria-label="Mobile"
-            className="flex h-[calc(100%-4rem)] flex-col gap-6 overflow-y-auto px-6 pb-10 pt-2"
+        <span className="flex items-baseline gap-1.5">
+          <span
+            className={cn(
+              "font-mono text-sm font-medium",
+              dark ? "text-console-ink" : "text-ink",
+            )}
           >
-            <ul className="flex flex-col gap-1">
-              {PRIMARY_NAV.map((entry) => (
-                <li key={entry.label}>
-                  {isNavGroup(entry) ? (
-                    <MobileGroup group={entry} pathname={pathname} />
-                  ) : (
-                    <MobileLink link={entry} pathname={pathname} large />
-                  )}
-                </li>
-              ))}
-            </ul>
-            <div className="mt-auto flex flex-col gap-3">
-              <Button href={NAV_CONSOLE_HREF} variant="outline" className="justify-center">
-                Open console
-              </Button>
-              <Button href={NAV_GITHUB_HREF} external className="justify-center">
-                <Github size={16} aria-hidden="true" /> GitHub
-              </Button>
-            </div>
-          </nav>
+            adjudicate
+          </span>
+          <span
+            className={cn(
+              "font-mono text-[11px]",
+              dark ? "text-console-muted" : "text-muted",
+            )}
+          >
+            {SITE.versionLabel}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close menu"
+          className={cn(
+            "inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-2 transition-colors focus-ring",
+            dark
+              ? "text-console-ink hover:bg-console-edge"
+              : "text-ink hover:bg-edge",
+          )}
+        >
+          <X size={20} aria-hidden="true" />
+        </button>
+      </div>
+      <nav
+        aria-label="Mobile"
+        className="flex h-[calc(100%-4rem)] flex-col gap-6 overflow-y-auto px-6 pb-10 pt-2"
+      >
+        <ul className="flex flex-col gap-1">
+          {PRIMARY_NAV.map((entry) => (
+            <li key={entry.label}>
+              {isNavGroup(entry) ? (
+                <MobileGroup group={entry} pathname={pathname} dark={dark} />
+              ) : (
+                <MobileLink link={entry} pathname={pathname} dark={dark} large />
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="mt-auto flex flex-col gap-3">
+          <Button
+            href={NAV_CONSOLE_HREF}
+            variant="outline"
+            className="justify-center"
+          >
+            Open console
+          </Button>
+          <Button
+            href={NAV_GITHUB_HREF}
+            external
+            className="justify-center"
+          >
+            <Github size={16} aria-hidden="true" /> GitHub
+          </Button>
+        </div>
+      </nav>
     </Dialog>
   );
 }
@@ -351,19 +432,26 @@ function MobileSheet({
 function MobileGroup({
   group,
   pathname,
+  dark,
 }: {
   readonly group: NavGroup;
   readonly pathname: string;
+  readonly dark: boolean;
 }) {
   return (
     <div className="py-2">
-      <p className="px-1 py-1 text-xs uppercase tracking-section text-muted">
+      <p
+        className={cn(
+          "px-1 py-1 text-xs uppercase tracking-section",
+          dark ? "text-console-muted" : "text-muted",
+        )}
+      >
         {group.label}
       </p>
       <ul className="flex flex-col gap-0.5">
         {group.items.map((item) => (
           <li key={item.label}>
-            <MobileLink link={item} pathname={pathname} />
+            <MobileLink link={item} pathname={pathname} dark={dark} />
           </li>
         ))}
       </ul>
@@ -374,17 +462,25 @@ function MobileGroup({
 function MobileLink({
   link,
   pathname,
+  dark,
   large,
 }: {
   readonly link: NavLink;
   readonly pathname: string;
+  readonly dark: boolean;
   readonly large?: boolean;
 }) {
   const active = !link.external && isActive(pathname, link.href);
   const className = cn(
     "block rounded-lg px-1 py-2 transition-colors focus-ring",
     large ? "text-lg font-medium" : "text-base",
-    active ? "text-ink" : "text-muted",
+    dark
+      ? active
+        ? "text-console-ink"
+        : "text-console-muted"
+      : active
+        ? "text-ink"
+        : "text-muted",
   );
   if (link.external) {
     return (

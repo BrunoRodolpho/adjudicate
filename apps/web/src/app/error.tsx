@@ -22,11 +22,11 @@ export default function Error({
 
   return (
     <main className="mx-auto flex min-h-[60vh] max-w-content flex-col items-center justify-center gap-6 px-6 py-section text-center">
-      <span className="inline-flex items-center gap-2 rounded-full border border-refuse/40 bg-refuse/10 px-3 py-1 text-eyebrow uppercase text-refuse-strong">
+      <span className="inline-flex items-center gap-2 rounded-full border border-refuse/40 bg-refuse/10 px-3 py-1 text-eyebrow uppercase text-refuse">
         Error · refused
       </span>
-      <h1 className="text-h1 text-ink md:text-h1-lg">Something went wrong.</h1>
-      <p className="max-w-measure text-lead text-muted">
+      <h1 className="text-h1 text-console-ink md:text-h1-lg">Something went wrong.</h1>
+      <p className="max-w-measure text-lead text-console-muted">
         An unexpected error interrupted this page. You can retry, or head back to
         safe ground.
       </p>
@@ -34,7 +34,7 @@ export default function Error({
         <button
           type="button"
           onClick={reset}
-          className="focus-ring rounded-lg border border-edge bg-surface px-4 py-2.5 text-sm font-medium text-ink shadow-xs transition-shadow hover:shadow-sm"
+          className="focus-ring-console rounded-lg border border-console-edge bg-console-panel px-4 py-2.5 text-sm font-medium text-console-ink transition-colors hover:bg-console-canvas"
         >
           Try again
         </button>

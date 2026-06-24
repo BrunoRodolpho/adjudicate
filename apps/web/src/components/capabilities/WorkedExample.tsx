@@ -135,17 +135,17 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
   return (
     <div className="flex flex-col gap-3">
       <RealKernelLabel />
-      <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-sm">
-        <header className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
+      <div className="overflow-hidden rounded-2xl border border-console-edge bg-console-panel">
+        <header className="flex items-center justify-between gap-3 border-b border-console-edge px-4 py-3">
           <DecisionChip kind={decision.kind} size="md" />
-          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+          <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
             command-risk · summary
           </span>
         </header>
 
         <div className="flex flex-col gap-4 px-4 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+            <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
               risk category:
             </span>
             <span className="rounded-md border border-escalate/30 bg-escalate/10 px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-section text-escalate">
@@ -154,13 +154,13 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+            <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
               basis · {codes.length}
             </span>
             <ul className="flex flex-wrap gap-1.5">
               {codes.map((code) => (
                 <li key={code}>
-                  <code className="rounded-md border border-edge bg-canvas px-2 py-0.5 font-mono text-[11px] text-ink/85">
+                  <code className="rounded-md border border-console-edge bg-console-canvas px-2 py-0.5 font-mono text-[11px] text-console-ink">
                     {code}
                   </code>
                 </li>
@@ -172,8 +172,8 @@ function CommandRiskSummary({ decision }: { readonly decision: Decision }) {
             By policy (ADR-123) the raw command, the basis detail, and the
             confirmation prompt are withheld from every surface. The kernel
             still made a real, audited decision — this summary reports the
-            outcome by <span className="text-ink">category</span> and{" "}
-            <span className="text-ink">basis</span> alone.
+            outcome by <span className="text-console-ink">category</span> and{" "}
+            <span className="text-console-ink">basis</span> alone.
           </Callout>
         </div>
       </div>
@@ -200,7 +200,7 @@ function extractRiskCategory(
 
 function RealKernelLabel() {
   return (
-    <p className="flex items-center gap-2 text-[11px] uppercase tracking-section text-muted">
+    <p className="flex items-center gap-2 text-[11px] uppercase tracking-section text-console-muted">
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-execute" />
       Real kernel · run server-side at render time
     </p>
@@ -397,9 +397,9 @@ function ReceiptExample({
  * Absent / non-numeric score → renders nothing.
  */
 const HALLUCINATION_BUCKET_STYLE: Record<string, string> = {
-  grounded: "border-emerald-500/40 bg-emerald-500/5 text-emerald-600",
-  uncertain: "border-amber-500/40 bg-amber-500/5 text-amber-600",
-  hallucinated: "border-red-500/40 bg-red-500/5 text-red-600",
+  grounded: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+  uncertain: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+  hallucinated: "border-red-500/40 bg-red-500/10 text-red-300",
 };
 
 function HallucinationBadge({ record }: { readonly record: AuditRecord }) {
@@ -411,22 +411,22 @@ function HallucinationBadge({ record }: { readonly record: AuditRecord }) {
   const bucket = typeof rawBucket === "string" ? rawBucket : "uncertain";
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
-      <span className="text-[10px] uppercase tracking-section text-muted">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-console-edge bg-console-panel px-3 py-2">
+      <span className="text-[10px] uppercase tracking-section text-console-muted">
         Hallucination · ADR-124
       </span>
       <span
         className={cn(
           "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] uppercase tracking-section",
-          HALLUCINATION_BUCKET_STYLE[bucket] ?? "border-edge text-muted",
+          HALLUCINATION_BUCKET_STYLE[bucket] ?? "border-console-edge text-console-muted",
         )}
       >
         {bucket}
       </span>
-      <span className="font-mono text-[11px] tabular-nums text-ink/85">
+      <span className="font-mono text-[11px] tabular-nums text-console-ink">
         score {score.toFixed(2)}
       </span>
-      <span className="text-[11px] text-muted">
+      <span className="text-[11px] text-console-muted">
         — an upstream observability signal, not an argument to the decision.
       </span>
     </div>
@@ -490,7 +490,7 @@ function ReplicaExample({
           </p>
         </div>
       </ConsoleChrome>
-      <p className="text-xs text-muted">
+      <p className="text-xs text-console-muted">
         Illustrative replica · committed sample data, no live tenant detail.
       </p>
     </div>
@@ -511,17 +511,17 @@ function PackExample({
   readonly spec: Extract<WorkedExampleSpec, { kind: "pack" }>;
 }) {
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-edge bg-surface p-6 shadow-sm">
+    <div className="flex flex-col gap-4 rounded-2xl border border-console-edge bg-console-panel p-6">
       <IllustrativeLabel>Reference pack</IllustrativeLabel>
 
       <div className="flex flex-col gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+        <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
           Governed intents · {spec.intents.length}
         </span>
         <ul className="flex flex-wrap gap-1.5">
           {spec.intents.map((intent) => (
             <li key={intent}>
-              <code className="rounded-md border border-edge bg-canvas px-2 py-0.5 font-mono text-[11px] text-ink/85">
+              <code className="rounded-md border border-console-edge bg-console-canvas px-2 py-0.5 font-mono text-[11px] text-console-ink">
                 {intent}
               </code>
             </li>
@@ -530,7 +530,7 @@ function PackExample({
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+        <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
           Outcomes its policies produce
         </span>
         <div className="flex flex-wrap gap-1.5">
@@ -572,20 +572,20 @@ function IllustrationExample({
   readonly spec: Extract<WorkedExampleSpec, { kind: "illustration" }>;
 }) {
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-edge bg-surface p-6 shadow-sm">
+    <div className="flex flex-col gap-4 rounded-2xl border border-console-edge bg-console-panel p-6">
       <IllustrativeLabel>Illustrative explainer</IllustrativeLabel>
-      <h3 className="text-lg font-semibold tracking-tight text-ink">
+      <h3 className="text-lg font-semibold tracking-tight text-console-ink">
         {spec.title}
       </h3>
 
       <IllustrationDiagram slug={capability.slug} />
 
-      <p className="max-w-3xl text-sm leading-relaxed text-muted">
+      <p className="max-w-3xl text-sm leading-relaxed text-console-muted">
         {spec.body}
       </p>
       {spec.outcomes && spec.outcomes.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+          <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
             Outcomes
           </span>
           <div className="flex flex-wrap gap-1.5">
@@ -630,22 +630,22 @@ function PolicyCoherenceDiagram() {
   ] as const;
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-edge bg-canvas p-4">
+    <div className="flex flex-col gap-4 rounded-xl border border-console-edge bg-console-canvas p-4">
       <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-stretch gap-2">
         {steps.map((step, i) => (
           <Fragment key={step.label}>
-            <div className="flex flex-col items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-3 text-center">
-              <step.icon size={18} className="text-ink/70" aria-hidden="true" />
-              <span className="text-xs font-semibold leading-tight text-ink">
+            <div className="flex flex-col items-center gap-1.5 rounded-lg border border-console-edge bg-console-panel px-3 py-3 text-center">
+              <step.icon size={18} className="text-console-muted" aria-hidden="true" />
+              <span className="text-xs font-semibold leading-tight text-console-ink">
                 {step.label}
               </span>
-              <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+              <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
                 {step.sub}
               </span>
             </div>
             {i < steps.length - 1 ? (
               <div className="flex items-center justify-center">
-                <ArrowRight size={16} className="text-faint" aria-hidden="true" />
+                <ArrowRight size={16} className="text-console-faint" aria-hidden="true" />
               </div>
             ) : null}
           </Fragment>
@@ -658,14 +658,14 @@ function PolicyCoherenceDiagram() {
           return (
             <li
               key={d}
-              className="flex items-start gap-2 text-xs leading-relaxed text-muted"
+              className="flex items-start gap-2 text-xs leading-relaxed text-console-muted"
             >
               <span
                 className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-refuse"
                 aria-hidden="true"
               />
               <span>
-                <span className="font-medium text-ink">{head}:</span>
+                <span className="font-medium text-console-ink">{head}:</span>
                 {rest.join(":")}
               </span>
             </li>
@@ -684,40 +684,40 @@ function PolicyCoherenceDiagram() {
  */
 function AgentMemoryDiagram() {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-edge bg-canvas p-4">
+    <div className="flex flex-col gap-3 rounded-xl border border-console-edge bg-console-canvas p-4">
       {/* Decision lane — drives the kernel. */}
       <div className="flex flex-col gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+        <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
           Decision lane · drives the kernel
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <LaneBox label="Envelope + State S" tone="ink" />
-          <ArrowRight size={16} className="text-faint" aria-hidden="true" />
+          <ArrowRight size={16} className="text-console-faint" aria-hidden="true" />
           <LaneBox label="Kernel · adjudicate" tone="ink" />
-          <ArrowRight size={16} className="text-faint" aria-hidden="true" />
+          <ArrowRight size={16} className="text-console-faint" aria-hidden="true" />
           <LaneBox label="Decision (deterministic)" tone="execute" />
         </div>
       </div>
 
       {/* The isolation barrier. */}
       <div className="flex items-center gap-3" aria-hidden="true">
-        <span className="h-px flex-1 bg-edge" />
-        <span className="font-mono text-[10px] uppercase tracking-section text-faint">
+        <span className="h-px flex-1 bg-console-edge" />
+        <span className="font-mono text-[10px] uppercase tracking-section text-console-faint">
           never crosses
         </span>
-        <span className="h-px flex-1 bg-edge" />
+        <span className="h-px flex-1 bg-console-edge" />
       </div>
 
       {/* Memory lane — prompt-only, never an argument to the decision. */}
       <div className="flex flex-col gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+        <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
           Memory lane · prompt only
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <LaneBox label="Memory M" tone="defer" />
-          <ArrowRight size={16} className="text-faint" aria-hidden="true" />
+          <ArrowRight size={16} className="text-console-faint" aria-hidden="true" />
           <LaneBox label="Prompt / planner context" tone="muted" />
-          <span className="rounded-md border border-edge bg-surface px-2 py-1 text-[10px] uppercase tracking-section text-muted">
+          <span className="rounded-md border border-console-edge bg-console-panel px-2 py-1 text-[10px] uppercase tracking-section text-console-muted">
             not envelope · not state · not a guard
           </span>
         </div>
@@ -727,10 +727,10 @@ function AgentMemoryDiagram() {
 }
 
 const LANE_TONE: Record<string, string> = {
-  ink: "border-edge bg-surface text-ink",
+  ink: "border-console-edge bg-console-panel text-console-ink",
   execute: "border-execute/40 bg-execute/10 text-execute",
   defer: "border-defer/40 bg-defer/10 text-defer",
-  muted: "border-edge bg-surface text-muted",
+  muted: "border-console-edge bg-console-panel text-console-muted",
 };
 
 function LaneBox({
@@ -761,12 +761,12 @@ function LaneBox({
  */
 function IllustrativeLabel({ children }: { readonly children: React.ReactNode }) {
   return (
-    <p className="flex items-center gap-2 text-[11px] uppercase tracking-section text-muted">
+    <p className="flex items-center gap-2 text-[11px] uppercase tracking-section text-console-muted">
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-defer" />
       <span className="rounded-sm border border-defer/40 bg-defer/10 px-1.5 py-0.5 text-defer">
         Illustrative
       </span>
-      <span className="normal-case tracking-normal text-muted">{children}</span>
+      <span className="normal-case tracking-normal text-console-muted">{children}</span>
     </p>
   );
 }
@@ -779,11 +779,11 @@ function PublicDataLink({
   readonly label: string;
 }) {
   return (
-    <p className="text-xs text-muted">
+    <p className="text-xs text-console-muted">
       Source projection ·{" "}
       <a
         href={href}
-        className="font-medium text-ink underline decoration-edge underline-offset-2 transition-colors hover:decoration-ink"
+        className="font-medium text-console-ink underline decoration-console-edge underline-offset-2 transition-colors hover:decoration-console-ink"
       >
         public {label} view
       </a>{" "}

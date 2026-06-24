@@ -35,7 +35,7 @@ function TagRow({ tags }: { readonly tags: ReadonlyArray<string> }) {
       {tags.map((t) => (
         <span
           key={t}
-          className="rounded-full border border-edge bg-canvas px-2 py-0.5 text-[10px] uppercase tracking-section text-muted"
+          className="rounded-full border border-console-edge bg-console-canvas px-2 py-0.5 text-[10px] uppercase tracking-section text-console-muted"
         >
           {t}
         </span>
@@ -48,25 +48,25 @@ export default function BlogIndexPage() {
   const [featured, ...rest] = POSTS;
 
   return (
-    <main className="bg-canvas">
+    <main className="bg-console-canvas">
       <section className="mx-auto max-w-3xl px-6 py-24">
         <header className="mb-10 flex flex-col gap-3">
           <Link
             href="/"
-            className="self-start rounded-sm text-eyebrow uppercase text-muted hover:text-ink focus-ring"
+            className="self-start rounded-sm text-eyebrow uppercase text-console-muted hover:text-console-ink focus-ring-console"
           >
             ← back to home
           </Link>
           <div className="flex items-end justify-between gap-4">
-            <h1 className="text-h1 text-ink md:text-h1-lg">Notes from the kernel.</h1>
+            <h1 className="text-h1 text-console-ink md:text-h1-lg">Notes from the kernel.</h1>
             <Link
               href="/blog/rss.xml"
-              className="mb-1 inline-flex shrink-0 items-center gap-1.5 rounded-sm text-body-sm text-muted hover:text-ink focus-ring"
+              className="mb-1 inline-flex shrink-0 items-center gap-1.5 rounded-sm text-body-sm text-console-muted hover:text-console-ink focus-ring-console"
             >
               <Rss size={14} aria-hidden="true" /> RSS
             </Link>
           </div>
-          <p className="max-w-measure text-lead text-muted">
+          <p className="max-w-measure text-lead text-console-muted">
             Kernel design, decision governance, and the practical lessons of
             shipping open-source policy — deep-dives on how DEFER resumes safely
             and how token budgets stay replay-verifiable, plus operational
@@ -78,16 +78,16 @@ export default function BlogIndexPage() {
         {featured ? (
           <Link
             href={`/blog/${featured.slug}`}
-            className="group mb-6 block rounded-xl bg-surface p-6 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-sm focus-ring"
+            className="group mb-6 block rounded-xl bg-console-panel p-6 transition-all hover:-translate-y-0.5 focus-ring-console"
           >
             <span className="text-eyebrow uppercase text-brand-ink">Latest</span>
-            <h2 className="mt-2 text-h3 text-ink">{featured.title}</h2>
-            <p className="mt-2 max-w-measure text-body text-muted">
+            <h2 className="mt-2 text-h3 text-console-ink">{featured.title}</h2>
+            <p className="mt-2 max-w-measure text-body text-console-muted">
               {featured.summary}
             </p>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <TagRow tags={featured.tags} />
-              <span className="text-meta text-muted">
+              <span className="text-meta text-console-muted">
                 {featured.date} · {featured.author}
               </span>
             </div>
@@ -99,13 +99,13 @@ export default function BlogIndexPage() {
             <RevealGridItem key={p.slug}>
               <Link
                 href={`/blog/${p.slug}`}
-                className="group block rounded-xl bg-surface p-5 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-sm focus-ring"
+                className="group block rounded-xl bg-console-panel p-5 transition-all hover:-translate-y-0.5 focus-ring-console"
               >
-                <span className="text-meta uppercase tracking-section text-muted">
+                <span className="text-meta uppercase tracking-section text-console-muted">
                   {p.date} · {p.author}
                 </span>
-                <h2 className="mt-1 text-h4 text-ink">{p.title}</h2>
-                <p className="mt-2 text-body-sm text-muted">{p.summary}</p>
+                <h2 className="mt-1 text-h4 text-console-ink">{p.title}</h2>
+                <p className="mt-2 text-body-sm text-console-muted">{p.summary}</p>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                   <TagRow tags={p.tags} />
                   <span className="inline-flex items-center gap-1 text-body-sm font-medium text-brand-ink">

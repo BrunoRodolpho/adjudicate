@@ -116,9 +116,9 @@ export function GuidedStep({
   // ── Collapsed earlier step: a single summary line ────────────────────
   if (mode === "collapsed") {
     return (
-      <div className="flex items-center gap-3 rounded-lg border border-edge bg-surface px-4 py-2.5">
+      <div className="flex items-center gap-3 rounded-lg border border-console-edge bg-console-panel px-4 py-2.5">
         <StepBadge n={stepNumber} done={result !== null} />
-        <span className="min-w-0 flex-1 truncate text-[13px] text-muted">
+        <span className="min-w-0 flex-1 truncate text-[13px] text-console-muted">
           {step.aiProposes}
         </span>
         {result ? (
@@ -137,17 +137,17 @@ export function GuidedStep({
   const handoffContext = isLastStep ? "guided-final" : "guided-step";
 
   return (
-    <div className="rounded-xl border border-edge bg-surface p-5">
+    <div className="rounded-xl border border-console-edge bg-console-panel p-5">
       <div className="flex items-start gap-3">
         <StepBadge n={stepNumber} done={result !== null} />
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-medium uppercase tracking-section text-muted">
+          <p className="text-[10px] font-medium uppercase tracking-section text-console-muted">
             The AI proposes
           </p>
-          <p className="mt-1 text-[15px] font-medium leading-snug text-ink">
+          <p className="mt-1 text-[15px] font-medium leading-snug text-console-ink">
             {step.aiProposes}
           </p>
-          <p className="mt-1.5 text-[13px] leading-snug text-muted">
+          <p className="mt-1.5 text-[13px] leading-snug text-console-muted">
             {step.whatToWatch}
           </p>
         </div>
@@ -175,7 +175,7 @@ export function GuidedStep({
               : "Run this step"}
         </button>
         {result ? (
-          <span className="text-[12px] text-muted">
+          <span className="text-[12px] text-console-muted">
             Ran against the real kernel.
           </span>
         ) : null}
@@ -199,17 +199,17 @@ export function GuidedStep({
             animate="visible"
             variants={reduce ? undefined : resultRevealVariants}
           >
-            <p className="text-[12px] text-muted">
+            <p className="text-[12px] text-console-muted">
               {guardFiredSentence(result.trace)}
             </p>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
               <DecisionChip kind={actualKind} size="md" className="self-start" />
               <div className="flex flex-col gap-0.5">
-                <p className="text-[14px] font-medium leading-snug text-ink">
+                <p className="text-[14px] font-medium leading-snug text-console-ink">
                   {plainOutcomeSummary(actualKind)}
                 </p>
-                <p className="text-[13px] leading-snug text-muted">
+                <p className="text-[13px] leading-snug text-console-muted">
                   {decisionSentence(step, actualKind)}
                 </p>
               </div>
@@ -236,11 +236,11 @@ export function GuidedStep({
                 onClick={() => setShowReceipt((v) => !v)}
                 aria-expanded={showReceipt}
                 aria-controls={receiptId}
-                className="inline-flex items-center gap-1.5 rounded-md border border-edge bg-canvas px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-ink/30"
+                className="inline-flex items-center gap-1.5 rounded-md border border-console-edge bg-console-canvas px-3 py-1.5 text-[12px] font-medium text-console-ink transition hover:border-console-ink/30"
               >
                 <ChevronDown
                   className={cn(
-                    "h-3.5 w-3.5 text-muted transition-transform motion-reduce:transition-none",
+                    "h-3.5 w-3.5 text-console-muted transition-transform motion-reduce:transition-none",
                     showReceipt && "rotate-180",
                   )}
                   aria-hidden
@@ -278,7 +278,7 @@ function StepBadge({ n, done }: { readonly n: number; readonly done: boolean }) 
         "flex size-7 flex-none items-center justify-center rounded-full font-mono text-[12px] font-medium",
         done
           ? "bg-execute/15 text-execute ring-1 ring-execute/30"
-          : "bg-edge text-ink",
+          : "bg-console-edge text-console-ink",
       )}
       aria-hidden
     >

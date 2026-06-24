@@ -16,8 +16,8 @@ export default function GlobalError({
       <body
         style={{
           margin: 0,
-          background: "#FAFAF9",
-          color: "#18181B",
+          background: "#09090B",
+          color: "#F4F4F5",
           fontFamily: "ui-sans-serif, system-ui, sans-serif",
         }}
       >
@@ -34,7 +34,7 @@ export default function GlobalError({
             <h1 style={{ fontSize: "2rem", fontWeight: 600, margin: "0 0 0.75rem" }}>
               Something went wrong.
             </h1>
-            <p style={{ color: "#71717A", margin: "0 0 1.5rem", lineHeight: 1.6 }}>
+            <p style={{ color: "#A1A1AA", margin: "0 0 1.5rem", lineHeight: 1.6 }}>
               A critical error interrupted the application. Reloading usually
               clears it.
             </p>
@@ -44,8 +44,8 @@ export default function GlobalError({
               style={{
                 borderRadius: "0.625rem",
                 border: "none",
-                background: "#18181B",
-                color: "#fff",
+                background: "#F4F4F5",
+                color: "#09090B",
                 padding: "0.625rem 1.1rem",
                 fontSize: "0.875rem",
                 fontWeight: 500,

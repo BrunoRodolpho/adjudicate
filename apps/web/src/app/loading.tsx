@@ -6,14 +6,14 @@
  */
 export default function Loading() {
   return (
-    <main className="grid min-h-[60vh] place-items-center bg-canvas px-6">
+    <main className="grid min-h-[60vh] place-items-center bg-console-canvas px-6">
       <div className="flex flex-col items-center gap-4" role="status">
         <div
           aria-hidden="true"
-          className="size-8 animate-spin rounded-full border-2 border-edge"
+          className="size-8 animate-spin rounded-full border-2 border-console-edge"
           style={{ borderTopColor: "#6366F1" }}
         />
-        <p className="text-body-sm text-muted">Loading…</p>
+        <p className="text-body-sm text-console-muted">Loading…</p>
         <span className="sr-only">Loading</span>
       </div>
     </main>

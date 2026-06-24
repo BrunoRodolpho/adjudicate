@@ -22,12 +22,12 @@ export function StatTile({
 }) {
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <span className="font-mono text-mono-stat leading-none tabular-nums text-ink md:text-mono-stat-lg">
+      <span className="font-mono text-mono-stat leading-none tabular-nums text-console-ink md:text-mono-stat-lg">
         {typeof value === "number" ? <CountUp value={value} /> : value}
       </span>
-      <span className="text-sm font-medium text-ink">{label}</span>
+      <span className="text-sm font-medium text-console-ink">{label}</span>
       {hint ? (
-        <span className="text-xs leading-relaxed text-muted">{hint}</span>
+        <span className="text-xs leading-relaxed text-console-muted">{hint}</span>
       ) : null}
     </div>
   );

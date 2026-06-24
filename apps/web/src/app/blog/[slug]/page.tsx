@@ -48,29 +48,29 @@ export default async function BlogPostPage({ params }: PageProps) {
   // Newest-first, excluding the current post — for the "read next" footer.
   const otherPosts = POSTS.filter((p) => p.slug !== post.slug);
   return (
-    <main className="bg-canvas">
+    <main className="bg-console-canvas">
       <article className="mx-auto max-w-measure px-6 py-24">
         <header className="mb-8 flex flex-col gap-3">
           <Link
             href="/blog"
-            className="self-start text-[11px] uppercase tracking-section text-muted hover:text-ink"
+            className="self-start text-[11px] uppercase tracking-section text-console-muted hover:text-console-ink"
           >
             ← all posts
           </Link>
-          <span className="text-xs uppercase tracking-section text-muted">
+          <span className="text-xs uppercase tracking-section text-console-muted">
             {post.date} · {post.author}
           </span>
-          <h1 className="text-h1 text-ink md:text-h1-lg">{post.title}</h1>
+          <h1 className="text-h1 text-console-ink md:text-h1-lg">{post.title}</h1>
           {/* Front-matter intro: a one-line standfirst so a reader knows the
               shape of the post before diving into the technical body. */}
-          <p className="mt-1 text-lead text-muted">{post.summary}</p>
+          <p className="mt-1 text-lead text-console-muted">{post.summary}</p>
           {post.tags.length > 0 ? (
             <ul className="mt-1 flex flex-wrap gap-2">
               {post.tags.map((t) => (
                 <li key={t}>
                   <Link
                     href={`/blog/tags/${tagToSlug(t)}`}
-                    className="focus-ring inline-block rounded-full bg-surface-2 px-2.5 py-1 text-meta uppercase tracking-section text-muted transition-colors hover:text-ink"
+                    className="focus-ring-console inline-block rounded-full bg-console-panel px-2.5 py-1 text-meta uppercase tracking-section text-console-muted transition-colors hover:text-console-ink"
                   >
                     {t}
                   </Link>
@@ -82,8 +82,8 @@ export default async function BlogPostPage({ params }: PageProps) {
         <Body />
 
         {/* Footer CTA — forward-looking next steps + related posts. */}
-        <footer className="mt-16 border-t border-edge pt-8">
-          <h2 className="text-sm font-semibold text-ink">What&apos;s next?</h2>
+        <footer className="mt-16 border-t border-console-edge pt-8">
+          <h2 className="text-sm font-semibold text-console-ink">What&apos;s next?</h2>
           <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
             <Link
               href="/architecture"
@@ -118,7 +118,7 @@ export default async function BlogPostPage({ params }: PageProps) {
 
           {otherPosts.length > 0 ? (
             <div className="mt-8">
-              <h3 className="text-[11px] uppercase tracking-section text-muted">
+              <h3 className="text-[11px] uppercase tracking-section text-console-muted">
                 Keep reading
               </h3>
               <ul className="mt-3 flex flex-col gap-3">
@@ -126,12 +126,12 @@ export default async function BlogPostPage({ params }: PageProps) {
                   <li key={p.slug}>
                     <Link
                       href={`/blog/${p.slug}`}
-                      className="group block rounded-lg border border-edge bg-surface p-4 transition-all hover:border-ink/40 hover:shadow-sm"
+                      className="group block rounded-lg border border-console-edge bg-console-panel p-4 transition-all hover:border-console-faint"
                     >
-                      <span className="text-[11px] uppercase tracking-section text-muted">
+                      <span className="text-[11px] uppercase tracking-section text-console-muted">
                         {p.date}
                       </span>
-                      <p className="mt-0.5 text-sm font-medium text-ink">
+                      <p className="mt-0.5 text-sm font-medium text-console-ink">
                         {p.title}
                       </p>
                     </Link>

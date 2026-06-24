@@ -30,7 +30,7 @@ export async function Code({
   return (
     <div
       className={cn(
-        "relative my-stack min-w-0 max-w-full overflow-hidden rounded-lg border border-edge bg-zinc-900",
+        "relative my-stack min-w-0 max-w-full overflow-hidden rounded-lg border border-console-edge bg-zinc-900",
         className,
       )}
     >

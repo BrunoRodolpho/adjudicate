@@ -88,13 +88,13 @@ function FieldGroup({
   readonly children: React.ReactNode;
 }) {
   return (
-    <fieldset className="flex flex-col gap-4 rounded-xl border border-edge bg-canvas/40 p-4">
+    <fieldset className="flex flex-col gap-4 rounded-xl border border-console-edge bg-console-canvas/40 p-4">
       <legend className="flex items-baseline gap-2 px-1">
-        <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+        <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
           {title}
         </span>
       </legend>
-      <p className="-mt-1 text-[12px] text-muted">{hint}</p>
+      <p className="-mt-1 text-[12px] text-console-muted">{hint}</p>
       <div className="flex flex-col gap-5">{children}</div>
     </fieldset>
   );
@@ -134,7 +134,7 @@ function FieldControl({
         <label
           htmlFor={useToggle ? undefined : inputId}
           id={useToggle ? `${inputId}-label` : undefined}
-          className="text-[13px] font-medium text-ink"
+          className="text-[13px] font-medium text-console-ink"
         >
           {field.label}
           {field.required ? (
@@ -144,7 +144,7 @@ function FieldControl({
           ) : null}
         </label>
         {field.type === "money-centavos" ? (
-          <span className="font-mono text-[10px] uppercase tracking-section text-muted">
+          <span className="font-mono text-[10px] uppercase tracking-section text-console-muted">
             centavos
           </span>
         ) : null}
@@ -196,7 +196,7 @@ function FieldControl({
       )}
 
       {field.help ? (
-        <p id={helpId} className="text-[11px] leading-snug text-muted">
+        <p id={helpId} className="text-[11px] leading-snug text-console-muted">
           {field.help}
         </p>
       ) : null}
@@ -212,8 +212,8 @@ function FieldControl({
 // ── Controls ─────────────────────────────────────────────────────────────
 
 const INPUT_BASE = cn(
-  "w-full rounded-lg border bg-surface px-3 py-2 text-sm text-ink",
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30",
+  "w-full rounded-lg border bg-console-panel px-3 py-2 text-sm text-console-ink placeholder:text-console-faint",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-ink/40",
 );
 
 function TextControl({
@@ -237,7 +237,7 @@ function TextControl({
       aria-describedby={describedBy}
       aria-invalid={invalid || undefined}
       onChange={(e) => onChange(e.target.value)}
-      className={cn(INPUT_BASE, invalid ? "border-refuse/60" : "border-edge")}
+      className={cn(INPUT_BASE, invalid ? "border-refuse/60" : "border-console-edge")}
     />
   );
 }
@@ -272,7 +272,7 @@ function NumberControl({
       className={cn(
         INPUT_BASE,
         "font-mono",
-        invalid ? "border-refuse/60" : "border-edge",
+        invalid ? "border-refuse/60" : "border-console-edge",
       )}
     />
   );
@@ -305,9 +305,9 @@ function SliderControl({
         aria-describedby={describedBy}
         aria-valuetext={String(value)}
         onChange={(e) => onChange(e.target.valueAsNumber)}
-        className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-edge accent-escalate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+        className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-console-edge accent-escalate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-ink/40"
       />
-      <span className="min-w-[4rem] rounded-md border border-edge bg-surface px-2 py-1 text-right font-mono text-[12px] tabular-nums text-ink">
+      <span className="min-w-[4rem] rounded-md border border-console-edge bg-console-panel px-2 py-1 text-right font-mono text-[12px] tabular-nums text-console-ink">
         {value}
       </span>
     </div>
@@ -340,7 +340,7 @@ function SelectControl({
         className={cn(
           INPUT_BASE,
           "appearance-none pr-9",
-          invalid ? "border-refuse/60" : "border-edge",
+          invalid ? "border-refuse/60" : "border-console-edge",
         )}
       >
         {options.map((opt) => (
@@ -352,7 +352,7 @@ function SelectControl({
       <ChevronDown
         size={16}
         aria-hidden="true"
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-faint"
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-console-faint"
       />
     </div>
   );
@@ -385,8 +385,8 @@ function ToggleControl({
       onClick={() => onChange(!value)}
       className={cn(
         "inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition motion-reduce:transition-none",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30",
-        value ? "border-transparent bg-execute" : "border-edge bg-edge",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-ink/40",
+        value ? "border-transparent bg-execute" : "border-console-edge bg-console-edge",
       )}
     >
       <span

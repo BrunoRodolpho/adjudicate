@@ -6,6 +6,7 @@ import { DepthHeader } from "@/components/ui/DepthHeader";
 import { Section } from "@/components/ui/Section";
 import { Card } from "@/components/ui/Card";
 import { DecisionFan } from "@/components/DecisionFan";
+import { ConstitutionalKernelMap } from "@/components/home/ConstitutionalKernelMap";
 import { BrandGlow } from "@/components/ui/BrandGlow";
 
 export const metadata: Metadata = {
@@ -44,7 +45,24 @@ export default function ArchitecturePage() {
         }
         subtitle="Why a kernel sits between AI intent and side-effect — and the seven primitives that compose it."
       />
-      <section className="relative overflow-hidden border-y border-edge bg-surface py-12">
+      <Section tone="console" className="pb-14 pt-6">
+        <div className="max-w-measure">
+          <p className="text-eyebrow uppercase tracking-section text-console-muted">
+            Live topology
+          </p>
+          <h2 className="mt-2 text-h2 text-console-ink">
+            The kernel, alive
+          </h2>
+          <p className="mt-2 text-body text-console-muted">
+            Immutable input snapshots feed a pure, deterministic kernel of six
+            ordered guards; the decision fans to one of six outcomes, mints a
+            capability, and reaches the execution fabric — observed by the
+            Adjudicant, railed by the monotonicity law.
+          </p>
+        </div>
+        <ConstitutionalKernelMap className="mt-8" />
+      </Section>
+      <section className="relative overflow-hidden border-y border-console-edge bg-console-panel py-12">
         <BrandGlow />
         <div className="relative z-10 mx-auto max-w-5xl overflow-x-auto px-6">
           <DecisionFan className="h-auto w-full min-w-[600px]" />
@@ -53,13 +71,13 @@ export default function ArchitecturePage() {
       <Problem />
       <PrimitivesDiagram />
 
-      <Section tone="canvas" className="py-20">
+      <Section tone="console" className="py-20">
         <div className="max-w-measure">
           <p className="text-eyebrow uppercase tracking-section text-brand-ink">
             Go deeper
           </p>
-          <h2 className="mt-2 text-h2 text-ink">Two paths from here</h2>
-          <p className="mt-2 text-body text-muted">
+          <h2 className="mt-2 text-h2 text-console-ink">Two paths from here</h2>
+          <p className="mt-2 text-body text-console-muted">
             You&apos;ve seen the mechanism and its primitives. Follow one
             decision end-to-end, or wire the kernel into a real deployment.
           </p>
@@ -73,18 +91,18 @@ export default function ArchitecturePage() {
               className="absolute inset-x-0 top-0 h-0.5 bg-gradient-primary opacity-0 transition-opacity group-hover:opacity-100"
               aria-hidden="true"
             />
-            <p className="text-eyebrow uppercase tracking-section text-muted">
+            <p className="text-eyebrow uppercase tracking-section text-console-muted">
               Trace one decision
             </p>
-            <h3 className="flex items-center justify-between gap-2 text-h4 text-ink">
+            <h3 className="flex items-center justify-between gap-2 text-h4 text-console-ink">
               How a decision becomes a durable receipt
               <ArrowRight
                 size={18}
-                className="shrink-0 text-faint transition-all group-hover:translate-x-0.5 group-hover:text-brand-ink"
+                className="shrink-0 text-console-faint transition-all group-hover:translate-x-0.5 group-hover:text-brand-ink"
                 aria-hidden="true"
               />
             </h3>
-            <p className="text-sm leading-relaxed text-muted">
+            <p className="text-sm leading-relaxed text-console-muted">
               Trace one decision from the AI agent&apos;s intent through the
               in-process kernel into a tamper-evident AuditRecord — mirrored to
               a partitioned Postgres table and pushed live to the operator
@@ -100,18 +118,18 @@ export default function ArchitecturePage() {
               className="absolute inset-x-0 top-0 h-0.5 bg-gradient-primary opacity-0 transition-opacity group-hover:opacity-100"
               aria-hidden="true"
             />
-            <p className="text-eyebrow uppercase tracking-section text-muted">
+            <p className="text-eyebrow uppercase tracking-section text-console-muted">
               Ship it
             </p>
-            <h3 className="flex items-center justify-between gap-2 text-h4 text-ink">
+            <h3 className="flex items-center justify-between gap-2 text-h4 text-console-ink">
               How to deploy adjudicate
               <ArrowRight
                 size={18}
-                className="shrink-0 text-faint transition-all group-hover:translate-x-0.5 group-hover:text-brand-ink"
+                className="shrink-0 text-console-faint transition-all group-hover:translate-x-0.5 group-hover:text-brand-ink"
                 aria-hidden="true"
               />
             </h3>
-            <p className="text-sm leading-relaxed text-muted">
+            <p className="text-sm leading-relaxed text-console-muted">
               The library / in-process deployment model and the self-hosted,
               open-source operator console — how the pieces wire together in a
               real deployment.

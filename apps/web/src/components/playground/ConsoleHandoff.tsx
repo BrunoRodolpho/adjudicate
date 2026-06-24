@@ -49,7 +49,7 @@ export function ConsoleHandoff({
     <Link
       href="/console/audit-explorer"
       className={cn(
-        "group flex items-center gap-4 rounded-xl border border-edge bg-surface p-4 transition hover:border-ink/30 hover:shadow-md",
+        "group flex items-center gap-4 rounded-xl border border-console-edge bg-console-panel p-4 transition hover:border-console-ink/30 hover:shadow-md",
         className,
       )}
     >
@@ -62,11 +62,11 @@ export function ConsoleHandoff({
       </span>
 
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-ink">{title}</span>
-        <span className="mt-0.5 block text-[13px] text-muted">{hint}</span>
+        <span className="block text-sm font-medium text-console-ink">{title}</span>
+        <span className="mt-0.5 block text-[13px] text-console-muted">{hint}</span>
       </span>
 
-      <ArrowRight className="h-4 w-4 shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-ink" />
+      <ArrowRight className="h-4 w-4 shrink-0 text-console-muted transition group-hover:translate-x-0.5 group-hover:text-console-ink" />
     </Link>
   );
 }

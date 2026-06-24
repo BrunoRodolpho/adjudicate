@@ -42,12 +42,12 @@ export default function HowItWorksPage() {
           interactivity. No poster is shipped for this clip, so the attribute
           is omitted. Distinct from the homepage Step-3 real receipt — this is
           an illustrative loop, the playground link below is the live one. */}
-      <Section tone="surface">
+      <Section tone="console">
         <SectionHeading
           eyebrow="The artifact"
           title="Every decision becomes a tamper-evident receipt"
         />
-        <figure className="mt-10 overflow-hidden rounded-2xl border border-edge bg-surface shadow-lg">
+        <figure className="mt-10 overflow-hidden rounded-2xl border border-console-edge bg-console-panel shadow-lg">
           <video
             src="/receipt-materialize.mp4"
             poster="/receipt-materialize-poster.jpg"
@@ -58,12 +58,12 @@ export default function HowItWorksPage() {
             aria-label="An illustrative loop of a tamper-evident decision receipt materializing field by field."
             className="block h-auto w-full"
           />
-          <figcaption className="border-t border-edge px-4 py-2.5 text-xs text-muted">
+          <figcaption className="border-t border-console-edge px-4 py-2.5 text-xs text-console-muted">
             Illustrative loop · an adjudicated action settling into its
             tamper-evident receipt.{" "}
             <Link
               href="/playground"
-              className="font-medium text-ink underline decoration-edge underline-offset-4 transition-colors hover:decoration-ink/40"
+              className="font-medium text-console-ink underline decoration-console-edge underline-offset-4 transition-colors hover:decoration-console-faint"
             >
               See it on a real decision
             </Link>

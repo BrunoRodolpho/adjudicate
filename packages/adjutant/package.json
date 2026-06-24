@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/adjutant",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Adjutant — subordinate operations surface that executes adjudicated remediations under supervision with zero independent authority. Turns off-path signals (audit bus, drift, LLM diagnosis) into UNTRUSTED draft envelopes that re-enter the normal adjudicate() path; the kernel decides, the adopter's executor acts.",
   "publishConfig": {
     "access": "public"

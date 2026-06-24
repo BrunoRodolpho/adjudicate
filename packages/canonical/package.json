@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/canonical",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Canonical-JSON (RFC 8785 / JCS) serialization + sha256 — the single source of truth for content-addressed hashing shared by @adjudicate/core and runtime adopters (no forked copies).",
   "publishConfig": {
     "access": "public"

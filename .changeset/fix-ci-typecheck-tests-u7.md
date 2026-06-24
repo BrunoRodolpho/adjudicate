@@ -1,6 +1,5 @@
 ---
 "@adjudicate/core": patch
-"@adjudicate/eslint-config": patch
 ---
 
 fix(core): u7 — type-check the load-bearing `@ts-expect-error` change-control directives in CI (H11). Test-fidelity only — NO runtime/`src` change; the pure `adjudicate()` path, closed 6-outcome `Decision` algebra, `state→taint→auth→business` guard order, and `intentHash`/`auditHash` recipe are UNTOUCHED.

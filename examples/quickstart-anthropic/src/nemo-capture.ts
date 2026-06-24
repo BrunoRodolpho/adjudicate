@@ -132,11 +132,12 @@ export function summarizeLatency(latencies: number[]): {
 } {
   if (latencies.length === 0) return { p50: 0, p95: 0, max: 0, count: 0 };
   const s = [...latencies].sort((a, b) => a - b);
-  const pick = (p: number) => s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
+  // s is non-empty (early-returned above); `?? 0` satisfies noUncheckedIndexedAccess.
+  const pick = (p: number) => s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))] ?? 0;
   return {
     p50: Number(pick(50).toFixed(1)),
     p95: Number(pick(95).toFixed(1)),
-    max: Number(s[s.length - 1].toFixed(1)),
+    max: Number((s[s.length - 1] ?? 0).toFixed(1)),
     count: s.length,
   };
 }

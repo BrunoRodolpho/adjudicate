@@ -556,6 +556,9 @@ importers:
       '@adjudicate/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@adjudicate/openai':
+        specifier: workspace:*
+        version: link:../../packages/openai
       '@adjudicate/pack-payments-pix':
         specifier: workspace:*
         version: link:../../packages/pack-payments-pix

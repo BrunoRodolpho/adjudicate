@@ -9,3 +9,4 @@
 
 export * from "./verdict.js";
 export * from "./evidence-requirement.js";
+export * from "./evidence-ledger.js";

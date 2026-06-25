@@ -64,9 +64,10 @@ export interface LiveRunRecord {
 let seq = 0;
 function nextSeq(): string {
   if (seq === 0) {
-    // continue numbering across harness runs in the same session
+    // Seed from the MAX run number present (not count) so a gap (run-001, run-003) never
+    // causes the next id to collide and overwrite an existing capture.
     const existing = readdirSync(LIVE_RUNS).filter((f) => /^run-\d+\.json$/.test(f));
-    seq = existing.length;
+    seq = Math.max(0, ...existing.map((f) => parseInt(f.match(/\d+/)?.[0] ?? "0", 10)));
   }
   seq += 1;
   return String(seq).padStart(3, "0");
@@ -121,6 +122,76 @@ export function makeRecordingClient(
     },
   };
   return { client, drain: () => captures.splice(0, captures.length) };
+}
+
+/** Minimal structural OpenAIChatLikeClient backed by `fetch` → Ollama's OpenAI-compatible endpoint. */
+export function makeFetchOllamaClient(baseUrl: string): { chat: { completions: { create(body: unknown): Promise<unknown> } } } {
+  return {
+    chat: {
+      completions: {
+        async create(body: unknown): Promise<unknown> {
+          const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: "Bearer ollama" },
+            body: JSON.stringify({ ...(body as object), stream: false }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+          return (await res.json()) as unknown;
+        },
+      },
+    },
+  };
+}
+
+/** A scripted client: call #1 returns the given tool_calls; subsequent calls return a terminal text. */
+export interface RawToolCallSpec {
+  name: string;
+  args: unknown; // may be a string (malformed) or object
+}
+export function makeScriptedClient(
+  toolCalls: RawToolCallSpec[],
+  model = "scripted",
+): { chat: { completions: { create(body: unknown): Promise<unknown> } } } {
+  let n = 0;
+  return {
+    chat: {
+      completions: {
+        async create(): Promise<unknown> {
+          n += 1;
+          if (n === 1) {
+            return {
+              model,
+              choices: [
+                {
+                  index: 0,
+                  message: {
+                    role: "assistant",
+                    content: "",
+                    tool_calls: toolCalls.map((tc, i) => ({
+                      id: `call_scripted_${i}`,
+                      index: i,
+                      type: "function",
+                      function: {
+                        name: tc.name,
+                        arguments: typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args),
+                      },
+                    })),
+                  },
+                  finish_reason: "tool_calls",
+                },
+              ],
+              usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            };
+          }
+          return {
+            model,
+            choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+          };
+        },
+      },
+    },
+  };
 }
 
 /** Aggregate latency percentiles for the metrics dashboard. */

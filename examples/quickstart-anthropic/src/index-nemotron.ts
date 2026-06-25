@@ -41,7 +41,7 @@ import {
 import { createPixExecutor } from "./executor.js";
 import { PIX_INTENT_TOOL_SCHEMAS } from "./tool-schemas.js";
 import { DEMO_BASE_PROMPT, TRANSCRIPT } from "./transcript.js";
-import { makeRecordingClient, writeLiveRun, summarizeLatency } from "./nemo-capture.js";
+import { makeRecordingClient, writeLiveRun, summarizeLatency, makeFetchOllamaClient } from "./nemo-capture.js";
 
 const BASE_URL = process.env.NEMOTRON_BASE_URL ?? "http://192.168.1.80:11434/v1";
 const MODEL = process.env.NEMOTRON_MODEL ?? "nemotron-3-nano:4b";
@@ -55,32 +55,7 @@ const REQUIRED_DECISIONS: ReadonlyArray<DecisionKind> = [
   "DEFER",
 ];
 
-/**
- * Minimal structural OpenAIChatLikeClient backed by `fetch` → Ollama's
- * OpenAI-compatible endpoint. No `openai` npm dependency required; the adapter
- * only calls `client.chat.completions.create(body)` and reads
- * `choices[0].message.tool_calls`.
- */
-const openaiClient = {
-  chat: {
-    completions: {
-      async create(body: unknown): Promise<unknown> {
-        const res = await fetch(`${BASE_URL}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: "Bearer ollama",
-          },
-          body: JSON.stringify({ ...(body as object), stream: false }),
-        });
-        if (!res.ok) {
-          throw new Error(`Nemotron HTTP ${res.status}: ${await res.text()}`);
-        }
-        return (await res.json()) as unknown;
-      },
-    },
-  },
-} as unknown as OpenAIChatLikeClient;
+const openaiClient = makeFetchOllamaClient(BASE_URL) as unknown as OpenAIChatLikeClient;
 
 function banner(text: string): void {
   const line = "─".repeat(72);
@@ -270,6 +245,12 @@ async function main(): Promise<void> {
   // Validation success = the loop ran end-to-end against the live model and the
   // kernel rendered a defined Decision for every proposal. Coverage of all six
   // is a model-capability metric, not a kernel-correctness one.
+  // Non-zero exit if NO decisions were observed at all — a silent run that never
+  // adjudicated anything is not a green result.
+  if (observed.size === 0) {
+    console.error("\n  NON-GREEN: no kernel decisions observed across the run — the model may not have proposed any tool calls. Governance loop did not exercise the kernel.");
+    process.exit(1);
+  }
   process.exit(0);
 }
 

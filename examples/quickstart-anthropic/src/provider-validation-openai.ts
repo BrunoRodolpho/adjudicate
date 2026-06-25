@@ -32,9 +32,10 @@ const ARTIFACTS = process.env.NEMO_ARTIFACTS ?? join(homedir(), "projects", "val
 const PV_DIR = join(ARTIFACTS, "provider-validation");
 mkdirSync(PV_DIR, { recursive: true });
 
-const checks: Array<{ id: string; layer: "protocol" | "semantic"; desc: string; pass: boolean; detail?: unknown }> = [];
+const checks: Array<{ id: string; layer: "protocol" | "semantic"; desc: string; pass: boolean; applicable: boolean; detail?: unknown }> = [];
 function check(id: string, layer: "protocol" | "semantic", desc: string, pass: boolean, detail?: unknown): void {
-  checks.push({ id, layer, desc, pass, detail });
+  const applicable = !((detail as { applicable?: boolean } | null)?.applicable === false);
+  checks.push({ id, layer, desc, pass, applicable, detail });
 }
 function eq(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -188,11 +189,19 @@ async function main(): Promise<void> {
     check("S2-cross-path-equivalence", "semantic", "underscored live-API path and dotted mocked path produce an IDENTICAL canonical intent (no semantic drift)", ok, { live, mocked });
   }
 
-  const passed = checks.filter((c) => c.pass).length;
-  for (const c of checks) console.log(`${c.pass ? "✓" : "✗"} [${c.layer}] ${c.id.padEnd(28)} ${c.desc}`);
-  console.log(`\nadjudicate-openai provider validation: ${passed}/${checks.length}`);
-  writeFileSync(join(PV_DIR, "adjudicate-openai.json"), JSON.stringify({ adapter: "@adjudicate/openai (bridge-openai.ts)", subject: "nemotron-3-nano:4b", ranAt: new Date().toISOString(), passed, total: checks.length, checks }, null, 2));
-  if (passed !== checks.length) {
+  const applicable = checks.filter((c) => c.applicable);
+  const na = checks.filter((c) => !c.applicable);
+  const passed = applicable.filter((c) => c.pass).length;
+  for (const c of checks) {
+    if (!c.applicable) {
+      console.log(`  [N/A] [${c.layer}] ${c.id.padEnd(28)} ${c.desc}`);
+    } else {
+      console.log(`${c.pass ? "✓" : "✗"} [${c.layer}] ${c.id.padEnd(28)} ${c.desc}`);
+    }
+  }
+  console.log(`\nadjudicate-openai provider validation: ${passed}/${applicable.length}${na.length > 0 ? ` (${na.length} N/A)` : ""}`);
+  writeFileSync(join(PV_DIR, "adjudicate-openai.json"), JSON.stringify({ adapter: "@adjudicate/openai (bridge-openai.ts)", subject: "nemotron-3-nano:4b", ranAt: new Date().toISOString(), passed, total: applicable.length, na: na.length, checks }, null, 2));
+  if (passed !== applicable.length) {
     console.error("\nPROVIDER VALIDATION RED — translation defect. Downstream adjudicate validation is blocked until fixed.");
     process.exit(1);
   }

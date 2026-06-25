@@ -44,7 +44,7 @@ import {
 import { createPixExecutor } from "./executor.js";
 import { PIX_INTENT_TOOL_SCHEMAS } from "./tool-schemas.js";
 import { DEMO_BASE_PROMPT } from "./transcript.js";
-import { writeLiveRun } from "./nemo-capture.js";
+import { writeLiveRun, makeScriptedClient } from "./nemo-capture.js";
 
 const MODEL = "synthetic-forced-proposal";
 
@@ -141,65 +141,6 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
   },
 ];
 
-/**
- * A scripted OpenAI-compatible client: call #1 of a send returns the engineered
- * tool_call (finish_reason "tool_calls"); subsequent calls in the same send
- * return a terminal text completion so the agent loop ends. One instance per
- * scenario (fresh counter).
- */
-function scriptedClient(tc: EngineeredToolCall): OpenAIChatLikeClient {
-  let calls = 0;
-  return {
-    chat: {
-      completions: {
-        async create(_body: unknown): Promise<unknown> {
-          calls += 1;
-          if (calls === 1) {
-            return {
-              id: "chatcmpl-synthetic",
-              object: "chat.completion",
-              created: 0,
-              model: MODEL,
-              choices: [
-                {
-                  index: 0,
-                  message: {
-                    role: "assistant",
-                    content: "",
-                    tool_calls: [
-                      {
-                        id: `call_synthetic_${calls}`,
-                        index: 0,
-                        type: "function",
-                        function: { name: tc.name, arguments: JSON.stringify(tc.args) },
-                      },
-                    ],
-                  },
-                  finish_reason: "tool_calls",
-                },
-              ],
-              usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-            };
-          }
-          return {
-            id: "chatcmpl-synthetic-final",
-            object: "chat.completion",
-            created: 0,
-            model: MODEL,
-            choices: [
-              {
-                index: 0,
-                message: { role: "assistant", content: "Done." },
-                finish_reason: "stop",
-              },
-            ],
-            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-          };
-        },
-      },
-    },
-  } as unknown as OpenAIChatLikeClient;
-}
 
 function decisionKindsFromEvents(events: ReadonlyArray<AgentEvent>): {
   kinds: DecisionKind[];
@@ -213,11 +154,11 @@ function decisionKindsFromEvents(events: ReadonlyArray<AgentEvent>): {
   let decision: unknown;
   for (const e of events) {
     if (e.kind === "intent_proposed") {
-      envelopeHash = (e.envelope as { intentHash?: string }).intentHash;
+      envelopeHash = e.envelope.intentHash;
       canonicalIntent = {
-        kind: (e.envelope as { kind?: unknown }).kind,
-        taint: (e.envelope as { taint?: unknown }).taint,
-        principal: (e.envelope as { actor?: { principal?: unknown } }).actor?.principal,
+        kind: e.envelope.kind,
+        taint: e.envelope.taint,
+        principal: e.envelope.actor?.principal,
       };
     }
     if (e.kind === "decision") {
@@ -236,7 +177,7 @@ async function main(): Promise<void> {
   for (const [i, sc] of SCENARIOS.entries()) {
     const agent = createAdjudicatedAgent<PixIntentKind, unknown, PixState, PixContext>({
       pack,
-      openaiClient: scriptedClient(sc.toolCall),
+      openaiClient: makeScriptedClient([sc.toolCall], MODEL) as unknown as OpenAIChatLikeClient,
       model: MODEL,
       maxTokens: 256,
       renderer: createOpenAIPromptRenderer<PixState, PixContext>({

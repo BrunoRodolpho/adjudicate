@@ -11,3 +11,4 @@ export * from "./verdict.js";
 export * from "./evidence-requirement.js";
 export * from "./evidence-ledger.js";
 export * from "./soundness.js";
+export * from "./consistency.js";

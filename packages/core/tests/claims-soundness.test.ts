@@ -603,6 +603,180 @@ describe("claimAllowed — verdict mapping precedence (registry §5)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// R1-snd Fix 1 — action_outcome on a read_claim must still enforce C4 (§E C4)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// C4 ("EXECUTE ∧ dispatched=ok ∧ result.success ∧ (settlement, for money)") is
+// the OUTCOME conjunct. Its trigger is NOT just `kind === "action_claim"`: a
+// claim whose evidence IS this turn's Action verdict + dispatch (`freshnessPolicy:
+// "action_outcome"`, §E/§G) asserts an action outcome regardless of `kind`. The
+// per-evidence freshness branch PASSes `action_outcome` (staleness is not its
+// axis), so claim-level C4 is the ONLY place that enforces the outcome — and it
+// must fire for ANY claim that asserts one, not only `action_claim`s. Otherwise a
+// read_claim could assert PURCHASE_COMPLETED it never confirmed.
+
+describe("claimAllowed — C4 fires for action_outcome on a read_claim (§E C4; R1-snd Fix 1)", () => {
+  const actionOutcomeReq = req({ freshnessPolicy: "action_outcome" });
+
+  it("(a) read_claim with an action_outcome requirement + ¬outcomeConfirmed → REFUSED", () => {
+    // The defect this fix closes: kind !== "action_claim" yet the requirement's
+    // evidence IS an action outcome. Every other conjunct passes (present, live,
+    // structured, preserve, not_applicable), so the verdict reaches C4. With the
+    // outcome UNconfirmed, asserting the action is a contradiction → REFUSED.
+    // NON-VACUOUS: revert the broadened `assertsActionOutcome` trigger back to
+    // `kind === "action_claim"` and C4 never fires here → this VALIDATES (RED).
+    const claim = readClaim({
+      requiredEvidence: [actionOutcomeReq],
+      kind: "read_claim",
+    });
+    const verdict = claimAllowed(
+      claim,
+      ledgerWith(entry()),
+      deps({ outcomeConfirmed: () => false }),
+    );
+    expect(verdict).toBe("REFUSED");
+    expect(verdict).not.toBe("VALIDATED");
+  });
+
+  it("(a') the outcome accessor receives the read_claim (C4 wiring, not action-only)", () => {
+    let inspected: MinimalClaim | undefined;
+    const claim = readClaim({
+      requiredEvidence: [actionOutcomeReq],
+      kind: "read_claim",
+    });
+    const verdict = claimAllowed(
+      claim,
+      ledgerWith(entry()),
+      deps({
+        outcomeConfirmed: (c) => {
+          inspected = c;
+          return false;
+        },
+      }),
+    );
+    expect(verdict).toBe("REFUSED");
+    expect(inspected).toBe(claim);
+  });
+
+  it("(c) read_claim with an action_outcome requirement + outcomeConfirmed=true → VALIDATED", () => {
+    // The positive contrast — proves the broadened trigger is NOT blanket-REFUSE:
+    // a correctly-confirmed action_outcome read still validates (C4 passes).
+    const claim = readClaim({
+      requiredEvidence: [actionOutcomeReq],
+      kind: "read_claim",
+    });
+    const verdict = claimAllowed(
+      claim,
+      ledgerWith(entry()),
+      deps({ outcomeConfirmed: () => true }),
+    );
+    expect(verdict).toBe("VALIDATED");
+  });
+
+  it("(b) action_claim + ¬outcomeConfirmed → REFUSED; + outcomeConfirmed → not blocked by C4 (unchanged)", () => {
+    // The original action_claim behavior is preserved by the broadening (the OR's
+    // first disjunct). Both polarities, on the same claim shape.
+    const claim = readClaim({
+      requiredEvidence: [actionOutcomeReq],
+      kind: "action_claim",
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry()), deps({ outcomeConfirmed: () => false })),
+    ).toBe("REFUSED");
+    expect(
+      claimAllowed(claim, ledgerWith(entry()), deps({ outcomeConfirmed: () => true })),
+    ).toBe("VALIDATED");
+  });
+
+  it("a read_claim with NO action_outcome requirement never consults outcomeConfirmed (scope intact)", () => {
+    // The broadening must not over-fire: a plain read_claim (static freshness)
+    // still never calls the accessor and validates with outcomeConfirmed=false.
+    let called = false;
+    const verdict = claimAllowed(
+      readClaim({ kind: "read_claim" }), // default req(): static freshness.
+      ledgerWith(entry()),
+      deps({
+        outcomeConfirmed: () => {
+          called = true;
+          return false;
+        },
+      }),
+    );
+    expect(verdict).toBe("VALIDATED");
+    expect(called).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// R1-snd Fix 2 — a NEGATIVE age (fetchedAt in the future) is NOT fresh (§G)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Freshness is `now - fetchedAt` (§G); a value cannot be fresher than "now". A
+// negative age (clock skew, or a future-stamped/tampered entry) previously passed
+// the `age <= ttl` upper bound and validated as fresh. fresh ⟺ `0 <= age <= ttl`.
+
+describe("claimAllowed — negative freshness age is not fresh (§G; R1-snd Fix 2)", () => {
+  const cacheableReq = (ttl: number): EvidenceRequirement =>
+    req({ freshnessPolicy: { kind: "cacheable", ttl } });
+
+  it("(d) fetchedAt in the future (age < 0) under a cacheable ttl → UNKNOWN, not VALIDATED", () => {
+    // NON-VACUOUS: revert the `age >= 0 &&` lower bound and age=-1 <= ttl is true →
+    // this VALIDATES (RED). With the lower bound, a future stamp is not provably
+    // fresh → UNKNOWN (stale-class).
+    const ttl = 30_000;
+    const verdict = claimAllowed(
+      readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+      ledgerWith(entry({ fetchedAt: NOW + 1 })), // 1 ms in the future → age = -1.
+      deps(),
+    );
+    expect(verdict).toBe("UNKNOWN");
+    expect(verdict).not.toBe("VALIDATED");
+  });
+
+  it("(d') a large future skew (age ≪ 0) is likewise UNKNOWN, never VALIDATED", () => {
+    const ttl = 30_000;
+    const verdict = claimAllowed(
+      readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+      ledgerWith(entry({ fetchedAt: NOW + 10_000_000 })),
+      deps(),
+    );
+    expect(verdict).toBe("UNKNOWN");
+    expect(verdict).not.toBe("VALIDATED");
+  });
+
+  it("(e) age == 0 (fetchedAt == now) → fresh → VALIDATED (lower-bound boundary, no false negative)", () => {
+    // The new lower bound is `>= 0`, so age exactly 0 is still fresh.
+    const ttl = 30_000;
+    const verdict = claimAllowed(
+      readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+      ledgerWith(entry({ fetchedAt: NOW })), // age = 0.
+      deps(),
+    );
+    expect(verdict).toBe("VALIDATED");
+  });
+
+  it("(e') normal 0 < age <= ttl stays fresh → VALIDATED (the fix adds no false negatives)", () => {
+    const ttl = 30_000;
+    // Mid-window.
+    expect(
+      claimAllowed(
+        readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+        ledgerWith(entry({ fetchedAt: NOW - 1 })),
+        deps(),
+      ),
+    ).toBe("VALIDATED");
+    // At the upper boundary (age == ttl).
+    expect(
+      claimAllowed(
+        readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+        ledgerWith(entry({ fetchedAt: NOW - ttl })),
+        deps(),
+      ),
+    ).toBe("VALIDATED");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // AC10 — kernel purity: no downstream import (§R)
 // ─────────────────────────────────────────────────────────────────────────
 

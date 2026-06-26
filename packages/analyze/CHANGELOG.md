@@ -1,5 +1,12 @@
 # @adjudicate/analyze
 
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [06eea00]
+  - @adjudicate/core@1.6.0
+
 ## 0.4.2
 
 ### Patch Changes

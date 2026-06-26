@@ -1,5 +1,15 @@
 # @adjudicate/anthropic
 
+## 0.3.4
+
+### Patch Changes
+
+- Updated dependencies [06eea00]
+  - @adjudicate/core@1.6.0
+  - @adjudicate/adapter-core@0.4.1
+  - @adjudicate/audit@5.0.0
+  - @adjudicate/runtime@0.3.1
+
 ## 0.3.3
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @adjudicate/adjutant
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [06eea00]
+  - @adjudicate/core@1.6.0
+  - @adjudicate/adapter-core@0.4.1
+  - @adjudicate/approval-engine@0.3.1
+  - @adjudicate/audit@5.0.0
+  - @adjudicate/drift@0.2.3
+  - @adjudicate/pack-incident-response@0.3.1
+
 ## 0.2.0
 
 ### Minor Changes

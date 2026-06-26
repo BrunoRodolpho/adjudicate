@@ -1,5 +1,16 @@
 # @example/quickstart-anthropic
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [06eea00]
+  - @adjudicate/core@1.6.0
+  - @adjudicate/anthropic@0.3.4
+  - @adjudicate/openai@0.3.4
+  - @adjudicate/pack-payments-pix@0.3.1
+  - @adjudicate/runtime@0.3.1
+
 ## 0.1.5
 
 ### Patch Changes

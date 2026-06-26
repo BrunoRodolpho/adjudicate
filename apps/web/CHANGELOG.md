@@ -1,5 +1,18 @@
 # @adjudicate/web
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [06eea00]
+  - @adjudicate/core@1.6.0
+  - @adjudicate/admin-sdk@5.0.0
+  - @adjudicate/audit@5.0.0
+  - @adjudicate/pack-deployments-approval@0.4.1
+  - @adjudicate/pack-identity-kyc@0.3.1
+  - @adjudicate/pack-payments-pix@0.3.1
+  - @adjudicate/primitives@0.4.1
+
 ## 0.1.5
 
 ### Patch Changes

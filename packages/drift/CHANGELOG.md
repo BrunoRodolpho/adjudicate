@@ -1,5 +1,12 @@
 # @adjudicate/drift
 
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [06eea00]
+  - @adjudicate/core@1.6.0
+
 ## 0.2.2
 
 ### Patch Changes

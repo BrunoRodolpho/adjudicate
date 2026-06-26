@@ -13,11 +13,19 @@
  *   AC5  COMPATIBLE same-subject declared pair → both render (no over-blocking).
  *   AC6  different-subject claims → no cross-subject constraint (independent).
  *   AC7  kernel purity — no downstream import (asserted structurally below).
+ *   AC8  §C P2 / §D — same-(subject,type) value-aware gate: DIFFERENT values →
+ *             both suppressed `SAME_TYPE_VALUE_CONFLICT` → ESCALATE (never render
+ *             both); PROVABLY-equal values → idempotent dup, exactly ONE renders.
+ *   AC9  the P2-gate SOURCE file is reviewable text — NO literal NUL byte (the
+ *             pairKey separator is the `\x00` source escape, not a raw NUL).
  *
  * NON-VACUITY: AC2/AC3/AC4 each go RED when the guard is removed/inverted; this
  * is demonstrated by the orchestrator's transient-mutation check and recorded in
  * the self-check. The tests assert the SAFE outcome, so deleting the guard (e.g.
- * dropping default-deny, or leaking the value) flips them red.
+ * dropping default-deny, or leaking the value) flips them red. AC8 is non-vacuous
+ * against restoring the old `if (claimA.type === claimB.type) continue;` — the
+ * different-value case would then render BOTH (RED on `renderable` length and the
+ * missing ESCALATE), and the equal-value case would render TWO not one (RED).
  */
 
 import { describe, expect, it } from "vitest";
@@ -378,6 +386,7 @@ describe("AC7 — kernel purity + structural contract", () => {
     ]);
     expect(SUPPRESSION_REASONS).toEqual([
       "MUTUAL_EXCLUSION_CONFLICT",
+      "SAME_TYPE_VALUE_CONFLICT",
       "UNMODELLED_SAME_SUBJECT",
     ]);
   });
@@ -410,5 +419,129 @@ describe("AC7 — kernel purity + structural contract", () => {
         ],
       }),
     ).toThrow(/conflict/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// AC8 — §C P2 / §D: same-(subject,type) value-aware idempotency vs conflict
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("AC8 — same-(subject,type) value-aware gate (idempotent dup vs conflict)", () => {
+  const SAME_TYPE = "ORDER_FULFILLMENT_STAGE";
+
+  it("DIFFERENT values for one (subject,type) → BOTH suppressed, NEVER render both", () => {
+    // Two VALIDATED claims of ONE type on ONE subject with CONTRADICTORY values.
+    // Each is individually sound (P1), but their conjunction is a self-
+    // contradiction. §C P2 / §D: never render both — suppress BOTH → ESCALATE.
+    // NON-VACUOUS: restore `if (type === type) continue` and both would render.
+    const A = "STAGE_VALUE_A_PROPOSITION_SENTINEL_klm";
+    const B = "STAGE_VALUE_B_PROPOSITION_SENTINEL_klm";
+    const result = checkConsistency([
+      claim({ type: SAME_TYPE, value: A }),
+      claim({ type: SAME_TYPE, value: B }),
+    ]);
+
+    expect(result.renderable).toHaveLength(0);
+    expect(result.terminal).toBe("ESCALATE");
+    expect(result.suppressions).toHaveLength(2);
+    for (const rec of result.suppressions) {
+      expect(rec.reason).toBe("SAME_TYPE_VALUE_CONFLICT");
+      expect(rec.terminal).toBe("ESCALATE");
+      expect(rec.subject).toBe(ORDER);
+      // The conflict names the single type-in-conflict — non-propositional.
+      expect(rec.conflictTypes).toEqual([SAME_TYPE]);
+    }
+
+    // §O#5 / Inv 6: the contradictory VALUES must NOT leak into the gate output.
+    const { json, leaves } = outputSurface(result);
+    expect(json).not.toContain(A);
+    expect(json).not.toContain(B);
+    expect(leaves).not.toContain(A);
+    expect(leaves).not.toContain(B);
+  });
+
+  it("EQUAL values for one (subject,type) → idempotent dup: exactly ONE renders, no suppression", () => {
+    // A provably-equal duplicate read is consistent: render exactly ONE, no
+    // suppression record, terminal RENDER.
+    // NON-VACUOUS: restore `continue` and TWO would render, not one.
+    const V = "STAGE_VALUE_EQ_PROPOSITION_SENTINEL_klm";
+    const result = checkConsistency([
+      claim({ type: SAME_TYPE, value: V }),
+      claim({ type: SAME_TYPE, value: V }),
+    ]);
+
+    expect(result.terminal).toBe("RENDER");
+    expect(result.suppressions).toHaveLength(0);
+    expect(result.renderable).toHaveLength(1);
+    expect(result.renderable[0].type).toBe(SAME_TYPE);
+    expect(result.renderable[0].value).toBe(V);
+  });
+
+  it("EQUAL structural (plain-object) values are also de-duplicated to ONE", () => {
+    // Conservative equality recurses into plain objects/arrays.
+    const v1 = { stage: "PREPARING", step: 2, tags: ["a", "b"] };
+    const v2 = { stage: "PREPARING", step: 2, tags: ["a", "b"] };
+    const result = checkConsistency([
+      claim({ type: SAME_TYPE, value: v1 }),
+      claim({ type: SAME_TYPE, value: v2 }),
+    ]);
+    expect(result.terminal).toBe("RENDER");
+    expect(result.suppressions).toHaveLength(0);
+    expect(result.renderable).toHaveLength(1);
+  });
+
+  it("NOT-provably-equal values (distinct exotics) FAIL SAFE to conflict, not dup", () => {
+    // Two DISTINCT Date instances of the SAME millis: conservative equality
+    // cannot prove them equal (own-key compare would falsely equate exotics), so
+    // the gate must FAIL SAFE to a contradiction (ESCALATE) — never silently
+    // de-dup one away as if a duplicate.
+    const result = checkConsistency([
+      claim({ type: SAME_TYPE, value: new Date(0) }),
+      claim({ type: SAME_TYPE, value: new Date(0) }),
+    ]);
+    expect(result.terminal).toBe("ESCALATE");
+    expect(result.renderable).toHaveLength(0);
+    expect(result.suppressions).toHaveLength(2);
+    expect(
+      result.suppressions.every((r) => r.reason === "SAME_TYPE_VALUE_CONFLICT"),
+    ).toBe(true);
+  });
+
+  it("a same-type conflict is independent of a different subject's clean claim", () => {
+    // order-123 has the same-type value conflict; order-999 has a lone clean
+    // claim of the same type → only order-123's members are suppressed.
+    const result = checkConsistency([
+      claim({ subject: ORDER, type: SAME_TYPE, value: "X_sentinel_pqr" }),
+      claim({ subject: ORDER, type: SAME_TYPE, value: "Y_sentinel_pqr" }),
+      claim({ subject: OTHER_ORDER, type: SAME_TYPE, value: "Z_sentinel_pqr" }),
+    ]);
+    expect(result.terminal).toBe("ESCALATE");
+    expect(result.renderable).toHaveLength(1);
+    expect(result.renderable[0].subject).toBe(OTHER_ORDER);
+    expect(result.suppressions.every((r) => r.subject === ORDER)).toBe(true);
+  });
+
+  it("SAME_TYPE_VALUE_CONFLICT is a member of the closed SuppressionReason set", () => {
+    // AC(c): the new reason is in the closed vocabulary (union + array).
+    expect(SUPPRESSION_REASONS).toContain("SAME_TYPE_VALUE_CONFLICT");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// AC9 — the P2-gate SOURCE file is reviewable text (no literal NUL byte)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("AC9 — consistency.ts is reviewable text (no literal NUL byte)", () => {
+  it("contains NO raw NUL byte; the pairKey separator is the `\\x00` source escape", () => {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    const src = fs.readFileSync(
+      path.join(__dirname, "../src/claims/consistency.ts"),
+      "utf8",
+    );
+    // No raw NUL anywhere — the file is grep-able / prettier-safe review text.
+    expect(src.includes("\u0000")).toBe(false);
+    // The separator is written as the printable escape instead (runtime-identical).
+    expect(src).toContain("\\x00");
   });
 });

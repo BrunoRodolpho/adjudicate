@@ -420,8 +420,12 @@ export function runClaimsKernel(
         value: candidate.value,
       };
     })
-    // Q4 itself drops non-VALIDATED members; we pass them through so the gate is
-    // the SINGLE place §D is enforced (no double-filtering that could diverge).
+    // DEFENSE-IN-DEPTH §D filter (NOT the single enforcement point). The P2 gate
+    // ALSO drops non-VALIDATED members internally (consistency.ts step 1), so §D
+    // is enforced in BOTH places. This pre-filter is a redundant belt-and-braces:
+    // it keeps `consistencyInput` honest (only VALIDATED reaches the gate) even if
+    // the gate's own filter were ever weakened. The two use the IDENTICAL
+    // predicate (`verdict === "VALIDATED"`), so they cannot diverge.
     .filter((c) => c.verdict === "VALIDATED");
 
   // ── (3) P2 consistency (Q4) over the VALIDATED set.

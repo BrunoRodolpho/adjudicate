@@ -114,7 +114,10 @@ export interface SoundnessDeps {
    * the action's outcome CONFIRM — `EXECUTE ∧ dispatched=ok ∧ result.success ∧
    * (settlement, for money)`? Kernel-abstract — the repo derives it from this
    * turn's Action verdict + dispatch (NOT a read). Success ≠ session (Inv 4).
-   * Called ONLY for `kind === "action_claim"`.
+   * Called for ANY claim asserting an action outcome — `kind === "action_claim"`
+   * OR any requirement with `freshnessPolicy === "action_outcome"` (C4's
+   * broadened trigger; see `assertsActionOutcome` in `claimAllowed`). NOT called
+   * for a pure read claim that carries no `action_outcome` requirement.
    */
   readonly outcomeConfirmed: (claim: MinimalClaim) => boolean;
   /**

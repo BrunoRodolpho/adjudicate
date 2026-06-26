@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/observability",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "OTLP-native observability for @adjudicate — sinks that adapt kernel metrics, learning events, and audit records onto OpenTelemetry signals. Optional plumbing; never affects Decision outcomes.",
   "publishConfig": {
     "access": "public"

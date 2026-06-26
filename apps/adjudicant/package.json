@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/adjudicant",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Inspector-General observer plane (Adjudicant): a write-isolated, read-only governance console. Mounts the admin-sdk READ-ONLY router (every authorize/weaken mutation structurally excluded) — it observes, investigates, and (later) escalates; it never authorizes or weakens a decision.",

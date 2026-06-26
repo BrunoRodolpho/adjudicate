@@ -50,6 +50,7 @@
  */
 
 import type { ClaimVerdict, TurnTerminal } from "./verdict.js";
+import { sameValue } from "./value-equality.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // The consistency claim shape — what a SET member carries for P2 (SDD §D)
@@ -411,7 +412,7 @@ export function checkConsistency(
         // surface a self-contradiction (SDD §C P2 "the rendered SET must be
         // internally consistent"; §D never-render-both).
         if (claimA.type === claimB.type) {
-          if (sameClaimValue(claimA.value, claimB.value)) {
+          if (sameValue(claimA.value, claimB.value)) {
             // Idempotent duplicate — values are PROVABLY equal. Render exactly
             // ONE: drop the later member from the renderable set WITHOUT a
             // suppression record. No contradiction ⟹ no ESCALATE; the turn
@@ -531,75 +532,12 @@ function suppressPair(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Conservative value equality — drives same-(subject, type) idempotency (P2)
+// Conservative value equality — drives same-(subject, type) idempotency (P2).
+// The fail-closed `sameValue` (idempotent duplicate vs CONTRADICTION) is the
+// SINGLE canonical implementation in `./value-equality.ts`, shared verbatim with
+// the evidence-ledger's H3 same-key conflict gate so the two determinism-
+// critical decisions can never silently diverge. Imported above; not redefined
+// here. Sharing a PRIVATE module between two in-package consumers does NOT widen
+// the frozen public API (§Q) — the module is not in the `claims/index.ts`
+// barrel, so it is never re-exported from the package entry.
 // ─────────────────────────────────────────────────────────────────────────
-
-/**
- * Is `o` a PLAIN object — prototype `Object.prototype` or `null` (an object
- * literal / `Object.create(null)`)? A `Date`/`Map`/`Set`/class instance is NOT
- * plain. Used by `sameClaimValue` to refuse structural comparison of exotics it
- * cannot safely equate.
- */
-function isPlainObject(o: object): boolean {
-  const proto = Object.getPrototypeOf(o);
-  return proto === Object.prototype || proto === null;
-}
-
-/**
- * CONSERVATIVE, fail-CLOSED structural equality for two claim VALUES — does this
- * same-`(subject, type)` pair assert the SAME proposition (an idempotent
- * duplicate read) or CONTRADICT? It returns `true` ONLY when the two values are
- * PROVABLY equal (primitives via `Object.is`; arrays and PLAIN objects compared
- * structurally, recursively); it returns `false` whenever equality cannot be
- * established — notably for a `Date`/`Map`/`Set`/class instance that is not
- * reference-identical, whose own-enumerable-key compare would FALSELY equate
- * distinct exotics (two different `Date`s each expose zero own keys). Failing to
- * `false` is the SAFE direction for P2: an un-equatable same-`(subject, type)`
- * pair is treated as a contradiction (`SAME_TYPE_VALUE_CONFLICT` → ESCALATE),
- * never silently rendered as a duplicate.
- *
- * This is a LOCAL equivalent of evidence-ledger's R1 conservative `sameValue`
- * (same discipline, same exotic-rejection). It is kept private here rather than
- * imported so the P2 gate stays self-contained and does NOT widen the package's
- * frozen public API surface (`claims/index.ts` re-exports via `export *`) — the
- * §R kernel-purity / freeze-matrix posture. Pure; no clock/RNG/IO.
- */
-function sameClaimValue(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true;
-  // Object.is already treats NaN===NaN as equal; +0/-0 as distinct — treat -0
-  // and +0 as the same value for an idempotent re-read (not a contradiction).
-  if (a === 0 && b === 0) return true;
-
-  if (typeof a !== typeof b) return false;
-  if (a === null || b === null) return a === b;
-  if (typeof a !== "object") return false; // primitives already handled above.
-
-  const aArr = Array.isArray(a);
-  const bArr = Array.isArray(b);
-  if (aArr !== bArr) return false;
-
-  if (aArr && bArr) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i += 1) {
-      if (!sameClaimValue(a[i], b[i])) return false;
-    }
-    return true;
-  }
-
-  // Conservative fail-closed: structurally compare ONLY plain objects. A
-  // non-plain object (Date/Map/Set/class instance) that reached here is not
-  // reference-identical, and own-key compare would falsely equate distinct
-  // exotics → a MISSED contradiction. Reject so distinct exotics ESCALATE.
-  if (!isPlainObject(a as object) || !isPlainObject(b as object)) return false;
-
-  const aObj = a as Record<string, unknown>;
-  const bObj = b as Record<string, unknown>;
-  const aKeys = Object.keys(aObj);
-  const bKeys = Object.keys(bObj);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const k of aKeys) {
-    if (!Object.prototype.hasOwnProperty.call(bObj, k)) return false;
-    if (!sameClaimValue(aObj[k], bObj[k])) return false;
-  }
-  return true;
-}

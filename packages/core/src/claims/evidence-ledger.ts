@@ -22,6 +22,7 @@
  */
 
 import type { ClaimVerdict } from "./verdict.js";
+import { sameValue } from "./value-equality.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Ledger provenance vocabulary — SDD §G / v1.1 §7, verbatim
@@ -495,77 +496,9 @@ export class EvidenceLedger {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Internal value equality — drives H3 conflict detection
+// Value equality — drives H3 conflict detection. The conservative, fail-closed
+// `sameValue` (idempotent re-read vs DISAGREEMENT) is the SINGLE canonical
+// implementation in `./value-equality.ts`, shared verbatim with the P2
+// same-type value-conflict gate so the two determinism-critical decisions can
+// never silently diverge. Imported above; not redefined here.
 // ─────────────────────────────────────────────────────────────────────────
-
-/**
- * Is `o` a PLAIN object — i.e. one whose prototype is `Object.prototype` or
- * `null` (an object literal / `Object.create(null)`)? A `Date`/`Map`/`Set`/class
- * instance is NOT plain (its prototype is some other constructor's). Used by
- * `sameValue` to refuse structural comparison of exotics it cannot safely equate.
- */
-function isPlainObject(o: object): boolean {
-  const proto = Object.getPrototypeOf(o);
-  return proto === Object.prototype || proto === null;
-}
-
-/**
- * Structural equality for two evidence values, used ONLY to decide whether a
- * second write to a key DISAGREES (H3 conflict) or is an idempotent re-read.
- * Deterministic; handles primitives, arrays, and PLAIN objects (the shapes
- * evidence values take). NaN is treated as equal-to-NaN here (a re-read of a
- * NaN-valued field is not a conflict). Conservative: when in doubt about deep
- * structural identity it returns `false`, so the SAFE direction (flag a
- * conflict) is the default — never a missed conflict.
- *
- * **Non-plain objects are REJECTED (R1 conservative fail-closed):** a
- * `Date`/`Map`/`Set`/class instance that is not reference-identical (Object.is
- * already short-circuited that) returns `false`, because own-enumerable-key
- * compare would FALSELY equate distinct exotics — e.g. two different `Date`s each
- * expose zero own enumerable keys, so the old compare returned `true` and MISSED
- * the H3 same-key conflict. Rejecting them surfaces the conflict → `UNKNOWN`.
- * `canonicalJson` is deliberately NOT used here (it throws on `NaN`).
- */
-function sameValue(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true;
-  // Object.is distinguishes NaN===NaN as true already; +0/-0 as false. Treat
-  // -0 and +0 as the same value for a re-read (not a conflict).
-  if (a === 0 && b === 0) return true;
-
-  if (typeof a !== typeof b) return false;
-  if (a === null || b === null) return a === b;
-  if (typeof a !== "object") return false; // primitives already handled above
-
-  const aArr = Array.isArray(a);
-  const bArr = Array.isArray(b);
-  if (aArr !== bArr) return false;
-
-  if (aArr && bArr) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i += 1) {
-      if (!sameValue(a[i], b[i])) return false;
-    }
-    return true;
-  }
-
-  // Conservative fail-closed (R1): structurally compare ONLY plain objects. A
-  // non-plain object (Date/Map/Set/class instance) that reached here is NOT
-  // reference-identical, and own-key compare would falsely equate distinct
-  // exotics → a MISSED H3 conflict. Reject so distinct exotics surface a
-  // conflict → UNKNOWN. (Reference-identical exotics already returned true via
-  // Object.is.) Plain objects — Object.prototype or null-prototype — fall through
-  // to the structural own-key compare below.
-  if (!isPlainObject(a as object) || !isPlainObject(b as object)) return false;
-
-  // Plain objects: compare own enumerable keys structurally.
-  const aObj = a as Record<string, unknown>;
-  const bObj = b as Record<string, unknown>;
-  const aKeys = Object.keys(aObj);
-  const bKeys = Object.keys(bObj);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const k of aKeys) {
-    if (!Object.prototype.hasOwnProperty.call(bObj, k)) return false;
-    if (!sameValue(aObj[k], bObj[k])) return false;
-  }
-  return true;
-}

@@ -1,5 +1,7 @@
 # CLAUDE.md — adjudicate
 
+> **Spec authority for the claims runtime:** see [`CLAUDE.SDD.md`](./CLAUDE.SDD.md) — the IbateXas Spec-Driven Development constraint system (compilation authority: §A precedence, §E §5 soundness predicate, §J invariants, §K registry 37/40, §P forbidden misreadings, §R validation gate). Where it and this guide disagree about the claims runtime, CLAUDE.SDD.md wins; surface the conflict.
+
 `@adjudicate/*` is the **governance-kernel platform**: the three kernels (Read / Action = `adjudicate` / Claims), the Evidence Ledger, the soundness + consistency validators, and the policy Packs. It is consumed **down the chain** by `@claustrum/*` then `@ibatexas/*`, never the reverse, and is published to npm. Source of truth for `@adjudicate/*` is this repo.
 
 ## Claims-runtime architecture (the SDD invariants)

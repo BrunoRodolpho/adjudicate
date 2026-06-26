@@ -60,3 +60,7 @@ export {
 } from "./install.js";
 export * from "./kernel/index.js";
 export * from "./llm/index.js";
+// Q1 — Claims runtime types: the 3-valued ClaimVerdict + 4 TurnTerminals (§I)
+// and the per-type EvidenceRequirement schema the §5 soundness predicate
+// quantifies over (§E). Self-contained — no downstream import (§R).
+export * from "./claims/index.js";

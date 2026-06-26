@@ -1,13 +1,17 @@
 # CLAUDE.md — adjudicate
 
-## Spec-Driven Development (SDD) authority
+`@adjudicate/*` is the **governance-kernel platform**: the three kernels (Read / Action = `adjudicate` / Claims), the Evidence Ledger, the soundness + consistency validators, and the policy Packs. It is consumed **down the chain** by `@claustrum/*` then `@ibatexas/*`, never the reverse, and is published to npm. Source of truth for `@adjudicate/*` is this repo.
 
-This repository follows Spec-Driven Development. The file
-[`CLAUDE.SDD.md`](./CLAUDE.SDD.md) is a **byte-identical copy** of the canonical
-SDD and is the **compilation authority** for all SDD-foundation work in this repo.
+## Claims-runtime architecture (the SDD invariants)
 
-- Treat `CLAUDE.SDD.md` as the source of truth for SDD process, gates, and
-  invariants.
-- Any future repo-guide content added to this `CLAUDE.md` (or elsewhere) **defers
-  to `CLAUDE.SDD.md` on conflict** — if guidance here disagrees with the SDD, the
-  SDD wins.
+This repo is the kernel half of the IbateXas **"claims-not-prose"** runtime. The full source of truth is the IbateXas Agentic Architecture design set — the **v1.1 contract** + **Claim Registry v0.1** + the **SDD constraint system**. This is a distillation of the load-bearing rules; on any conflict, the canonical design set wins — surface the conflict, do not silently resolve it. The invariants below never weaken:
+
+- **Claims, not prose.** The system does not generate responses; it generates *validated claims*, and responses render from them. Soundness (P1) + mutual consistency (P2) are **GUARANTEED** (deterministic); correctness (P3) + completeness (P4) are **BOUNDED** — planner error degrades to `UNKNOWN`/`ESCALATE`/`CLARIFY`, never a confident wrong answer.
+- **Three-valued claim verdict** `VALIDATED | UNKNOWN | REFUSED`; **four turn terminals** `RENDER | UNKNOWN | ESCALATE | CLARIFY` (ESCALATE + CLARIFY are first-class — do not collapse the turn space to the claim verdict).
+- **Three kernels, asymmetric topology:** Read (Access ⊕ Provenance) + Action (`adjudicate`) → **Evidence Ledger** → Claims → Renderer. The dependency arrow is **`adjudicate → claustrum → ibatexas`, never backward** — kernel primitives import only intra-`@adjudicate/core`.
+- **Soundness = the multi-conjunct §5 predicate** over `requiredEvidence`: `requiredEvidence ≠ ∅` ∧ present ∧ fresh (per-evidence `freshnessPolicy`; `must_read_this_turn` requires `sourceMode==="live"`) ∧ owned ∧ source-integrity-floor ∧ provenance ∧ (outcome-confirmed for action claims). It is **NOT** "Owner==Verified AND age≤TruthBudget". **Ownership is a validation predicate** — "no owner" ≠ "any owner" → `REFUSED`. `UNTRUSTED_DATA` may never be a validating value; provenance persists across persistence.
+- **Consistency is a set-level gate** (P2) after per-claim soundness; an un-modelled same-subject co-render defaults to `ESCALATE`; the gate's own ESCALATE/UNKNOWN output is **proposition-free** (it must not re-assert what it just suppressed).
+- **Money governance is threshold-BANDED, not a universal confirm** (Inv 11): PIX refund `<R$500 → EXECUTE`, `[500,1k) → REQUEST_CONFIRMATION`, `≥1k → ESCALATE`; checkout `≥1k → CONFIRM`, `≥10k → REFUSE`; cancel `≥1k → ESCALATE`. Overlay B1: any **agent-session** refund → CONFIRM regardless of amount. Constants (verbatim, in `pack-payments-pix/src/policies.ts`): `CONFIRM_REFUND_THRESHOLD_CENTAVOS=50_000`, `ESCALATE_REFUND_THRESHOLD_CENTAVOS=100_000`, cap `10×`. A `<R$500` refund reaching `EXECUTE` is **correct**, not a bug.
+- **Claim registry = 37 rows / 40 type names** (not 33/28). `payment-settled` excludes `payment.refund.confirm` (opposite money direction); `fulfillment-claimed` is permanently unearnable (`justifiedBy: []`) — never drop it when reconciling registry↔code.
+
+**Where it lives in this repo:** the claims runtime is `packages/core/src/claims/` — `verdict.ts`, `evidence-requirement.ts`, `evidence-ledger.ts`, `soundness.ts` (`claimAllowed`), `consistency.ts` (`checkConsistency`), `kernels.ts` (`runClaimsKernel` + the Read/Action/Claims interfaces; Action reuses the existing `Decision`). Tests live in `packages/core/tests/` (flat, self-referenced via `@adjudicate/core`) — **not** co-located under `src/`, so they never ship in the published `dist/`. The Action kernel is `packages/core/src/kernel/adjudicate.ts`; the payload `Taint` lattice (`SYSTEM|TRUSTED|UNTRUSTED`) is a different trust layer from the Ledger's 2-value provenance (`TRUSTED|UNTRUSTED_DATA`) — do not conflate them.

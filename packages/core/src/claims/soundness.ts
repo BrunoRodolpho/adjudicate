@@ -235,9 +235,12 @@ function freshnessVerdict(
  *     stays UNTRUSTED across reads and never washes to TRUSTED.
  *   - **first_party_only:** the origin must be first-party. A non-UNTRUSTED entry
  *     under `first_party_only` whose origin is not first-party → `REFUSED` (no
- *     first-party backing). Modeled via `originProvenance === "TRUSTED"` as the
- *     first-party-origin signal the ledger carries; `preserve` imposes no
- *     additional first-party demand beyond the untrusted-never-validates rule.
+ *     first-party backing). The ledger's `originProvenance` is the 3-value
+ *     `OriginProvenance` axis (§G / §J.3); the first-party signal is
+ *     `originProvenance === "FIRST_PARTY"`, so a `TRUSTED_THIRD_PARTY` origin does
+ *     NOT satisfy it (Inv 3: a trusted third party is NOT first-party). This makes
+ *     `first_party_only` strictly STRONGER than `preserve`, which imposes no
+ *     first-party demand beyond the untrusted-never-validates rule.
  *
  * Returns `PASS` | `REFUSED` — a provenance failure is a no-backing/contradiction
  * class, never mere absence, so it is `REFUSED`, not `UNKNOWN` (registry §5).
@@ -255,9 +258,11 @@ function provenanceVerdict(
 
   if (requirement.provenancePolicy === "first_party_only") {
     // first_party_only: only first-party-origin evidence validates. The ledger's
-    // first-party-origin signal is a TRUSTED originProvenance; anything else is
-    // not provably first-party → REFUSED (no first-party backing).
-    return entry.originProvenance === "TRUSTED" ? "PASS" : "REFUSED";
+    // 3-value origin axis (§G / §J.3) signals first-party as FIRST_PARTY; anything
+    // else — including a TRUSTED_THIRD_PARTY origin, and an absent/unlabeled one
+    // (fail-closed) — is not provably first-party → REFUSED (no first-party
+    // backing). This is strictly stronger than `preserve`.
+    return entry.originProvenance === "FIRST_PARTY" ? "PASS" : "REFUSED";
   }
 
   // preserve: the untrusted-never-validates rule above is the whole gate.

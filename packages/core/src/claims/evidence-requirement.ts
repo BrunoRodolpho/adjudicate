@@ -87,9 +87,13 @@ export type SourceIntegrity =
  *
  *   - `"preserve"`         — provenance survives persistence; an UNTRUSTED-origin
  *                            row stays UNTRUSTED and may never be a validating
- *                            value (SDD §J.3).
- *   - `"first_party_only"` — only first-party-origin evidence validates (e.g.
- *                            payment owner-attribution — SDD §E worked types).
+ *                            value (SDD §J.3). Requires only a non-`UNTRUSTED_DATA`
+ *                            origin (`FIRST_PARTY` or `TRUSTED_THIRD_PARTY`).
+ *   - `"first_party_only"` — only first-party-origin evidence validates: requires
+ *                            `originProvenance === "FIRST_PARTY"` (a
+ *                            `TRUSTED_THIRD_PARTY` origin → `REFUSED`), strictly
+ *                            stronger than `preserve` (SDD §G / §J.3; e.g. payment
+ *                            owner-attribution — SDD §E worked types).
  */
 export type ProvenancePolicy = "preserve" | "first_party_only";
 

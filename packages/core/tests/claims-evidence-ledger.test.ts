@@ -22,16 +22,22 @@ import { describe, expect, it } from "vitest";
 import {
   EvidenceLedger,
   LEDGER_TAINTS,
+  ORIGIN_PROVENANCES,
   isLedgerTaint,
+  isOriginProvenance,
   type EvidenceEntry,
   type EvidenceResolution,
   type LedgerTaint,
+  type OriginProvenance,
   type PerEnvelopeResult,
   type SourceMode,
 } from "@adjudicate/core";
 
 // A small builder so each test states only the field it exercises; the rest are
-// faithful §G defaults (a live, trusted, this-turn read).
+// faithful §G defaults (a live, trusted, this-turn read). The origin axis
+// defaults to TRUSTED_THIRD_PARTY — a generic trusted read is NOT first-party
+// (fail-closed mapping, SDD §G / §J.3); only an explicit first-party mint earns
+// FIRST_PARTY.
 function entry(over: Partial<EvidenceEntry> & Pick<EvidenceEntry, "key">): EvidenceEntry {
   return {
     value: "v",
@@ -39,7 +45,7 @@ function entry(over: Partial<EvidenceEntry> & Pick<EvidenceEntry, "key">): Evide
     fetchedAt: 1_000,
     sourceMode: "live",
     taint: "TRUSTED",
-    originProvenance: "TRUSTED",
+    originProvenance: "TRUSTED_THIRD_PARTY",
     ...over,
   };
 }
@@ -115,7 +121,7 @@ describe("AC2 — entry shape EXACTLY §G/§7 (fetchedAt is a timestamp, not a b
       fetchedAt: 1_718_000_000_000,
       sourceMode: "live",
       taint: "TRUSTED",
-      originProvenance: "TRUSTED",
+      originProvenance: "TRUSTED_THIRD_PARTY",
     });
     led.record(e);
 
@@ -129,7 +135,7 @@ describe("AC2 — entry shape EXACTLY §G/§7 (fetchedAt is a timestamp, not a b
     expect(got.fetchedAt).toBe(1_718_000_000_000);
     expect(got.sourceMode).toBe("live");
     expect(got.taint).toBe("TRUSTED");
-    expect(got.originProvenance).toBe("TRUSTED");
+    expect(got.originProvenance).toBe("TRUSTED_THIRD_PARTY");
   });
 
   it("fetchedAt is a numeric timestamp — H4: cache cannot masquerade as live via a boolean", () => {
@@ -339,8 +345,11 @@ describe("AC5 — originProvenance survives persistence (C3): UNTRUSTED never wa
     const r2 = led.resolve("USER_SUPPLIED_ADDRESS");
     expect(r1.entry!.originProvenance).toBe("UNTRUSTED_DATA");
     expect(r2.entry!.originProvenance).toBe("UNTRUSTED_DATA");
-    // It is NOT silently upgraded to TRUSTED.
-    expect(r1.entry!.originProvenance).not.toBe("TRUSTED");
+    // It is NOT silently upgraded to a trusted class — never washes up to
+    // FIRST_PARTY (nor TRUSTED_THIRD_PARTY); the origin axis only ever stays-or-
+    // is the recorded class (SDD §G C3).
+    expect(r1.entry!.originProvenance).not.toBe("FIRST_PARTY");
+    expect(r1.entry!.originProvenance).not.toBe("TRUSTED_THIRD_PARTY");
   });
 
   it("originProvenance is INDEPENDENT of the content taint (a TRUSTED-content/UNTRUSTED-origin row keeps both)", () => {
@@ -357,6 +366,158 @@ describe("AC5 — originProvenance survives persistence (C3): UNTRUSTED never wa
     const got = led.resolve("mixed").entry!;
     expect(got.taint).toBe("TRUSTED");
     expect(got.originProvenance).toBe("UNTRUSTED_DATA"); // origin axis preserved
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// R1 — OriginProvenance is a 3-value origin axis, distinct from the 2-value
+// read-layer LedgerTaint (SDD §G / §J.3). DE-VACUUMS the first_party_only gate.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("R1 — OriginProvenance: a 3-value origin axis DISTINCT from the 2-value LedgerTaint (§G/§J.3)", () => {
+  it("ORIGIN_PROVENANCES has EXACTLY the three §G origin classes in spec order", () => {
+    // Acceptance (a): exactly the three values. A 4th/renamed member fails toEqual.
+    expect(ORIGIN_PROVENANCES).toEqual([
+      "FIRST_PARTY",
+      "TRUSTED_THIRD_PARTY",
+      "UNTRUSTED_DATA",
+    ]);
+    expect(ORIGIN_PROVENANCES).toHaveLength(3);
+    for (const o of ORIGIN_PROVENANCES) expect(isOriginProvenance(o)).toBe(true);
+  });
+
+  it("the two axes are DISTINCT: LedgerTaint stays 2-valued; neither vocabulary subsumes the other", () => {
+    // NON-VACUITY: if originProvenance were still typed/valued as LedgerTaint, a
+    // first-party / trusted-third-party origin would be unrepresentable and these
+    // membership facts would not hold. The two membership sets are disjoint at the
+    // distinguishing members.
+    expect(LEDGER_TAINTS).toHaveLength(2);
+    expect(LEDGER_TAINTS).not.toContain("FIRST_PARTY");
+    expect(LEDGER_TAINTS).not.toContain("TRUSTED_THIRD_PARTY");
+    // A TRUSTED_THIRD_PARTY / FIRST_PARTY origin class is NOT a ledger taint.
+    expect(isLedgerTaint("TRUSTED_THIRD_PARTY")).toBe(false);
+    expect(isLedgerTaint("FIRST_PARTY")).toBe(false);
+    // The read-layer-only "TRUSTED" is NOT an origin class (the axes differ).
+    expect(isOriginProvenance("TRUSTED")).toBe(false);
+    expect(ORIGIN_PROVENANCES).not.toContain("TRUSTED");
+  });
+
+  it("type-level witness: a TRUSTED_THIRD_PARTY origin types as OriginProvenance and lands on an entry", () => {
+    // A compile-time + runtime witness that EvidenceEntry.originProvenance carries
+    // the 3-value axis (not LedgerTaint). If originProvenance were retyped back to
+    // LedgerTaint, this annotation/assignment would not type-check.
+    const origin: OriginProvenance = "TRUSTED_THIRD_PARTY";
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "k", originProvenance: origin }));
+    const got = led.resolve("k").entry!;
+    expect(got.originProvenance).toBe("TRUSTED_THIRD_PARTY");
+    expect(isOriginProvenance(got.originProvenance)).toBe(true);
+  });
+});
+
+describe("R1 — fail-closed origin default: a generic trusted read is NOT first-party (§G)", () => {
+  it("a record built from a generic trusted read carries TRUSTED_THIRD_PARTY, NOT FIRST_PARTY", () => {
+    // Acceptance (c) [non-vacuous]: the fail-closed mapping maps a generic/old-style
+    // trusted read to TRUSTED_THIRD_PARTY — which a later first_party_only gate MUST
+    // REFUSE. A FIRST_PARTY default would wrongly pass that gate (the very money
+    // guarantee this de-vacuuming protects). Nothing is auto-promoted to FIRST_PARTY.
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "generic-trusted-read" })); // builder default origin
+    const got = led.resolve("generic-trusted-read").entry!;
+    expect(got.originProvenance).toBe("TRUSTED_THIRD_PARTY");
+    expect(got.originProvenance).not.toBe("FIRST_PARTY");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// R1 — sameValue conservative reject of non-plain objects (H3 conflict for
+// distinct exotics) — NON-VACUITY GUARD (evidence-ledger.ts sameValue)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("R1 — sameValue rejects non-plain objects so distinct exotics surface an H3 conflict", () => {
+  // NON-VACUITY: the guard is sameValue's prototype reject. Remove it (fall through
+  // to own-enumerable-key compare) and two DISTINCT Dates compare EQUAL (each has
+  // zero own enumerable keys) → the second write is treated as an idempotent re-read
+  // → state "present" instead of "conflict" → every assertion below goes RED.
+  it("two DISTINCT Date values under one key → conflict/UNKNOWN (not silently equal)", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "T", value: new Date(1_000) }));
+    led.record(entry({ key: "T", value: new Date(2_000) }));
+    const r = led.resolve("T");
+    expect(r.state).toBe("conflict");
+    expect(r.entry).toBeUndefined();
+  });
+
+  it("two DISTINCT Map values under one key → conflict/UNKNOWN", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "M", value: new Map([["a", 1]]) }));
+    led.record(entry({ key: "M", value: new Map([["a", 2]]) }));
+    expect(led.resolve("M").state).toBe("conflict");
+  });
+
+  it("two DISTINCT Set values under one key → conflict/UNKNOWN", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "S", value: new Set([1]) }));
+    led.record(entry({ key: "S", value: new Set([2]) }));
+    expect(led.resolve("S").state).toBe("conflict");
+  });
+
+  it("two NON-reference-identical class instances → conflict (conservative; cannot prove identity)", () => {
+    class Box {
+      constructor(readonly n: number) {}
+    }
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "B", value: new Box(1) }));
+    led.record(entry({ key: "B", value: new Box(1) })); // equal fields, distinct ref
+    expect(led.resolve("B").state).toBe("conflict");
+  });
+
+  it("the SAME exotic reference re-read is idempotent (Object.is short-circuit) → present (no false conflict)", () => {
+    // Proves the reject does not OVER-flag: a genuine idempotent re-read of the SAME
+    // Date reference is not a conflict (Object.is returns true before the reject).
+    const d = new Date(1_000);
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "T", value: d }));
+    led.record(entry({ key: "T", value: d }));
+    expect(led.resolve("T").state).toBe("present");
+  });
+});
+
+describe("R1 — sameValue still equates equal primitives + equal PLAIN objects (no false conflicts)", () => {
+  // NON-VACUITY: if the reject were too broad (also rejecting plain objects), these
+  // idempotent re-reads would FALSELY conflict → RED. It pins that the reject is
+  // scoped to non-plain objects only.
+  it("equal primitives re-read → present (no conflict)", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "p", value: 42 }));
+    led.record(entry({ key: "p", value: 42 }));
+    expect(led.resolve("p").state).toBe("present");
+  });
+
+  it("structurally-equal PLAIN objects (nested arrays + objects) re-read → present", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "o", value: { a: 1, b: [2, 3], c: { d: 4 } } }));
+    led.record(entry({ key: "o", value: { a: 1, b: [2, 3], c: { d: 4 } } }));
+    expect(led.resolve("o").state).toBe("present");
+  });
+
+  it("null-prototype plain objects are still structurally compared (getPrototypeOf === null) → present", () => {
+    const mk = (): Record<string, unknown> => {
+      const o = Object.create(null) as Record<string, unknown>;
+      o.x = 1;
+      return o;
+    };
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "np", value: mk() }));
+    led.record(entry({ key: "np", value: mk() }));
+    expect(led.resolve("np").state).toBe("present");
+  });
+
+  it("DISTINCT plain objects still conflict (the reject did NOT disable plain-object compare)", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "o2", value: { a: 1 } }));
+    led.record(entry({ key: "o2", value: { a: 2 } }));
+    expect(led.resolve("o2").state).toBe("conflict");
   });
 });
 

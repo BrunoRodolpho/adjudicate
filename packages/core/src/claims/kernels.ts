@@ -118,10 +118,12 @@ export function isReadAccess(value: unknown): value is ReadAccess {
 /**
  * The Read kernel's PROVENANCE-layer verdict (SDD §F; v1.1 §6) — the trust axis,
  * EXACTLY the two `LedgerTaint` members `TRUSTED | UNTRUSTED_DATA` (reused from
- * Q2's ledger vocabulary — §G; the same two values land on a ledger entry's
- * `taint`/`originProvenance`). A distinct ALIAS name documents that this is the
- * Read kernel's SECOND, orthogonal layer; the underlying union is shared with
- * the ledger so a Read provenance verdict drops into the ledger entry as-is.
+ * Q2's ledger vocabulary — §G; these two values land on a ledger entry's read-
+ * layer `taint`). A distinct ALIAS name documents that this is the Read kernel's
+ * SECOND, orthogonal layer; the underlying union is shared with the ledger so a
+ * Read provenance verdict drops into the ledger entry's `taint` as-is. NOTE this
+ * is the read-layer trust axis, NOT the 3-value `OriginProvenance` ORIGIN axis
+ * (§G / §J.3) on `originProvenance` — that is labeled at mint time, separately.
  *
  * Authorization ≠ trust (SDD §F): this is NOT `ReadAccess`. An `UNTRUSTED_DATA`
  * value may still be `ALLOW_READ` (you read it) — but it may never be the
@@ -141,9 +143,10 @@ export type ReadProvenance = LedgerTaint;
  *   - `provenance` — the trust verdict (TRUSTED | UNTRUSTED_DATA).
  *
  * This is what the Read kernel FEEDS the Evidence Ledger: an allowed/redacted
- * read writes an entry whose `taint`/`originProvenance` carry `provenance`. The
- * Read kernel does NOT itself validate claims — it produces evidence + its
- * trust; the Claims kernel (downstream) decides what may be SAID (SDD §F).
+ * read writes an entry whose read-layer `taint` carries `provenance` (the entry's
+ * 3-value `originProvenance` ORIGIN axis is labeled separately at mint time, §G /
+ * §J.3). The Read kernel does NOT itself validate claims — it produces evidence +
+ * its trust; the Claims kernel (downstream) decides what may be SAID (SDD §F).
  */
 export interface ReadKernelResult {
   readonly access: ReadAccess;

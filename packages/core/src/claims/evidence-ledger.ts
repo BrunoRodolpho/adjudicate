@@ -62,6 +62,64 @@ export function isLedgerTaint(value: unknown): value is LedgerTaint {
 }
 
 /**
+ * The ORIGIN-trust axis recorded on a ledger entry (SDD §G / §J.3; v1.1 §7) — a
+ * THREE-valued classification, DISTINCT from the read-layer two-valued
+ * `LedgerTaint`:
+ *
+ *   "FIRST_PARTY" | "TRUSTED_THIRD_PARTY" | "UNTRUSTED_DATA"
+ *
+ * This is the value's ORIGIN trust, NOT the read-layer `taint`. The two axes are
+ * deliberately separate (SDD §J.3 — "the origin axis is three-valued …, distinct
+ * from the read-layer two-valued `taint`"): a value may be content-`TRUSTED`
+ * (taint) yet originate from an `UNTRUSTED_DATA` ingress (origin), and both must
+ * be recorded independently so neither can silently overwrite the other.
+ *
+ * It "survives persistence" (SDD §G C3; Inv 3): an `UNTRUSTED_DATA` ingress stays
+ * `UNTRUSTED_DATA` across reads and never washes up to a trusted class; a
+ * `TRUSTED_THIRD_PARTY` origin is NOT first-party. The provenance policies read
+ * this axis (SDD §G):
+ *
+ *   - `first_party_only` ⟹ origin === `FIRST_PARTY` (a `TRUSTED_THIRD_PARTY`
+ *     origin does NOT satisfy it → `REFUSED`).
+ *   - `preserve`         ⟹ any NON-`UNTRUSTED_DATA` origin (so `FIRST_PARTY` or
+ *     `TRUSTED_THIRD_PARTY`).
+ *
+ * **Absent/unlabeled ⟹ NOT first-party (fail-closed)** — only an explicit
+ * first-party MINT may carry `FIRST_PARTY`; nothing is auto-promoted to it. This
+ * is what makes `first_party_only` strictly STRONGER than `preserve` (the
+ * de-vacuumed gate of soundness's C3): under the old 2-value origin the gate was
+ * vacuous (every non-untrusted origin looked first-party); the third class
+ * separates a trusted third party from a true first party.
+ */
+export type OriginProvenance =
+  | "FIRST_PARTY"
+  | "TRUSTED_THIRD_PARTY"
+  | "UNTRUSTED_DATA";
+
+/**
+ * The closed membership tuple for `OriginProvenance`, in spec order (SDD §G —
+ * trusted→untrusted). Single source of truth for the three members;
+ * `isOriginProvenance` narrows against it.
+ */
+export const ORIGIN_PROVENANCES: readonly OriginProvenance[] = [
+  "FIRST_PARTY",
+  "TRUSTED_THIRD_PARTY",
+  "UNTRUSTED_DATA",
+] as const;
+
+/**
+ * Type guard: is `value` one of the exactly-three origin classes (§G)? Pure.
+ * NOTE it REJECTS the read-layer-only `"TRUSTED"` — that is a `LedgerTaint`
+ * member, not an origin class (the two axes are distinct, SDD §J.3).
+ */
+export function isOriginProvenance(value: unknown): value is OriginProvenance {
+  return (
+    typeof value === "string" &&
+    (ORIGIN_PROVENANCES as readonly string[]).includes(value)
+  );
+}
+
+/**
  * The freshness SOURCE mode recorded on a ledger entry (SDD §G / v1.1 §7):
  *
  *   "live" | "cache"
@@ -121,8 +179,8 @@ export interface PerEnvelopeResult {
  * { key, value, source,
  *   fetchedAt: <timestamp>,            // H4: a timestamp, NOT a boolean
  *   sourceMode: "live" | "cache",      // H4: must_read_this_turn REQUIRES "live"
- *   taint: "TRUSTED" | "UNTRUSTED_DATA",
- *   originProvenance,                  // C3: survives persistence
+ *   taint: "TRUSTED" | "UNTRUSTED_DATA",                                        // read-layer trust (2-value)
+ *   originProvenance: "FIRST_PARTY" | "TRUSTED_THIRD_PARTY" | "UNTRUSTED_DATA", // C3 origin-trust (3-value); survives persistence
  *   dispatch?: PerEnvelopeResult[] }   // H10: per-envelope dispatch results
  * ```
  *
@@ -148,13 +206,18 @@ export interface EvidenceEntry {
   /** Read-layer trust of the value (SDD §G) — `TRUSTED` | `UNTRUSTED_DATA`. */
   readonly taint: LedgerTaint;
   /**
-   * The provenance of the value's ORIGIN — survives persistence (C3, Inv 3): a
-   * row written from an `UNTRUSTED_DATA` ingress stays `UNTRUSTED_DATA` across
-   * reads; it never "washes" to `TRUSTED`. Kept as `LedgerTaint` (a second axis
-   * over the same vocabulary as `taint`) so the origin trust is comparable and
-   * cannot silently upgrade.
+   * The provenance of the value's ORIGIN (SDD §G / §J.3; C3, Inv 3) — the
+   * THREE-valued `OriginProvenance` axis (`FIRST_PARTY` | `TRUSTED_THIRD_PARTY` |
+   * `UNTRUSTED_DATA`), DISTINCT from the 2-value read-layer `taint`. It survives
+   * persistence: a row written from an `UNTRUSTED_DATA` ingress stays
+   * `UNTRUSTED_DATA` across reads and never "washes" up to a trusted class; a
+   * `TRUSTED_THIRD_PARTY` origin is NOT first-party. `first_party_only` requires
+   * `FIRST_PARTY` here (a `TRUSTED_THIRD_PARTY` origin → `REFUSED`); `preserve`
+   * requires only a non-`UNTRUSTED_DATA` origin. Absent/unlabeled ⟹ NOT
+   * first-party (fail-closed) — only an explicit first-party mint earns
+   * `FIRST_PARTY`.
    */
-  readonly originProvenance: LedgerTaint;
+  readonly originProvenance: OriginProvenance;
   /**
    * Optional per-envelope dispatch results (H10) — present for `action_outcome`
    * evidence so partial commits are representable; absent for plain reads.
@@ -436,13 +499,32 @@ export class EvidenceLedger {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
+ * Is `o` a PLAIN object — i.e. one whose prototype is `Object.prototype` or
+ * `null` (an object literal / `Object.create(null)`)? A `Date`/`Map`/`Set`/class
+ * instance is NOT plain (its prototype is some other constructor's). Used by
+ * `sameValue` to refuse structural comparison of exotics it cannot safely equate.
+ */
+function isPlainObject(o: object): boolean {
+  const proto = Object.getPrototypeOf(o);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
  * Structural equality for two evidence values, used ONLY to decide whether a
  * second write to a key DISAGREES (H3 conflict) or is an idempotent re-read.
- * Deterministic; handles primitives, arrays, and plain objects (the shapes
+ * Deterministic; handles primitives, arrays, and PLAIN objects (the shapes
  * evidence values take). NaN is treated as equal-to-NaN here (a re-read of a
  * NaN-valued field is not a conflict). Conservative: when in doubt about deep
  * structural identity it returns `false`, so the SAFE direction (flag a
  * conflict) is the default — never a missed conflict.
+ *
+ * **Non-plain objects are REJECTED (R1 conservative fail-closed):** a
+ * `Date`/`Map`/`Set`/class instance that is not reference-identical (Object.is
+ * already short-circuited that) returns `false`, because own-enumerable-key
+ * compare would FALSELY equate distinct exotics — e.g. two different `Date`s each
+ * expose zero own enumerable keys, so the old compare returned `true` and MISSED
+ * the H3 same-key conflict. Rejecting them surfaces the conflict → `UNKNOWN`.
+ * `canonicalJson` is deliberately NOT used here (it throws on `NaN`).
  */
 function sameValue(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
@@ -465,6 +547,15 @@ function sameValue(a: unknown, b: unknown): boolean {
     }
     return true;
   }
+
+  // Conservative fail-closed (R1): structurally compare ONLY plain objects. A
+  // non-plain object (Date/Map/Set/class instance) that reached here is NOT
+  // reference-identical, and own-key compare would falsely equate distinct
+  // exotics → a MISSED H3 conflict. Reject so distinct exotics surface a
+  // conflict → UNKNOWN. (Reference-identical exotics already returned true via
+  // Object.is.) Plain objects — Object.prototype or null-prototype — fall through
+  // to the structural own-key compare below.
+  if (!isPlainObject(a as object) || !isPlainObject(b as object)) return false;
 
   // Plain objects: compare own enumerable keys structurally.
   const aObj = a as Record<string, unknown>;

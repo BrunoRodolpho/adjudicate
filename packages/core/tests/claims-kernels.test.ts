@@ -114,7 +114,8 @@ function recordTrusted(ledger: EvidenceLedger, key: string, value: unknown): voi
     fetchedAt: NOW,
     sourceMode: "live",
     taint: "TRUSTED",
-    originProvenance: "TRUSTED",
+    // A generic trusted read is NOT first-party (fail-closed origin, §G/§J.3).
+    originProvenance: "TRUSTED_THIRD_PARTY",
   });
 }
 

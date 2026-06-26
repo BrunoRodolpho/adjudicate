@@ -67,7 +67,9 @@ function entry(over: Partial<EvidenceEntryInput> = {}): EvidenceEntryInput {
     fetchedAt: NOW,
     sourceMode: "live",
     taint: "TRUSTED",
-    originProvenance: "TRUSTED",
+    // Fail-closed origin default: a generic trusted read is NOT first-party
+    // (SDD §G / §J.3). Passes `preserve`; REFUSED under `first_party_only`.
+    originProvenance: "TRUSTED_THIRD_PARTY",
     ...over,
   };
 }
@@ -272,22 +274,53 @@ describe("claimAllowed — C3 provenance / UNTRUSTED never validates (§E C3; In
     expect(verdict).toBe("REFUSED");
   });
 
-  it("first_party_only with a non-first-party (TRUSTED-but-not) origin → REFUSED", () => {
-    // first_party_only demands a first-party origin; modeled as TRUSTED origin.
-    // A first_party_only requirement whose origin is UNTRUSTED is REFUSED above;
-    // here we also prove the policy gates: first_party_only PASSES with a TRUSTED
-    // origin and the baseline VALIDATES, so the policy is non-vacuous.
-    const fpVerdict = claimAllowed(
-      readClaim({
-        requiredEvidence: [
-          req({ provenancePolicy: "first_party_only", sourceIntegrity: "first_party_verified" }),
-        ],
-        minSourceIntegrity: "first_party_verified",
-      }),
-      ledgerWith(entry({ originProvenance: "TRUSTED" })),
+  // A first_party_only requirement at a first-party-verified floor; only the
+  // origin axis varies across the three cases below.
+  function firstPartyClaim(): MinimalClaim {
+    return readClaim({
+      requiredEvidence: [
+        req({ provenancePolicy: "first_party_only", sourceIntegrity: "first_party_verified" }),
+      ],
+      minSourceIntegrity: "first_party_verified",
+    });
+  }
+
+  it("first_party_only with a FIRST_PARTY origin → VALIDATED (the ONLY origin that satisfies it)", () => {
+    // The positive case — proves the gate is not blanket-REFUSE (non-vacuous).
+    const verdict = claimAllowed(
+      firstPartyClaim(),
+      ledgerWith(entry({ originProvenance: "FIRST_PARTY" })),
       deps(),
     );
-    expect(fpVerdict).toBe("VALIDATED");
+    expect(verdict).toBe("VALIDATED");
+  });
+
+  it("first_party_only with a TRUSTED_THIRD_PARTY origin → REFUSED (a trusted third party is NOT first-party; §J.3/Inv 3)", () => {
+    // THE de-vacuuming guard. Under the OLD 2-value origin this case was
+    // indistinguishable from first-party and wrongly VALIDATED, leaving
+    // first_party_only ≡ preserve (vacuous). The 3-value axis makes it strictly
+    // stronger: a TRUSTED_THIRD_PARTY origin (what a generic trusted read maps to,
+    // fail-closed) does NOT satisfy first_party_only. Invert the gate in
+    // soundness.ts (=== "FIRST_PARTY" → !== / back to "TRUSTED") and this leaks to
+    // VALIDATED → RED. Directly protects the PAYMENT_STATUS first-party money read.
+    const verdict = claimAllowed(
+      firstPartyClaim(),
+      ledgerWith(entry({ taint: "TRUSTED", originProvenance: "TRUSTED_THIRD_PARTY" })),
+      deps(),
+    );
+    expect(verdict).toBe("REFUSED");
+  });
+
+  it("preserve (NOT first_party_only) ACCEPTS that SAME TRUSTED_THIRD_PARTY origin → VALIDATED (strictly weaker)", () => {
+    // Proves the new gate is a strict tightening of first_party_only only, not of
+    // preserve: the identical TRUSTED_THIRD_PARTY origin REFUSED above validates
+    // here, because preserve requires only a non-UNTRUSTED origin.
+    const verdict = claimAllowed(
+      readClaim({ requiredEvidence: [req({ provenancePolicy: "preserve" })] }),
+      ledgerWith(entry({ originProvenance: "TRUSTED_THIRD_PARTY" })),
+      deps(),
+    );
+    expect(verdict).toBe("VALIDATED");
   });
 });
 

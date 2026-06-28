@@ -1,5 +1,12 @@
 # @adjudicate/conformance
 
+## 5.0.0
+
+### Patch Changes
+
+- Updated dependencies [33fcb81]
+  - @adjudicate/core@1.7.0
+
 ## 4.0.0
 
 ### Patch Changes

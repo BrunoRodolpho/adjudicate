@@ -1,5 +1,14 @@
 # @adjudicate/adjudicant
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [33fcb81]
+  - @adjudicate/core@1.7.0
+  - @adjudicate/admin-sdk@6.0.0
+  - @adjudicate/audit@6.0.0
+
 ## 0.2.1
 
 ### Patch Changes

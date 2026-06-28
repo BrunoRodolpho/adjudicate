@@ -1,5 +1,12 @@
 # @adjudicate/runtime
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [33fcb81]
+  - @adjudicate/core@1.7.0
+
 ## 0.3.1
 
 ### Patch Changes

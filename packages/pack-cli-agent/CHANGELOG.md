@@ -1,5 +1,13 @@
 # @adjudicate/pack-cli-agent
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [33fcb81]
+  - @adjudicate/core@1.7.0
+  - @adjudicate/primitives@0.4.2
+
 ## 0.1.1
 
 ### Patch Changes

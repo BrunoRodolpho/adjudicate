@@ -1,5 +1,12 @@
 # @adjudicate/learning-bridge
 
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies [33fcb81]
+  - @adjudicate/core@1.7.0
+
 ## 0.0.3
 
 ### Patch Changes

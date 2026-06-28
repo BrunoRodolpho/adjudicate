@@ -105,6 +105,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # setup-node (registry-url) writes a temp .npmrc and points
+          # NPM_CONFIG_USERCONFIG at it with `_authToken=${NODE_AUTH_TOKEN}`.
+          # pnpm reads THAT file, so the real token must arrive via
+          # NODE_AUTH_TOKEN — without it the placeholder is sent and npm
+          # rejects the publish with `E404 PUT /@adjudicate%2f...` even though
+          # changesets/action wrote the token to $HOME/.npmrc (which the
+          # overridden userconfig path makes pnpm ignore).
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # SBOM + attestation gated on `published == true` so they only run when
       # packages actually hit npm — not when the changesets action just opens

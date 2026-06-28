@@ -114,7 +114,10 @@ export interface SoundnessDeps {
    * the action's outcome CONFIRM — `EXECUTE ∧ dispatched=ok ∧ result.success ∧
    * (settlement, for money)`? Kernel-abstract — the repo derives it from this
    * turn's Action verdict + dispatch (NOT a read). Success ≠ session (Inv 4).
-   * Called ONLY for `kind === "action_claim"`.
+   * Called for ANY claim asserting an action outcome — `kind === "action_claim"`
+   * OR any requirement with `freshnessPolicy === "action_outcome"` (C4's
+   * broadened trigger; see `assertsActionOutcome` in `claimAllowed`). NOT called
+   * for a pure read claim that carries no `action_outcome` requirement.
    */
   readonly outcomeConfirmed: (claim: MinimalClaim) => boolean;
   /**
@@ -145,9 +148,11 @@ export interface SoundnessDeps {
 //                        value (Inv 3): a contradicting/poisoned origin → REFUSED.
 //     · C3 provenance  — `first_party_only` violated by a non-first-party origin
 //                        → REFUSED (no first-party backing).
-//     · C4 outcome     — an `action_claim` whose outcome is NOT confirmed:
-//                        asserting a non-happening is a contradiction → REFUSED
-//                        (the PURCHASE_COMPLETED confabulation guard, registry §6).
+//     · C4 outcome     — a claim ASSERTING an action outcome (an `action_claim`,
+//                        OR any claim with an `action_outcome` requirement) whose
+//                        outcome is NOT confirmed: asserting a non-happening is a
+//                        contradiction → REFUSED (the PURCHASE_COMPLETED
+//                        confabulation guard, registry §6).
 //
 //   UNKNOWN  (MISSING / NOT-FOUND / STALE → "honest ignorance + offer; not a
 //             failure"):
@@ -190,8 +195,11 @@ type EvidenceVerdict = "PASS" | "UNKNOWN" | "REFUSED";
  *                               masquerade — we cannot prove it was read live
  *                               this turn → UNKNOWN (not a concrete value).
  *   - `"action_outcome"`      — freshness for an action is the OUTCOME conjunct
- *                               (C4), checked at the claim level, not here over a
- *                               read entry → PASS at the per-evidence stage.
+ *                               (C4), checked at the claim level (the broadened
+ *                               `assertsActionOutcome` trigger in `claimAllowed`),
+ *                               not here over a read entry → PASS at the
+ *                               per-evidence stage. Staleness is not the axis for
+ *                               an action outcome; C4 is.
  *
  * Pure: `now` is supplied by the caller; no clock read.
  */
@@ -215,9 +223,13 @@ function freshnessVerdict(
   // cacheable: PASS iff within ttl. reindex_bound is not a wall-clock window.
   if (policy.ttl === "reindex_bound") return "PASS";
   const age = now - entry.fetchedAt;
-  // Stale (age strictly beyond ttl) → UNKNOWN (stale, registry §5). age <= ttl
-  // is fresh. A negative age (clock skew, fetchedAt in the "future") is fresh.
-  return age <= policy.ttl ? "PASS" : "UNKNOWN";
+  // Fresh ⟺ `0 <= age <= ttl` (§G: staleness is `now - fetchedAt`). Stale (age
+  // strictly beyond ttl) → UNKNOWN (stale, registry §5). A NEGATIVE age —
+  // `fetchedAt` in the FUTURE (clock skew, or a future-stamped / tampered entry)
+  // — is NOT fresh: a value cannot be fresher than "now" (§G), so the lower bound
+  // `age >= 0` rejects it → UNKNOWN, never a free pass. (Pairs with claustrum's
+  // per-turn clock, its realistic trigger.)
+  return age >= 0 && age <= policy.ttl ? "PASS" : "UNKNOWN";
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -235,9 +247,12 @@ function freshnessVerdict(
  *     stays UNTRUSTED across reads and never washes to TRUSTED.
  *   - **first_party_only:** the origin must be first-party. A non-UNTRUSTED entry
  *     under `first_party_only` whose origin is not first-party → `REFUSED` (no
- *     first-party backing). Modeled via `originProvenance === "TRUSTED"` as the
- *     first-party-origin signal the ledger carries; `preserve` imposes no
- *     additional first-party demand beyond the untrusted-never-validates rule.
+ *     first-party backing). The ledger's `originProvenance` is the 3-value
+ *     `OriginProvenance` axis (§G / §J.3); the first-party signal is
+ *     `originProvenance === "FIRST_PARTY"`, so a `TRUSTED_THIRD_PARTY` origin does
+ *     NOT satisfy it (Inv 3: a trusted third party is NOT first-party). This makes
+ *     `first_party_only` strictly STRONGER than `preserve`, which imposes no
+ *     first-party demand beyond the untrusted-never-validates rule.
  *
  * Returns `PASS` | `REFUSED` — a provenance failure is a no-backing/contradiction
  * class, never mere absence, so it is `REFUSED`, not `UNKNOWN` (registry §5).
@@ -255,9 +270,11 @@ function provenanceVerdict(
 
   if (requirement.provenancePolicy === "first_party_only") {
     // first_party_only: only first-party-origin evidence validates. The ledger's
-    // first-party-origin signal is a TRUSTED originProvenance; anything else is
-    // not provably first-party → REFUSED (no first-party backing).
-    return entry.originProvenance === "TRUSTED" ? "PASS" : "REFUSED";
+    // 3-value origin axis (§G / §J.3) signals first-party as FIRST_PARTY; anything
+    // else — including a TRUSTED_THIRD_PARTY origin, and an absent/unlabeled one
+    // (fail-closed) — is not provably first-party → REFUSED (no first-party
+    // backing). This is strictly stronger than `preserve`.
+    return entry.originProvenance === "FIRST_PARTY" ? "PASS" : "REFUSED";
   }
 
   // preserve: the untrusted-never-validates rule above is the whole gate.
@@ -374,8 +391,12 @@ function satisfiesNonVacuity(claim: MinimalClaim): boolean {
  *   - **∀ e ∈ requiredEvidence:** `present(e) ∧ fresh(e) ∧ (ownershipPolicy ===
  *     "required" ⟹ owns(actor, e.resource)) ∧ sourceIntegrity(e) ≥
  *     minSourceIntegrity ∧ provenanceOK(e)`.
- *   - **C4** `kind === "action_claim" ⟹ outcomeConfirmed(claim)` — else REFUSED
- *     (asserting a non-happening is a contradiction; the confabulation guard).
+ *   - **C4** `assertsActionOutcome(claim) ⟹ outcomeConfirmed(claim)` — else
+ *     REFUSED (asserting a non-happening is a contradiction; the confabulation
+ *     guard). `assertsActionOutcome` is `kind === "action_claim"` OR any
+ *     requirement with `freshnessPolicy === "action_outcome"` (a claim whose
+ *     evidence IS this turn's Action verdict+dispatch asserts an action outcome
+ *     regardless of `kind`).
  *
  * The verdict is the SAFEST (most-restrictive) over all evidences:
  *   - any evidence REFUSED, OR a C0/C4 REFUSED            → `REFUSED`
@@ -412,7 +433,19 @@ export function claimAllowed(
   // money); an unconfirmed action asserts a non-happening → REFUSED (the
   // confabulation guard, registry §6 PURCHASE_COMPLETED). Checked even when an
   // evidence was UNKNOWN: a REFUSED outcome dominates.
-  if (claim.kind === "action_claim" && !deps.outcomeConfirmed(claim)) {
+  //
+  // The trigger is BROADER than `kind === "action_claim"`: any claim whose
+  // `requiredEvidence` includes an `action_outcome` requirement IS asserting an
+  // action outcome (its evidence is "this turn's Action verdict + dispatch, not a
+  // read" — §E / §G), so C4 must fire for it too. Otherwise a `read_claim` whose
+  // requirement carries `freshnessPolicy: "action_outcome"` would validate WITHOUT
+  // `outcomeConfirmed` — asserting an action outcome it never confirmed (the
+  // freshness branch PASSes `action_outcome` precisely because staleness is not
+  // its axis; C4 here, at the claim level, is what actually enforces it).
+  const assertsActionOutcome =
+    claim.kind === "action_claim" ||
+    claim.requiredEvidence.some((e) => e.freshnessPolicy === "action_outcome");
+  if (assertsActionOutcome && !deps.outcomeConfirmed(claim)) {
     return "REFUSED";
   }
 

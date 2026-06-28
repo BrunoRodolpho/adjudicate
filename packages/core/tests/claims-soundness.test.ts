@@ -67,7 +67,9 @@ function entry(over: Partial<EvidenceEntryInput> = {}): EvidenceEntryInput {
     fetchedAt: NOW,
     sourceMode: "live",
     taint: "TRUSTED",
-    originProvenance: "TRUSTED",
+    // Fail-closed origin default: a generic trusted read is NOT first-party
+    // (SDD §G / §J.3). Passes `preserve`; REFUSED under `first_party_only`.
+    originProvenance: "TRUSTED_THIRD_PARTY",
     ...over,
   };
 }
@@ -272,22 +274,53 @@ describe("claimAllowed — C3 provenance / UNTRUSTED never validates (§E C3; In
     expect(verdict).toBe("REFUSED");
   });
 
-  it("first_party_only with a non-first-party (TRUSTED-but-not) origin → REFUSED", () => {
-    // first_party_only demands a first-party origin; modeled as TRUSTED origin.
-    // A first_party_only requirement whose origin is UNTRUSTED is REFUSED above;
-    // here we also prove the policy gates: first_party_only PASSES with a TRUSTED
-    // origin and the baseline VALIDATES, so the policy is non-vacuous.
-    const fpVerdict = claimAllowed(
-      readClaim({
-        requiredEvidence: [
-          req({ provenancePolicy: "first_party_only", sourceIntegrity: "first_party_verified" }),
-        ],
-        minSourceIntegrity: "first_party_verified",
-      }),
-      ledgerWith(entry({ originProvenance: "TRUSTED" })),
+  // A first_party_only requirement at a first-party-verified floor; only the
+  // origin axis varies across the three cases below.
+  function firstPartyClaim(): MinimalClaim {
+    return readClaim({
+      requiredEvidence: [
+        req({ provenancePolicy: "first_party_only", sourceIntegrity: "first_party_verified" }),
+      ],
+      minSourceIntegrity: "first_party_verified",
+    });
+  }
+
+  it("first_party_only with a FIRST_PARTY origin → VALIDATED (the ONLY origin that satisfies it)", () => {
+    // The positive case — proves the gate is not blanket-REFUSE (non-vacuous).
+    const verdict = claimAllowed(
+      firstPartyClaim(),
+      ledgerWith(entry({ originProvenance: "FIRST_PARTY" })),
       deps(),
     );
-    expect(fpVerdict).toBe("VALIDATED");
+    expect(verdict).toBe("VALIDATED");
+  });
+
+  it("first_party_only with a TRUSTED_THIRD_PARTY origin → REFUSED (a trusted third party is NOT first-party; §J.3/Inv 3)", () => {
+    // THE de-vacuuming guard. Under the OLD 2-value origin this case was
+    // indistinguishable from first-party and wrongly VALIDATED, leaving
+    // first_party_only ≡ preserve (vacuous). The 3-value axis makes it strictly
+    // stronger: a TRUSTED_THIRD_PARTY origin (what a generic trusted read maps to,
+    // fail-closed) does NOT satisfy first_party_only. Invert the gate in
+    // soundness.ts (=== "FIRST_PARTY" → !== / back to "TRUSTED") and this leaks to
+    // VALIDATED → RED. Directly protects the PAYMENT_STATUS first-party money read.
+    const verdict = claimAllowed(
+      firstPartyClaim(),
+      ledgerWith(entry({ taint: "TRUSTED", originProvenance: "TRUSTED_THIRD_PARTY" })),
+      deps(),
+    );
+    expect(verdict).toBe("REFUSED");
+  });
+
+  it("preserve (NOT first_party_only) ACCEPTS that SAME TRUSTED_THIRD_PARTY origin → VALIDATED (strictly weaker)", () => {
+    // Proves the new gate is a strict tightening of first_party_only only, not of
+    // preserve: the identical TRUSTED_THIRD_PARTY origin REFUSED above validates
+    // here, because preserve requires only a non-UNTRUSTED origin.
+    const verdict = claimAllowed(
+      readClaim({ requiredEvidence: [req({ provenancePolicy: "preserve" })] }),
+      ledgerWith(entry({ originProvenance: "TRUSTED_THIRD_PARTY" })),
+      deps(),
+    );
+    expect(verdict).toBe("VALIDATED");
   });
 });
 
@@ -566,6 +599,180 @@ describe("claimAllowed — verdict mapping precedence (registry §5)", () => {
     });
     const l = ledgerWith(entry({ key: "k1" }), entry({ key: "k2" }));
     expect(claimAllowed(claim, l, deps())).toBe("VALIDATED");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// R1-snd Fix 1 — action_outcome on a read_claim must still enforce C4 (§E C4)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// C4 ("EXECUTE ∧ dispatched=ok ∧ result.success ∧ (settlement, for money)") is
+// the OUTCOME conjunct. Its trigger is NOT just `kind === "action_claim"`: a
+// claim whose evidence IS this turn's Action verdict + dispatch (`freshnessPolicy:
+// "action_outcome"`, §E/§G) asserts an action outcome regardless of `kind`. The
+// per-evidence freshness branch PASSes `action_outcome` (staleness is not its
+// axis), so claim-level C4 is the ONLY place that enforces the outcome — and it
+// must fire for ANY claim that asserts one, not only `action_claim`s. Otherwise a
+// read_claim could assert PURCHASE_COMPLETED it never confirmed.
+
+describe("claimAllowed — C4 fires for action_outcome on a read_claim (§E C4; R1-snd Fix 1)", () => {
+  const actionOutcomeReq = req({ freshnessPolicy: "action_outcome" });
+
+  it("(a) read_claim with an action_outcome requirement + ¬outcomeConfirmed → REFUSED", () => {
+    // The defect this fix closes: kind !== "action_claim" yet the requirement's
+    // evidence IS an action outcome. Every other conjunct passes (present, live,
+    // structured, preserve, not_applicable), so the verdict reaches C4. With the
+    // outcome UNconfirmed, asserting the action is a contradiction → REFUSED.
+    // NON-VACUOUS: revert the broadened `assertsActionOutcome` trigger back to
+    // `kind === "action_claim"` and C4 never fires here → this VALIDATES (RED).
+    const claim = readClaim({
+      requiredEvidence: [actionOutcomeReq],
+      kind: "read_claim",
+    });
+    const verdict = claimAllowed(
+      claim,
+      ledgerWith(entry()),
+      deps({ outcomeConfirmed: () => false }),
+    );
+    expect(verdict).toBe("REFUSED");
+    expect(verdict).not.toBe("VALIDATED");
+  });
+
+  it("(a') the outcome accessor receives the read_claim (C4 wiring, not action-only)", () => {
+    let inspected: MinimalClaim | undefined;
+    const claim = readClaim({
+      requiredEvidence: [actionOutcomeReq],
+      kind: "read_claim",
+    });
+    const verdict = claimAllowed(
+      claim,
+      ledgerWith(entry()),
+      deps({
+        outcomeConfirmed: (c) => {
+          inspected = c;
+          return false;
+        },
+      }),
+    );
+    expect(verdict).toBe("REFUSED");
+    expect(inspected).toBe(claim);
+  });
+
+  it("(c) read_claim with an action_outcome requirement + outcomeConfirmed=true → VALIDATED", () => {
+    // The positive contrast — proves the broadened trigger is NOT blanket-REFUSE:
+    // a correctly-confirmed action_outcome read still validates (C4 passes).
+    const claim = readClaim({
+      requiredEvidence: [actionOutcomeReq],
+      kind: "read_claim",
+    });
+    const verdict = claimAllowed(
+      claim,
+      ledgerWith(entry()),
+      deps({ outcomeConfirmed: () => true }),
+    );
+    expect(verdict).toBe("VALIDATED");
+  });
+
+  it("(b) action_claim + ¬outcomeConfirmed → REFUSED; + outcomeConfirmed → not blocked by C4 (unchanged)", () => {
+    // The original action_claim behavior is preserved by the broadening (the OR's
+    // first disjunct). Both polarities, on the same claim shape.
+    const claim = readClaim({
+      requiredEvidence: [actionOutcomeReq],
+      kind: "action_claim",
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry()), deps({ outcomeConfirmed: () => false })),
+    ).toBe("REFUSED");
+    expect(
+      claimAllowed(claim, ledgerWith(entry()), deps({ outcomeConfirmed: () => true })),
+    ).toBe("VALIDATED");
+  });
+
+  it("a read_claim with NO action_outcome requirement never consults outcomeConfirmed (scope intact)", () => {
+    // The broadening must not over-fire: a plain read_claim (static freshness)
+    // still never calls the accessor and validates with outcomeConfirmed=false.
+    let called = false;
+    const verdict = claimAllowed(
+      readClaim({ kind: "read_claim" }), // default req(): static freshness.
+      ledgerWith(entry()),
+      deps({
+        outcomeConfirmed: () => {
+          called = true;
+          return false;
+        },
+      }),
+    );
+    expect(verdict).toBe("VALIDATED");
+    expect(called).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// R1-snd Fix 2 — a NEGATIVE age (fetchedAt in the future) is NOT fresh (§G)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Freshness is `now - fetchedAt` (§G); a value cannot be fresher than "now". A
+// negative age (clock skew, or a future-stamped/tampered entry) previously passed
+// the `age <= ttl` upper bound and validated as fresh. fresh ⟺ `0 <= age <= ttl`.
+
+describe("claimAllowed — negative freshness age is not fresh (§G; R1-snd Fix 2)", () => {
+  const cacheableReq = (ttl: number): EvidenceRequirement =>
+    req({ freshnessPolicy: { kind: "cacheable", ttl } });
+
+  it("(d) fetchedAt in the future (age < 0) under a cacheable ttl → UNKNOWN, not VALIDATED", () => {
+    // NON-VACUOUS: revert the `age >= 0 &&` lower bound and age=-1 <= ttl is true →
+    // this VALIDATES (RED). With the lower bound, a future stamp is not provably
+    // fresh → UNKNOWN (stale-class).
+    const ttl = 30_000;
+    const verdict = claimAllowed(
+      readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+      ledgerWith(entry({ fetchedAt: NOW + 1 })), // 1 ms in the future → age = -1.
+      deps(),
+    );
+    expect(verdict).toBe("UNKNOWN");
+    expect(verdict).not.toBe("VALIDATED");
+  });
+
+  it("(d') a large future skew (age ≪ 0) is likewise UNKNOWN, never VALIDATED", () => {
+    const ttl = 30_000;
+    const verdict = claimAllowed(
+      readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+      ledgerWith(entry({ fetchedAt: NOW + 10_000_000 })),
+      deps(),
+    );
+    expect(verdict).toBe("UNKNOWN");
+    expect(verdict).not.toBe("VALIDATED");
+  });
+
+  it("(e) age == 0 (fetchedAt == now) → fresh → VALIDATED (lower-bound boundary, no false negative)", () => {
+    // The new lower bound is `>= 0`, so age exactly 0 is still fresh.
+    const ttl = 30_000;
+    const verdict = claimAllowed(
+      readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+      ledgerWith(entry({ fetchedAt: NOW })), // age = 0.
+      deps(),
+    );
+    expect(verdict).toBe("VALIDATED");
+  });
+
+  it("(e') normal 0 < age <= ttl stays fresh → VALIDATED (the fix adds no false negatives)", () => {
+    const ttl = 30_000;
+    // Mid-window.
+    expect(
+      claimAllowed(
+        readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+        ledgerWith(entry({ fetchedAt: NOW - 1 })),
+        deps(),
+      ),
+    ).toBe("VALIDATED");
+    // At the upper boundary (age == ttl).
+    expect(
+      claimAllowed(
+        readClaim({ requiredEvidence: [cacheableReq(ttl)] }),
+        ledgerWith(entry({ fetchedAt: NOW - ttl })),
+        deps(),
+      ),
+    ).toBe("VALIDATED");
   });
 });
 

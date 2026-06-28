@@ -1,5 +1,15 @@
 # @adjudicate/cli
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [33fcb81]
+  - @adjudicate/core@1.7.0
+  - @adjudicate/analyze@0.4.4
+  - @adjudicate/conformance@5.0.0
+  - @adjudicate/red-team@0.3.2
+
 ## 0.4.1
 
 ### Patch Changes

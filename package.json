@@ -1,7 +1,7 @@
 {
   "name": "adjudicate",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
   "description": "Zero-trust runtime for LLM intent execution",
   "license": "MIT",
   "type": "module",

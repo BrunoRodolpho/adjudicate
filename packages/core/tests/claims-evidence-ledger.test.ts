@@ -23,8 +23,10 @@ import {
   EvidenceLedger,
   LEDGER_TAINTS,
   ORIGIN_PROVENANCES,
+  detectCrossKeyConflicts,
   isLedgerTaint,
   isOriginProvenance,
+  type CrossKeyConflict,
   type EvidenceEntry,
   type EvidenceResolution,
   type LedgerTaint,
@@ -553,6 +555,80 @@ describe("AC6 — sourceMode faithfully recorded: cache distinguishable from liv
     for (const m of modes) {
       expect(led.resolve(m).entry!.sourceMode).toBe(m);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — CROSS-KEY conflict gate (the falsifier runtime arm; distinct from H3)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("W6 — cross-key conflict (resolveAgainstFalsifiers / detectCrossKeyConflicts)", () => {
+  it("a present base key with NO present falsifier resolves normally (present)", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
+    expect(led.resolveAgainstFalsifiers("open-now", ["override"]).state).toBe(
+      "present",
+    );
+  });
+
+  it("a PRESENT falsifier poisons a present base key → conflict → UNKNOWN", () => {
+    // NON-VACUITY: the SAME base key resolves `present` above; adding a present
+    // falsifier key flips it to conflict. This is DISTINCT from same-key H3 — the
+    // two keys never share a key, so last-write-wins never fired.
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
+    led.record(entry({ key: "override", value: "closed-today" }));
+    const r = led.resolveAgainstFalsifiers("open-now", ["override"]);
+    expect(r.state).toBe("conflict");
+    expect(r.verdict).toBe("UNKNOWN");
+    expect(r.entry).toBeUndefined(); // a poisoned key exposes no concrete value.
+  });
+
+  it("a falsifier can only DEMOTE: an absent base key stays absent (never upgraded)", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "override", value: "x" }));
+    expect(led.resolveAgainstFalsifiers("open-now", ["override"]).state).toBe(
+      "absent",
+    );
+  });
+
+  it("an ABSENT (or errored/conflicted) falsifier does NOT fire", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
+    led.recordError("err-falsifier", "boom");
+    // override absent, err-falsifier errored, self-conflicted falsifier conflicted:
+    led.record(entry({ key: "confl", value: "a" }));
+    led.record(entry({ key: "confl", value: "b" })); // same-key conflict on confl.
+    const r = led.resolveAgainstFalsifiers("open-now", [
+      "override",
+      "err-falsifier",
+      "confl",
+    ]);
+    expect(r.state).toBe("present"); // no PRESENT falsifier fired.
+  });
+
+  it("detectCrossKeyConflicts returns the falsified base keys for a table", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
+    led.record(entry({ key: "override", value: "closed" }));
+    led.record(entry({ key: "payment-paid", value: true }));
+    // refund key NOT recorded → payment-paid is NOT falsified.
+    const table: readonly CrossKeyConflict[] = [
+      { key: "open-now", falsifierKey: "override" },
+      { key: "payment-paid", falsifierKey: "refund" },
+    ];
+    expect(detectCrossKeyConflicts(led, table)).toEqual(["open-now"]);
+  });
+
+  it("inv.16: a cross-key contradiction is ALWAYS UNKNOWN, never integrity-ranked away", () => {
+    // Even if the falsifier value 'looks weaker', the gate never resolves the
+    // contradiction by ranking — it is UNKNOWN. (No resolver arg exists to rank.)
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto", taint: "TRUSTED" }));
+    led.record(entry({ key: "override", value: "x", taint: "UNTRUSTED_DATA" }));
+    expect(led.resolveAgainstFalsifiers("open-now", ["override"]).verdict).toBe(
+      "UNKNOWN",
+    );
   });
 });
 

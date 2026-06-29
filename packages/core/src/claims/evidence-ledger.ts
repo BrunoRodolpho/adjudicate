@@ -478,6 +478,47 @@ export class EvidenceLedger {
     return { key, state: "absent", verdict: "UNKNOWN" };
   }
 
+  /**
+   * Resolve a key AGAINST its declared FALSIFIERS — the CROSS-KEY conflict gate
+   * (Plan 1 Phase 4 / W6; the runtime arm of the falsifier-completeness gate).
+   *
+   * DISTINCT from the same-key last-write-wins conflict above (`record`/H3): that
+   * detects two writes to the SAME key disagreeing. THIS detects a DIFFERENT key —
+   * a declared FALSIFIER — being PRESENT, which CONTRADICTS the claim the resolved
+   * key backs (e.g. STORE_OPEN_NOW's key is falsified by a present ScheduleOverride
+   * key; PAYMENT_STATUS=paid is falsified by a present refund/chargeback key). The
+   * mere PRESENCE of any falsifier key (a value that fired this turn) poisons the
+   * resolved key → `conflict` → `UNKNOWN`, exactly like a same-key conflict.
+   *
+   * Demote-only & fail-closed: if the base key is not `present`, its own
+   * (absent/error/conflict) resolution is returned unchanged (a falsifier cannot
+   * UPGRADE a non-present key). If the base key is `present` but ANY falsifier key
+   * is `present`, the result is downgraded to `conflict` → `UNKNOWN`. Falsifier
+   * keys that are themselves absent/error/conflict do NOT fire (only a PRESENT,
+   * un-conflicted falsifier value is a live contradiction). Pure: read-only.
+   *
+   * This is the cross-key COMPANION to the soundness falsifier-completeness CAP:
+   * the CAP (soundness.ts) forces UNKNOWN-only until a type DECLARES its falsifiers;
+   * this gate makes a DECLARED falsifier's actual presence drive the backed key to
+   * UNKNOWN. NO integrity-ranked auto-resolution (inv.16): a contradiction is never
+   * silently resolved by ranking the falsifier vs the value — it is always UNKNOWN.
+   */
+  resolveAgainstFalsifiers(
+    key: string,
+    falsifierKeys: readonly string[],
+  ): EvidenceResolution {
+    const base = this.resolve(key);
+    // A falsifier can only DEMOTE a present key; a non-present key keeps its state.
+    if (base.state !== "present") return base;
+    for (const fk of falsifierKeys) {
+      // Only a PRESENT, un-conflicted falsifier value is a live contradiction.
+      if (this.resolve(fk).state === "present") {
+        return { key, state: "conflict", verdict: "UNKNOWN" };
+      }
+    }
+    return base;
+  }
+
   /** Is `key` resolvable to a concrete, un-conflicted, non-error value? */
   has(key: string): boolean {
     return this.resolve(key).state === "present";
@@ -493,6 +534,48 @@ export class EvidenceLedger {
   keys(): readonly string[] {
     return [...this.#cells.keys()];
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cross-key conflict table (Plan 1 Phase 4 / W6) — the falsifier runtime arm
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * One CROSS-KEY conflict declaration (W6): the evidence `key` is FALSIFIED when
+ * `falsifierKey` is present this turn. DISTINCT from the same-key last-write-wins
+ * conflict (two writes to ONE key disagreeing); this names a DIFFERENT key whose
+ * presence contradicts `key` (STORE_OPEN_NOW ← a ScheduleOverride; PAYMENT_STATUS
+ * ← a refund/chargeback). The companion declaration of a type's `falsifiers[]`.
+ */
+export interface CrossKeyConflict {
+  readonly key: string;
+  readonly falsifierKey: string;
+}
+
+/**
+ * Detect which keys in `table` are FALSIFIED in this `ledger` (W6 cross-key gate).
+ * A key is falsified iff it is itself `present` AND at least one of its declared
+ * falsifier keys is `present` this turn. Returns the distinct falsified keys (the
+ * set a caller must resolve to `UNKNOWN`). Pure: read-only over the ledger; NO
+ * integrity-ranked auto-resolution (inv.16) — a fired falsifier always poisons the
+ * key to UNKNOWN, never silently resolved by ranking. Mirrors
+ * `EvidenceLedger.resolveAgainstFalsifiers` over a table of pairs.
+ */
+export function detectCrossKeyConflicts(
+  ledger: EvidenceLedger,
+  table: readonly CrossKeyConflict[],
+): readonly string[] {
+  const falsified = new Set<string>();
+  for (const { key, falsifierKey } of table) {
+    if (falsified.has(key)) continue;
+    if (
+      ledger.resolve(key).state === "present" &&
+      ledger.resolve(falsifierKey).state === "present"
+    ) {
+      falsified.add(key);
+    }
+  }
+  return [...falsified];
 }
 
 // ─────────────────────────────────────────────────────────────────────────

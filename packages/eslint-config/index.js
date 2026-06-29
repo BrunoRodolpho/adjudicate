@@ -109,8 +109,14 @@ export default tseslint.config(
   // internal `as unknown as RenderedReply` to brand the frozen object. Exempt it
   // from the `as RenderedReply` ban (enforcement layer (c)); no other module may
   // cast. This block follows the rules block so it overrides for this file only.
+  //
+  // F5: the exemption is pinned to the CANONICAL path of the genuine minter
+  // (`packages/core/src/rendered-reply.ts`), not the basename `**/rendered-reply.ts`.
+  // This shared config is consumed downstream (@claustrum/*, @ibatexas/*); a
+  // basename glob would silently exempt ANY same-named file in a consumer repo,
+  // re-opening the forge vector the ban exists to close.
   {
-    files: ["**/rendered-reply.ts"],
+    files: ["packages/core/src/rendered-reply.ts"],
     rules: {
       "no-restricted-syntax": "off",
     },

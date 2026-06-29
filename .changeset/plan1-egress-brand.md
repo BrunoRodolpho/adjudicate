@@ -4,6 +4,8 @@
 
 Plan 1 / Theorem E (E-1) — `RenderedReply`, the runtime-non-forgeable carrier for customer-facing egress text.
 
+This minor bump lands the new surface in `@adjudicate/core` **1.8.0** (main is at 1.7.0; this minor changeset computes 1.7.0 → 1.8.0). Downstream consumers that import the minter set must require `@adjudicate/core` >= 1.8.0.
+
 Additive new surface in `@adjudicate/core` (`src/rendered-reply.ts`, re-exported from the barrel):
 
 - `RenderedReply` — opaque branded object type (`{ readonly text: string }` + a module-private `unique symbol` brand that is NOT exported, so external code cannot name the key).

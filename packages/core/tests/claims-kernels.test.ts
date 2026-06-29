@@ -119,13 +119,28 @@ function recordTrusted(ledger: EvidenceLedger, key: string, value: unknown): voi
   });
 }
 
-/** A read_claim over a single public requirement (validates when its key is present). */
+/**
+ * A read_claim over a single public requirement (validates when its key is
+ * present). Falsifier-COMPLETE by default (W6) so the all-pass path can reach
+ * VALIDATED through the eligibility cap; the falsifier targets a key that is not
+ * recorded, so it never affects the verdict.
+ */
 function publicClaim(req: EvidenceRequirement): MinimalClaim {
   return {
     requiredEvidence: [req],
     minSourceIntegrity: "structured",
     kind: "read_claim",
     actor: "actor-1",
+    falsifierComplete: true,
+    falsifiers: [
+      {
+        key: "_falsifier",
+        ownershipPolicy: "not_applicable",
+        freshnessPolicy: "static",
+        sourceIntegrity: "structured",
+        provenancePolicy: "preserve",
+      },
+    ],
   };
 }
 

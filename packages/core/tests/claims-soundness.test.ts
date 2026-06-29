@@ -26,7 +26,9 @@ import { dirname, resolve as resolvePath } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   EvidenceLedger,
+  assertFalsifierDeclaration,
   claimAllowed,
+  isFalsifierComplete,
   meetsSourceIntegrityFloor,
   type EvidenceEntryInput,
   type EvidenceRequirement,
@@ -74,13 +76,21 @@ function entry(over: Partial<EvidenceEntryInput> = {}): EvidenceEntryInput {
   };
 }
 
-/** A read_claim with a structured floor by default, overridable. */
+/**
+ * A read_claim with a structured floor by default, overridable. Falsifier-COMPLETE
+ * by default (W6): it declares `falsifierComplete` + a falsifier on a key that is
+ * NOT present in the default ledger, so the eligibility cap is satisfied and the
+ * all-pass path can reach VALIDATED. The dedicated W6 falsifier-cap suite below
+ * overrides these to exercise the UNKNOWN-only default and the §R lying case.
+ */
 function readClaim(over: Partial<MinimalClaim> = {}): MinimalClaim {
   return {
     requiredEvidence: [req()],
     minSourceIntegrity: "structured",
     kind: "read_claim",
     actor: { id: "actor-1" },
+    falsifierComplete: true,
+    falsifiers: [req({ key: "_falsifier" })],
     ...over,
   };
 }
@@ -891,6 +901,91 @@ describe("claimAllowed — C6 value-binding (§5 C6; Theorem S (a-value))", () =
     });
     // Ledger has NO entry for "k".
     expect(claimAllowed(claim, ledgerWith(), deps())).toBe("UNKNOWN");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — falsifier-completeness eligibility CAP (inv.17; §R). A type may VALIDATE
+// only if it has enumerated HOW it could be falsified; else UNKNOWN-only. The
+// inconsistent lying case (complete:true, no falsifiers) is a §R hard THROW.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("claimAllowed — W6 falsifier-completeness gate (inv.17; §R)", () => {
+  it("falsifier-COMPLETE all-pass claim → VALIDATED (the eligible baseline)", () => {
+    // The readClaim builder is falsifier-complete by default; restate it
+    // explicitly so the drop test below is a clear, local contrast.
+    const claim = readClaim({
+      falsifierComplete: true,
+      falsifiers: [req({ key: "_f" })],
+    });
+    expect(claimAllowed(claim, ledgerWith(entry()), deps())).toBe("VALIDATED");
+  });
+
+  it("NON-VACUITY: dropping the declared falsifier (complete:false) → UNKNOWN, not VALIDATED", () => {
+    // Identical all-pass evidence, but the type no longer asserts completeness →
+    // the eligibility cap DEMOTES VALIDATED → UNKNOWN (honest ignorance: we cannot
+    // prove no falsifier exists). Remove the cap in soundness.ts and this leaks
+    // back to VALIDATED → RED.
+    const claim = readClaim({ falsifierComplete: false, falsifiers: [] });
+    expect(claimAllowed(claim, ledgerWith(entry()), deps())).toBe("UNKNOWN");
+  });
+
+  it("a type that declares NOTHING about falsifiers defaults to UNKNOWN-only", () => {
+    // The fail-safe default for an un-upgraded ibatexas type: no declaration →
+    // capped to UNKNOWN even on an otherwise all-pass claim.
+    const claim = readClaim({
+      falsifierComplete: undefined,
+      falsifiers: undefined,
+    });
+    expect(claimAllowed(claim, ledgerWith(entry()), deps())).toBe("UNKNOWN");
+  });
+
+  it("the cap is DEMOTE-ONLY: a REFUSED claim stays REFUSED regardless of falsifier state", () => {
+    // An UNTRUSTED evidence → REFUSED; the cap never promotes and never changes a
+    // REFUSED. (No declaration at all here.)
+    const claim = readClaim({
+      falsifierComplete: undefined,
+      falsifiers: undefined,
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ taint: "UNTRUSTED_DATA" })), deps()),
+    ).toBe("REFUSED");
+  });
+
+  it("§R HARD error: falsifierComplete:true with an EMPTY falsifiers[] → throws (the lying case)", () => {
+    const claim = readClaim({ falsifierComplete: true, falsifiers: [] });
+    expect(() => claimAllowed(claim, ledgerWith(entry()), deps())).toThrow(
+      /falsifierComplete: true/,
+    );
+  });
+
+  it("§R HARD error: falsifierComplete:true with MISSING falsifiers → throws", () => {
+    const claim = readClaim({ falsifierComplete: true, falsifiers: undefined });
+    expect(() => claimAllowed(claim, ledgerWith(entry()), deps())).toThrow();
+  });
+
+  it("a malformed falsifier (bad freshnessPolicy) hard-errors via parseEvidenceRequirement", () => {
+    const claim = {
+      ...readClaim(),
+      falsifierComplete: true,
+      falsifiers: [
+        { ...req({ key: "_f" }), freshnessPolicy: "cacheable" },
+      ],
+    } as unknown as MinimalClaim;
+    expect(() => claimAllowed(claim, ledgerWith(entry()), deps())).toThrow(
+      /cacheable/,
+    );
+  });
+
+  it("the exported helpers agree with the cap (isFalsifierComplete / assertFalsifierDeclaration)", () => {
+    expect(isFalsifierComplete({ falsifierComplete: true, falsifiers: [req()] })).toBe(true);
+    expect(isFalsifierComplete({ falsifierComplete: true, falsifiers: [] })).toBe(false);
+    expect(isFalsifierComplete({})).toBe(false);
+    expect(() =>
+      assertFalsifierDeclaration({ falsifierComplete: true, falsifiers: [] }),
+    ).toThrow();
+    // The safe-default declaration does NOT throw.
+    expect(assertFalsifierDeclaration({})).toEqual({});
   });
 });
 

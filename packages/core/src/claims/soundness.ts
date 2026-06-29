@@ -27,9 +27,14 @@ import type { EvidenceLedger } from "./evidence-ledger.js";
 import type { EvidenceEntry } from "./evidence-ledger.js";
 import type {
   EvidenceRequirement,
+  FalsifierDeclaration,
   SourceIntegrity,
 } from "./evidence-requirement.js";
-import { meetsSourceIntegrityFloor } from "./evidence-requirement.js";
+import {
+  assertFalsifierDeclaration,
+  isFalsifierComplete,
+  meetsSourceIntegrityFloor,
+} from "./evidence-requirement.js";
 import { sameValue } from "./value-equality.js";
 import type { ClaimVerdict } from "./verdict.js";
 
@@ -107,7 +112,7 @@ export interface ValueBinding {
  *                           for C1 (see `ResourceBindings`). Optional; an absent
  *                           binding for a `required` key is "no owner" → REFUSED.
  */
-export interface MinimalClaim {
+export interface MinimalClaim extends FalsifierDeclaration {
   readonly requiredEvidence: readonly EvidenceRequirement[];
   readonly minSourceIntegrity: SourceIntegrity;
   readonly kind: ClaimKind;
@@ -545,6 +550,11 @@ function valueBindingVerdict(
  *     the round-2 (a-value) confabulation catch); an unprovable binding (bound key
  *     absent, or a value outside the closed scalar grammar) → UNKNOWN (abstain).
  *     OPTIONAL: a claim with no `valueBinding` is unaffected (fail-safe no-op).
+ *   - **Falsifier-completeness** `falsifierComplete ∧ falsifiers ≠ ∅` — else the
+ *     all-pass path is CAPPED to `UNKNOWN` (honest ignorance: we cannot prove no
+ *     falsifier exists). A type defaults to UNKNOWN-only until W5 enumerates its
+ *     falsifiers (fail-safe, demote-only). A `falsifierComplete: true` type with
+ *     an empty `falsifiers[]` is the inconsistent lying case → §R hard THROW.
  *
  * The verdict is the SAFEST (most-restrictive) over all evidences:
  *   - any evidence REFUSED, OR a C0/C4 REFUSED            → `REFUSED`
@@ -561,6 +571,13 @@ export function claimAllowed(
   ledger: EvidenceLedger,
   deps: SoundnessDeps,
 ): ClaimVerdict {
+  // ── §R falsifier-declaration guard (W6). A type with `falsifierComplete: true`
+  // but no enumerated `falsifiers[]` is the inconsistent LYING case — a hard
+  // build/registry-load error (fail-closed, throws). The SAFE-DEFAULT case (no
+  // declaration) does NOT throw; it is forced UNKNOWN-only by the eligibility cap
+  // at the VALIDATED path below. Checked FIRST so a malformed type never validates.
+  assertFalsifierDeclaration(claim);
+
   // ── C0 — no vacuous validation (§E; §R hard error). An empty requirement set
   // has NO backing; it must never auto-VALIDATE the vacuous ∀. → REFUSED
   // (no-backing). This is checked FIRST so the ∀ below can never run over ∅.
@@ -614,6 +631,17 @@ export function claimAllowed(
   // ── Any evidence UNKNOWN (and nothing REFUSED) → UNKNOWN (honest ignorance).
   if (sawUnknown) return "UNKNOWN";
 
-  // ── All conjuncts PASS → VALIDATED. This is the ONLY path to VALIDATED.
+  // ── Falsifier-completeness eligibility CAP (W6; inv.17). A claim reaches the
+  // all-pass path here, but it may VALIDATE only if its type has enumerated HOW it
+  // could be falsified (`falsifierComplete: true` ∧ a non-empty `falsifiers[]`).
+  // Otherwise we cannot prove no falsifier exists → honest ignorance → UNKNOWN
+  // (registry §5 missing/stale class). This is a verdict CAP, NOT a new REFUSED:
+  // it only DEMOTES an otherwise-VALIDATED claim to UNKNOWN, never promotes —
+  // preserving the safest-verdict monotonicity. A type defaults to UNKNOWN-only
+  // until W5 declares its falsifiers (fail-safe; existing types keep compiling).
+  if (!isFalsifierComplete(claim)) return "UNKNOWN";
+
+  // ── All conjuncts PASS ∧ the type is falsifier-complete → VALIDATED. This is
+  // the ONLY path to VALIDATED.
   return "VALIDATED";
 }

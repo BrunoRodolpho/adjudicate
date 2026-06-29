@@ -17,3 +17,7 @@ export * from "./consistency.js";
 // Claims → Renderer topology (§F; §R). Composes Q1–Q4 + the existing Action
 // kernel; no downstream import (§R).
 export * from "./kernels.js";
+// W6 — the registry-diff lint (inv.17): classify an ADDITIVE catalog extension vs
+// a RELAXATION and fail the build on an undeclared relaxation. No downstream
+// import (§R); pure.
+export * from "./registry-diff.js";

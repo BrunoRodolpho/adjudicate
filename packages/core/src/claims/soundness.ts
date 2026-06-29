@@ -30,6 +30,7 @@ import type {
   SourceIntegrity,
 } from "./evidence-requirement.js";
 import { meetsSourceIntegrityFloor } from "./evidence-requirement.js";
+import { sameValue } from "./value-equality.js";
 import type { ClaimVerdict } from "./verdict.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -64,6 +65,32 @@ export type ClaimKind = "read_claim" | "action_claim";
 export type ResourceBindings = Readonly<Record<string, unknown>>;
 
 /**
+ * C6 VALUE-BINDING (SDD §5 C6; Theorem S precondition (a-value)) — the optional
+ * declaration that a claim's RENDERED `value` is bound to a specific evidence
+ * entry's value, so the number/string the customer eventually sees cannot be a
+ * model confabulation that merely rode the surplus channel through a claim that
+ * validated on present∧fresh∧owned∧integrity∧provenance.
+ *
+ *   - `key`  — the `EvidenceRequirement.key` whose ledger value licenses this
+ *              claim's `value`. It MUST be one of the claim's `requiredEvidence`
+ *              keys so presence/freshness/provenance/integrity are already gated
+ *              by the §5 ∀ before C6 compares the value (the binding only adds the
+ *              value-equality conjunct on top of an already-validated key).
+ *   - `path` — OPTIONAL projection into BOTH the claim's `value` and the bound
+ *              entry's `value` before comparison (e.g. `["open"]` to bind the
+ *              `open` field of a STORE_OPEN_NOW value object to the schedule
+ *              entry's `open` field). Absent ⟹ compare the whole values.
+ *
+ * Additive + OPTIONAL on `MinimalClaim`: a claim that declares no `valueBinding`
+ * is unaffected by C6 (fail-safe no-op — §5 is value-agnostic for it, exactly as
+ * before W6). W5 declares bindings per registry type.
+ */
+export interface ValueBinding {
+  readonly key: string;
+  readonly path?: readonly (string | number)[];
+}
+
+/**
  * The minimal kernel claim the §5 predicate quantifies over (SDD §E; v1.1 §5).
  * The full registry claim types (registry §6) are deferred (SDD §Q scope guard);
  * this carries EXACTLY the fields §5 reads:
@@ -86,6 +113,18 @@ export interface MinimalClaim {
   readonly kind: ClaimKind;
   readonly actor: unknown;
   readonly resources?: ResourceBindings;
+  /**
+   * C6 — the RENDERED value carried by this claim (the proposition the renderer
+   * would fill). OPTIONAL: only inspected when `valueBinding` is declared (the
+   * value-binding conjunct compares this against the bound evidence's value). When
+   * `valueBinding` is absent, §5 stays value-agnostic and never reads this field.
+   */
+  readonly value?: unknown;
+  /**
+   * C6 value-binding (SDD §5 C6) — see {@link ValueBinding}. OPTIONAL; absent ⟹
+   * C6 is a no-op for this claim (fail-safe default; W5 declares bindings).
+   */
+  readonly valueBinding?: ValueBinding;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -376,6 +415,108 @@ function satisfiesNonVacuity(claim: MinimalClaim): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// C6 value-binding (SDD §5 C6; Theorem S precondition (a-value))
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The CLOSED value-grammar C6 will compare over (SDD §5 C6): a JSON SCALAR —
+ * `string | number | boolean | null`. C6 binds a single PROPOSITION field (a
+ * store-open boolean, a status string, a price number), so the comparable
+ * grammar is deliberately the scalars. A value OUTSIDE the grammar (an object,
+ * an array, `undefined`, a `bigint`/`symbol`/function, or a projection that
+ * missed its path) is NOT a single proposition value we can confidently equate →
+ * C6 ABSTAINS on it (→ UNKNOWN, honest ignorance) rather than REFUSING or
+ * silently passing. This keeps C6 demote-only and never over-claims a structural
+ * blob as "the value matched".
+ */
+function withinValueGrammar(v: unknown): boolean {
+  return (
+    v === null ||
+    typeof v === "string" ||
+    typeof v === "number" ||
+    typeof v === "boolean"
+  );
+}
+
+/**
+ * Project a value by an OPTIONAL `path` of own-property segments (SDD §5 C6).
+ * Absent/empty path ⟹ the whole value. Any segment that is not an OWN property
+ * of a non-null object short-circuits to `undefined` (which is outside the closed
+ * grammar → C6 abstains). Pure; read-only own-property access (a non-own /
+ * prototype key never resolves), so it cannot be fooled by `__proto__` etc.
+ */
+function projectValue(
+  value: unknown,
+  path: readonly (string | number)[] | undefined,
+): unknown {
+  if (path === undefined || path.length === 0) return value;
+  let cur: unknown = value;
+  for (const segment of path) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    const obj = cur as Record<PropertyKey, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(obj, segment)) return undefined;
+    cur = obj[segment];
+  }
+  return cur;
+}
+
+/** The per-claim outcome of the C6 value-binding conjunct. */
+type ValueBindingVerdict = "PASS" | "ABSTAIN" | "REFUSED";
+
+/**
+ * C6 — the value-binding conjunct (SDD §5 C6; Theorem S (a-value)). Given a claim
+ * that DECLARES a `valueBinding`, require its rendered `value` to equal the bound
+ * evidence entry's value (both projected by `path`), via the SAME canonical
+ * `sameValue` comparator P2/H3 use (so the over-claim decision can never diverge
+ * from the conflict decision). Three outcomes:
+ *
+ *   - **PASS**    — both projected sides are in the closed scalar grammar AND
+ *                   `sameValue(claimSide, evidenceSide)` (the value is licensed by
+ *                   its evidence).
+ *   - **REFUSED** — both sides in-grammar but they DISAGREE: a value contradicting
+ *                   its licensing evidence is an over-claim/confabulation (the C3
+ *                   contradiction class) → it must DOMINATE like the other REFUSED
+ *                   conjuncts, never UNKNOWN. This is the round-2 (a-value) catch:
+ *                   a model-authored surplus value that does not match the ledger.
+ *   - **ABSTAIN** — the bound key is not present, OR a projected side is OUTSIDE
+ *                   the closed grammar: we cannot prove the binding holds → honest
+ *                   ignorance (→ UNKNOWN), never a free pass.
+ *
+ * C6 is purely DEMOTE-ONLY: it can only turn an otherwise-VALIDATED claim into
+ * UNKNOWN (abstain) or REFUSED (mismatch); it never promotes. A claim with no
+ * `valueBinding` never reaches here (the caller skips C6).
+ */
+function valueBindingVerdict(
+  claim: MinimalClaim,
+  binding: ValueBinding,
+  ledger: EvidenceLedger,
+): ValueBindingVerdict {
+  const resolution = ledger.resolve(binding.key);
+  // The bound key must be PRESENT (it is one of requiredEvidence, so the ∀ has
+  // already gated presence/freshness/provenance; an absent/conflict/error key
+  // already drove the claim to UNKNOWN/REFUSED). If it is not present, we cannot
+  // compare → abstain (honest ignorance), never REFUSE on a missing value.
+  if (resolution.state !== "present" || resolution.entry === undefined) {
+    return "ABSTAIN";
+  }
+
+  const claimSide = projectValue(claim.value, binding.path);
+  const evidenceSide = projectValue(resolution.entry.value, binding.path);
+
+  // Closed value-grammar: only scalar PROPOSITION values are comparable. Outside
+  // the grammar (object/array/undefined/missed-path) → abstain, never REFUSE or
+  // silently pass a structural blob.
+  if (!withinValueGrammar(claimSide) || !withinValueGrammar(evidenceSide)) {
+    return "ABSTAIN";
+  }
+
+  // In-grammar: the rendered value is licensed IFF it equals the evidence value.
+  // A mismatch is an over-claim (the model-authored surplus the binding exists to
+  // catch) → REFUSED (dominates). Reuse the canonical sameValue (do NOT fork).
+  return sameValue(claimSide, evidenceSide) ? "PASS" : "REFUSED";
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // claimAllowed — THE §5 soundness predicate (SDD §E; v1.1 §5; §J.1)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -397,6 +538,13 @@ function satisfiesNonVacuity(claim: MinimalClaim): boolean {
  *     requirement with `freshnessPolicy === "action_outcome"` (a claim whose
  *     evidence IS this turn's Action verdict+dispatch asserts an action outcome
  *     regardless of `kind`).
+ *   - **C6** `valueBinding ⟹ sameValue(value, evidence value)` — when the claim
+ *     declares a value-binding, its RENDERED value must equal the bound evidence
+ *     entry's value (the SAME canonical `sameValue` P2/H3 use). An in-grammar
+ *     mismatch → REFUSED (an over-claim contradicting its licensing evidence —
+ *     the round-2 (a-value) confabulation catch); an unprovable binding (bound key
+ *     absent, or a value outside the closed scalar grammar) → UNKNOWN (abstain).
+ *     OPTIONAL: a claim with no `valueBinding` is unaffected (fail-safe no-op).
  *
  * The verdict is the SAFEST (most-restrictive) over all evidences:
  *   - any evidence REFUSED, OR a C0/C4 REFUSED            → `REFUSED`
@@ -447,6 +595,20 @@ export function claimAllowed(
     claim.requiredEvidence.some((e) => e.freshnessPolicy === "action_outcome");
   if (assertsActionOutcome && !deps.outcomeConfirmed(claim)) {
     return "REFUSED";
+  }
+
+  // ── C6 — value-binding (§5 C6; Theorem S (a-value)). When the claim DECLARES a
+  // `valueBinding`, the rendered value must equal its licensing evidence value:
+  //   · mismatch (in-grammar but unequal) → REFUSED (over-claim/confabulation,
+  //     the C3 contradiction class — dominates, like the other REFUSED conjuncts);
+  //   · abstain (bound key not present, or a side outside the closed scalar
+  //     grammar) → UNKNOWN (honest ignorance — remembered, not a free pass).
+  // Demote-only: with no `valueBinding` this is skipped (fail-safe no-op), so the
+  // value-agnostic §5 behavior is byte-identical for every existing claim type.
+  if (claim.valueBinding !== undefined) {
+    const c6 = valueBindingVerdict(claim, claim.valueBinding, ledger);
+    if (c6 === "REFUSED") return "REFUSED"; // over-claim — dominates.
+    if (c6 === "ABSTAIN") sawUnknown = true; // cannot prove binding — honest ignorance.
   }
 
   // ── Any evidence UNKNOWN (and nothing REFUSED) → UNKNOWN (honest ignorance).

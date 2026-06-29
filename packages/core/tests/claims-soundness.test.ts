@@ -777,6 +777,124 @@ describe("claimAllowed — negative freshness age is not fresh (§G; R1-snd Fix 
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// C6 — value-binding (Theorem S (a-value)): a claim's RENDERED value is bound
+// to its licensing evidence; a model-authored surplus value cannot VALIDATE.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("claimAllowed — C6 value-binding (§5 C6; Theorem S (a-value))", () => {
+  it("no valueBinding → C6 is a no-op (value-agnostic §5 unchanged)", () => {
+    // The fail-safe default: a claim that declares no binding carries a value the
+    // predicate never inspects — VALIDATED exactly as before W6 (non-vacuity for
+    // every existing ibatexas claim type).
+    const claim = readClaim({ value: "anything-the-model-said" });
+    expect(claimAllowed(claim, ledgerWith(entry({ value: "v" })), deps())).toBe(
+      "VALIDATED",
+    );
+  });
+
+  it("matched value (claim.value === ledger value) → VALIDATED", () => {
+    // The licensed happy path: the rendered value equals its evidence value.
+    const claim = readClaim({
+      value: "aberto",
+      valueBinding: { key: "k" },
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ value: "aberto" })), deps()),
+    ).toBe("VALIDATED");
+  });
+
+  it("mismatched value (model-authored surplus) → NOT VALIDATED (REFUSED)", () => {
+    // THE round-2 (a-value) catch: every other §5 conjunct passes
+    // (present∧fresh∧owned∧integrity∧provenance), but the rendered value is a
+    // confabulation that contradicts its licensing evidence → over-claim → REFUSED.
+    // If C6 were removed this would VALIDATE the surplus value (the bug).
+    const claim = readClaim({
+      value: "aberto", // model says open…
+      valueBinding: { key: "k" },
+    });
+    const verdict = claimAllowed(
+      claim,
+      ledgerWith(entry({ value: "fechado" })), // …evidence says closed.
+      deps(),
+    );
+    expect(verdict).toBe("REFUSED");
+    expect(verdict).not.toBe("VALIDATED");
+  });
+
+  it("mismatch DOMINATES (REFUSED even when another evidence is UNKNOWN)", () => {
+    // A C6 REFUSED is a contradiction class — it must dominate an UNKNOWN, like
+    // every other REFUSED conjunct.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" }), req({ key: "missing" })],
+      value: 10,
+      valueBinding: { key: "k" },
+    });
+    // "missing" is absent → that evidence is UNKNOWN; the C6 mismatch must still
+    // drive the whole claim to REFUSED.
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ key: "k", value: 99 })), deps()),
+    ).toBe("REFUSED");
+  });
+
+  it("path projection: bind a single PROPOSITION field of a value object", () => {
+    // STORE_OPEN_NOW-shaped: claim.value = { open: true } bound to the schedule
+    // entry's { open: true } via path ["open"].
+    const claim = readClaim({
+      value: { open: true },
+      valueBinding: { key: "k", path: ["open"] },
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ value: { open: true } })), deps()),
+    ).toBe("VALIDATED");
+    // And the projected-field mismatch is caught.
+    expect(
+      claimAllowed(
+        { ...claim, value: { open: true } },
+        ledgerWith(entry({ value: { open: false } })),
+        deps(),
+      ),
+    ).toBe("REFUSED");
+  });
+
+  it("value OUTSIDE the closed scalar grammar → abstain (UNKNOWN), not VALIDATE", () => {
+    // A non-scalar rendered value (an object) is not a single proposition we can
+    // confidently equate → C6 abstains to UNKNOWN (honest ignorance), never a free
+    // VALIDATE and never a REFUSE. (Whole-value object compare is OUT of grammar.)
+    const claim = readClaim({
+      value: { a: 1 },
+      valueBinding: { key: "k" },
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ value: { a: 1 } })), deps()),
+    ).toBe("UNKNOWN");
+  });
+
+  it("missed projection path → abstain (UNKNOWN), never a free pass", () => {
+    // The path points at a field that does not exist → projected side is undefined
+    // → outside the grammar → abstain.
+    const claim = readClaim({
+      value: { open: true },
+      valueBinding: { key: "k", path: ["nope"] },
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ value: { open: true } })), deps()),
+    ).toBe("UNKNOWN");
+  });
+
+  it("bound key not present → abstain (UNKNOWN), never REFUSE on a missing value", () => {
+    // If the bound key resolved absent, the ∀ already drove the claim to UNKNOWN;
+    // C6 must not upgrade that to REFUSED on a value it cannot read.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" })],
+      value: "x",
+      valueBinding: { key: "k" },
+    });
+    // Ledger has NO entry for "k".
+    expect(claimAllowed(claim, ledgerWith(), deps())).toBe("UNKNOWN");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // AC10 — kernel purity: no downstream import (§R)
 // ─────────────────────────────────────────────────────────────────────────
 

@@ -349,6 +349,45 @@ describe("Q5 AC3 — Claims kernel composes Q3 (P1) + Q4 (P2) (SDD §F; §D)", (
     expect(result.consistency.suppressions).toHaveLength(0);
   });
 
+  it("C6 end-to-end: a model-authored SURPLUS value is caught at runClaimsKernel (Theorem S (a-value))", () => {
+    // The round-2 (a-value) trace, reproduced through the WHOLE kernel: every §5
+    // conjunct passes for the bound key, but the candidate's RENDERED value (what
+    // the model authored, the field copied into `renderable`) contradicts the
+    // ledger value. runClaimsKernel threads `candidate.value` into the soundness
+    // input, so C6 binds it and REFUSES — the surplus never reaches renderable.
+    const boundReq: EvidenceRequirement = { ...PUBLIC_REQ, key: "open-now" };
+    const ledger = new EvidenceLedger();
+    recordTrusted(ledger, boundReq.key, "fechado"); // evidence: closed.
+
+    const candidates: readonly CandidateClaim[] = [
+      {
+        soundness: {
+          ...publicClaim(boundReq),
+          valueBinding: { key: boundReq.key },
+        },
+        subject: "store-1",
+        type: "STORE_OPEN_NOW",
+        value: "aberto", // model confabulated "open" — surplus, unbacked.
+      },
+    ];
+    const result = runClaimsKernel(ledger, candidates, CLAIMS_DEPS);
+
+    expect(result.perClaim[0]?.verdict).toBe("REFUSED");
+    expect(result.renderable).toHaveLength(0);
+
+    // Control: the SAME wiring with a matching value validates and renders — so the
+    // REFUSED above is genuinely the value mismatch, not the binding being inert.
+    const okLedger = new EvidenceLedger();
+    recordTrusted(okLedger, boundReq.key, "aberto");
+    const ok = runClaimsKernel(
+      okLedger,
+      [{ ...candidates[0]!, value: "aberto" }],
+      CLAIMS_DEPS,
+    );
+    expect(ok.perClaim[0]?.verdict).toBe("VALIDATED");
+    expect(ok.renderable).toHaveLength(1);
+  });
+
   it("a SOUND but INCONSISTENT set → ESCALATE (P2 fires after P1)", () => {
     // Two claims, BOTH VALIDATED (P1), on the SAME subject, whose type-pair is
     // declared MUTUAL_EXCLUSION in the default table (FULFILLMENT_STAGE ⊥

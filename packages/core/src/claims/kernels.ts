@@ -402,7 +402,20 @@ export function runClaimsKernel(
     type: candidate.type,
     // Validation goes THROUGH the typed §5 predicate over `requiredEvidence` —
     // there is no free-text reason path (§R topology condition 2).
-    verdict: claimAllowed(candidate.soundness, ledger, deps.soundness),
+    //
+    // C6 value-binding (§5 C6; Theorem S (a-value)): the RENDERED value the model
+    // authored is `candidate.value` (the field copied UNTOUCHED into the renderable
+    // ConsistencyClaim below). We thread it into the soundness input so that, when
+    // the candidate's `soundness.valueBinding` is declared (W5), C6 binds THAT
+    // rendered value to its licensing evidence — closing the surplus channel where
+    // a claim validated on present∧fresh∧owned∧… while its value was a model
+    // confabulation. Additive + fail-safe: with no `valueBinding`, `value` is never
+    // read and the verdict is byte-identical to before.
+    verdict: claimAllowed(
+      { ...candidate.soundness, value: candidate.value },
+      ledger,
+      deps.soundness,
+    ),
   }));
 
   // ── (2) Form the VALIDATED set (§D): only VALIDATED candidates carry into P2.

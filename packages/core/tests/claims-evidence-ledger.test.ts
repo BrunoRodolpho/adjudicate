@@ -23,10 +23,15 @@ import {
   EvidenceLedger,
   LEDGER_TAINTS,
   ORIGIN_PROVENANCES,
+  SOURCE_MODES,
   detectCrossKeyConflicts,
   isLedgerTaint,
   isOriginProvenance,
+  isSourceMode,
+  normalizeEvidenceEntry,
   type CrossKeyConflict,
+  type EvidenceEntryInput,
+  type ProvenanceDeriver,
   type EvidenceEntry,
   type EvidenceResolution,
   type LedgerTaint,
@@ -555,6 +560,113 @@ describe("AC6 — sourceMode faithfully recorded: cache distinguishable from liv
     for (const m of modes) {
       expect(led.resolve(m).entry!.sourceMode).toBe(m);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — structural provenance: null-provenance default-deny + deriveProvenance hook
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("W6 — null-provenance default-deny (normalizeEvidenceEntry / record)", () => {
+  it("a valid entry passes through with labels UNCHANGED", () => {
+    const e = entry({ key: "k", originProvenance: "FIRST_PARTY", taint: "TRUSTED" });
+    const n = normalizeEvidenceEntry(e);
+    expect(n.originProvenance).toBe("FIRST_PARTY");
+    expect(n.taint).toBe("TRUSTED");
+    expect(n.sourceMode).toBe("live");
+  });
+
+  it("absent/invalid originProvenance → coerced to UNTRUSTED_DATA (never trusted)", () => {
+    // A structurally-typed-but-mislabeled write (origin omitted) must default-deny.
+    const bad = {
+      key: "k",
+      value: "v",
+      source: "adapter",
+      fetchedAt: 1_000,
+      sourceMode: "live",
+      taint: "TRUSTED",
+      // originProvenance OMITTED — the null-provenance case.
+    } as unknown as EvidenceEntryInput;
+    expect(normalizeEvidenceEntry(bad).originProvenance).toBe("UNTRUSTED_DATA");
+    // A bogus string is likewise coerced down, never up.
+    const bogus = { ...bad, originProvenance: "FIRST_PARTY_LOL" } as unknown as EvidenceEntryInput;
+    expect(normalizeEvidenceEntry(bogus).originProvenance).toBe("UNTRUSTED_DATA");
+  });
+
+  it("absent/invalid taint → UNTRUSTED_DATA; absent/invalid sourceMode → cache", () => {
+    const bad = {
+      key: "k",
+      value: "v",
+      source: "adapter",
+      fetchedAt: 1_000,
+    } as unknown as EvidenceEntryInput;
+    const n = normalizeEvidenceEntry(bad);
+    expect(n.taint).toBe("UNTRUSTED_DATA");
+    expect(n.sourceMode).toBe("cache");
+    expect(n.originProvenance).toBe("UNTRUSTED_DATA");
+  });
+
+  it("record() applies the default-deny: a null-provenance write stores UNTRUSTED_DATA", () => {
+    const led = new EvidenceLedger();
+    led.record({
+      key: "k",
+      value: "v",
+      source: "adapter",
+      fetchedAt: 1_000,
+      sourceMode: "live",
+      taint: "TRUSTED",
+    } as unknown as EvidenceEntryInput);
+    expect(led.resolve("k").entry!.originProvenance).toBe("UNTRUSTED_DATA");
+  });
+
+  it("the write-time-only sourceOfRecord is stripped from the stored entry", () => {
+    const led = new EvidenceLedger();
+    led.record({ ...entry({ key: "k" }), sourceOfRecord: { conn: "pg-5433" } });
+    expect("sourceOfRecord" in led.resolve("k").entry!).toBe(false);
+  });
+
+  it("the SOURCE_MODES tuple + isSourceMode guard are intact", () => {
+    expect(SOURCE_MODES).toEqual(["live", "cache"]);
+    expect(isSourceMode("live")).toBe(true);
+    expect(isSourceMode("nope")).toBe(false);
+  });
+});
+
+describe("W6 — deriveProvenance hook (structural-provenance seam)", () => {
+  // A deriver that maps a source descriptor to FIRST_PARTY for the trusted
+  // connection, UNTRUSTED_DATA otherwise. W5 supplies the real version.
+  const deriver: ProvenanceDeriver = {
+    derive: (src) =>
+      (src as { conn?: string }).conn === "first-party-db"
+        ? { taint: "TRUSTED", originProvenance: "FIRST_PARTY" }
+        : { taint: "UNTRUSTED_DATA", originProvenance: "UNTRUSTED_DATA" },
+  };
+
+  it("with a deriver, sourceOfRecord OVERRIDES the adapter's self-declared labels", () => {
+    const led = new EvidenceLedger("turn", deriver);
+    // Adapter LIES that it is untrusted/third-party; the source IS first-party.
+    led.record({
+      ...entry({ key: "k", taint: "UNTRUSTED_DATA", originProvenance: "TRUSTED_THIRD_PARTY" }),
+      sourceOfRecord: { conn: "first-party-db" },
+    });
+    const e = led.resolve("k").entry!;
+    expect(e.originProvenance).toBe("FIRST_PARTY");
+    expect(e.taint).toBe("TRUSTED");
+  });
+
+  it("a deriver downgrades a self-declared FIRST_PARTY from an untrusted source", () => {
+    const led = new EvidenceLedger("turn", deriver);
+    led.record({
+      ...entry({ key: "k", originProvenance: "FIRST_PARTY", taint: "TRUSTED" }),
+      sourceOfRecord: { conn: "random-3p" },
+    });
+    expect(led.resolve("k").entry!.originProvenance).toBe("UNTRUSTED_DATA");
+  });
+
+  it("with NO sourceOfRecord, the deriver is not consulted (self-declared used)", () => {
+    const led = new EvidenceLedger("turn", deriver);
+    led.record(entry({ key: "k", originProvenance: "TRUSTED_THIRD_PARTY" }));
+    expect(led.resolve("k").entry!.originProvenance).toBe("TRUSTED_THIRD_PARTY");
   });
 });
 

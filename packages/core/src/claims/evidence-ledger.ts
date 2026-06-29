@@ -134,6 +134,41 @@ export function isOriginProvenance(value: unknown): value is OriginProvenance {
  */
 export type SourceMode = "live" | "cache";
 
+/** The closed membership tuple for `SourceMode`, in spec order (§G). */
+export const SOURCE_MODES: readonly SourceMode[] = ["live", "cache"] as const;
+
+/** Type guard: is `value` one of the exactly-two source modes (§G)? Pure. */
+export function isSourceMode(value: unknown): value is SourceMode {
+  return (
+    typeof value === "string" && (SOURCE_MODES as readonly string[]).includes(value)
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Structural provenance — the deriveProvenance hook (Plan 1 Phase 4 / W6 seam)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The INJECTED, PURE capability that DERIVES an entry's trust labels from its
+ * SOURCE-OF-RECORD identity rather than letting the adapter SELF-DECLARE them
+ * (Plan 1 Phase 4 / W6; same injection pattern as soundness `owns`). The intent:
+ * by the time soundness reads `entry.taint`/`entry.originProvenance`, those labels
+ * were derived from the source identity (connection identity / endpoint / table
+ * origin), not stamped by a possibly-model-authored adapter.
+ *
+ * W6 SHIPS the HOOK + its application point (in `record`) + the null-provenance
+ * default-deny; it does NOT ship the derivation LOGIC. Until W5 wires real source
+ * descriptors, consumers pass no deriver and the self-declared labels are used
+ * (then normalized fail-closed) — so the §11 TCB "Read adapters" row stays
+ * TRUSTED, not VERIFIED, until W5 lands. Must be PURE (deterministic, no IO).
+ */
+export interface ProvenanceDeriver {
+  readonly derive: (sourceOfRecord: unknown) => {
+    readonly taint: LedgerTaint;
+    readonly originProvenance: OriginProvenance;
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Per-envelope dispatch result — SDD §G `dispatch?`; v1.1 §10 Inv 4 (H10/H11)
 // ─────────────────────────────────────────────────────────────────────────
@@ -228,10 +263,48 @@ export interface EvidenceEntry {
 
 /**
  * The input a writer (Read/Action) supplies to record an entry — the §G fields,
- * with `dispatch` optional. Identical to `EvidenceEntry` (the ledger stores it
- * as-is); named distinctly so the write boundary reads intentionally.
+ * with `dispatch` optional, PLUS an OPTIONAL write-time-only `sourceOfRecord`
+ * descriptor (W6). `sourceOfRecord` is consumed by an injected `ProvenanceDeriver`
+ * at write time and is NEVER stored on the entry (the stored `EvidenceEntry` shape
+ * stays the frozen §G shape). When no deriver is injected, `sourceOfRecord` is
+ * ignored and the self-declared `taint`/`originProvenance` are used (then
+ * normalized fail-closed).
  */
-export type EvidenceEntryInput = EvidenceEntry;
+export type EvidenceEntryInput = EvidenceEntry & {
+  readonly sourceOfRecord?: unknown;
+};
+
+/**
+ * NULL-PROVENANCE DEFAULT-DENY write guard (Plan 1 Phase 4 / W6). Normalize an
+ * entry's trust labels at the WRITE boundary so the ledger never stores a
+ * structurally-typed-but-mislabeled row that could later VALIDATE:
+ *
+ *   - `taint` / `originProvenance` absent OR not a recognized member → coerced to
+ *     `UNTRUSTED_DATA` (fail-closed default-deny — "no provenance" = denied, NEVER
+ *     a silent trusted default). Because soundness REFUSES any `UNTRUSTED_DATA`
+ *     origin/taint, a null-provenance entry can never be a validating value.
+ *   - `sourceMode` absent OR not a recognized member → coerced to `"cache"` (not
+ *     provably live → a `must_read_this_turn` requirement cannot validate from it).
+ *
+ * NEVER coerces UP to a trusted class. The write-time-only `sourceOfRecord` is
+ * stripped (it is not part of the stored §G entry). Pure: deterministic; no
+ * clock/RNG/IO. A valid entry passes through with its labels unchanged.
+ */
+export function normalizeEvidenceEntry(input: EvidenceEntryInput): EvidenceEntry {
+  // Strip the write-time-only descriptor; it is not part of the stored §G shape.
+  const { sourceOfRecord: _ignored, ...rest } = input;
+  void _ignored;
+  return {
+    ...rest,
+    // Fail-closed default-deny: anything not provably trusted is UNTRUSTED_DATA.
+    taint: isLedgerTaint(rest.taint) ? rest.taint : "UNTRUSTED_DATA",
+    originProvenance: isOriginProvenance(rest.originProvenance)
+      ? rest.originProvenance
+      : "UNTRUSTED_DATA",
+    // Fail-closed: not provably live → cache.
+    sourceMode: isSourceMode(rest.sourceMode) ? rest.sourceMode : "cache",
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Read resolution — SDD §G / v1.1 §7; Inv 7 (error ≠ absence)
@@ -337,13 +410,23 @@ export class EvidenceLedger {
 
   readonly #cells = new Map<string, Cell>();
 
+  // OPTIONAL injected structural-provenance hook (W6). When present, an entry that
+  // carries a `sourceOfRecord` has its trust labels DERIVED from that descriptor at
+  // write time, overriding the adapter's self-declared labels. Absent ⟹ the
+  // self-declared labels are used (then normalized fail-closed).
+  readonly #deriver?: ProvenanceDeriver;
+
   /**
    * @param snapshotId Optional caller-supplied snapshot identity (e.g. a turn
    *   id). When omitted, a deterministic per-instance counter id is used so the
    *   ledger needs no RNG; distinct instances still get distinct ids.
+   * @param deriver Optional structural-provenance hook (W6). When supplied, a
+   *   recorded entry's `sourceOfRecord` is mapped to its trust labels at write
+   *   time. The kernel ships the seam; the derivation logic is W5 (adapter-side).
    */
-  constructor(snapshotId?: string) {
+  constructor(snapshotId?: string, deriver?: ProvenanceDeriver) {
     this.#snapshotId = snapshotId ?? `snapshot-${EvidenceLedger.#nextId()}`;
+    this.#deriver = deriver;
   }
 
   // Deterministic, monotonic instance-id source (no RNG). Module-private.
@@ -379,7 +462,17 @@ export class EvidenceLedger {
    * marked conflicted (the safest interpretation — never silently let a later
    * value erase a recorded error).
    */
-  record(entry: EvidenceEntryInput): void {
+  record(input: EvidenceEntryInput): void {
+    // ── W6 structural-provenance hook: when a deriver is injected AND the write
+    // carries a `sourceOfRecord`, DERIVE the trust labels from the source identity,
+    // overriding the adapter's self-declared `taint`/`originProvenance`. Then the
+    // null-provenance default-deny normalizer runs over the result (so a deriver
+    // that returns an invalid label still fails closed).
+    const derived =
+      this.#deriver !== undefined && input.sourceOfRecord !== undefined
+        ? { ...input, ...this.#deriver.derive(input.sourceOfRecord) }
+        : input;
+    const entry = normalizeEvidenceEntry(derived);
     const prior = this.#cells.get(entry.key);
     this.#version += 1;
 

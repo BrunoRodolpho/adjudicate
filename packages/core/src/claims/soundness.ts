@@ -655,6 +655,17 @@ export function claimAllowed(
   // Demote-only: with no `valueBinding` this is skipped (fail-safe no-op), so the
   // value-agnostic §5 behavior is byte-identical for every existing claim type.
   if (claim.valueBinding !== undefined) {
+    // C6 structural guard (F2): binding.key MUST be a member of requiredEvidence so
+    // presence/freshness/provenance/integrity are already §5-gated before C6 compares
+    // the value. A binding.key outside requiredEvidence would let C6 compare an
+    // un-gated ledger entry — fail-closed: throw at validate time (mirror the
+    // assertFalsifierDeclaration hard-error style).
+    const reqKeys = new Set(claim.requiredEvidence.map((e) => e.key));
+    if (!reqKeys.has(claim.valueBinding.key)) {
+      throw new Error(
+        `[adjudicate/soundness] C6 valueBinding.key "${claim.valueBinding.key}" is not a member of requiredEvidence keys — the binding key must be §5-gated (presence/freshness/provenance/integrity) before C6 compares the value.`,
+      );
+    }
     const c6 = valueBindingVerdict(claim, claim.valueBinding, ledger);
     if (c6 === "REFUSED") return "REFUSED"; // over-claim — dominates.
     if (c6 === "ABSTAIN") sawUnknown = true; // cannot prove binding — honest ignorance.

@@ -45,7 +45,6 @@
 // six values here would be the drift §F/§R forbids ("a second/divergent Action
 // verdict = drift").
 import type { Decision, DecisionKind } from "../decision.js";
-
 import type { EvidenceLedger } from "./evidence-ledger.js";
 import type { LedgerTaint } from "./evidence-ledger.js";
 import { claimAllowed } from "./soundness.js";

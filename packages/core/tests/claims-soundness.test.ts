@@ -907,6 +907,50 @@ describe("claimAllowed — C6 value-binding (§5 C6; Theorem S (a-value))", () =
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// F2 — C6 structural guard: valueBinding.key MUST be in requiredEvidence (§5 C6)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// A binding.key outside requiredEvidence would let C6 compare an un-gated ledger
+// entry (no presence/freshness/provenance/integrity gate). Fail-closed: throw at
+// validate time, mirroring the assertFalsifierDeclaration hard-error style.
+
+describe("claimAllowed — C6 valueBinding.key ∈ requiredEvidence guard (F2)", () => {
+  it("valueBinding.key NOT in requiredEvidence → throws (fail-closed structural guard)", () => {
+    // The binding key "other" is not declared in requiredEvidence (only "k" is).
+    // Without the guard, C6 would resolve "other" from the ledger with no §5 gating.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" })],
+      value: "aberto",
+      valueBinding: { key: "other" }, // "other" is NOT in requiredEvidence
+    });
+    expect(() =>
+      claimAllowed(claim, ledgerWith(entry({ key: "k" }), entry({ key: "other", value: "aberto" })), deps()),
+    ).toThrow(/valueBinding\.key.*other.*requiredEvidence/);
+  });
+
+  it("valueBinding.key IN requiredEvidence → no throw, normal C6 evaluation (valid case)", () => {
+    // "k" is in requiredEvidence, so the guard passes and C6 evaluates normally.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" })],
+      value: "aberto",
+      valueBinding: { key: "k" },
+    });
+    // Matching value → VALIDATED (proves the guard does not block the valid path).
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ key: "k", value: "aberto" })), deps()),
+    ).toBe("VALIDATED");
+    // Mismatched value → REFUSED (proves C6 still runs and catches over-claims).
+    expect(
+      claimAllowed(
+        { ...claim, value: "fechado" },
+        ledgerWith(entry({ key: "k", value: "aberto" })),
+        deps(),
+      ),
+    ).toBe("REFUSED");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // W6 — falsifier-completeness eligibility CAP (inv.17; §R). A type may VALIDATE
 // only if it has enumerated HOW it could be falsified; else UNKNOWN-only. The
 // inconsistent lying case (complete:true, no falsifiers) is a §R hard THROW.

@@ -967,6 +967,51 @@ describe("claimAllowed — W6 falsifier-completeness gate (inv.17; §R)", () => 
     expect(claimAllowed(claim, ledgerWith(entry()), deps())).toBe("VALIDATED");
   });
 
+  it("RUNTIME ARM: a PRESENT declared falsifier value DEMOTES an otherwise-VALIDATED claim → UNKNOWN (CE#3)", () => {
+    // Same all-pass evidence on "k", falsifier declared on "fk". The base case
+    // (falsifier key ABSENT) validates; recording a PRESENT value for the
+    // falsifier key fires the cross-key gate → conflict → UNKNOWN. This is the
+    // CE#3 cross-source store-hours closure (e.g. a present ScheduleOverride
+    // contradicting a fresh schedule key). Demote-only: never promotes.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" })],
+      falsifierComplete: true,
+      falsifiers: [req({ key: "fk" })],
+    });
+    // Falsifier absent → VALIDATED (control).
+    expect(claimAllowed(claim, ledgerWith(entry({ key: "k" })), deps())).toBe(
+      "VALIDATED",
+    );
+    // Falsifier PRESENT → UNKNOWN (the runtime arm fires).
+    expect(
+      claimAllowed(
+        claim,
+        ledgerWith(entry({ key: "k" }), entry({ key: "fk" })),
+        deps(),
+      ),
+    ).toBe("UNKNOWN");
+  });
+
+  it("RUNTIME ARM: an ABSENT declared falsifier does NOT fire (control stays VALIDATED)", () => {
+    // The default readClaim declares a falsifier on "_falsifier", never recorded
+    // → never fires → VALIDATED. Guards against the arm over-demoting.
+    const claim = readClaim();
+    expect(claimAllowed(claim, ledgerWith(entry()), deps())).toBe("VALIDATED");
+  });
+
+  it("RUNTIME ARM is demote-only: a present falsifier never PROMOTES a non-VALIDATED claim", () => {
+    // Absent required evidence → UNKNOWN regardless of falsifier presence; the arm
+    // runs only on the all-pass path, so a present falsifier cannot rescue it.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "missing" })],
+      falsifierComplete: true,
+      falsifiers: [req({ key: "fk" })],
+    });
+    expect(claimAllowed(claim, ledgerWith(entry({ key: "fk" })), deps())).toBe(
+      "UNKNOWN",
+    );
+  });
+
   it("NON-VACUITY: dropping the declared falsifier (complete:false) → UNKNOWN, not VALIDATED", () => {
     // Identical all-pass evidence, but the type no longer asserts completeness →
     // the eligibility cap DEMOTES VALIDATED → UNKNOWN (honest ignorance: we cannot

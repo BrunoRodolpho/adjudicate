@@ -684,7 +684,40 @@ export function claimAllowed(
   // until W5 declares its falsifiers (fail-safe; existing types keep compiling).
   if (!isFalsifierComplete(claim)) return "UNKNOWN";
 
-  // ── All conjuncts PASS ∧ the type is falsifier-complete → VALIDATED. This is
-  // the ONLY path to VALIDATED.
+  // ── Falsifier RUNTIME arm (W6 / CE#3 closure). The CAP above is the DECLARATION
+  // half (the type ENUMERATED its falsifiers); THIS is the runtime half — does any
+  // declared falsifier value ACTUALLY FIRE this turn? W6 shipped the ledger
+  // primitive `resolveAgainstFalsifiers` (the cross-key conflict gate) + its tests
+  // but left it UNWIRED; wiring it here closes CE#3 (the cross-source store-hours
+  // falsehood: STORE_OPEN_NOW backed by a fresh schedule key while a present
+  // ScheduleOverride contradicts it; PAYMENT_STATUS=paid while a present
+  // refund/chargeback falsifies it).
+  //
+  // Mechanism: every requiredEvidence key is PRESENT on this all-pass path, so we
+  // resolve one base key AGAINST the declared falsifier keys. If ANY falsifier key
+  // is itself PRESENT (a live, un-conflicted contradicting value), the gate demotes
+  // the base to `conflict` → the claim is falsified → UNKNOWN (honest ignorance;
+  // the contradiction is surfaced, never silently resolved — inv.16). Falsifier
+  // keys that are absent/error/conflict do NOT fire.
+  //
+  // DEMOTE-ONLY & fail-safe: this can ONLY turn an otherwise-VALIDATED claim into
+  // UNKNOWN; it never promotes (the extensibility/inv.17 property). It runs only on
+  // the eligible all-pass path; a non-complete type stays UNKNOWN-capped above.
+  const falsifierKeys = (claim.falsifiers ?? []).map((f) => f.key);
+  if (falsifierKeys.length > 0) {
+    // Any present requiredEvidence key is a valid base (all are present here); the
+    // value-binding key, when declared, is the most semantically pointed one.
+    const baseKey = claim.valueBinding?.key ?? claim.requiredEvidence[0]?.key;
+    if (
+      baseKey !== undefined &&
+      ledger.resolveAgainstFalsifiers(baseKey, falsifierKeys).state ===
+        "conflict"
+    ) {
+      return "UNKNOWN";
+    }
+  }
+
+  // ── All conjuncts PASS ∧ the type is falsifier-complete ∧ no declared falsifier
+  // fired this turn → VALIDATED. This is the ONLY path to VALIDATED.
   return "VALIDATED";
 }

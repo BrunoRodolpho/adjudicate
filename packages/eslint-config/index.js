@@ -67,6 +67,23 @@ export default tseslint.config(
       // deterministic carve-out (confirmation-receipt) is allowlisted at its
       // call site with an eslint-disable-next-line directive.
       "@adjudicate/monotonic-ceiling": "error",
+      // Plan 1 / Theorem E (E-1), enforcement layer (c): ban `x as RenderedReply`
+      // (and `x as any as RenderedReply` — the outermost `as` is still
+      // RenderedReply). A cast is the only compile-time way to forge the opaque
+      // branded carrier; banning it forces every customer-facing string through a
+      // @adjudicate/core minter, and the runtime WeakSet gate in `unwrapRendered`
+      // catches anything that slips past. The minter module itself
+      // (`rendered-reply.ts`) is exempted in a dedicated block below — it is the
+      // sole legitimate constructor.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "TSAsExpression[typeAnnotation.typeName.name='RenderedReply']",
+          message:
+            "Forging a RenderedReply via `as` is banned (Theorem E, sole-emitter). Produce customer-facing text with a @adjudicate/core minter (mintRenderedReply / mint{Cron,Receipt,Otp,Broadcast,Fallback}Reply / wrapLegacyResponderText) and unwrap it at the egress sink with unwrapRendered.",
+        },
+      ],
       "import/order": [
         "warn",
         {
@@ -84,6 +101,18 @@ export default tseslint.config(
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "prefer-const": "error",
       "no-var": "error",
+    },
+  },
+
+  // Plan 1 / Theorem E (E-1): the RenderedReply minter module is the SOLE
+  // legitimate constructor of the opaque carrier — it necessarily uses an
+  // internal `as unknown as RenderedReply` to brand the frozen object. Exempt it
+  // from the `as RenderedReply` ban (enforcement layer (c)); no other module may
+  // cast. This block follows the rules block so it overrides for this file only.
+  {
+    files: ["**/rendered-reply.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
     },
   },
 );

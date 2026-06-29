@@ -30,6 +30,8 @@ import {
   claimAllowed,
   isFalsifierComplete,
   meetsSourceIntegrityFloor,
+  readAttestedNow,
+  type AttestedClock,
   type EvidenceEntryInput,
   type EvidenceRequirement,
   type MinimalClaim,
@@ -986,6 +988,34 @@ describe("claimAllowed — W6 falsifier-completeness gate (inv.17; §R)", () => 
     ).toThrow();
     // The safe-default declaration does NOT throw.
     expect(assertFalsifierDeclaration({})).toEqual({});
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — attested-clock seam: fresh(e) may source `now` from an attested clock
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("claimAllowed — W6 attested-clock seam (readAttestedNow)", () => {
+  it("readAttestedNow feeds SoundnessDeps.now and drives the SAME cacheable freshness", () => {
+    const ttl = 30_000;
+    const clock: AttestedClock = { now: NOW, attestation: "ntp-sig" };
+    const cacheableReq = req({ freshnessPolicy: { kind: "cacheable", ttl } });
+    // Fresh via the attested now.
+    expect(
+      claimAllowed(
+        readClaim({ requiredEvidence: [cacheableReq] }),
+        ledgerWith(entry({ fetchedAt: NOW })),
+        deps({ now: readAttestedNow(clock) }),
+      ),
+    ).toBe("VALIDATED");
+    // Stale via the attested now (beyond ttl) → UNKNOWN (same fresh(e) logic).
+    expect(
+      claimAllowed(
+        readClaim({ requiredEvidence: [cacheableReq] }),
+        ledgerWith(entry({ fetchedAt: NOW - ttl - 1 })),
+        deps({ now: readAttestedNow(clock) }),
+      ),
+    ).toBe("UNKNOWN");
   });
 });
 

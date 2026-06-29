@@ -27,11 +27,13 @@ import {
   detectCrossKeyConflicts,
   isLedgerTaint,
   isOriginProvenance,
+  isSnapshotFresh,
   isSourceMode,
   normalizeEvidenceEntry,
   type CrossKeyConflict,
   type EvidenceEntryInput,
   type ProvenanceDeriver,
+  type SnapshotToken,
   type EvidenceEntry,
   type EvidenceResolution,
   type LedgerTaint,
@@ -741,6 +743,35 @@ describe("W6 — cross-key conflict (resolveAgainstFalsifiers / detectCrossKeyCo
     expect(led.resolveAgainstFalsifiers("open-now", ["override"]).verdict).toBe(
       "UNKNOWN",
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — render-time freshness re-check (snapshotToken / isSnapshotFresh)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("W6 — render-time freshness re-check (source-version token)", () => {
+  it("a token captured at validate time is FRESH if the ledger has not mutated", () => {
+    const led = new EvidenceLedger("turn-1");
+    led.record(entry({ key: "k" }));
+    const token = led.snapshotToken();
+    // No write between capture and re-check → still fresh.
+    expect(isSnapshotFresh(token, led)).toBe(true);
+  });
+
+  it("NON-VACUITY: a write between validate and render makes the token STALE", () => {
+    const led = new EvidenceLedger("turn-1");
+    led.record(entry({ key: "k" }));
+    const token = led.snapshotToken();
+    led.record(entry({ key: "k2" })); // a TOCTOU mutation after validate.
+    expect(isSnapshotFresh(token, led)).toBe(false);
+  });
+
+  it("a token from a DIFFERENT snapshot is never fresh (fail-closed)", () => {
+    const a = new EvidenceLedger("turn-A");
+    const b = new EvidenceLedger("turn-B");
+    const tokenA: SnapshotToken = a.snapshotToken();
+    expect(isSnapshotFresh(tokenA, b)).toBe(false);
   });
 });
 

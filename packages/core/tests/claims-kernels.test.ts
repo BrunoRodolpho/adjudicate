@@ -46,8 +46,10 @@ import {
   runClaimsKernel,
   ASYMMETRIC_TOPOLOGY,
   TOPOLOGY_STAGES,
+  STAGE_FAIL_CLOSED_TERMINAL,
   topologyHasBackwardEdge,
   ledgerConsumesClaims,
+  type ConsistencyConstraint,
   type ReadAccess,
   type ReadProvenance,
   type ReadKernel,
@@ -717,5 +719,53 @@ describe("Q5 AC6 — kernel purity (SDD §R: adjudicate → claustrum → ibatex
     // And kernels.ts does NOT declare its own `EXECUTE | REFUSE | ...` union (a
     // fork) — the six action values appear only via the imported Decision/Kind.
     expect(src).not.toMatch(/=\s*["']EXECUTE["']\s*\|\s*["']REFUSE["']/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// W6 — STAGE-FAIL-CLOSED: a deterministic stage that can't complete → ESCALATE,
+// never render the partial set (Plan 1 Phase 4 / P4 completeness)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("W6 — stage-fail-closed (runClaimsKernel)", () => {
+  it("a malformed consistency table makes P2 throw → ESCALATE + EMPTY renderable", () => {
+    // The same unordered pair declared with two relations makes indexTable throw
+    // inside checkConsistency — a deterministic stage that cannot complete. The
+    // kernel must FAIL CLOSED (ESCALATE, never render a partial set), not crash.
+    const malformed: readonly ConsistencyConstraint[] = [
+      { typeA: "A", typeB: "B", relation: "MUTUAL_EXCLUSION" },
+      { typeA: "A", typeB: "B", relation: "COMPATIBLE" },
+    ];
+    const ledger = new EvidenceLedger();
+    recordTrusted(ledger, PUBLIC_REQ.key, "v");
+    const candidates: readonly CandidateClaim[] = [
+      { soundness: publicClaim(PUBLIC_REQ), subject: "s", type: "A", value: 1 },
+    ];
+    const result = runClaimsKernel(ledger, candidates, {
+      soundness: SOUNDNESS_DEPS,
+      consistency: { table: malformed },
+    });
+    expect(result.terminal).toBe(STAGE_FAIL_CLOSED_TERMINAL);
+    expect(result.terminal).toBe("ESCALATE");
+    expect(result.renderable).toHaveLength(0); // never a partial render.
+    expect(result.consistency.suppressions).toHaveLength(0);
+  });
+
+  it("STAGE_FAIL_CLOSED_TERMINAL is ESCALATE (first-class §I)", () => {
+    expect(STAGE_FAIL_CLOSED_TERMINAL).toBe("ESCALATE");
+  });
+
+  it("a WELL-FORMED table still renders normally (the guard is non-vacuous)", () => {
+    // Contrast: the same single candidate with the default table renders, proving
+    // the fail-closed path above is the malformed-table guard, not a blanket block.
+    const ledger = new EvidenceLedger();
+    recordTrusted(ledger, PUBLIC_REQ.key, "v");
+    const result = runClaimsKernel(
+      ledger,
+      [{ soundness: publicClaim(PUBLIC_REQ), subject: "s", type: "A", value: 1 }],
+      CLAIMS_DEPS,
+    );
+    expect(result.terminal).toBe("RENDER");
+    expect(result.renderable).toHaveLength(1);
   });
 });

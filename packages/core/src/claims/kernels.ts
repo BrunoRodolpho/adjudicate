@@ -441,8 +441,24 @@ export function runClaimsKernel(
     // predicate (`verdict === "VALIDATED"`), so they cannot diverge.
     .filter((c) => c.verdict === "VALIDATED");
 
-  // ── (3) P2 consistency (Q4) over the VALIDATED set.
-  const consistency = checkConsistency(consistencyInput, deps.consistency);
+  // ── STAGE-FAIL-CLOSED (W6 / P4 completeness). The P1 stage MUST emit exactly
+  // one verdict per candidate; if it ever produced a partial set (a candidate
+  // silently disappeared), we must NOT render the partial result → ESCALATE the
+  // whole turn (never a partial render). Defensive belt-and-braces over the map.
+  if (perClaim.length !== candidates.length) {
+    return stageFailClosed(perClaim);
+  }
+
+  // ── (3) P2 consistency (Q4) over the VALIDATED set. The consistency stage is a
+  // deterministic stage that CAN fail to complete (e.g. a malformed constraint
+  // table). If it throws, we FAIL CLOSED: ESCALATE the turn with an EMPTY
+  // renderable — never render the partial set we had before the stage ran (W6).
+  let consistency: ConsistencyResult;
+  try {
+    consistency = checkConsistency(consistencyInput, deps.consistency);
+  } catch {
+    return stageFailClosed(perClaim);
+  }
 
   // ── (4) Turn terminal (§I). Q4 returns RENDER iff nothing was suppressed and
   // ESCALATE otherwise. But a Q4 RENDER over an EMPTY validated set is not a
@@ -459,6 +475,29 @@ export function runClaimsKernel(
     renderable: consistency.renderable,
     terminal,
     consistency,
+  };
+}
+
+/**
+ * The TURN terminal a STAGE-FAIL-CLOSED forces (W6): a deterministic stage that
+ * cannot complete must ESCALATE the whole turn, never render a partial set. First
+ * class (§I). Exported so a caller/test can name the fail-closed posture.
+ */
+export const STAGE_FAIL_CLOSED_TERMINAL: TurnTerminal = "ESCALATE";
+
+/**
+ * Build the STAGE-FAIL-CLOSED kernel result (W6): the per-claim verdicts computed
+ * so far (audit), an EMPTY renderable (never a partial render), and the ESCALATE
+ * terminal + a proposition-free ESCALATE consistency result. Pure.
+ */
+function stageFailClosed(
+  perClaim: readonly ClaimSoundnessVerdict[],
+): ClaimsKernelResult {
+  return {
+    perClaim,
+    renderable: [],
+    terminal: STAGE_FAIL_CLOSED_TERMINAL,
+    consistency: { renderable: [], terminal: "ESCALATE", suppressions: [] },
   };
 }
 

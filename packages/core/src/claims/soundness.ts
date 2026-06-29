@@ -174,6 +174,38 @@ export interface SoundnessDeps {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Attested-clock seam (Plan 1 Phase 4 / W6) — fresh(e) reads an ATTESTED time
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The ATTESTED-CLOCK seam (W6): a `now` epoch-millis paired with an OPTIONAL
+ * `attestation` token identifying the time SOURCE (e.g. a signed NTP/HSM stamp).
+ * `fresh(e)` over a `cacheable` ttl compares `now - fetchedAt`; if `now` is an
+ * un-attested wall clock, staleness can be defeated by clock skew (the negative-age
+ * lower bound already rejects future stamps, but a SOURCE attestation lets a
+ * caller PROVE the clock itself is trustworthy).
+ *
+ * W6 ships the SEAM only: `SoundnessDeps.now` stays a bare `number` (kernel-pure,
+ * deterministic in tests). A caller may source it from {@link readAttestedNow},
+ * which is where W5 wires a real attested source. The kernel does not itself verify
+ * the attestation — it provides the typed slot so the trust upgrade can land later.
+ */
+export interface AttestedClock {
+  readonly now: number;
+  readonly attestation?: string;
+}
+
+/**
+ * Read the `now` value from an {@link AttestedClock} for `SoundnessDeps.now` (W6).
+ * Pure pass-through today; the seam where W5 enforces attestation presence/validity
+ * before trusting the time. Keeping it a function (not a field read) gives W5 one
+ * place to harden without touching `claimAllowed`.
+ */
+export function readAttestedNow(clock: AttestedClock): number {
+  return clock.now;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // The three-valued mapping — registry §5 / SDD §K, verbatim
 // ─────────────────────────────────────────────────────────────────────────
 //

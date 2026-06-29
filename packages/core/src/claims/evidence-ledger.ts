@@ -627,6 +627,45 @@ export class EvidenceLedger {
   keys(): readonly string[] {
     return [...this.#cells.keys()];
   }
+
+  /**
+   * Capture the SOURCE-VERSION TOKEN of this snapshot at a point in time (W6
+   * render-time freshness re-check). The pair `(snapshotId, version)` uniquely
+   * names a revision; capture it at VALIDATE time and re-check it at RENDER time
+   * via {@link isSnapshotFresh} so a claim validated against revision N is never
+   * rendered after the ledger mutated to revision N+1 (a TOCTOU between validate
+   * and render). Pure.
+   */
+  snapshotToken(): SnapshotToken {
+    return { snapshotId: this.#snapshotId, version: this.#version };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Render-time freshness re-check — the source-version token (Plan 1 Phase 4 / W6)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The SOURCE-VERSION token of an Evidence Ledger snapshot (W6). `(snapshotId,
+ * version)` uniquely names a point-in-time revision; a render-time re-check
+ * compares the token captured at VALIDATE time against the ledger at RENDER time.
+ */
+export interface SnapshotToken {
+  readonly snapshotId: string;
+  readonly version: number;
+}
+
+/**
+ * Render-time freshness re-check (W6): is `ledger` still at the EXACT revision the
+ * `token` named? `true` IFF same snapshot identity AND unchanged `version`. A
+ * FALSE means the ledger mutated between validate and render — the validated claim
+ * set is STALE and must NOT be rendered (re-validate or ESCALATE). Fail-closed: a
+ * token from a DIFFERENT snapshot is never "fresh". Pure: read-only.
+ */
+export function isSnapshotFresh(token: SnapshotToken, ledger: EvidenceLedger): boolean {
+  return (
+    token.snapshotId === ledger.snapshotId && token.version === ledger.version
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -585,10 +585,17 @@ export class EvidenceLedger {
    *
    * Demote-only & fail-closed: if the base key is not `present`, its own
    * (absent/error/conflict) resolution is returned unchanged (a falsifier cannot
-   * UPGRADE a non-present key). If the base key is `present` but ANY falsifier key
-   * is `present`, the result is downgraded to `conflict` → `UNKNOWN`. Falsifier
-   * keys that are themselves absent/error/conflict do NOT fire (only a PRESENT,
-   * un-conflicted falsifier value is a live contradiction). Pure: read-only.
+   * UPGRADE a non-present key). If the base key is `present` AND any falsifier key is
+   * `present` (a live contradiction) OR `error`/`conflict` (its read could NOT be
+   * determined this turn — we cannot prove the falsifier did NOT fire), the result is
+   * downgraded to `conflict` → `UNKNOWN` (F6). This is SYMMETRIC with the base-key
+   * axis, which already demotes to UNKNOWN on error/conflict: a declared falsifier
+   * that errored poisons exactly the claim it guards (e.g. PAYMENT_STATUS=paid while
+   * the refund/chargeback falsifier read errored — a refund may have occurred but
+   * could not be read, so `paid` must NOT keep rendering). Only an `absent` falsifier
+   * key does NOT fire — successfully determining no falsifier is present is the normal
+   * happy path (e.g. no refund exists). Demote-only: UNKNOWN, never REFUSED, never a
+   * promotion. Pure: read-only.
    *
    * This is the cross-key COMPANION to the soundness falsifier-completeness CAP:
    * the CAP (soundness.ts) forces UNKNOWN-only until a type DECLARES its falsifiers;
@@ -604,8 +611,11 @@ export class EvidenceLedger {
     // A falsifier can only DEMOTE a present key; a non-present key keeps its state.
     if (base.state !== "present") return base;
     for (const fk of falsifierKeys) {
-      // Only a PRESENT, un-conflicted falsifier value is a live contradiction.
-      if (this.resolve(fk).state === "present") {
+      // F6 — fail-closed & SYMMETRIC with the base-key axis. A falsifier key that is
+      // `present` (a live contradiction) OR `error`/`conflict` (its read could not be
+      // determined — we cannot prove it did NOT fire) poisons the base → conflict →
+      // UNKNOWN. Only `absent` (provably no falsifier present) lets the base stand.
+      if (this.resolve(fk).state !== "absent") {
         return { key, state: "conflict", verdict: "UNKNOWN" };
       }
     }
@@ -687,11 +697,18 @@ export interface CrossKeyConflict {
 /**
  * Detect which keys in `table` are FALSIFIED in this `ledger` (W6 cross-key gate).
  * A key is falsified iff it is itself `present` AND at least one of its declared
- * falsifier keys is `present` this turn. Returns the distinct falsified keys (the
- * set a caller must resolve to `UNKNOWN`). Pure: read-only over the ledger; NO
- * integrity-ranked auto-resolution (inv.16) — a fired falsifier always poisons the
- * key to UNKNOWN, never silently resolved by ranking. Mirrors
- * `EvidenceLedger.resolveAgainstFalsifiers` over a table of pairs.
+ * falsifier keys FIRES this turn. A falsifier FIRES when its state is NOT `absent`:
+ * `present` (a live contradiction) OR `error`/`conflict` (its read could not be
+ * determined — we cannot prove the falsifier did NOT fire). Only an `absent`
+ * falsifier (provably not present) lets the base key stand. Returns the distinct
+ * falsified keys (the set a caller must resolve to `UNKNOWN`).
+ *
+ * SYMMETRIC with — and a table-of-pairs wrapper over — the per-key
+ * `EvidenceLedger.resolveAgainstFalsifiers` (F6): both demote on `present`/`error`/
+ * `conflict` and stand only on `absent`, fail-closed and symmetric with the base-key
+ * axis (which already demotes to UNKNOWN on error/conflict). Pure: read-only over the
+ * ledger; demote-only; NO integrity-ranked auto-resolution (inv.16) — a fired
+ * falsifier always poisons the key to UNKNOWN, never silently resolved by ranking.
  */
 export function detectCrossKeyConflicts(
   ledger: EvidenceLedger,
@@ -700,9 +717,11 @@ export function detectCrossKeyConflicts(
   const falsified = new Set<string>();
   for (const { key, falsifierKey } of table) {
     if (falsified.has(key)) continue;
+    // The falsifier FIRES unless it is provably `absent` (mirror of the F6 fix in
+    // resolveAgainstFalsifiers): present OR error OR conflict all poison the base key.
     if (
       ledger.resolve(key).state === "present" &&
-      ledger.resolve(falsifierKey).state === "present"
+      ledger.resolve(falsifierKey).state !== "absent"
     ) {
       falsified.add(key);
     }

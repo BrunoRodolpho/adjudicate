@@ -410,26 +410,40 @@ export function runClaimsKernel(
   // ── (1) P1 soundness (Q3), per candidate, against the read-only Ledger. The
   // ledger is the snapshot Read + Action already fed; the Claims kernel only
   // RESOLVES keys out of it (one-directional — never records into it here).
-  const perClaim: ClaimSoundnessVerdict[] = candidates.map((candidate) => ({
-    subject: candidate.subject,
-    type: candidate.type,
-    // Validation goes THROUGH the typed §5 predicate over `requiredEvidence` —
-    // there is no free-text reason path (§R topology condition 2).
-    //
-    // C6 value-binding (§5 C6; Theorem S (a-value)): the RENDERED value the model
-    // authored is `candidate.value` (the field copied UNTOUCHED into the renderable
-    // ConsistencyClaim below). We thread it into the soundness input so that, when
-    // the candidate's `soundness.valueBinding` is declared (W5), C6 binds THAT
-    // rendered value to its licensing evidence — closing the surplus channel where
-    // a claim validated on present∧fresh∧owned∧… while its value was a model
-    // confabulation. Additive + fail-safe: with no `valueBinding`, `value` is never
-    // read and the verdict is byte-identical to before.
-    verdict: claimAllowed(
-      { ...candidate.soundness, value: candidate.value },
-      ledger,
-      deps.soundness,
-    ),
-  }));
+  let perClaim: ClaimSoundnessVerdict[];
+  try {
+    perClaim = candidates.map((candidate) => ({
+      subject: candidate.subject,
+      type: candidate.type,
+      // Validation goes THROUGH the typed §5 predicate over `requiredEvidence` —
+      // there is no free-text reason path (§R topology condition 2).
+      //
+      // C6 value-binding (§5 C6; Theorem S (a-value)): the RENDERED value the model
+      // authored is `candidate.value` (the field copied UNTOUCHED into the renderable
+      // ConsistencyClaim below). We thread it into the soundness input so that, when
+      // the candidate's `soundness.valueBinding` is declared (W5), C6 binds THAT
+      // rendered value to its licensing evidence — closing the surplus channel where
+      // a claim validated on present∧fresh∧owned∧… while its value was a model
+      // confabulation. Additive + fail-safe: with no `valueBinding`, `value` is never
+      // read and the verdict is byte-identical to before.
+      verdict: claimAllowed(
+        { ...candidate.soundness, value: candidate.value },
+        ledger,
+        deps.soundness,
+      ),
+    }));
+  } catch {
+    // ── STAGE-FAIL-CLOSED for the P1 stage (W6; F3). `claimAllowed` THROWS on a
+    // malformed-registry PROGRAMMER error: a `falsifierComplete: true` type that
+    // enumerates no falsifiers (`assertFalsifierDeclaration`), or a C6
+    // `valueBinding.key` that is not a member of `requiredEvidence` (the binding-key
+    // guard). A throw in this deterministic stage must NOT propagate uncaught out of
+    // `runClaimsKernel` and crash every turn touching that type — it FAILS CLOSED
+    // exactly like the P2 `checkConsistency` try/catch below: ESCALATE with an EMPTY
+    // renderable, never a partial render. No trustworthy per-claim verdicts survive a
+    // P1 throw, so the stage-fail-closed audit set is empty.
+    return stageFailClosed([]);
+  }
 
   // ── (2) Form the VALIDATED set (§D): only VALIDATED candidates carry into P2.
   // Each carries its (subject, type, value) so the P2 gate can partition by
@@ -489,9 +503,22 @@ export function runClaimsKernel(
   // site, structurally reachable only after the §5 predicate passed (incl. C6) and
   // consistency held. The renderer takes these — never a raw ConsistencyClaim — so
   // an un-validated proposition cannot reach prose.
-  const renderableCanonical = consistency.renderable.map((c) =>
-    mintCanonicalClaim(c.subject, c.type, c.value),
-  );
+  //
+  // F1 — gate the mint on the TURN terminal. `consistency.renderable` can be
+  // NON-EMPTY on a non-RENDER terminal: e.g. subjectA has two same-type VALIDATED
+  // claims with conflicting values (SAME_TYPE_VALUE_CONFLICT → both suppressed →
+  // consistency terminal ESCALATE) while subjectB's lone VALIDATED claim has no peer
+  // and survives into `renderable`. Minting unconditionally would violate this field's
+  // documented invariant ("an empty array on every non-RENDER terminal") and hand the
+  // renderer a canonical claim on an ESCALATE turn. Mint ONLY when the turn actually
+  // RENDERs; on every other terminal the renderer-input is empty (the stageFailClosed
+  // path already returns []).
+  const renderableCanonical =
+    terminal === "RENDER"
+      ? consistency.renderable.map((c) =>
+          mintCanonicalClaim(c.subject, c.type, c.value),
+        )
+      : [];
 
   return {
     perClaim,

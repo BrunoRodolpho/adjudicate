@@ -147,11 +147,14 @@ function freshnessRank(p: FreshnessPolicy): number {
   return 2; // action_outcome — as strict as must_read_this_turn (not a stale axis).
 }
 
-/** The cacheable ttl as a finite number, else undefined (reindex_bound / non-cacheable). */
-function cacheableTtl(p: FreshnessPolicy): number | undefined {
-  return typeof p === "object" && p.kind === "cacheable" && typeof p.ttl === "number"
-    ? p.ttl
-    : undefined;
+/**
+ * The cacheable ttl — a finite-number WINDOW or the symbolic `"reindex_bound"` — else
+ * undefined (the policy is not cacheable). Returns the RAW ttl (NOT numeric-only) so a
+ * change to/from the symbolic `reindex_bound` stays VISIBLE to the diff and is never
+ * silently dropped (F5).
+ */
+function cacheableTtl(p: FreshnessPolicy): number | "reindex_bound" | undefined {
+  return typeof p === "object" && p.kind === "cacheable" ? p.ttl : undefined;
 }
 
 /**
@@ -210,15 +213,28 @@ export function classifyEvidenceRequirementDiff(
   } else if (af > bf) {
     findings.push({ kind: "ADDITIVE", detail: `[${key}] freshness tightened (rank ${bf} → ${af})` });
   } else {
+    // Same freshness RANK. For the cacheable tier the ttl WINDOW is the safety axis:
+    // a wider window loosens staleness. Only a numeric→numeric comparison is PROVABLE.
+    // A change to/from the symbolic `reindex_bound` (a reindex-lag floor, NOT a
+    // wall-clock window) cannot be proven non-loosening, so it must NOT be silently
+    // dropped — classify it conservatively as RELAXATION-class (F5; the lint's
+    // un-provable bucket, per its own doc). `reindex_bound → reindex_bound` (no change)
+    // and a numeric-equal ttl both fall through to no finding.
     const bt = cacheableTtl(before.freshnessPolicy);
     const at = cacheableTtl(after.freshnessPolicy);
-    if (bt !== undefined && at !== undefined && at > bt) {
-      findings.push({
-        kind: "RELAXATION",
-        detail: `[${key}] cacheable ttl widened ${bt} → ${at}`,
-      });
-    } else if (bt !== undefined && at !== undefined && at < bt) {
-      findings.push({ kind: "ADDITIVE", detail: `[${key}] cacheable ttl shrank ${bt} → ${at}` });
+    if (bt !== undefined && at !== undefined && bt !== at) {
+      if (typeof bt === "number" && typeof at === "number") {
+        findings.push(
+          at > bt
+            ? { kind: "RELAXATION", detail: `[${key}] cacheable ttl widened ${bt} → ${at}` }
+            : { kind: "ADDITIVE", detail: `[${key}] cacheable ttl shrank ${bt} → ${at}` },
+        );
+      } else {
+        findings.push({
+          kind: "RELAXATION",
+          detail: `[${key}] cacheable ttl changed ${String(bt)} → ${String(at)} — not provably non-loosening (reindex_bound)`,
+        });
+      }
     }
   }
 

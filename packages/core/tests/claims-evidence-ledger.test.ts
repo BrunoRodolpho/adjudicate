@@ -706,19 +706,39 @@ describe("W6 — cross-key conflict (resolveAgainstFalsifiers / detectCrossKeyCo
     );
   });
 
-  it("an ABSENT (or errored/conflicted) falsifier does NOT fire", () => {
+  it("an ABSENT falsifier does NOT fire (provably no falsifier present → base stands)", () => {
+    // F6 — `absent` is the ONLY falsifier state that does not fire. Successfully
+    // determining that no falsifier exists this turn is the normal happy path.
     const led = new EvidenceLedger();
     led.record(entry({ key: "open-now", value: "aberto" }));
-    led.recordError("err-falsifier", "boom");
-    // override absent, err-falsifier errored, self-conflicted falsifier conflicted:
+    // "override" is never recorded → absent.
+    expect(led.resolveAgainstFalsifiers("open-now", ["override"]).state).toBe(
+      "present",
+    );
+  });
+
+  it("an ERRORED falsifier DOES fire (fail-closed, symmetric with the base axis) → conflict → UNKNOWN (F6)", () => {
+    // The refund/chargeback falsifier read ERRORED this turn — we cannot prove it did
+    // NOT fire, so the base claim must demote, exactly as the base-key axis demotes to
+    // UNKNOWN on error. (Was the F6 fail-OPEN: an errored falsifier used to leave the
+    // base `present`.)
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "payment-paid", value: true }));
+    led.recordError("refund", "read failed this turn");
+    const r = led.resolveAgainstFalsifiers("payment-paid", ["refund"]);
+    expect(r.state).toBe("conflict");
+    expect(r.verdict).toBe("UNKNOWN");
+    expect(r.entry).toBeUndefined(); // a poisoned key exposes no concrete value.
+  });
+
+  it("a CONFLICTED falsifier DOES fire → conflict → UNKNOWN (F6)", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
     led.record(entry({ key: "confl", value: "a" }));
     led.record(entry({ key: "confl", value: "b" })); // same-key conflict on confl.
-    const r = led.resolveAgainstFalsifiers("open-now", [
-      "override",
-      "err-falsifier",
-      "confl",
-    ]);
-    expect(r.state).toBe("present"); // no PRESENT falsifier fired.
+    const r = led.resolveAgainstFalsifiers("open-now", ["confl"]);
+    expect(r.state).toBe("conflict");
+    expect(r.verdict).toBe("UNKNOWN");
   });
 
   it("detectCrossKeyConflicts returns the falsified base keys for a table", () => {

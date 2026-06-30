@@ -60,9 +60,10 @@
  * `adjudicate → claustrum → ibatexas`, never backward).
  */
 
-import type {
-  EvidenceRequirement,
-  SourceIntegrity,
+import {
+  type EvidenceRequirement,
+  type SourceIntegrity,
+  sourceIntegrityRank,
 } from "./evidence-requirement.js";
 import type { ClaimKind, ValueBinding } from "./soundness.js";
 import type {
@@ -482,6 +483,19 @@ function toDoc(def: CompilableClaimDefinition, id: string): string {
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Does this render block declare at least one PROPOSITION slot (F7)? A proposition
+ * slot's value MUST be sourced from a §5-gated, C6-verified ledger key (INV-1/INV-7),
+ * i.e. the def MUST carry a `valueBinding`. A render block of only LITERAL slots, or no
+ * render block at all, imposes no binding obligation. Pure.
+ */
+function hasPropositionSlot(render: RenderSource | undefined): boolean {
+  return (
+    render !== undefined &&
+    render.validated.some((slot) => slot.kind === "PROPOSITION")
+  );
+}
+
+/**
  * Compile ONE `ClaimDefinitionSource` into its full runtime IMAGE. PURE + TOTAL; it
  * NEVER switches on `def.type`; adding a claim type adds a source file and ZERO
  * interpreter code. The returned bundle is what a downstream generator serializes to
@@ -489,6 +503,25 @@ function toDoc(def: CompilableClaimDefinition, id: string): string {
  * closure, fixtures, doc), each marked `@generated`.
  */
 export function compileClaimDefinition(def: CompilableClaimDefinition): CompiledArtifacts {
+  // ── F7 — fail-closed at COMPILE time. A render block with a PROPOSITION slot but
+  // NO `valueBinding` is a representable-but-SELF-FAILING source: `toRenderTemplate`
+  // emits the PROPOSITION slot while `toValueProjections` returns [] (no binding ⟹ no
+  // projection), so the compiled def carries a render proposition with no backing
+  // projection — and its OWN generated `fixtures.valid` is then REJECTED by the v1
+  // validator (SLOT_UNBACKED via `checkSlotProjectionAlignment`). Per the "illegal
+  // states unrepresentable" thesis, REJECT here rather than emit an artifact that
+  // fails its own validator. (A type-level constraint over the two independent
+  // optionals is a large lift; a hard throw at compile/build time is the fail-closed
+  // equivalent.)
+  if (def.valueBinding === undefined && hasPropositionSlot(def.render)) {
+    throw new Error(
+      `[adjudicate/claim-compiler] "${def.type}@${def.version}": the render block ` +
+        `declares a PROPOSITION slot but the definition has no valueBinding — a ` +
+        `rendered proposition's value must bind to a §5-gated requiredEvidence key ` +
+        `(INV-1/INV-7). Add a valueBinding whose key is a requiredEvidence key, or ` +
+        `make the slot a LITERAL.`,
+    );
+  }
   const id = `${def.type}@${def.version}`;
   const definition = toDefinition(def);
   return {
@@ -528,6 +561,17 @@ export function isFalsifierSetMonotone(
   const newKeys = new Set((newer.falsifiers ?? []).map((f) => f.key));
   for (const k of oldKeys) {
     if (!newKeys.has(k)) return false; // a removed falsifier is a breaking relaxation.
+  }
+  // F4 — the C2 source-integrity FLOOR may only RISE across versions. Lowering
+  // `minSourceIntegrity` (e.g. first_party_verified → free_text) admits WEAKER
+  // evidence — a strict safety relaxation, exactly the "loosening the floor" the doc
+  // promises this guard catches, on par with a removed falsifier. A newer floor
+  // strictly BELOW the older (by the source-integrity ordering) is NOT monotone-safe.
+  if (
+    sourceIntegrityRank(newer.minSourceIntegrity) <
+    sourceIntegrityRank(older.minSourceIntegrity)
+  ) {
+    return false;
   }
   return true;
 }

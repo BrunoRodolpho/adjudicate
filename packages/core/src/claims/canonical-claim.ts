@@ -23,21 +23,39 @@
 // proves provenance at the renderer boundary by asserting WeakSet membership — a
 // forged object literal that structurally matches `CanonicalClaim` throws.
 //
-// MINT-SITE SOUNDNESS (honest scope — see critique risk #3)
+// MINT-SITE SOUNDNESS (honest scope — see critique risk #3; F2)
 // ─────────────────────────────────────────────────────────
 // The single mint site is `runClaimsKernel` (kernels.ts), called on each member
 // of the `renderable` set — the VALIDATED ∧ P2-consistent survivors. The guarantee
-// the mint carries is precise:
+// the mint carries is precise — and DELIBERATELY NARROW (see the F2 caveat below):
 //   · `VALIDATED` alone does NOT imply C6 ran: a type WITHOUT a `valueBinding`
 //     skips C6 (soundness.ts) and can still reach VALIDATED.
 //   · The renderer only fills PROPOSITION slots; the ClaimDefinition compiler's
-//     INV-1 forces every proposition slot to a `valueBinding`-backed projection.
-//   · Therefore: has-render-proposition ⟹ has-valueBinding ⟹ C6 RAN ⟹ the value
-//     equals its licensing ledger entry's value (C6 is a conjunct of claimAllowed;
-//     a mismatch is REFUSED, never VALIDATED). So for any claim the renderer
-//     actually reads, the minted value is provably the LEDGER-derived value, not a
-//     model confabulation. The mint flows the renderable claim's `value`, which —
-//     for exactly those C6-bound claims — IS the ledger value by construction.
+//     INV-1 forces every proposition slot to a `valueBinding`-backed projection, and
+//     every projection shares the type's SINGLE `valueBinding` key+path
+//     (claim-compiler.ts `toValueProjections`) — so the renderer only ever reads the
+//     ONE C6-bound projection of the value.
+//   · Therefore: has-render-proposition ⟹ has-valueBinding ⟹ C6 RAN ⟹ the
+//     PROJECTED value (at `valueBinding.path`) equals its licensing ledger entry's
+//     value (C6 is a conjunct of claimAllowed; a mismatch is REFUSED, never
+//     VALIDATED). So the SLICE of the value the renderer actually reads is provably
+//     LEDGER-derived, not a model confabulation.
+//
+// F2 CAVEAT — the guarantee is scoped to the C6-BOUND PATH ONLY, NOT the whole
+// carried value. The mint flows the renderable claim's ENTIRE `value`, but C6
+// (soundness.ts `valueBindingVerdict`) compares ONLY `projectValue(value,
+// valueBinding.path)` against the ledger. Any SIBLING field of a value OBJECT — e.g.
+// `value = { open: true, message: "<model prose>" }` bound at path `["open"]` — rides
+// through UNVALIDATED: it is model content, NOT ledger-derived. This is currently SAFE
+// end-to-end only because INV-1 means the renderer never reads a non-projected sibling
+// (every render slot reads the bound projection), so an unvalidated sibling cannot
+// reach a customer. But the carried object is WIDER than the proven slice — do NOT
+// treat `CanonicalClaim.value`'s non-bound fields as validated.
+// TODO(F2): narrow the minted value to ONLY ledger-derived/projected content
+// (reconstruct it from the verified projection, or strip fields with no backing
+// projection) so the carrier matches the guarantee. Requires threading the
+// per-candidate `valueBinding` into the mint AND confirming the downstream (ibatexas)
+// renderer reads `value` solely via declared projections before narrowing.
 
 /**
  * The module-private brand key. NEVER exported. Because the symbol is not in
@@ -59,9 +77,12 @@ declare const canonicalBrand: unique symbol;
  * Carries exactly the renderer-relevant identity of a renderable claim:
  *   - `subject` — the same-subject partition key (P2);
  *   - `type`    — the registry type name (selects the render template);
- *   - `value`   — the LEDGER-derived domain proposition the renderer fills from
- *                 (provably ledger-bound for any claim with a render proposition;
- *                 see the mint-site soundness note above).
+ *   - `value`   — the domain proposition the renderer fills from. Provably
+ *                 ledger-bound AT THE C6 `valueBinding` PATH for any claim with a
+ *                 render proposition; SIBLING fields of a value object are carried
+ *                 UNVALIDATED (model content) — see the F2 caveat in the mint-site
+ *                 soundness note above. INV-1 keeps the renderer reading only the
+ *                 bound projection, so siblings never reach a customer.
  */
 export interface CanonicalClaim {
   readonly subject: string;

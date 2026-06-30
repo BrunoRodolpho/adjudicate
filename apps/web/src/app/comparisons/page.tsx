@@ -37,7 +37,7 @@ export default function ComparisonsPage() {
             </span>
           </>
         }
-        subtitle="Permission engines like OPA and Cedar return yes/no on a single proposed action. Adjudicate returns six structured decisions — including the four that AI-mediated systems actually need."
+        subtitle="Cedar returns a binary Allow/Deny on a proposed action; OPA emits arbitrary JSON — but neither ships a REWRITE re-adjudication or a DEFER park-and-resume. Adjudicate returns six structured decisions, including the four that AI-mediated systems actually need."
       />
       <section className="relative overflow-hidden border-b border-console-edge bg-console-panel py-12">
         <BrandGlow />

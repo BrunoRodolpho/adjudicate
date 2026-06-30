@@ -7,8 +7,8 @@ import { useReducedMotion } from "framer-motion";
  * KernelTrace — the homepage centerpiece. A LIVE execution trace, not a video:
  * the constitutional kernel deciding real scenarios in real time. An intent
  * enters on the left, flows top-to-bottom through the six ordered guards, and
- * resolves to one of the six outcomes on the right — minting a capability,
- * holding for confirmation, rewriting, refusing, or escalating. It cycles five
+ * resolves to one of the six outcomes on the right — optionally minting a
+ * capability, holding for confirmation, rewriting, refusing, or escalating. It cycles five
  * scenarios so a visitor watches the kernel PROVE itself.
  *
  * Reduced-motion: renders the first scenario fully resolved, statically.
@@ -57,7 +57,7 @@ interface Scenario {
   readonly outcome: OutcomeKey;
   /** One-line consequence shown beneath the outcome. */
   readonly effect: string;
-  /** Capability minted (EXECUTE only). */
+  /** Optional capability the EXECUTE verdict can carry — off by default. */
   readonly capability?: { readonly resource: string; readonly ttl: string; readonly budget: string };
 }
 
@@ -69,7 +69,7 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
     taint: "UNTRUSTED",
     decisive: 0,
     outcome: "execute",
-    effect: "Signed capability minted — one action, then it expires.",
+    effect: "Cleared to EXECUTE — optionally carried as a single-use capability that expires after one action.",
     capability: { resource: "payments.transfer", ttl: "60s", budget: "$500" },
   },
   {
@@ -298,7 +298,7 @@ export function KernelTrace() {
           {/* capability / audit trailer */}
           <div className="mt-3 flex flex-col gap-2">
             {scenario.capability ? (
-              <TrailerCard show={effectShown} accent={o.hex} title="capability minted">
+              <TrailerCard show={effectShown} accent={o.hex} title="capability · off by default">
                 <span className="text-console-faint">resource</span> {scenario.capability.resource}
                 {"  "}
                 <span className="text-console-faint">ttl</span> {scenario.capability.ttl}

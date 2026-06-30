@@ -39,7 +39,7 @@ const DOMAINS: ReadonlyArray<Domain> = [
   {
     title: "Financial Operations",
     blurb:
-      "Money in motion — every transfer gated by ownership and a single-use, budgeted capability.",
+      "Money in motion — every transfer gated by ownership and a single-use capability.",
     actions: ["payments", "treasury", "transfers"],
     icon: Banknote,
     border: "border-execute/40",
@@ -50,7 +50,7 @@ const DOMAINS: ReadonlyArray<Domain> = [
   {
     title: "Identity",
     blurb:
-      "Who someone is and what they may reach — the owner predicate closing the IDOR seam.",
+      "Who someone is and what they may reach — the IDOR-closing ownership seam, sealed once your app supplies the authenticated principal.",
     actions: ["KYC", "access", "verification"],
     icon: Fingerprint,
     border: "border-confirm/40",

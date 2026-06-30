@@ -12,10 +12,11 @@ import {
  * SixOutcomes — ACT 3: the decision algebra.
  *
  * Every adjudicated action ends in exactly one of six structured outcomes —
- * not the binary allow/deny of a policy engine. The two that OPA and Cedar
- * cannot express, REWRITE and DEFER, are the load-bearing proof that this is
- * an algebra, not a gate. Each outcome is rendered as a large, color-coded
- * card keyed to its decision token, in the canonical lattice order.
+ * not the binary allow/deny of a policy engine. REWRITE and DEFER — outcomes a
+ * yes/no authorization model doesn't return natively — are the load-bearing
+ * proof that this is an algebra, not a gate. Each outcome is rendered as a
+ * large, color-coded card keyed to its decision token, in the canonical
+ * lattice order.
  *
  * Server component — purely presentational, no interactivity.
  */
@@ -32,7 +33,7 @@ interface Outcome {
   /** Top hairline color, as a raw hex for the rail. */
   readonly rail: string;
   readonly icon: LucideIcon;
-  /** Optional badge for the two outcomes policy engines cannot express. */
+  /** Optional badge for the two outcomes a yes/no policy engine doesn't model natively. */
   readonly exclusive?: boolean;
 }
 
@@ -40,7 +41,7 @@ const OUTCOMES: ReadonlyArray<Outcome> = [
   {
     name: "EXECUTE",
     meaning:
-      "Authorized — a single-use capability is minted, the action runs once.",
+      "Authorized — a single-use capability can be minted, the action runs once.",
     border: "border-execute/40",
     tint: "bg-execute/10",
     text: "text-execute",
@@ -123,10 +124,11 @@ export function SixOutcomes() {
           </h2>
 
           <p className="text-base leading-relaxed text-console-muted md:text-lg">
-            Not allow/deny. Six structured outcomes — and{" "}
-            <span className="text-rewrite">REWRITE</span> and{" "}
-            <span className="text-defer">DEFER</span> are the two that policy
-            engines like OPA and Cedar cannot express.
+            Not allow/deny. Six structured outcomes — Cedar returns a binary
+            Allow/Deny; OPA can emit arbitrary JSON but ships no{" "}
+            <span className="text-rewrite">REWRITE</span> re-adjudication or{" "}
+            <span className="text-defer">DEFER</span> park-and-resume — outcomes
+            neither returns natively.
           </p>
         </header>
 
@@ -166,7 +168,7 @@ function OutcomeCard({ outcome }: { outcome: Outcome }) {
         </span>
         {exclusive ? (
           <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-console-faint">
-            OPA · Cedar can&apos;t
+            beyond allow/deny
           </span>
         ) : null}
       </div>

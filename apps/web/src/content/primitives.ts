@@ -15,7 +15,7 @@ export const PRIMITIVES: ReadonlyArray<PrimitiveContent> = [
     name: "IntentEnvelope",
     tagline: "Canonical proposed action",
     description:
-      "Every mutation crosses the kernel as an IntentEnvelope — version, kind, payload, actor, taint, nonce, and a canonical-JSON SHA-256 hash that replay depends on.",
+      "Every mutation crosses the kernel as an IntentEnvelope — version, kind, payload, nonce, actor, taint, origin (and resourceRefs when present), and a canonical-JSON SHA-256 hash over those fields that replay depends on.",
     sourcePath: "packages/core/src/envelope.ts",
   },
   {

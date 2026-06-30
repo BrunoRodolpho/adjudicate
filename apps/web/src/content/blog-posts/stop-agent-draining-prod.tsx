@@ -147,7 +147,7 @@ export function StopAgentDrainingProd() {
       <p>
         Install is real:{" "}
         <code>pnpm add @adjudicate/core @adjudicate/pack-deployments-approval</code>
-        . The kernel is v1.x and API-frozen. Bridges for{" "}
+        . The kernel is v1.x, published to npm and API-stable (additive-only). Bridges for{" "}
         <code>@adjudicate/anthropic</code> and <code>@adjudicate/openai</code>{" "}
         turn a model tool-call into an intent the kernel can adjudicate — so the
         same ceilings apply no matter which model is driving.

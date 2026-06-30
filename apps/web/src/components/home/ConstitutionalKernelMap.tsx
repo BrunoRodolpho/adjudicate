@@ -6,8 +6,8 @@ import { useReducedMotion } from "framer-motion";
 /**
  * ConstitutionalKernelMap — the architecture at a glance, alive. Immutable
  * input snapshots feed a pure, deterministic kernel of six ordered guards; the
- * decision fans to one of six outcomes, mints a capability, and reaches the
- * execution fabric. Adjudicant observes from above (read-only, never in the
+ * decision fans to one of six outcomes, can carry an optional single-use
+ * capability, and reaches the execution fabric. Adjudicant observes from above (read-only, never in the
  * path); the monotonicity law rails the bottom (friction only). A pulse breathes
  * left→right and the guards glow in order, so the topology reads as a living
  * system rather than a static diagram. Reference: the homepage KernelTrace.
@@ -130,11 +130,11 @@ export function ConstitutionalKernelMap({ className }: { readonly className?: st
           <Eyebrow>on execute</Eyebrow>
           <Flow label="decision" sub="one of six outcomes" accent="#6366F1" />
           <Arrow />
-          <Flow label="capability minted" sub="bound · single-use · expiring" accent="#10B981" />
+          <Flow label="capability · off by default" sub="bound · single-use · expiring" accent="#10B981" />
           <Arrow />
-          <Flow label="execution fabric" sub="cap-gated side-effect" accent="#10B981" />
+          <Flow label="execution fabric" sub="decision-gated side-effect" accent="#10B981" />
           <Arrow />
-          <Flow label="audit chain" sub="hash-linked · replayable" accent="#3f3f46" />
+          <Flow label="audit record" sub="tamper-evident · replayable" accent="#3f3f46" />
         </div>
       </div>
 

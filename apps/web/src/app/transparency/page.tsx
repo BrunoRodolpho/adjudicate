@@ -60,9 +60,12 @@ export default function TransparencyPage() {
             Governance in the open.
           </h1>
           <p className="mt-3 max-w-measure text-lead text-console-muted">
-            The same governance signals operators see in the console — published
-            as public, aggregates-only summaries. No raw data ever crosses this
-            boundary.
+            The same <span className="text-console-ink">kinds</span> of governance
+            signals operators see in the console, reduced to public,
+            aggregates-only summaries — counts, ratios, and closed-enum
+            categories only, never raw data. Current figures are illustrative
+            samples; live per-surface feeds come online as each governance
+            surface ships.
           </p>
         </div>
       </header>

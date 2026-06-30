@@ -61,7 +61,7 @@ const STRUCTURED_DATA = {
       operatingSystem: "Any",
       softwareVersion: SITE.coreVersion,
       description:
-        "Guardrails for AI agents — a deterministic control layer between LLM tool-calls and execution. Every AI action is adjudicated to one of six outcomes (execute, refuse, rewrite, defer, escalate, request-confirmation) with a tamper-evident, replayable audit receipt.",
+        "Guardrails for AI agents — a deterministic control layer between LLM tool-calls and execution. Every state-mutating AI action is adjudicated to one of six outcomes (execute, refuse, rewrite, defer, escalate, request-confirmation) with a tamper-evident, replayable audit receipt.",
       offers: {
         "@type": "Offer",
         price: 0,

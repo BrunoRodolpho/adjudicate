@@ -78,13 +78,14 @@ export default function ArchitecturePage() {
             On the kernel roadmap · v1.8 line
           </p>
           <h2 className="mt-2 text-h2 text-console-ink">
-            Shipping in the v1.8 line
+            Designed and built for the v1.8 line
           </h2>
           <p className="mt-2 text-body text-console-muted">
-            Beyond the published Action kernel, four mechanisms are designed and
-            built into the v1.8 claims-runtime surface. They are listed here as
-            forthcoming — available in the v1.8 line, not yet live behaviour on
-            the current model.
+            Beyond the published Action kernel (v1.7), four mechanisms are
+            designed and built on the v1.8 claims-runtime surface. They are
+            listed here as forthcoming — the v1.8 line is not yet published, and
+            the claims pipeline is flag-off, not yet live behaviour on the
+            current model.
           </p>
         </div>
         <ClaimsRuntimeRoadmap className="mt-8" />

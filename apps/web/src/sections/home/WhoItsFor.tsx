@@ -29,7 +29,7 @@ const AUDIENCES = [
     title: "Regulated Industries",
     prop: "Prove what was decided and why with a hash-chained, replayable audit trail.",
     example:
-      "A bank replays last quarter's refund decisions from signed receipts — same inputs, same outcomes, byte-for-byte.",
+      "A bank replays last quarter's refund decisions from tamper-evident receipts — same inputs, same outcomes, byte-for-byte.",
   },
   {
     title: "Internal Governance Programs",

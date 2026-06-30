@@ -58,7 +58,7 @@ interface Scenario {
   /** One-line consequence shown beneath the outcome. */
   readonly effect: string;
   /** Optional capability the EXECUTE verdict can carry — off by default. */
-  readonly capability?: { readonly resource: string; readonly ttl: string; readonly budget: string };
+  readonly capability?: { readonly resource: string; readonly ttl: string };
 }
 
 const SCENARIOS: ReadonlyArray<Scenario> = [
@@ -70,7 +70,7 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
     decisive: 0,
     outcome: "execute",
     effect: "Cleared to EXECUTE — optionally carried as a single-use capability that expires after one action.",
-    capability: { resource: "payments.transfer", ttl: "60s", budget: "$500" },
+    capability: { resource: "payments.transfer", ttl: "60s" },
   },
   {
     intentKind: "treasury.wire",
@@ -302,8 +302,6 @@ export function KernelTrace() {
                 <span className="text-console-faint">resource</span> {scenario.capability.resource}
                 {"  "}
                 <span className="text-console-faint">ttl</span> {scenario.capability.ttl}
-                {"  "}
-                <span className="text-console-faint">budget</span> {scenario.capability.budget}
               </TrailerCard>
             ) : null}
             <TrailerCard show={effectShown} accent="#3f3f46" title="audit appended">

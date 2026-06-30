@@ -47,7 +47,7 @@ const MECHANISMS: readonly Mechanism[] = [
   {
     term: "registry-diff lint",
     title: "Soundness-monotone extensibility",
-    body: "Adding a claim type or constraint can only make the system safer — relaxations are a build error (soundness-monotone, machine-checked).",
+    body: "A registry change that relaxes a declared claim type or constraint is a build error — the registry diff is machine-checked to be soundness-monotone (additions tighten what validates; they cannot loosen it).",
     source: "@adjudicate/core · claims/registry-diff.ts",
   },
 ];
@@ -88,12 +88,13 @@ export function ClaimsRuntimeRoadmap({
 
       <Callout
         tone="warn"
-        title="Designed and built — shipping in the v1.8 line"
+        title="Designed and built — forthcoming on the v1.8 line"
         className="mt-6"
       >
         These four mechanisms are part of the v1.8 kernel surface and are listed
-        here as forthcoming hardening. They are available in the v1.8 line, not
-        yet live behaviour on the current model.
+        here as forthcoming hardening. The v1.8 line is not yet published, and
+        the claims pipeline is flag-off — not yet live behaviour on the current
+        model.
       </Callout>
     </div>
   );

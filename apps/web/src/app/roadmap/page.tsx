@@ -13,7 +13,7 @@ import { githubTree, githubBlob, GITHUB_DOCS } from "@/content/github";
 
 const TITLE = "Roadmap · adjudicate";
 const DESCRIPTION =
-  "An honest public roadmap. The v1 kernel is shipped and API-frozen; everything after it is disciplined, additive MINOR evolution under SemVer governance — never a moving target. See what recently shipped and what is next.";
+  "An honest public roadmap. The v1 kernel is shipped, with its load-bearing, wire-bearing surface frozen; everything after it is disciplined, additive MINOR evolution under SemVer governance — never a moving target. See what recently shipped and what is next.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -215,7 +215,7 @@ export default function RoadmapPage() {
           <DepthHeader
             eyebrow="Roadmap"
             title="Shipped, frozen, and evolving on discipline — not hype."
-            subtitle="The v1 kernel is done. Its API is frozen and tracked in a public freeze matrix. Everything after it is additive MINOR evolution under SemVer governance, driven by adopter evidence. This page is the honest state of that line — what is locked, what recently shipped, and what is next."
+            subtitle="The v1 kernel is done. Its load-bearing, wire-bearing surface is frozen and tracked in a public freeze matrix. Everything after it is additive MINOR evolution under SemVer governance, driven by adopter evidence. This page is the honest state of that line — what is locked, what recently shipped, and what is next."
             backHref="/"
             backLabel="Back to home"
           />
@@ -245,9 +245,11 @@ export default function RoadmapPage() {
             <code className="font-mono text-sm text-console-ink">@adjudicate/core</code>{" "}
             is at{" "}
             <code className="font-mono text-sm text-console-ink">{SITE.coreVersion}</code>{" "}
-            and production-grade. Its public API is frozen for the life of the v1
-            line: the load-bearing invariants below never change. That is the
-            point — adopters wire the kernel into their request path once and
+            and production-grade. Its load-bearing, wire-bearing surface is frozen
+            for the life of the v1 line: the invariants below never change.
+            Surfaces tagged experimental or unstable still evolve additively
+            under SemVer — only the frozen tier is contractually locked. That is
+            the point — adopters wire the kernel into their request path once and
             trust it not to move under them.
           </p>
         </Reveal>
@@ -273,13 +275,16 @@ export default function RoadmapPage() {
         </Stagger>
 
         <Reveal className="mt-6">
-          <Callout tone="info" title="The freeze is auditable, not a promise.">
-            Every public export is classified in{" "}
+          <Callout tone="info" title="The freeze is auditable, not just documented.">
             <code className="font-mono text-[13px] text-console-ink">
               docs/release/V1_FREEZE_MATRIX.md
-            </code>
-            , and a CI check compares it against each package&rsquo;s exports.
-            See the{" "}
+            </code>{" "}
+            classifies the public surface into stability tiers, and a CI check
+            diffs the matrix against each package&rsquo;s exports on every push,
+            surfacing any undeclared export. The version-pin integrity gate is
+            enforcing on the release-candidate pipeline; the full
+            export-completeness gate flips from advisory to blocking as the
+            matrix reaches symbol-completeness. See the{" "}
             <a
               href={githubBlob("docs/release/V1_FREEZE_MATRIX.md")}
               target="_blank"

@@ -33,7 +33,7 @@ export function CapTokenSpend() {
     <Prose>
       <Lead>
         An agent loop that keeps calling the model has exactly one natural
-        stopping point: the invoice. Here is how to give it a hard, replayable
+        stopping point: the invoice. Here is how to give it a bounded, replayable
         token ceiling instead.
       </Lead>
       <p>
@@ -110,7 +110,7 @@ export function CapTokenSpend() {
       </p>
       <p>
         Install is real: <code>pnpm add @adjudicate/core @adjudicate/primitives</code>.
-        The kernel is v1.x and API-frozen. The budget guard sits behind any
+        The kernel is v1.x, published to npm and API-stable (additive-only). The budget guard sits behind any
         model — wire it through <code>@adjudicate/anthropic</code> or{" "}
         <code>@adjudicate/openai</code> and the same ceiling applies regardless
         of which provider is running the loop.

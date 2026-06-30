@@ -156,7 +156,7 @@ export function MagicMomentSplit({
               auditHash{" "}
               <span className="font-semibold text-ink">{auditHashShort}</span>
             </span>
-            <span className="text-muted">· signed · append-only</span>
+            <span className="text-muted">· tamper-evident · append-only</span>
           </div>
         </StaggerItem>
       </Stagger>

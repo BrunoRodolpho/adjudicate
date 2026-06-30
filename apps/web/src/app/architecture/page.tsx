@@ -7,6 +7,7 @@ import { Section } from "@/components/ui/Section";
 import { Card } from "@/components/ui/Card";
 import { DecisionFan } from "@/components/DecisionFan";
 import { ConstitutionalKernelMap } from "@/components/home/ConstitutionalKernelMap";
+import { ClaimsRuntimeRoadmap } from "@/components/architecture/ClaimsRuntimeRoadmap";
 import { BrandGlow } from "@/components/ui/BrandGlow";
 
 export const metadata: Metadata = {
@@ -55,9 +56,9 @@ export default function ArchitecturePage() {
           </h2>
           <p className="mt-2 text-body text-console-muted">
             Immutable input snapshots feed a pure, deterministic kernel of six
-            ordered guards; the decision fans to one of six outcomes, mints a
-            capability, and reaches the execution fabric — observed by the
-            Adjudicant, railed by the monotonicity law.
+            ordered guards; the decision fans to one of six outcomes, can carry
+            an optional single-use capability, and reaches the execution
+            fabric — observed by the Adjudicant, railed by the monotonicity law.
           </p>
         </div>
         <ConstitutionalKernelMap className="mt-8" />
@@ -70,6 +71,25 @@ export default function ArchitecturePage() {
       </section>
       <Problem />
       <PrimitivesDiagram />
+
+      <Section tone="console" className="py-20">
+        <div className="max-w-measure">
+          <p className="text-eyebrow uppercase tracking-section text-brand-ink">
+            On the kernel roadmap · v1.8 line
+          </p>
+          <h2 className="mt-2 text-h2 text-console-ink">
+            Designed and built for the v1.8 line
+          </h2>
+          <p className="mt-2 text-body text-console-muted">
+            Beyond the published Action kernel (v1.7), four mechanisms are
+            designed and built on the v1.8 claims-runtime surface. They are
+            listed here as forthcoming — the v1.8 line is not yet published, and
+            the claims pipeline is flag-off, not yet live behaviour on the
+            current model.
+          </p>
+        </div>
+        <ClaimsRuntimeRoadmap className="mt-8" />
+      </Section>
 
       <Section tone="console" className="py-20">
         <div className="max-w-measure">

@@ -18,7 +18,8 @@ import { SITE } from "@/content/site";
  * search engines and LLM answer-extractors reward. Answers are plain-text in the
  * JSON-LD (schema.org `acceptedAnswer.text` expects text/HTML, not React).
  *
- * Every answer is grounded: kernel @adjudicate/core is v1.x and API-frozen; the
+ * Every answer is grounded: kernel @adjudicate/core is v1.x, published to npm &
+ * API-stable (additive-only); the
  * six outcomes are real; the kernel is pure (it never calls adopter APIs or the
  * database — only the adopter's executor runs side-effects, and only on EXECUTE);
  * Postgres persistence is optional; install is real npm; adapters cover Anthropic
@@ -35,7 +36,7 @@ const FAQ_ITEMS: readonly FaqItem[] = [
   {
     question: "Is adjudicate production-ready?",
     answer:
-      `Yes. The kernel @adjudicate/core is at ${SITE.versionLabel} (${SITE.coreVersion}) with a frozen public API, so upgrades within ${SITE.versionLabel} won't break your guards. It's a small, dependency-light, deterministic core designed to sit on the hot path of real agent traffic.`,
+      `Yes. The kernel @adjudicate/core is at ${SITE.versionLabel} (${SITE.coreVersion}), published to npm with an API-stable, additive-only public surface, so upgrades within ${SITE.versionLabel} won't break your guards. It's a small, dependency-light, deterministic core designed to sit on the hot path of real agent traffic.`,
   },
   {
     question: "How is it different from OPA, Cedar or other policy engines?",

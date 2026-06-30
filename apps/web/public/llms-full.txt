@@ -1,12 +1,12 @@
 # adjudicate — full brief
 
-> Guardrails for AI agents: a deterministic control layer between LLM tool-calls and execution. Every state-mutating AI action crosses the kernel as an IntentEnvelope and is adjudicated to exactly one of six outcomes, then recorded as a signed, replay-verifiable audit receipt.
+> Guardrails for AI agents: a deterministic control layer between LLM tool-calls and execution. Every state-mutating AI action crosses the kernel as an IntentEnvelope and is adjudicated to exactly one of six outcomes, then recorded as a tamper-evident, replay-verifiable audit receipt (with an optional cryptographic signature for non-repudiation).
 
 ## What it is
 
 adjudicate is a decision kernel for AI actions. An LLM-driven agent does not call your tools or APIs directly; it *proposes* an action, and the kernel *disposes* — deciding whether that action should run, change, wait, escalate to a human, or stop. The decision is deterministic: given the same `(envelope, state, policy)` the kernel returns a byte-identical outcome, and every decision is written to an append-only audit ledger.
 
-The kernel `@adjudicate/core` is at v1.x and API-frozen — post-v1 disciplined evolution, production-grade. Packs and primitives are evolving at v0.2–0.3.
+The kernel `@adjudicate/core` is at v1.x — published to npm & API-stable (additive-only; no breaking changes within v1). Packs and primitives are evolving at v0.2–0.3.
 
 ## The problem it solves
 
@@ -23,7 +23,7 @@ LLM agents that hold real tool-calls turn a prompt-injection, a hallucination, o
 
 ## The IntentEnvelope (v2)
 
-Every action crosses the kernel as an IntentEnvelope — the canonical mutation proposal. It has exactly eight top-level fields:
+Every action crosses the kernel as an IntentEnvelope — the canonical mutation proposal. It has nine top-level fields, plus an optional `resourceRefs`:
 
 - `version` — envelope schema version (currently 2).
 - `kind` — the intent type string (e.g. `deployment.approval.request`, `terminal.run`, `support.ticket.create`).
@@ -32,7 +32,9 @@ Every action crosses the kernel as an IntentEnvelope — the canonical mutation 
 - `nonce` — adopter-supplied idempotency key; part of the hash. Retries of the same logical action reuse the same nonce so the ledger can dedupe.
 - `actor` — `{ principal: "llm" | "user" | "system", sessionId: string }` (optional reserved `attestation`).
 - `taint` — `SYSTEM | TRUSTED | UNTRUSTED` provenance label.
-- `intentHash` — `sha256` over the canonical JSON of `(version, kind, payload, nonce, actor, taint)`. Verified by the kernel, not trusted; a forged/drifted hash is refused with `schema:intent_hash_mismatch`.
+- `origin` — declared provenance origin of the intent; always present and bound into the hash, so a declared origin cannot be flipped after the fact.
+- `resourceRefs` — optional references to the resources the intent touches; part of the hash when present.
+- `intentHash` — `sha256` over the canonical JSON of `(version, kind, payload, nonce, actor, taint, origin, and resourceRefs when present)`. Verified by the kernel, not trusted; a forged/drifted hash is refused with `schema:intent_hash_mismatch`.
 
 ## The audit receipt
 
@@ -45,7 +47,7 @@ Because the decision is deterministic and content-addressed, the whole ledger is
 
 ## Install (real npm packages)
 
-- `pnpm add @adjudicate/core` — the API-frozen v1 kernel.
+- `pnpm add @adjudicate/core` — the published, API-stable v1 kernel (additive-only).
 - Adapters: `@adjudicate/anthropic`, `@adjudicate/openai`.
 - CLI: `@adjudicate/cli`.
 - Governance packs (`@adjudicate/pack-*`):
@@ -60,7 +62,7 @@ Because the decision is deterministic and content-addressed, the whole ledger is
 - Token-budget guard — enforces a per-session token budget held in audited state; REFUSE/DEFER once the cap is crossed.
 - Red Team — deterministic adversarial test suite reporting how many attack vectors the kernel refused.
 - Behavioral drift — detects statistical drift in the decision-outcome distribution over time.
-- AI bill-of-materials — signed manifest of every model, pack, guard and adapter in the deployment.
+- AI bill-of-materials — signable manifest of every model, pack, guard and adapter in the deployment.
 - Configuration integrity seal — verifiable hash of the active policy/pack config so tampering is detectable.
 - Smart approval engine — registry + channels turning ESCALATE into a resumable human-in-the-loop step.
 

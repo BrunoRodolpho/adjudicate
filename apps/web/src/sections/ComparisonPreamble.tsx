@@ -63,21 +63,24 @@ export function ComparisonPreamble() {
         </h2>
         <div className="mt-5 space-y-4 text-base leading-relaxed text-console-muted">
           <p>
-            OPA and Cedar are excellent at what they were built for: given a
-            single proposed action, return <strong className="text-console-ink">yes</strong>{" "}
-            or <strong className="text-console-ink">no</strong>. That model assumes the
-            action is fixed and the only decision left is whether to let it
-            through. It fits human-driven systems, where the request was already
-            shaped by a person before it ever reached the policy layer.
+            OPA and Cedar are excellent at what they were built for. Cedar
+            returns a single verdict — <strong className="text-console-ink">Allow</strong>{" "}
+            or <strong className="text-console-ink">Deny</strong>; OPA can emit
+            arbitrary JSON. But both share one decision model: given a fixed
+            action, decide whether to let it through. Neither natively owns an
+            outcome that substitutes a different action and re-adjudicates it, or
+            that parks the decision until a real-world signal arrives. That model
+            fits human-driven systems, where the request was already shaped by a
+            person before it ever reached the policy layer.
           </p>
           <p>
             An AI agent breaks that assumption. The model proposes the action
             itself — and it can propose something almost right, something that
             should wait for an external signal, or something a human should sign
-            off on first. A binary engine has nowhere to put those cases: it
-            must either approve an action it shouldn&apos;t, or reject one it
-            could have safely <em>adjusted</em>. The interesting decisions live
-            in the gap between allow and deny.
+            off on first. An allow/deny model has no native outcome for those
+            cases: it must either approve an action it shouldn&apos;t, or reject
+            one it could have safely <em>adjusted</em>. The interesting decisions
+            live in the gap between allow and deny.
           </p>
         </div>
       </Reveal>
@@ -88,8 +91,9 @@ export function ComparisonPreamble() {
           tone="info"
           title="Scenario: an agent wants to wire $10,000. Policy caps transfers at $5,000."
         >
-          A yes/no engine has two moves — approve the full $10k (wrong) or block
-          the transfer entirely (a dead end the agent can&apos;t recover from).
+          A permission engine has two moves here — approve the full $10k (wrong)
+          or block the transfer entirely (a dead end the agent can&apos;t recover
+          from).
           Adjudicate has a third: <strong className="text-console-ink">REWRITE</strong>{" "}
           the intent down to the $5,000 cap and let it proceed — the kernel owns
           the corrected action, so the agent never executes the over-limit one.
@@ -110,8 +114,9 @@ export function ComparisonPreamble() {
             </span>
           </div>
           <p className="mt-2 text-sm leading-relaxed text-console-muted">
-            One proposed action in, a single verdict out. Both branches are
-            terminal — there is no path that returns a <em>different</em> action.
+            Cedar returns one verdict; OPA can emit arbitrary JSON — but either
+            way the proposed action is fixed. Both branches are terminal: no
+            native outcome returns a <em>different</em> action to re-adjudicate.
           </p>
           <div className="mt-5 flex flex-col gap-3">
             <div className="flex items-center gap-2 rounded-lg border border-execute/40 bg-execute/10 px-3 py-2.5">
@@ -141,8 +146,8 @@ export function ComparisonPreamble() {
           </div>
           <p className="mt-2 text-sm leading-relaxed text-console-muted">
             The same proposed action in — but the kernel can keep it, reshape it,
-            park it, or route it onward. Four of these six have no expression in
-            allow/deny at all.
+            park it, or route it onward. Four of these six have no native
+            counterpart in a permit/deny verdict at all.
           </p>
           <Stagger className="mt-5 flex flex-col gap-2.5" stagger={0.06}>
             <OutcomeLeaf

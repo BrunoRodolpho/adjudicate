@@ -28,8 +28,8 @@ export function DecisionsGrid() {
       <div className="mx-auto max-w-6xl px-6">
         <SectionHeading
           eyebrow="Six outcomes, not two"
-          title="The Decision algebra OPA and Cedar can't express."
-          subtitle="Every adjudication returns one of six structured outcomes — including the two that matter most for AI: REWRITE (kernel-owned sanitisation) and DEFER (async signal as first-class)."
+          title="Decision semantics a yes/no policy engine doesn't model."
+          subtitle="Cedar returns a binary Allow/Deny; OPA can emit arbitrary JSON but ships no REWRITE re-adjudication or DEFER park-and-resume. Adjudicate's six structured outcomes include the engine-owned REWRITE (the kernel substitutes a capped, sanitised action and re-adjudicates it) and first-class DEFER — outcomes neither engine returns natively."
         />
 
         <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">

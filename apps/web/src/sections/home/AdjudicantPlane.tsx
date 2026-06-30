@@ -10,10 +10,10 @@ import {
 /**
  * AdjudicantPlane — ACT 4 of the dark marketing homepage: GOVERNANCE.
  *
- * Introduces Adjudicant, the write-isolated READ-ONLY observer plane. Its admin
- * surface is the operator's admin router minus every mutation — 35 queries, 0
- * mutations — so it can observe, investigate, and escalate, but can never
- * authorize. The centrepiece diagram makes the load-bearing claim spatial:
+ * Introduces Adjudicant, the write-isolated observer plane. Its admin surface is
+ * the operator's admin router minus every authorize/weaken mutation — 36 read
+ * queries plus exactly one friction-monotone write (escalate.raise) — so it can
+ * observe, investigate, and escalate, but can never authorize. The centrepiece diagram makes the load-bearing claim spatial:
  * ADJUDICANT sits ABOVE the live path and connects to it only by a DASHED
  * "observe" line. It is never IN the path "authority → kernel → execution".
  *
@@ -45,14 +45,17 @@ export function AdjudicantPlane() {
             The governance plane
           </span>
           <h2 className="text-3xl font-semibold tracking-tight text-console-ink md:text-4xl">
-            Adjudicant &mdash; read-only by construction.
+            Adjudicant &mdash; write-isolated by construction.
           </h2>
           <p className="max-w-2xl text-base leading-relaxed text-console-muted md:text-lg">
             Observe. Investigate. Escalate.{" "}
             <span className="text-console-ink">Never authorize.</span> A
             write-isolated plane whose admin surface is the operator&rsquo;s
-            minus every mutation &mdash;{" "}
-            <span className="font-mono text-escalate">35 queries, 0 mutations</span>
+            minus every authorize/weaken mutation &mdash;{" "}
+            <span className="font-mono text-escalate">
+              36 read queries plus exactly one friction-monotone write
+              (escalate.raise)
+            </span>
             . It sits above the kernel like an inspector general: always
             watching, never in the path.
           </p>
@@ -66,7 +69,7 @@ export function AdjudicantPlane() {
               the governance topology
             </span>
             <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-escalate/80">
-              <Eye size={12} aria-hidden /> read-only
+              <Eye size={12} aria-hidden /> write-isolated
             </span>
           </div>
 

@@ -3,11 +3,12 @@ import { Link2 } from "lucide-react";
 /**
  * AuditChain — ACT 3 · AUDIT.
  *
- * The proof surface: we don't narrate what happened, we re-derive it. Every
- * decision is one link in a cryptographic chain — Decision, Capability,
- * Execution, AuditRecord — each bound to the one before it by `prevAuditHash`
- * and anchored by an external signed checkpoint. Delete or reorder a record and
- * byte-for-byte replay catches it.
+ * The proof surface: we don't narrate what happened, we re-derive it. Audit
+ * records can be cryptographically chained — each links to the prior record in
+ * its session by `prevAuditHash`. Re-deriving a record's auditHash byte-for-byte
+ * catches any modification; the prevAuditHash chain catches delete or reorder.
+ * The kernel emits the tamper-evident record; a production rail can thread the
+ * link and sign checkpoints.
  *
  * Visual: a vertical chain of four mono cards, each carrying a short sha256
  * hash, joined by chain-link (⛓) connectors. The terminal AuditRecord node
@@ -30,23 +31,23 @@ interface ChainNode {
 
 const NODES: ReadonlyArray<ChainNode> = [
   {
-    title: "Decision",
-    role: "one of six outcomes + machine-readable basis",
+    title: "AuditRecord",
+    role: "genesis record in the session stream · its own bytes re-derive",
     hash: "sha256:9f2a…c41e",
   },
   {
-    title: "Capability",
-    role: "scoped, single-use grant · alg sha256-hashbind",
+    title: "AuditRecord",
+    role: "links to the record before it by prevAuditHash",
     hash: "sha256:4b7d…81a0",
   },
   {
-    title: "Execution",
-    role: "the effect, bound to the capability it spent",
+    title: "AuditRecord",
+    role: "links to the record before it by prevAuditHash",
     hash: "sha256:e0c8…5fa7",
   },
   {
     title: "AuditRecord",
-    role: "sealed record · prevAuditHash links it to Execution",
+    role: "head of the session chain · replay re-derives it byte-for-byte",
     hash: "sha256:1d63…ab92",
     replayable: true,
   },
@@ -74,15 +75,15 @@ export function AuditChain() {
             Replay, not narrate
           </span>
           <h2 className="text-3xl font-semibold tracking-tight text-console-ink md:text-4xl">
-            Every decision is a link in a cryptographic chain.
+            Audit records can be cryptographically chained.
           </h2>
           <p className="text-base leading-relaxed text-console-muted md:text-lg">
-            Decision, capability, execution, audit record — each linked to the
-            one before by{" "}
-            <span className="font-mono text-console-ink">prevAuditHash</span>,
-            anchored by an external signed checkpoint. Delete or reorder a record
-            and replay catches it. We prove what happened by re-deriving it
-            byte-for-byte, not by explaining it.
+            Each record links to the prior record in its session by{" "}
+            <span className="font-mono text-console-ink">prevAuditHash</span>.
+            Re-derive a record&apos;s auditHash byte-for-byte and any
+            modification fails; deletion or reorder is caught by the chain. The
+            kernel emits the tamper-evident record; a production rail can thread
+            the link and sign checkpoints.
           </p>
         </header>
 
@@ -111,20 +112,22 @@ export function AuditChain() {
               </span>
               <ul className="mt-4 flex flex-col gap-4">
                 <RailItem term="prevAuditHash">
-                  Each record carries the sha256 of the record before it, so the
-                  whole history is a single tamper-evident sequence — break one
-                  link and every downstream hash stops matching.
+                  Each record carries the sha256 of the record before it, so
+                  deleting or reordering any record breaks the chain — the
+                  tamper a record&apos;s own bytes can&apos;t reveal.
                 </RailItem>
                 <RailItem term="signed checkpoint">
                   An <span className="text-console-ink">external</span> signer
                   periodically anchors the chain&apos;s head, so the sequence
-                  can&apos;t be silently rewound or rebuilt from scratch.
+                  can&apos;t be silently rewound, rebuilt, or truncated at the
+                  tail.
                 </RailItem>
                 <RailItem term="byte-identical replay">
-                  Re-run the recorded inputs through the pure kernel and the
-                  output must reproduce <span className="text-console-ink">
-                  byte-for-byte</span>. That re-derivation — not a narrative — is
-                  the proof.
+                  Re-derive a record&apos;s auditHash from its own bytes and it
+                  must reproduce <span className="text-console-ink">
+                  byte-for-byte</span> — any modification of a present record
+                  fails, no key required. That re-derivation, not a narrative,
+                  is the proof.
                 </RailItem>
               </ul>
             </div>

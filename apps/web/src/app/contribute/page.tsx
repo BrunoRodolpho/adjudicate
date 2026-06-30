@@ -60,7 +60,7 @@ const LAYERS: ReadonlyArray<Layer> = [
     tone: "shipped",
     status: "Frozen",
     detail:
-      "The pure, deterministic decision engine: IntentEnvelope, the six-outcome Decision algebra, PolicyBundle, the taint lattice, replay safety and verifyAuditRecord. API-frozen — contributions here are property tests and invariant hardening, not new surface.",
+      "The pure, deterministic decision engine: IntentEnvelope, the six-outcome Decision algebra, PolicyBundle, the taint lattice, replay safety and verifyAuditRecord. Its load-bearing, wire-bearing surface is frozen — contributions here are property tests and invariant hardening, not new surface.",
   },
   {
     id: "L2",

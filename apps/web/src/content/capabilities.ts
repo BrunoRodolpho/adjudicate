@@ -173,7 +173,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     family: "content-safety",
     tier: 2,
     oneLiner:
-      "Generates a signed manifest of every model, pack, guard and adapter in the deployment — a supply-chain inventory for AI.",
+      "Generates a deterministic, digest-pinned manifest of the model, prompts, tools and guardrails in a pack deployment — a reproducible, signable supply-chain inventory for AI.",
     whatItDoes:
       "The conformance package walks the installed packs, guards, models and adapters and emits a deterministic AI-BOM manifest: what is running, at what version, governed by which policies. It is the provenance artifact auditors ask for, and the public transparency view exposes aggregate composition without leaking tenant detail. The problem it solves: when a regulator or security review asks \"what AI is actually in production, and what governs it?\", most teams have to reconstruct the answer by hand. Reach for it when you owe an attestation — an EU AI Act conformance check, a SOC 2 inventory, an incident post-mortem. It composes with the rest of the kernel by inventorying the very guards and packs that enforce your Tier-1 decisions, so the same manifest that satisfies an auditor also tells you which capabilities defend each pack.",
     adr: {
@@ -251,9 +251,9 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     family: "adversarial",
     tier: 1,
     oneLiner:
-      "Classifies the risk of a terminal command and chooses EXECUTE, REWRITE, REQUEST_CONFIRMATION or REFUSE — never echoing the command.",
+      "Classifies the risk of a terminal command and chooses EXECUTE, REWRITE, REQUEST_CONFIRMATION or REFUSE — reported by category and basis, with adjudicate's own surfaces built to read no command text.",
     whatItDoes:
-      "For CLI/terminal agents the guard classifies an intended command into a risk category (safe, needs-confirmation, sanitisable, irrecoverable). Safe commands EXECUTE; a network pipe-to-shell asks for human confirmation; a safety-disabling flag is REWRITEn out; irrecoverable destruction is REFUSEd. The decision is reported by category and basis only — the raw command text is never rendered on any surface.",
+      "For CLI/terminal agents the guard classifies an intended command into a risk category (safe, needs-confirmation, sanitisable, irrecoverable). Safe commands EXECUTE; a network pipe-to-shell asks for human confirmation; a safety-disabling flag is REWRITEn out; irrecoverable destruction is REFUSEd. The decision is reported by category and basis only — adjudicate's own transparency and console surfaces are built to read no command text, so they cannot leak it (redaction by projection, not an intrinsic guarantee that no surface can render it).",
     adr: {
       id: "ADR-123",
       path: "docs/architecture/adr/ADR-123-command-risk-guard.md",
@@ -284,7 +284,7 @@ export const CAPABILITIES: ReadonlyArray<CapabilityContent> = [
     oneLiner:
       "Enforces a per-session token budget held in state, REFUSing or DEFERring an agent step once the cap is crossed.",
     whatItDoes:
-      "The guard reads a consumed-tokens counter from state S and compares it to a configured budget. An over-budget agent step is REFUSEd (or DEFERred, per config); an under-budget step EXECUTEs. Because the counter lives in audited state, a runaway agent loop hits a hard, replay-verifiable cost ceiling instead of an unbounded bill.",
+      "The guard reads a consumed-tokens counter from state S and compares it to a configured budget. An over-budget agent step is REFUSEd (or DEFERred, per config); an under-budget step EXECUTEs. Because every over-budget refusal is an audited, replayable kernel decision, a runaway agent loop hits a bounded cost ceiling instead of an unbounded bill — capped at the budget plus at most one in-flight turn. Enforcement relies on the adapter metering tokens via the onTokenUsage hook (the counter is telemetry, not the audited record); a definitively-over meter fails closed.",
     adr: {
       id: "ADR-120",
       path: "docs/architecture/adr/ADR-120-token-budget-guard.md",

@@ -1,6 +1,6 @@
 # adjudicate
 
-> Guardrails for AI agents: a deterministic control layer between LLM tool-calls and execution. Every AI action is adjudicated to one of six outcomes — execute, refuse, rewrite, defer, escalate, request-confirmation — and recorded as a signed, replay-verifiable audit receipt.
+> Guardrails for AI agents: a deterministic control layer between LLM tool-calls and execution. Every state-mutating AI action crosses the kernel as an IntentEnvelope and is adjudicated to one of six outcomes — execute, refuse, rewrite, defer, escalate, request-confirmation — and recorded as a tamper-evident, replay-verifiable audit receipt (with an optional cryptographic signature for non-repudiation).
 
 ## Pages
 
@@ -17,7 +17,7 @@
 
 ## Install
 
-- `pnpm add @adjudicate/core` — the API-frozen v1 kernel.
+- `pnpm add @adjudicate/core` — the published, API-stable v1 kernel (additive-only).
 - Adapters: `@adjudicate/anthropic`, `@adjudicate/openai`.
 - Packs: `@adjudicate/pack-*`. CLI: `@adjudicate/cli`.
 

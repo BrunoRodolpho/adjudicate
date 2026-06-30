@@ -5,11 +5,11 @@ import { ArrowRight, KeyRound, Timer } from "lucide-react";
  *
  * The thesis: Adjudicate does not hand out permissions, it MINTS capabilities.
  * Authorization is not a standing grant attached to an identity; it is a single,
- * bound, budgeted, expiring token minted per decision and burned on use.
+ * bound, expiring token minted per decision and burned on use.
  *
  * The visual is a side-by-side compare: the legacy "API key → everything" model
  * (broad, standing, ambient, long-lived) against the Adjudicate model
- * (bound to one intentHash, single-use, budgeted, short TTL), followed by the
+ * (bound to one intentHash, single-use, short TTL), followed by the
  * literal shape of a minted capability.
  *
  * Server component — purely presentational, no interactivity. Tokens and
@@ -41,9 +41,10 @@ export function Capabilities() {
             <span className="text-execute">then it expires.</span>
           </h2>
           <p className="max-w-2xl text-base leading-relaxed text-console-muted md:text-lg">
-            Nothing carries a standing right to act. Each cleared decision mints
-            one capability — bound to a single intent, single-use, budgeted, and
-            short-lived. Spend it or it lapses.
+            Nothing carries a standing right to act. Each cleared EXECUTE
+            decision can mint one capability — bound to a single intent,
+            single-use, and short-lived — an available hardening, off by
+            default. Spend it or it lapses.
           </p>
         </header>
 
@@ -65,11 +66,10 @@ export function Capabilities() {
             tone="adjudicate"
             eyebrow="adjudicate · minted capability"
             icon={<Timer size={16} aria-hidden="true" />}
-            flow={["Decision", "signed capability", "single action", "expires"]}
+            flow={["Decision", "minted capability", "single action", "expires"]}
             bullets={[
               ["bound to one intentHash", "useless for any other intent"],
               ["single-use", "burned the moment it is spent"],
-              ["budgeted", "a hard limit, decremented per use"],
               ["short TTL", "seconds, not months"],
             ]}
           />
@@ -98,6 +98,11 @@ export function Capabilities() {
           Hash-bound in the kernel (constant-time verify); ed25519 signatures
           when the node-side approval-engine signer is wired.
         </p>
+        <p className="mt-3 max-w-3xl font-mono text-[11px] leading-relaxed text-console-faint">
+          Budgets are a separate mechanism — a standing, human-granted
+          pre-authorization that meters N actions — not a field on the
+          per-decision token above.
+        </p>
       </div>
     </section>
   );
@@ -106,10 +111,12 @@ export function Capabilities() {
 /** The shape of a minted capability, rendered as static mono. */
 const CAPABILITY_SHAPE = `{
   intentHash: "0x9af2…c41b",
-  boundTo:    "payments.transfer",
-  budget:     { limit: 50000, spent: 250 },
-  alg:        "sha256-hashbind",
-  expiresAt:  "2026-06-19T14:32:07Z"
+  kernelId:   "kernel:prod-1",
+  signature: {
+    keyId: "k1",
+    alg:   "sha256-hashbind",
+    value: "0x4b7d…81a0"
+  }
 }`;
 
 /* ------------------------------------------------------------------ */

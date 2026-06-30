@@ -27,6 +27,12 @@ export * from "./registry-diff.js";
 // mechanism. Deliberate minor API widen (consumed by ibatexas). No downstream
 // import (§R); pure (definition-load-time only — no clock/RNG/IO).
 export * from "./claim-definition.js";
+// inv.18 v2 — the ClaimDefinition COMPILER: the small, declarative, schema-driven
+// interpreter that GENERATES the runtime artifacts (registry spec, value projector
+// data, render template, validator-wiring def, decomposition closure, fixtures, doc)
+// FROM a `defineClaim({...})` source. The thesis inversion: the source is the primary
+// artifact, the runtime its IMAGE. No downstream import (§R); pure (build-time only).
+export * from "./claim-compiler.js";
 // inv.17 — the kernel-minted, runtime-non-forgeable renderer-input carrier.
 // Export ONLY the opaque TYPE + the `unwrapCanonical` accessor: the brand
 // `unique symbol`, the provenance WeakSet, AND the `mintCanonicalClaim`

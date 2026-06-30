@@ -29,7 +29,7 @@ const MECHANISMS: readonly Mechanism[] = [
   {
     term: "RenderedReply · CanonicalClaim",
     title: "Non-forgeable, kernel-minted reply & claim brands",
-    body: "A runtime-non-forgeable, kernel-minted reply type. A raw string cannot reach a typed transport (a compile error) and is rejected at the egress sink (at runtime). The renderer only accepts a kernel-minted claim object produced after validation and consistency checks.",
+    body: "A runtime-non-forgeable, kernel-minted reply type. A raw string cannot reach a typed transport (a compile error) and is rejected at the kernel's egress sink (at runtime) — wherever a typed transport is used. The renderer only accepts a kernel-minted claim object produced after validation and consistency checks.",
     source: "@adjudicate/core · rendered-reply.ts · claims/canonical-claim.ts",
   },
   {

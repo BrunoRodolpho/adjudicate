@@ -7,8 +7,8 @@ import { Link2 } from "lucide-react";
  * records can be cryptographically chained — each links to the prior record in
  * its session by `prevAuditHash`. Re-deriving a record's auditHash byte-for-byte
  * catches any modification; the prevAuditHash chain catches delete or reorder.
- * The kernel emits the tamper-evident record; the production rail threads the
- * link and signs checkpoints.
+ * The kernel emits the tamper-evident record; a production rail can thread the
+ * link and sign checkpoints.
  *
  * Visual: a vertical chain of four mono cards, each carrying a short sha256
  * hash, joined by chain-link (⛓) connectors. The terminal AuditRecord node
@@ -82,8 +82,8 @@ export function AuditChain() {
             <span className="font-mono text-console-ink">prevAuditHash</span>.
             Re-derive a record&apos;s auditHash byte-for-byte and any
             modification fails; deletion or reorder is caught by the chain. The
-            kernel emits the tamper-evident record; the production rail threads
-            the link and signs checkpoints.
+            kernel emits the tamper-evident record; a production rail can thread
+            the link and sign checkpoints.
           </p>
         </header>
 

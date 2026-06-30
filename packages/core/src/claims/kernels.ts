@@ -59,6 +59,10 @@ import type {
   ConsistencyResult,
 } from "./consistency.js";
 import type { ClaimVerdict, TurnTerminal } from "./verdict.js";
+// inv.17 — the kernel-minted, runtime-non-forgeable renderer-input carrier. The
+// mint is PACKAGE-INTERNAL (not re-exported from the barrel); `runClaimsKernel` is
+// its SOLE caller, on the VALIDATED ∧ P2-consistent `renderable` set.
+import { mintCanonicalClaim, type CanonicalClaim } from "./canonical-claim.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // KERNEL 1 — READ = Access ⊕ Provenance (SDD §F; v1.1 §6; Inv 13)
@@ -361,6 +365,16 @@ export interface ClaimsKernelResult {
   readonly renderable: readonly ConsistencyClaim[];
   readonly terminal: TurnTerminal;
   readonly consistency: ConsistencyResult;
+  /**
+   * inv.17 — the `renderable` set, RE-MINTED as kernel-stamped `CanonicalClaim`s
+   * (one per `renderable` member, same order). This is the renderer's REQUIRED
+   * input: it is the ONLY place a CanonicalClaim is minted, and it is reachable
+   * ONLY here, after the claim fully VALIDATED (the §5 predicate, incl. C6
+   * value-binding) and survived P2 consistency. An empty array on every
+   * non-RENDER terminal (incl. STAGE-FAIL-CLOSED). Additive: existing consumers
+   * may keep reading `renderable`; the renderer migrates to this field.
+   */
+  readonly renderableCanonical: readonly CanonicalClaim[];
 }
 
 /**
@@ -469,11 +483,22 @@ export function runClaimsKernel(
       ? "UNKNOWN"
       : consistency.terminal;
 
+  // ── (5) MINT (inv.17). The renderable set is the VALIDATED ∧ P2-consistent
+  // survivors; each carries its C6-bound (for any render-proposition type, see
+  // canonical-claim.ts) ledger-derived value. This is the SOLE CanonicalClaim mint
+  // site, structurally reachable only after the §5 predicate passed (incl. C6) and
+  // consistency held. The renderer takes these — never a raw ConsistencyClaim — so
+  // an un-validated proposition cannot reach prose.
+  const renderableCanonical = consistency.renderable.map((c) =>
+    mintCanonicalClaim(c.subject, c.type, c.value),
+  );
+
   return {
     perClaim,
     renderable: consistency.renderable,
     terminal,
     consistency,
+    renderableCanonical,
   };
 }
 
@@ -495,6 +520,7 @@ function stageFailClosed(
   return {
     perClaim,
     renderable: [],
+    renderableCanonical: [],
     terminal: STAGE_FAIL_CLOSED_TERMINAL,
     consistency: { renderable: [], terminal: "ESCALATE", suppressions: [] },
   };

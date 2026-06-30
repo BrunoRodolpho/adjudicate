@@ -83,6 +83,19 @@ export default tseslint.config(
           message:
             "Forging a RenderedReply via `as` is banned (Theorem E, sole-emitter). Produce customer-facing text with a @adjudicate/core minter (mintRenderedReply / mint{Cron,Receipt,Otp,Broadcast,Fallback}Reply / wrapLegacyResponderText) and unwrap it at the egress sink with unwrapRendered.",
         },
+        // Plan 1 / inv.17, enforcement layer (c): ban `x as CanonicalClaim` (and
+        // the nested `x as any as CanonicalClaim` — the outermost `as` is still
+        // CanonicalClaim). A cast is the only compile-time way to forge the opaque
+        // renderer-input carrier; banning it forces every renderable proposition
+        // through the kernel mint (runClaimsKernel), and the runtime WeakSet gate in
+        // `unwrapCanonical` catches anything that slips past. The mint module itself
+        // (`claim-definition`'s sibling `canonical-claim.ts`) is exempted below.
+        {
+          selector:
+            "TSAsExpression[typeAnnotation.typeName.name='CanonicalClaim']",
+          message:
+            "Forging a CanonicalClaim via `as` is banned (inv.17, kernel-minted renderer input). A canonical claim is minted ONLY by runClaimsKernel on the VALIDATED+consistent renderable set, and read at the renderer boundary with unwrapCanonical.",
+        },
       ],
       "import/order": [
         "warn",
@@ -117,6 +130,20 @@ export default tseslint.config(
   // re-opening the forge vector the ban exists to close.
   {
     files: ["packages/core/src/rendered-reply.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
+    },
+  },
+
+  // Plan 1 / inv.17: the CanonicalClaim mint module is the SOLE legitimate
+  // constructor of the opaque renderer-input carrier — it necessarily uses an
+  // internal `as unknown as CanonicalClaim` to brand the frozen object. Exempt it
+  // from the `as CanonicalClaim` ban (enforcement layer (c)); no other module may
+  // cast. Pinned to the CANONICAL path (not a basename glob) so this shared config,
+  // consumed downstream (@claustrum/*, @ibatexas/*), cannot silently exempt a
+  // same-named file in a consumer repo and re-open the forge vector.
+  {
+    files: ["packages/core/src/claims/canonical-claim.ts"],
     rules: {
       "no-restricted-syntax": "off",
     },

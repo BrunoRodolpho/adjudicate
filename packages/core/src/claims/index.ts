@@ -27,3 +27,9 @@ export * from "./registry-diff.js";
 // mechanism. Deliberate minor API widen (consumed by ibatexas). No downstream
 // import (§R); pure (definition-load-time only — no clock/RNG/IO).
 export * from "./claim-definition.js";
+// inv.17 — the kernel-minted, runtime-non-forgeable renderer-input carrier.
+// Export ONLY the opaque TYPE + the `unwrapCanonical` accessor: the brand
+// `unique symbol`, the provenance WeakSet, AND the `mintCanonicalClaim`
+// constructor are intentionally NOT re-exported (no public constructor — minting
+// is reachable only inside `runClaimsKernel`, on a fully-validated claim).
+export { type CanonicalClaim, unwrapCanonical } from "./canonical-claim.js";

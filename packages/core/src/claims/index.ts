@@ -21,3 +21,9 @@ export * from "./kernels.js";
 // a RELAXATION and fail the build on an undeclared relaxation. No downstream
 // import (§R); pure.
 export * from "./registry-diff.js";
+// inv.18 — the ClaimDefinition compiler (v1 slice): the generic ClaimDefinition
+// shape + the pure, total, FAIL-CLOSED completeness/consistency validator that
+// makes the three render/falsifier/template alignment conventions ONE load-time
+// mechanism. Deliberate minor API widen (consumed by ibatexas). No downstream
+// import (§R); pure (definition-load-time only — no clock/RNG/IO).
+export * from "./claim-definition.js";

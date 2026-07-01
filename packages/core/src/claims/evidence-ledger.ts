@@ -134,6 +134,41 @@ export function isOriginProvenance(value: unknown): value is OriginProvenance {
  */
 export type SourceMode = "live" | "cache";
 
+/** The closed membership tuple for `SourceMode`, in spec order (§G). */
+export const SOURCE_MODES: readonly SourceMode[] = ["live", "cache"] as const;
+
+/** Type guard: is `value` one of the exactly-two source modes (§G)? Pure. */
+export function isSourceMode(value: unknown): value is SourceMode {
+  return (
+    typeof value === "string" && (SOURCE_MODES as readonly string[]).includes(value)
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Structural provenance — the deriveProvenance hook (Plan 1 Phase 4 / W6 seam)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The INJECTED, PURE capability that DERIVES an entry's trust labels from its
+ * SOURCE-OF-RECORD identity rather than letting the adapter SELF-DECLARE them
+ * (Plan 1 Phase 4 / W6; same injection pattern as soundness `owns`). The intent:
+ * by the time soundness reads `entry.taint`/`entry.originProvenance`, those labels
+ * were derived from the source identity (connection identity / endpoint / table
+ * origin), not stamped by a possibly-model-authored adapter.
+ *
+ * W6 SHIPS the HOOK + its application point (in `record`) + the null-provenance
+ * default-deny; it does NOT ship the derivation LOGIC. Until W5 wires real source
+ * descriptors, consumers pass no deriver and the self-declared labels are used
+ * (then normalized fail-closed) — so the §11 TCB "Read adapters" row stays
+ * TRUSTED, not VERIFIED, until W5 lands. Must be PURE (deterministic, no IO).
+ */
+export interface ProvenanceDeriver {
+  readonly derive: (sourceOfRecord: unknown) => {
+    readonly taint: LedgerTaint;
+    readonly originProvenance: OriginProvenance;
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Per-envelope dispatch result — SDD §G `dispatch?`; v1.1 §10 Inv 4 (H10/H11)
 // ─────────────────────────────────────────────────────────────────────────
@@ -228,10 +263,48 @@ export interface EvidenceEntry {
 
 /**
  * The input a writer (Read/Action) supplies to record an entry — the §G fields,
- * with `dispatch` optional. Identical to `EvidenceEntry` (the ledger stores it
- * as-is); named distinctly so the write boundary reads intentionally.
+ * with `dispatch` optional, PLUS an OPTIONAL write-time-only `sourceOfRecord`
+ * descriptor (W6). `sourceOfRecord` is consumed by an injected `ProvenanceDeriver`
+ * at write time and is NEVER stored on the entry (the stored `EvidenceEntry` shape
+ * stays the frozen §G shape). When no deriver is injected, `sourceOfRecord` is
+ * ignored and the self-declared `taint`/`originProvenance` are used (then
+ * normalized fail-closed).
  */
-export type EvidenceEntryInput = EvidenceEntry;
+export type EvidenceEntryInput = EvidenceEntry & {
+  readonly sourceOfRecord?: unknown;
+};
+
+/**
+ * NULL-PROVENANCE DEFAULT-DENY write guard (Plan 1 Phase 4 / W6). Normalize an
+ * entry's trust labels at the WRITE boundary so the ledger never stores a
+ * structurally-typed-but-mislabeled row that could later VALIDATE:
+ *
+ *   - `taint` / `originProvenance` absent OR not a recognized member → coerced to
+ *     `UNTRUSTED_DATA` (fail-closed default-deny — "no provenance" = denied, NEVER
+ *     a silent trusted default). Because soundness REFUSES any `UNTRUSTED_DATA`
+ *     origin/taint, a null-provenance entry can never be a validating value.
+ *   - `sourceMode` absent OR not a recognized member → coerced to `"cache"` (not
+ *     provably live → a `must_read_this_turn` requirement cannot validate from it).
+ *
+ * NEVER coerces UP to a trusted class. The write-time-only `sourceOfRecord` is
+ * stripped (it is not part of the stored §G entry). Pure: deterministic; no
+ * clock/RNG/IO. A valid entry passes through with its labels unchanged.
+ */
+export function normalizeEvidenceEntry(input: EvidenceEntryInput): EvidenceEntry {
+  // Strip the write-time-only descriptor; it is not part of the stored §G shape.
+  const { sourceOfRecord: _ignored, ...rest } = input;
+  void _ignored;
+  return {
+    ...rest,
+    // Fail-closed default-deny: anything not provably trusted is UNTRUSTED_DATA.
+    taint: isLedgerTaint(rest.taint) ? rest.taint : "UNTRUSTED_DATA",
+    originProvenance: isOriginProvenance(rest.originProvenance)
+      ? rest.originProvenance
+      : "UNTRUSTED_DATA",
+    // Fail-closed: not provably live → cache.
+    sourceMode: isSourceMode(rest.sourceMode) ? rest.sourceMode : "cache",
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Read resolution — SDD §G / v1.1 §7; Inv 7 (error ≠ absence)
@@ -337,13 +410,23 @@ export class EvidenceLedger {
 
   readonly #cells = new Map<string, Cell>();
 
+  // OPTIONAL injected structural-provenance hook (W6). When present, an entry that
+  // carries a `sourceOfRecord` has its trust labels DERIVED from that descriptor at
+  // write time, overriding the adapter's self-declared labels. Absent ⟹ the
+  // self-declared labels are used (then normalized fail-closed).
+  readonly #deriver?: ProvenanceDeriver;
+
   /**
    * @param snapshotId Optional caller-supplied snapshot identity (e.g. a turn
    *   id). When omitted, a deterministic per-instance counter id is used so the
    *   ledger needs no RNG; distinct instances still get distinct ids.
+   * @param deriver Optional structural-provenance hook (W6). When supplied, a
+   *   recorded entry's `sourceOfRecord` is mapped to its trust labels at write
+   *   time. The kernel ships the seam; the derivation logic is W5 (adapter-side).
    */
-  constructor(snapshotId?: string) {
+  constructor(snapshotId?: string, deriver?: ProvenanceDeriver) {
     this.#snapshotId = snapshotId ?? `snapshot-${EvidenceLedger.#nextId()}`;
+    this.#deriver = deriver;
   }
 
   // Deterministic, monotonic instance-id source (no RNG). Module-private.
@@ -379,7 +462,17 @@ export class EvidenceLedger {
    * marked conflicted (the safest interpretation — never silently let a later
    * value erase a recorded error).
    */
-  record(entry: EvidenceEntryInput): void {
+  record(input: EvidenceEntryInput): void {
+    // ── W6 structural-provenance hook: when a deriver is injected AND the write
+    // carries a `sourceOfRecord`, DERIVE the trust labels from the source identity,
+    // overriding the adapter's self-declared `taint`/`originProvenance`. Then the
+    // null-provenance default-deny normalizer runs over the result (so a deriver
+    // that returns an invalid label still fails closed).
+    const derived =
+      this.#deriver !== undefined && input.sourceOfRecord !== undefined
+        ? { ...input, ...this.#deriver.derive(input.sourceOfRecord) }
+        : input;
+    const entry = normalizeEvidenceEntry(derived);
     const prior = this.#cells.get(entry.key);
     this.#version += 1;
 
@@ -478,6 +571,57 @@ export class EvidenceLedger {
     return { key, state: "absent", verdict: "UNKNOWN" };
   }
 
+  /**
+   * Resolve a key AGAINST its declared FALSIFIERS — the CROSS-KEY conflict gate
+   * (Plan 1 Phase 4 / W6; the runtime arm of the falsifier-completeness gate).
+   *
+   * DISTINCT from the same-key last-write-wins conflict above (`record`/H3): that
+   * detects two writes to the SAME key disagreeing. THIS detects a DIFFERENT key —
+   * a declared FALSIFIER — being PRESENT, which CONTRADICTS the claim the resolved
+   * key backs (e.g. STORE_OPEN_NOW's key is falsified by a present ScheduleOverride
+   * key; PAYMENT_STATUS=paid is falsified by a present refund/chargeback key). The
+   * mere PRESENCE of any falsifier key (a value that fired this turn) poisons the
+   * resolved key → `conflict` → `UNKNOWN`, exactly like a same-key conflict.
+   *
+   * Demote-only & fail-closed: if the base key is not `present`, its own
+   * (absent/error/conflict) resolution is returned unchanged (a falsifier cannot
+   * UPGRADE a non-present key). If the base key is `present` AND any falsifier key is
+   * `present` (a live contradiction) OR `error`/`conflict` (its read could NOT be
+   * determined this turn — we cannot prove the falsifier did NOT fire), the result is
+   * downgraded to `conflict` → `UNKNOWN` (F6). This is SYMMETRIC with the base-key
+   * axis, which already demotes to UNKNOWN on error/conflict: a declared falsifier
+   * that errored poisons exactly the claim it guards (e.g. PAYMENT_STATUS=paid while
+   * the refund/chargeback falsifier read errored — a refund may have occurred but
+   * could not be read, so `paid` must NOT keep rendering). Only an `absent` falsifier
+   * key does NOT fire — successfully determining no falsifier is present is the normal
+   * happy path (e.g. no refund exists). Demote-only: UNKNOWN, never REFUSED, never a
+   * promotion. Pure: read-only.
+   *
+   * This is the cross-key COMPANION to the soundness falsifier-completeness CAP:
+   * the CAP (soundness.ts) forces UNKNOWN-only until a type DECLARES its falsifiers;
+   * this gate makes a DECLARED falsifier's actual presence drive the backed key to
+   * UNKNOWN. NO integrity-ranked auto-resolution (inv.16): a contradiction is never
+   * silently resolved by ranking the falsifier vs the value — it is always UNKNOWN.
+   */
+  resolveAgainstFalsifiers(
+    key: string,
+    falsifierKeys: readonly string[],
+  ): EvidenceResolution {
+    const base = this.resolve(key);
+    // A falsifier can only DEMOTE a present key; a non-present key keeps its state.
+    if (base.state !== "present") return base;
+    for (const fk of falsifierKeys) {
+      // F6 — fail-closed & SYMMETRIC with the base-key axis. A falsifier key that is
+      // `present` (a live contradiction) OR `error`/`conflict` (its read could not be
+      // determined — we cannot prove it did NOT fire) poisons the base → conflict →
+      // UNKNOWN. Only `absent` (provably no falsifier present) lets the base stand.
+      if (this.resolve(fk).state !== "absent") {
+        return { key, state: "conflict", verdict: "UNKNOWN" };
+      }
+    }
+    return base;
+  }
+
   /** Is `key` resolvable to a concrete, un-conflicted, non-error value? */
   has(key: string): boolean {
     return this.resolve(key).state === "present";
@@ -493,6 +637,96 @@ export class EvidenceLedger {
   keys(): readonly string[] {
     return [...this.#cells.keys()];
   }
+
+  /**
+   * Capture the SOURCE-VERSION TOKEN of this snapshot at a point in time (W6
+   * render-time freshness re-check). The pair `(snapshotId, version)` uniquely
+   * names a revision; capture it at VALIDATE time and re-check it at RENDER time
+   * via {@link isSnapshotFresh} so a claim validated against revision N is never
+   * rendered after the ledger mutated to revision N+1 (a TOCTOU between validate
+   * and render). Pure.
+   */
+  snapshotToken(): SnapshotToken {
+    return { snapshotId: this.#snapshotId, version: this.#version };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Render-time freshness re-check — the source-version token (Plan 1 Phase 4 / W6)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The SOURCE-VERSION token of an Evidence Ledger snapshot (W6). `(snapshotId,
+ * version)` uniquely names a point-in-time revision; a render-time re-check
+ * compares the token captured at VALIDATE time against the ledger at RENDER time.
+ */
+export interface SnapshotToken {
+  readonly snapshotId: string;
+  readonly version: number;
+}
+
+/**
+ * Render-time freshness re-check (W6): is `ledger` still at the EXACT revision the
+ * `token` named? `true` IFF same snapshot identity AND unchanged `version`. A
+ * FALSE means the ledger mutated between validate and render — the validated claim
+ * set is STALE and must NOT be rendered (re-validate or ESCALATE). Fail-closed: a
+ * token from a DIFFERENT snapshot is never "fresh". Pure: read-only.
+ */
+export function isSnapshotFresh(token: SnapshotToken, ledger: EvidenceLedger): boolean {
+  return (
+    token.snapshotId === ledger.snapshotId && token.version === ledger.version
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cross-key conflict table (Plan 1 Phase 4 / W6) — the falsifier runtime arm
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * One CROSS-KEY conflict declaration (W6): the evidence `key` is FALSIFIED when
+ * `falsifierKey` is present this turn. DISTINCT from the same-key last-write-wins
+ * conflict (two writes to ONE key disagreeing); this names a DIFFERENT key whose
+ * presence contradicts `key` (STORE_OPEN_NOW ← a ScheduleOverride; PAYMENT_STATUS
+ * ← a refund/chargeback). The companion declaration of a type's `falsifiers[]`.
+ */
+export interface CrossKeyConflict {
+  readonly key: string;
+  readonly falsifierKey: string;
+}
+
+/**
+ * Detect which keys in `table` are FALSIFIED in this `ledger` (W6 cross-key gate).
+ * A key is falsified iff it is itself `present` AND at least one of its declared
+ * falsifier keys FIRES this turn. A falsifier FIRES when its state is NOT `absent`:
+ * `present` (a live contradiction) OR `error`/`conflict` (its read could not be
+ * determined — we cannot prove the falsifier did NOT fire). Only an `absent`
+ * falsifier (provably not present) lets the base key stand. Returns the distinct
+ * falsified keys (the set a caller must resolve to `UNKNOWN`).
+ *
+ * SYMMETRIC with — and a table-of-pairs wrapper over — the per-key
+ * `EvidenceLedger.resolveAgainstFalsifiers` (F6): both demote on `present`/`error`/
+ * `conflict` and stand only on `absent`, fail-closed and symmetric with the base-key
+ * axis (which already demotes to UNKNOWN on error/conflict). Pure: read-only over the
+ * ledger; demote-only; NO integrity-ranked auto-resolution (inv.16) — a fired
+ * falsifier always poisons the key to UNKNOWN, never silently resolved by ranking.
+ */
+export function detectCrossKeyConflicts(
+  ledger: EvidenceLedger,
+  table: readonly CrossKeyConflict[],
+): readonly string[] {
+  const falsified = new Set<string>();
+  for (const { key, falsifierKey } of table) {
+    if (falsified.has(key)) continue;
+    // The falsifier FIRES unless it is provably `absent` (mirror of the F6 fix in
+    // resolveAgainstFalsifiers): present OR error OR conflict all poison the base key.
+    if (
+      ledger.resolve(key).state === "present" &&
+      ledger.resolve(falsifierKey).state !== "absent"
+    ) {
+      falsified.add(key);
+    }
+  }
+  return [...falsified];
 }
 
 // ─────────────────────────────────────────────────────────────────────────

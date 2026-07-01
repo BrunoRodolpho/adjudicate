@@ -46,8 +46,10 @@ import {
   runClaimsKernel,
   ASYMMETRIC_TOPOLOGY,
   TOPOLOGY_STAGES,
+  STAGE_FAIL_CLOSED_TERMINAL,
   topologyHasBackwardEdge,
   ledgerConsumesClaims,
+  type ConsistencyConstraint,
   type ReadAccess,
   type ReadProvenance,
   type ReadKernel,
@@ -119,13 +121,28 @@ function recordTrusted(ledger: EvidenceLedger, key: string, value: unknown): voi
   });
 }
 
-/** A read_claim over a single public requirement (validates when its key is present). */
+/**
+ * A read_claim over a single public requirement (validates when its key is
+ * present). Falsifier-COMPLETE by default (W6) so the all-pass path can reach
+ * VALIDATED through the eligibility cap; the falsifier targets a key that is not
+ * recorded, so it never affects the verdict.
+ */
 function publicClaim(req: EvidenceRequirement): MinimalClaim {
   return {
     requiredEvidence: [req],
     minSourceIntegrity: "structured",
     kind: "read_claim",
     actor: "actor-1",
+    falsifierComplete: true,
+    falsifiers: [
+      {
+        key: "_falsifier",
+        ownershipPolicy: "not_applicable",
+        freshnessPolicy: "static",
+        sourceIntegrity: "structured",
+        provenancePolicy: "preserve",
+      },
+    ],
   };
 }
 
@@ -347,6 +364,45 @@ describe("Q5 AC3 — Claims kernel composes Q3 (P1) + Q4 (P2) (SDD §F; §D)", (
     expect(result.renderable).toHaveLength(2);
     expect(result.terminal).toBe("RENDER");
     expect(result.consistency.suppressions).toHaveLength(0);
+  });
+
+  it("C6 end-to-end: a model-authored SURPLUS value is caught at runClaimsKernel (Theorem S (a-value))", () => {
+    // The round-2 (a-value) trace, reproduced through the WHOLE kernel: every §5
+    // conjunct passes for the bound key, but the candidate's RENDERED value (what
+    // the model authored, the field copied into `renderable`) contradicts the
+    // ledger value. runClaimsKernel threads `candidate.value` into the soundness
+    // input, so C6 binds it and REFUSES — the surplus never reaches renderable.
+    const boundReq: EvidenceRequirement = { ...PUBLIC_REQ, key: "open-now" };
+    const ledger = new EvidenceLedger();
+    recordTrusted(ledger, boundReq.key, "fechado"); // evidence: closed.
+
+    const candidates: readonly CandidateClaim[] = [
+      {
+        soundness: {
+          ...publicClaim(boundReq),
+          valueBinding: { key: boundReq.key },
+        },
+        subject: "store-1",
+        type: "STORE_OPEN_NOW",
+        value: "aberto", // model confabulated "open" — surplus, unbacked.
+      },
+    ];
+    const result = runClaimsKernel(ledger, candidates, CLAIMS_DEPS);
+
+    expect(result.perClaim[0]?.verdict).toBe("REFUSED");
+    expect(result.renderable).toHaveLength(0);
+
+    // Control: the SAME wiring with a matching value validates and renders — so the
+    // REFUSED above is genuinely the value mismatch, not the binding being inert.
+    const okLedger = new EvidenceLedger();
+    recordTrusted(okLedger, boundReq.key, "aberto");
+    const ok = runClaimsKernel(
+      okLedger,
+      [{ ...candidates[0]!, value: "aberto" }],
+      CLAIMS_DEPS,
+    );
+    expect(ok.perClaim[0]?.verdict).toBe("VALIDATED");
+    expect(ok.renderable).toHaveLength(1);
   });
 
   it("a SOUND but INCONSISTENT set → ESCALATE (P2 fires after P1)", () => {
@@ -663,5 +719,53 @@ describe("Q5 AC6 — kernel purity (SDD §R: adjudicate → claustrum → ibatex
     // And kernels.ts does NOT declare its own `EXECUTE | REFUSE | ...` union (a
     // fork) — the six action values appear only via the imported Decision/Kind.
     expect(src).not.toMatch(/=\s*["']EXECUTE["']\s*\|\s*["']REFUSE["']/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// W6 — STAGE-FAIL-CLOSED: a deterministic stage that can't complete → ESCALATE,
+// never render the partial set (Plan 1 Phase 4 / P4 completeness)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("W6 — stage-fail-closed (runClaimsKernel)", () => {
+  it("a malformed consistency table makes P2 throw → ESCALATE + EMPTY renderable", () => {
+    // The same unordered pair declared with two relations makes indexTable throw
+    // inside checkConsistency — a deterministic stage that cannot complete. The
+    // kernel must FAIL CLOSED (ESCALATE, never render a partial set), not crash.
+    const malformed: readonly ConsistencyConstraint[] = [
+      { typeA: "A", typeB: "B", relation: "MUTUAL_EXCLUSION" },
+      { typeA: "A", typeB: "B", relation: "COMPATIBLE" },
+    ];
+    const ledger = new EvidenceLedger();
+    recordTrusted(ledger, PUBLIC_REQ.key, "v");
+    const candidates: readonly CandidateClaim[] = [
+      { soundness: publicClaim(PUBLIC_REQ), subject: "s", type: "A", value: 1 },
+    ];
+    const result = runClaimsKernel(ledger, candidates, {
+      soundness: SOUNDNESS_DEPS,
+      consistency: { table: malformed },
+    });
+    expect(result.terminal).toBe(STAGE_FAIL_CLOSED_TERMINAL);
+    expect(result.terminal).toBe("ESCALATE");
+    expect(result.renderable).toHaveLength(0); // never a partial render.
+    expect(result.consistency.suppressions).toHaveLength(0);
+  });
+
+  it("STAGE_FAIL_CLOSED_TERMINAL is ESCALATE (first-class §I)", () => {
+    expect(STAGE_FAIL_CLOSED_TERMINAL).toBe("ESCALATE");
+  });
+
+  it("a WELL-FORMED table still renders normally (the guard is non-vacuous)", () => {
+    // Contrast: the same single candidate with the default table renders, proving
+    // the fail-closed path above is the malformed-table guard, not a blanket block.
+    const ledger = new EvidenceLedger();
+    recordTrusted(ledger, PUBLIC_REQ.key, "v");
+    const result = runClaimsKernel(
+      ledger,
+      [{ soundness: publicClaim(PUBLIC_REQ), subject: "s", type: "A", value: 1 }],
+      CLAIMS_DEPS,
+    );
+    expect(result.terminal).toBe("RENDER");
+    expect(result.renderable).toHaveLength(1);
   });
 });

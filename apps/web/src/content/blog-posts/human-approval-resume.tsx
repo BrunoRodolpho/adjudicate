@@ -126,7 +126,8 @@ export function HumanApprovalResume() {
       </p>
       <p>
         Install is real: <code>pnpm add @adjudicate/core @adjudicate/pack-identity-kyc</code>.
-        The kernel is v1.x and API-frozen, so the <code>DEFER</code> contract —{" "}
+        The kernel is v1.x, published to npm and API-stable (additive-only), so
+        the <code>DEFER</code> contract —{" "}
         <code>signal</code>, <code>timeoutMs</code>, replayable resume — is
         stable to build a runtime against.
       </p>

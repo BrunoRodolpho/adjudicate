@@ -26,8 +26,12 @@ import { dirname, resolve as resolvePath } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   EvidenceLedger,
+  assertFalsifierDeclaration,
   claimAllowed,
+  isFalsifierComplete,
   meetsSourceIntegrityFloor,
+  readAttestedNow,
+  type AttestedClock,
   type EvidenceEntryInput,
   type EvidenceRequirement,
   type MinimalClaim,
@@ -74,13 +78,21 @@ function entry(over: Partial<EvidenceEntryInput> = {}): EvidenceEntryInput {
   };
 }
 
-/** A read_claim with a structured floor by default, overridable. */
+/**
+ * A read_claim with a structured floor by default, overridable. Falsifier-COMPLETE
+ * by default (W6): it declares `falsifierComplete` + a falsifier on a key that is
+ * NOT present in the default ledger, so the eligibility cap is satisfied and the
+ * all-pass path can reach VALIDATED. The dedicated W6 falsifier-cap suite below
+ * overrides these to exercise the UNKNOWN-only default and the §R lying case.
+ */
 function readClaim(over: Partial<MinimalClaim> = {}): MinimalClaim {
   return {
     requiredEvidence: [req()],
     minSourceIntegrity: "structured",
     kind: "read_claim",
     actor: { id: "actor-1" },
+    falsifierComplete: true,
+    falsifiers: [req({ key: "_falsifier" })],
     ...over,
   };
 }
@@ -773,6 +785,326 @@ describe("claimAllowed — negative freshness age is not fresh (§G; R1-snd Fix 
         deps(),
       ),
     ).toBe("VALIDATED");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// C6 — value-binding (Theorem S (a-value)): a claim's RENDERED value is bound
+// to its licensing evidence; a model-authored surplus value cannot VALIDATE.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("claimAllowed — C6 value-binding (§5 C6; Theorem S (a-value))", () => {
+  it("no valueBinding → C6 is a no-op (value-agnostic §5 unchanged)", () => {
+    // The fail-safe default: a claim that declares no binding carries a value the
+    // predicate never inspects — VALIDATED exactly as before W6 (non-vacuity for
+    // every existing ibatexas claim type).
+    const claim = readClaim({ value: "anything-the-model-said" });
+    expect(claimAllowed(claim, ledgerWith(entry({ value: "v" })), deps())).toBe(
+      "VALIDATED",
+    );
+  });
+
+  it("matched value (claim.value === ledger value) → VALIDATED", () => {
+    // The licensed happy path: the rendered value equals its evidence value.
+    const claim = readClaim({
+      value: "aberto",
+      valueBinding: { key: "k" },
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ value: "aberto" })), deps()),
+    ).toBe("VALIDATED");
+  });
+
+  it("mismatched value (model-authored surplus) → NOT VALIDATED (REFUSED)", () => {
+    // THE round-2 (a-value) catch: every other §5 conjunct passes
+    // (present∧fresh∧owned∧integrity∧provenance), but the rendered value is a
+    // confabulation that contradicts its licensing evidence → over-claim → REFUSED.
+    // If C6 were removed this would VALIDATE the surplus value (the bug).
+    const claim = readClaim({
+      value: "aberto", // model says open…
+      valueBinding: { key: "k" },
+    });
+    const verdict = claimAllowed(
+      claim,
+      ledgerWith(entry({ value: "fechado" })), // …evidence says closed.
+      deps(),
+    );
+    expect(verdict).toBe("REFUSED");
+    expect(verdict).not.toBe("VALIDATED");
+  });
+
+  it("mismatch DOMINATES (REFUSED even when another evidence is UNKNOWN)", () => {
+    // A C6 REFUSED is a contradiction class — it must dominate an UNKNOWN, like
+    // every other REFUSED conjunct.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" }), req({ key: "missing" })],
+      value: 10,
+      valueBinding: { key: "k" },
+    });
+    // "missing" is absent → that evidence is UNKNOWN; the C6 mismatch must still
+    // drive the whole claim to REFUSED.
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ key: "k", value: 99 })), deps()),
+    ).toBe("REFUSED");
+  });
+
+  it("path projection: bind a single PROPOSITION field of a value object", () => {
+    // STORE_OPEN_NOW-shaped: claim.value = { open: true } bound to the schedule
+    // entry's { open: true } via path ["open"].
+    const claim = readClaim({
+      value: { open: true },
+      valueBinding: { key: "k", path: ["open"] },
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ value: { open: true } })), deps()),
+    ).toBe("VALIDATED");
+    // And the projected-field mismatch is caught.
+    expect(
+      claimAllowed(
+        { ...claim, value: { open: true } },
+        ledgerWith(entry({ value: { open: false } })),
+        deps(),
+      ),
+    ).toBe("REFUSED");
+  });
+
+  it("value OUTSIDE the closed scalar grammar → abstain (UNKNOWN), not VALIDATE", () => {
+    // A non-scalar rendered value (an object) is not a single proposition we can
+    // confidently equate → C6 abstains to UNKNOWN (honest ignorance), never a free
+    // VALIDATE and never a REFUSE. (Whole-value object compare is OUT of grammar.)
+    const claim = readClaim({
+      value: { a: 1 },
+      valueBinding: { key: "k" },
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ value: { a: 1 } })), deps()),
+    ).toBe("UNKNOWN");
+  });
+
+  it("missed projection path → abstain (UNKNOWN), never a free pass", () => {
+    // The path points at a field that does not exist → projected side is undefined
+    // → outside the grammar → abstain.
+    const claim = readClaim({
+      value: { open: true },
+      valueBinding: { key: "k", path: ["nope"] },
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ value: { open: true } })), deps()),
+    ).toBe("UNKNOWN");
+  });
+
+  it("bound key not present → abstain (UNKNOWN), never REFUSE on a missing value", () => {
+    // If the bound key resolved absent, the ∀ already drove the claim to UNKNOWN;
+    // C6 must not upgrade that to REFUSED on a value it cannot read.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" })],
+      value: "x",
+      valueBinding: { key: "k" },
+    });
+    // Ledger has NO entry for "k".
+    expect(claimAllowed(claim, ledgerWith(), deps())).toBe("UNKNOWN");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// F2 — C6 structural guard: valueBinding.key MUST be in requiredEvidence (§5 C6)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// A binding.key outside requiredEvidence would let C6 compare an un-gated ledger
+// entry (no presence/freshness/provenance/integrity gate). Fail-closed: throw at
+// validate time, mirroring the assertFalsifierDeclaration hard-error style.
+
+describe("claimAllowed — C6 valueBinding.key ∈ requiredEvidence guard (F2)", () => {
+  it("valueBinding.key NOT in requiredEvidence → throws (fail-closed structural guard)", () => {
+    // The binding key "other" is not declared in requiredEvidence (only "k" is).
+    // Without the guard, C6 would resolve "other" from the ledger with no §5 gating.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" })],
+      value: "aberto",
+      valueBinding: { key: "other" }, // "other" is NOT in requiredEvidence
+    });
+    expect(() =>
+      claimAllowed(claim, ledgerWith(entry({ key: "k" }), entry({ key: "other", value: "aberto" })), deps()),
+    ).toThrow(/valueBinding\.key.*other.*requiredEvidence/);
+  });
+
+  it("valueBinding.key IN requiredEvidence → no throw, normal C6 evaluation (valid case)", () => {
+    // "k" is in requiredEvidence, so the guard passes and C6 evaluates normally.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" })],
+      value: "aberto",
+      valueBinding: { key: "k" },
+    });
+    // Matching value → VALIDATED (proves the guard does not block the valid path).
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ key: "k", value: "aberto" })), deps()),
+    ).toBe("VALIDATED");
+    // Mismatched value → REFUSED (proves C6 still runs and catches over-claims).
+    expect(
+      claimAllowed(
+        { ...claim, value: "fechado" },
+        ledgerWith(entry({ key: "k", value: "aberto" })),
+        deps(),
+      ),
+    ).toBe("REFUSED");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — falsifier-completeness eligibility CAP (inv.17; §R). A type may VALIDATE
+// only if it has enumerated HOW it could be falsified; else UNKNOWN-only. The
+// inconsistent lying case (complete:true, no falsifiers) is a §R hard THROW.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("claimAllowed — W6 falsifier-completeness gate (inv.17; §R)", () => {
+  it("falsifier-COMPLETE all-pass claim → VALIDATED (the eligible baseline)", () => {
+    // The readClaim builder is falsifier-complete by default; restate it
+    // explicitly so the drop test below is a clear, local contrast.
+    const claim = readClaim({
+      falsifierComplete: true,
+      falsifiers: [req({ key: "_f" })],
+    });
+    expect(claimAllowed(claim, ledgerWith(entry()), deps())).toBe("VALIDATED");
+  });
+
+  it("RUNTIME ARM: a PRESENT declared falsifier value DEMOTES an otherwise-VALIDATED claim → UNKNOWN (CE#3)", () => {
+    // Same all-pass evidence on "k", falsifier declared on "fk". The base case
+    // (falsifier key ABSENT) validates; recording a PRESENT value for the
+    // falsifier key fires the cross-key gate → conflict → UNKNOWN. This is the
+    // CE#3 cross-source store-hours closure (e.g. a present ScheduleOverride
+    // contradicting a fresh schedule key). Demote-only: never promotes.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "k" })],
+      falsifierComplete: true,
+      falsifiers: [req({ key: "fk" })],
+    });
+    // Falsifier absent → VALIDATED (control).
+    expect(claimAllowed(claim, ledgerWith(entry({ key: "k" })), deps())).toBe(
+      "VALIDATED",
+    );
+    // Falsifier PRESENT → UNKNOWN (the runtime arm fires).
+    expect(
+      claimAllowed(
+        claim,
+        ledgerWith(entry({ key: "k" }), entry({ key: "fk" })),
+        deps(),
+      ),
+    ).toBe("UNKNOWN");
+  });
+
+  it("RUNTIME ARM: an ABSENT declared falsifier does NOT fire (control stays VALIDATED)", () => {
+    // The default readClaim declares a falsifier on "_falsifier", never recorded
+    // → never fires → VALIDATED. Guards against the arm over-demoting.
+    const claim = readClaim();
+    expect(claimAllowed(claim, ledgerWith(entry()), deps())).toBe("VALIDATED");
+  });
+
+  it("RUNTIME ARM is demote-only: a present falsifier never PROMOTES a non-VALIDATED claim", () => {
+    // Absent required evidence → UNKNOWN regardless of falsifier presence; the arm
+    // runs only on the all-pass path, so a present falsifier cannot rescue it.
+    const claim = readClaim({
+      requiredEvidence: [req({ key: "missing" })],
+      falsifierComplete: true,
+      falsifiers: [req({ key: "fk" })],
+    });
+    expect(claimAllowed(claim, ledgerWith(entry({ key: "fk" })), deps())).toBe(
+      "UNKNOWN",
+    );
+  });
+
+  it("NON-VACUITY: dropping the declared falsifier (complete:false) → UNKNOWN, not VALIDATED", () => {
+    // Identical all-pass evidence, but the type no longer asserts completeness →
+    // the eligibility cap DEMOTES VALIDATED → UNKNOWN (honest ignorance: we cannot
+    // prove no falsifier exists). Remove the cap in soundness.ts and this leaks
+    // back to VALIDATED → RED.
+    const claim = readClaim({ falsifierComplete: false, falsifiers: [] });
+    expect(claimAllowed(claim, ledgerWith(entry()), deps())).toBe("UNKNOWN");
+  });
+
+  it("a type that declares NOTHING about falsifiers defaults to UNKNOWN-only", () => {
+    // The fail-safe default for an un-upgraded ibatexas type: no declaration →
+    // capped to UNKNOWN even on an otherwise all-pass claim.
+    const claim = readClaim({
+      falsifierComplete: undefined,
+      falsifiers: undefined,
+    });
+    expect(claimAllowed(claim, ledgerWith(entry()), deps())).toBe("UNKNOWN");
+  });
+
+  it("the cap is DEMOTE-ONLY: a REFUSED claim stays REFUSED regardless of falsifier state", () => {
+    // An UNTRUSTED evidence → REFUSED; the cap never promotes and never changes a
+    // REFUSED. (No declaration at all here.)
+    const claim = readClaim({
+      falsifierComplete: undefined,
+      falsifiers: undefined,
+    });
+    expect(
+      claimAllowed(claim, ledgerWith(entry({ taint: "UNTRUSTED_DATA" })), deps()),
+    ).toBe("REFUSED");
+  });
+
+  it("§R HARD error: falsifierComplete:true with an EMPTY falsifiers[] → throws (the lying case)", () => {
+    const claim = readClaim({ falsifierComplete: true, falsifiers: [] });
+    expect(() => claimAllowed(claim, ledgerWith(entry()), deps())).toThrow(
+      /falsifierComplete: true/,
+    );
+  });
+
+  it("§R HARD error: falsifierComplete:true with MISSING falsifiers → throws", () => {
+    const claim = readClaim({ falsifierComplete: true, falsifiers: undefined });
+    expect(() => claimAllowed(claim, ledgerWith(entry()), deps())).toThrow();
+  });
+
+  it("a malformed falsifier (bad freshnessPolicy) hard-errors via parseEvidenceRequirement", () => {
+    const claim = {
+      ...readClaim(),
+      falsifierComplete: true,
+      falsifiers: [
+        { ...req({ key: "_f" }), freshnessPolicy: "cacheable" },
+      ],
+    } as unknown as MinimalClaim;
+    expect(() => claimAllowed(claim, ledgerWith(entry()), deps())).toThrow(
+      /cacheable/,
+    );
+  });
+
+  it("the exported helpers agree with the cap (isFalsifierComplete / assertFalsifierDeclaration)", () => {
+    expect(isFalsifierComplete({ falsifierComplete: true, falsifiers: [req()] })).toBe(true);
+    expect(isFalsifierComplete({ falsifierComplete: true, falsifiers: [] })).toBe(false);
+    expect(isFalsifierComplete({})).toBe(false);
+    expect(() =>
+      assertFalsifierDeclaration({ falsifierComplete: true, falsifiers: [] }),
+    ).toThrow();
+    // The safe-default declaration does NOT throw.
+    expect(assertFalsifierDeclaration({})).toEqual({});
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — attested-clock seam: fresh(e) may source `now` from an attested clock
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("claimAllowed — W6 attested-clock seam (readAttestedNow)", () => {
+  it("readAttestedNow feeds SoundnessDeps.now and drives the SAME cacheable freshness", () => {
+    const ttl = 30_000;
+    const clock: AttestedClock = { now: NOW, attestation: "ntp-sig" };
+    const cacheableReq = req({ freshnessPolicy: { kind: "cacheable", ttl } });
+    // Fresh via the attested now.
+    expect(
+      claimAllowed(
+        readClaim({ requiredEvidence: [cacheableReq] }),
+        ledgerWith(entry({ fetchedAt: NOW })),
+        deps({ now: readAttestedNow(clock) }),
+      ),
+    ).toBe("VALIDATED");
+    // Stale via the attested now (beyond ttl) → UNKNOWN (same fresh(e) logic).
+    expect(
+      claimAllowed(
+        readClaim({ requiredEvidence: [cacheableReq] }),
+        ledgerWith(entry({ fetchedAt: NOW - ttl - 1 })),
+        deps({ now: readAttestedNow(clock) }),
+      ),
+    ).toBe("UNKNOWN");
   });
 });
 

@@ -39,7 +39,7 @@ export function WedgeTable() {
         <SectionHeading
           eyebrow="vs OPA / Cedar"
           title="The wedge."
-          subtitle="Existing policy engines say allow or deny. Adjudicate adds the answers AI agent workflows actually need."
+          subtitle="Cedar returns a binary Allow/Deny; OPA emits arbitrary JSON — but neither ships a REWRITE re-adjudication or a DEFER park-and-resume. Adjudicate adds the structured outcomes AI agent workflows actually need."
         />
 
         <div className="mt-10 overflow-x-auto rounded-2xl border border-console-edge bg-console-panel">

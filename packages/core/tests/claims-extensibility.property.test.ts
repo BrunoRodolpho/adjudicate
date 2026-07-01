@@ -1,0 +1,453 @@
+/**
+ * W6 — EXTENSIBILITY / soundness-monotonicity (inv.17) + the registry-diff lint +
+ * the inv.16 no-restricted-symbol guard (Plan 1 Phase 4).
+ *
+ * inv.17 (soundness-monotonicity): every ADDITIVE operator of the claims runtime is
+ * DEMOTE-ONLY — it can only move a verdict toward LESS (VALIDATED → UNKNOWN/REFUSED)
+ * and never MUTATES a surviving claim's value. Proven generatively over three
+ * operators: a consistency-table ADD (filter/additive-suppress), a soundness
+ * conjunct ADD (safest-verdict ∀), and a same-key ledger ADD (conflict → UNKNOWN).
+ * Each property carries a NON-VACUITY witness so a trivially-inert operator fails.
+ *
+ * The registry-diff lint mechanically distinguishes an ADDITIVE catalog extension
+ * from a RELAXATION (and fails the build on an undeclared relaxation). inv.16: the
+ * ledger write path holds NO integrity-ranked auto-resolver — a conflict is ALWAYS
+ * UNKNOWN, never silently resolved by ranking.
+ */
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve as resolvePath } from "node:path";
+import * as fc from "fast-check";
+import { describe, expect, it } from "vitest";
+import {
+  EvidenceLedger,
+  assertNoRelaxation,
+  checkConsistency,
+  claimAllowed,
+  classifyConsistencyTableDiff,
+  classifyEvidenceRequirementDiff,
+  classifyFalsifierDiff,
+  type ConsistencyClaim,
+  type ConsistencyConstraint,
+  type EvidenceEntryInput,
+  type EvidenceRequirement,
+  type MinimalClaim,
+  type SoundnessDeps,
+} from "@adjudicate/core";
+
+const RUNS = 250;
+const NOW = 1_000_000;
+
+const DEPS: SoundnessDeps = { owns: () => true, outcomeConfirmed: () => true, now: NOW };
+
+// A complete falsifier declaration so a passing claim can reach VALIDATED (the
+// falsifier on `_f` is never present, so it never affects the verdict).
+const COMPLETE = {
+  falsifierComplete: true as const,
+  falsifiers: [
+    {
+      key: "_f",
+      ownershipPolicy: "not_applicable" as const,
+      freshnessPolicy: "static" as const,
+      sourceIntegrity: "structured" as const,
+      provenancePolicy: "preserve" as const,
+    },
+  ],
+};
+
+function req(key: string): EvidenceRequirement {
+  return {
+    key,
+    ownershipPolicy: "not_applicable",
+    freshnessPolicy: "static",
+    sourceIntegrity: "structured",
+    provenancePolicy: "preserve",
+  };
+}
+
+function goodEntry(key: string): EvidenceEntryInput {
+  return {
+    key,
+    value: `v-${key}`,
+    source: "test",
+    fetchedAt: NOW,
+    sourceMode: "live",
+    taint: "TRUSTED",
+    originProvenance: "FIRST_PARTY",
+  };
+}
+
+const safetyRank = (v: string): number =>
+  v === "VALIDATED" ? 2 : v === "UNKNOWN" ? 1 : 0;
+
+// ─────────────────────────────────────────────────────────────────────────
+// (1) Consistency-table ADD — filter-only + additive suppress (inv.17)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("inv.17 — consistency-table ADD only DEMOTES (filter / additive suppress)", () => {
+  const types = ["A", "B", "C", "D"];
+  const claimArb: fc.Arbitrary<ConsistencyClaim> = fc.record({
+    subject: fc.constantFrom("s1", "s2"),
+    type: fc.constantFrom(...types),
+    verdict: fc.constant("VALIDATED" as const),
+    value: fc.constantFrom(1, 2, "x", true),
+  });
+  const constraintArb: fc.Arbitrary<ConsistencyConstraint> = fc.record({
+    typeA: fc.constantFrom(...types),
+    typeB: fc.constantFrom(...types),
+    relation: fc.constantFrom("MUTUAL_EXCLUSION", "IMPLICATION", "COMPATIBLE"),
+  });
+
+  // Drop duplicate-pair constraints so indexTable never throws (a malformed table
+  // is the stage-fail-closed concern, not the monotonicity concern).
+  const tableArb = fc
+    .array(constraintArb, { maxLength: 5 })
+    .map((cs) => {
+      const seen = new Set<string>();
+      return cs.filter((c) => {
+        const k = [c.typeA, c.typeB].sort().join("|");
+        if (seen.has(k) || c.typeA === c.typeB) return false;
+        seen.add(k);
+        return true;
+      });
+    });
+
+  // The ADDITIVE extra is a MUTUAL_EXCLUSION pair: adding a restrictive constraint
+  // can only SUPPRESS more (shrink renderable). Adding a COMPATIBLE/IMPLICATION
+  // pair instead RELAXES default-deny and can GROW renderable — which is precisely
+  // why the registry-diff lint classifies it as a RELAXATION (asserted below), so it
+  // is NOT part of the additive-monotonicity property.
+  const additiveExtraArb: fc.Arbitrary<ConsistencyConstraint> = fc.record({
+    typeA: fc.constantFrom(...types),
+    typeB: fc.constantFrom(...types),
+    relation: fc.constant("MUTUAL_EXCLUSION" as const),
+  });
+
+  it("adding a RESTRICTIVE constraint: renderable ⊆ prior, terminal RENDER→ESCALATE only", () => {
+    fc.assert(
+      fc.property(
+        fc.array(claimArb, { maxLength: 6 }),
+        tableArb,
+        additiveExtraArb,
+        (claims, base, extra) => {
+          const k = [extra.typeA, extra.typeB].sort().join("|");
+          // Skip an extra that duplicates a base pair (would throw, not demote).
+          const baseKeys = new Set(
+            base.map((c) => [c.typeA, c.typeB].sort().join("|")),
+          );
+          if (extra.typeA === extra.typeB || baseKeys.has(k)) return;
+
+          const before = checkConsistency(claims, { table: base });
+          const after = checkConsistency(claims, { table: [...base, extra] });
+
+          // (a) renderable ⊆ prior renderable (by structural identity of value+type).
+          const beforeSet = before.renderable;
+          for (const m of after.renderable) {
+            expect(
+              beforeSet.some(
+                (b) =>
+                  b.subject === m.subject &&
+                  b.type === m.type &&
+                  b.value === m.value,
+              ),
+            ).toBe(true);
+          }
+          // (b) after.renderable can only be the same size or SMALLER.
+          expect(after.renderable.length).toBeLessThanOrEqual(before.renderable.length);
+          // (c) terminal only moves RENDER → ESCALATE, never the reverse.
+          if (before.terminal === "ESCALATE") {
+            expect(after.terminal).toBe("ESCALATE");
+          }
+        },
+      ),
+      { numRuns: RUNS },
+    );
+  });
+
+  it("NON-VACUITY: there exists an add that STRICTLY suppresses a previously-rendered pair", () => {
+    const claims: ConsistencyClaim[] = [
+      { subject: "s", type: "A", verdict: "VALIDATED", value: 1 },
+      { subject: "s", type: "B", verdict: "VALIDATED", value: 2 },
+    ];
+    const before = checkConsistency(claims, { table: [{ typeA: "A", typeB: "B", relation: "COMPATIBLE" }] });
+    const after = checkConsistency(claims, { table: [{ typeA: "A", typeB: "B", relation: "MUTUAL_EXCLUSION" }] });
+    expect(before.renderable).toHaveLength(2);
+    expect(after.renderable).toHaveLength(0); // strictly smaller — operator is live.
+    expect(after.terminal).toBe("ESCALATE");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// (2) Conjunct ADD — safest-verdict ∀ (inv.17): adding a requirement only demotes
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("inv.17 — soundness conjunct ADD only DEMOTES (safest-verdict ∀)", () => {
+  type KeyStatus = "good" | "untrusted" | "absent";
+  const keyArb = fc.record({
+    key: fc.constantFrom("k1", "k2", "k3", "k4"),
+    status: fc.constantFrom<KeyStatus>("good", "untrusted", "absent"),
+  });
+
+  function build(reqs: readonly { key: string; status: KeyStatus }[]): {
+    ledger: EvidenceLedger;
+    claim: MinimalClaim;
+  } {
+    const ledger = new EvidenceLedger();
+    const seen = new Set<string>();
+    const requiredEvidence: EvidenceRequirement[] = [];
+    for (const { key, status } of reqs) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      requiredEvidence.push(req(key));
+      if (status === "good") ledger.record(goodEntry(key));
+      else if (status === "untrusted")
+        ledger.record({ ...goodEntry(key), taint: "UNTRUSTED_DATA" });
+      // absent → record nothing.
+    }
+    return {
+      ledger,
+      claim: {
+        requiredEvidence,
+        minSourceIntegrity: "structured",
+        kind: "read_claim",
+        actor: "a",
+        ...COMPLETE,
+      },
+    };
+  }
+
+  it("adding one more required evidence never PROMOTES to VALIDATED", () => {
+    fc.assert(
+      fc.property(
+        fc.array(keyArb, { minLength: 1, maxLength: 3 }),
+        keyArb,
+        (baseKeys, extraKey) => {
+          const base = build(baseKeys);
+          // Rebuild with the extra key appended to the SAME ledger contents.
+          const all = [...baseKeys, extraKey];
+          const withExtra = build(all);
+
+          const baseVerdict = claimAllowed(base.claim, base.ledger, DEPS);
+          const extraVerdict = claimAllowed(
+            withExtra.claim,
+            withExtra.ledger,
+            DEPS,
+          );
+
+          // Demote-only: a conjunct add can never PROMOTE to VALIDATED.
+          if (extraVerdict === "VALIDATED") {
+            expect(baseVerdict).toBe("VALIDATED");
+          }
+          // Safety order: the extra-conjunct verdict is no SAFER-than-removed... it
+          // never RISES above baseline (VALIDATED is the top).
+          expect(safetyRank(extraVerdict)).toBeLessThanOrEqual(
+            safetyRank(baseVerdict),
+          );
+        },
+      ),
+      { numRuns: RUNS },
+    );
+  });
+
+  it("NON-VACUITY: a VALIDATED claim demotes to UNKNOWN when an absent conjunct is added", () => {
+    const base = build([{ key: "k1", status: "good" }]);
+    expect(claimAllowed(base.claim, base.ledger, DEPS)).toBe("VALIDATED");
+    const withExtra = build([
+      { key: "k1", status: "good" },
+      { key: "k2", status: "absent" },
+    ]);
+    expect(claimAllowed(withExtra.claim, withExtra.ledger, DEPS)).toBe("UNKNOWN");
+  });
+
+  it("NON-VACUITY: enabling the falsifier gate (dropping completeness) demotes VALIDATED→UNKNOWN", () => {
+    const ledger = new EvidenceLedger();
+    ledger.record(goodEntry("k1"));
+    const complete: MinimalClaim = {
+      requiredEvidence: [req("k1")],
+      minSourceIntegrity: "structured",
+      kind: "read_claim",
+      actor: "a",
+      ...COMPLETE,
+    };
+    expect(claimAllowed(complete, ledger, DEPS)).toBe("VALIDATED");
+    const incomplete: MinimalClaim = { ...complete, falsifierComplete: false, falsifiers: [] };
+    expect(claimAllowed(incomplete, ledger, DEPS)).toBe("UNKNOWN");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// (3) Same-key ledger ADD — present can only move to conflict → UNKNOWN (inv.17)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("inv.17 — same-key ledger ADD: present → conflict only (never reversed)", () => {
+  const valueArb = fc.oneof(
+    fc.integer({ min: -5, max: 5 }),
+    fc.string({ maxLength: 4 }),
+    fc.boolean(),
+  );
+
+  it("a second write keeps present+same-value on equal, or → conflict/UNKNOWN on differ; never reversed", () => {
+    fc.assert(
+      fc.property(valueArb, valueArb, (v1, v2) => {
+        const led = new EvidenceLedger();
+        led.record({ ...goodEntry("k"), value: v1 });
+        const first = led.resolve("k");
+        expect(first.state).toBe("present");
+        expect(first.entry!.value).toStrictEqual(v1);
+
+        led.record({ ...goodEntry("k"), value: v2 });
+        const second = led.resolve("k");
+
+        if (Object.is(v1, v2)) {
+          // Equal re-read: stays present with the same value (idempotent).
+          expect(second.state).toBe("present");
+          expect(second.entry!.value).toStrictEqual(v1);
+        } else {
+          // Disagreement: conflict → UNKNOWN, no concrete value escapes.
+          expect(second.state).toBe("conflict");
+          expect(second.verdict).toBe("UNKNOWN");
+          expect(second.entry).toBeUndefined();
+        }
+        // Monotonic: never moves back to absent.
+        expect(second.state).not.toBe("absent");
+      }),
+      { numRuns: RUNS },
+    );
+  });
+
+  it("NON-VACUITY: a differing second write strictly demotes present → conflict", () => {
+    const led = new EvidenceLedger();
+    led.record({ ...goodEntry("k"), value: "a" });
+    expect(led.resolve("k").state).toBe("present");
+    led.record({ ...goodEntry("k"), value: "b" });
+    expect(led.resolve("k").state).toBe("conflict");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Registry-diff lint — ADDITIVE vs RELAXATION (inv.17 machine-checked)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("registry-diff lint — classify ADDITIVE vs RELAXATION; fail on relaxation", () => {
+  it("consistency table: new MUTUAL_EXCLUSION is ADDITIVE; new permissive / weakened / removed is RELAXATION", () => {
+    const base: ConsistencyConstraint[] = [
+      { typeA: "A", typeB: "B", relation: "MUTUAL_EXCLUSION" },
+    ];
+    // additive: add a NEW exclusion pair.
+    expect(
+      classifyConsistencyTableDiff(base, [
+        ...base,
+        { typeA: "C", typeB: "D", relation: "MUTUAL_EXCLUSION" },
+      ]).every((f) => f.kind === "ADDITIVE"),
+    ).toBe(true);
+    // relaxation: add a NEW permissive pair.
+    expect(
+      classifyConsistencyTableDiff(base, [
+        ...base,
+        { typeA: "C", typeB: "D", relation: "COMPATIBLE" },
+      ]).some((f) => f.kind === "RELAXATION"),
+    ).toBe(true);
+    // relaxation: weaken MUTUAL_EXCLUSION → COMPATIBLE.
+    expect(
+      classifyConsistencyTableDiff(base, [
+        { typeA: "A", typeB: "B", relation: "COMPATIBLE" },
+      ]).some((f) => f.kind === "RELAXATION"),
+    ).toBe(true);
+    // relaxation: remove the constraint.
+    expect(
+      classifyConsistencyTableDiff(base, []).some((f) => f.kind === "RELAXATION"),
+    ).toBe(true);
+    // additive: tighten COMPATIBLE → MUTUAL_EXCLUSION.
+    expect(
+      classifyConsistencyTableDiff(
+        [{ typeA: "A", typeB: "B", relation: "COMPATIBLE" }],
+        [{ typeA: "A", typeB: "B", relation: "MUTUAL_EXCLUSION" }],
+      ).every((f) => f.kind === "ADDITIVE"),
+    ).toBe(true);
+  });
+
+  it("EvidenceRequirement: lowering integrity floor / ownership / freshness / provenance is RELAXATION", () => {
+    const strict: EvidenceRequirement = {
+      key: "k",
+      ownershipPolicy: "required",
+      freshnessPolicy: "must_read_this_turn",
+      sourceIntegrity: "structured",
+      provenancePolicy: "first_party_only",
+    };
+    const loosened: EvidenceRequirement = {
+      key: "k",
+      ownershipPolicy: "not_applicable",
+      freshnessPolicy: "static",
+      sourceIntegrity: "free_text",
+      provenancePolicy: "preserve",
+    };
+    const findings = classifyEvidenceRequirementDiff(strict, loosened);
+    expect(findings.filter((f) => f.kind === "RELAXATION").length).toBe(4);
+    // The reverse is all ADDITIVE.
+    expect(
+      classifyEvidenceRequirementDiff(loosened, strict).every(
+        (f) => f.kind === "ADDITIVE",
+      ),
+    ).toBe(true);
+  });
+
+  it("EvidenceRequirement: a widened cacheable ttl is RELAXATION; a shrunk ttl is ADDITIVE", () => {
+    const tight: EvidenceRequirement = { ...req("k"), freshnessPolicy: { kind: "cacheable", ttl: 30 } };
+    const wide: EvidenceRequirement = { ...req("k"), freshnessPolicy: { kind: "cacheable", ttl: 3_600 } };
+    expect(classifyEvidenceRequirementDiff(tight, wide).some((f) => f.kind === "RELAXATION")).toBe(true);
+    expect(classifyEvidenceRequirementDiff(wide, tight).some((f) => f.kind === "ADDITIVE")).toBe(true);
+  });
+
+  it("falsifiers: removing a falsifier / true→false is RELAXATION; adding / false→true is ADDITIVE", () => {
+    const before = { falsifierComplete: true, falsifiers: [req("a"), req("b")] };
+    const removed = { falsifierComplete: true, falsifiers: [req("a")] };
+    expect(classifyFalsifierDiff(before, removed).some((f) => f.kind === "RELAXATION")).toBe(true);
+    const weakened = { falsifierComplete: false, falsifiers: [req("a"), req("b")] };
+    expect(classifyFalsifierDiff(before, weakened).some((f) => f.kind === "RELAXATION")).toBe(true);
+    // additive: add a falsifier + flip completeness on.
+    expect(
+      classifyFalsifierDiff(
+        { falsifierComplete: false, falsifiers: [req("a")] },
+        { falsifierComplete: true, falsifiers: [req("a"), req("b")] },
+      ).every((f) => f.kind === "ADDITIVE"),
+    ).toBe(true);
+  });
+
+  it("assertNoRelaxation throws on any relaxation and is silent on additive-only", () => {
+    expect(() =>
+      assertNoRelaxation([{ kind: "RELAXATION", detail: "x" }]),
+    ).toThrow(/RELAXATION/);
+    expect(() =>
+      assertNoRelaxation([{ kind: "ADDITIVE", detail: "ok" }]),
+    ).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// inv.16 — NO integrity-ranked auto-resolver at the ledger write path
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("inv.16 — the ledger conflict path is never integrity-ranked away", () => {
+  it("behaviorally: a same-key conflict is ALWAYS UNKNOWN regardless of taint/integrity", () => {
+    const led = new EvidenceLedger();
+    led.record({ ...goodEntry("k"), value: "a", taint: "TRUSTED", originProvenance: "FIRST_PARTY" });
+    // A 'higher-integrity' second write does NOT win — it conflicts → UNKNOWN.
+    led.record({ ...goodEntry("k"), value: "b", taint: "TRUSTED", originProvenance: "FIRST_PARTY" });
+    expect(led.resolve("k").verdict).toBe("UNKNOWN");
+    expect(led.resolve("k").state).toBe("conflict");
+  });
+
+  it("source-scan: evidence-ledger.ts declares no integrity-ranked resolver symbol", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(
+      resolvePath(here, "../src/claims/evidence-ledger.ts"),
+      "utf8",
+    );
+    // No symbol that picks a conflict winner by ranking integrity/provenance.
+    expect(src).not.toMatch(/integrityRank|rankBy|resolveByIntegrity|pickHighestIntegrity/i);
+    // The conflict path must keep last-write-wins-AND-flag, never a silent resolve:
+    // a `conflicted` flag is set and resolve() returns UNKNOWN for it.
+    expect(src).toMatch(/conflicted/);
+  });
+});

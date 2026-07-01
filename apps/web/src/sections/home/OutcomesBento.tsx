@@ -136,8 +136,8 @@ export function OutcomesBento() {
           A block-or-allow engine returns one bit: yes or no. adjudicate returns
           one of <span className="font-medium text-ink">six structured
           outcomes</span> — each carrying the basis for why. The two that matter
-          most are the ones a binary engine{" "}
-          <span className="font-medium text-ink">can&apos;t</span> express:{" "}
+          most are the ones a yes/no policy engine{" "}
+          <span className="font-medium text-ink">doesn&apos;t</span> model:{" "}
           <span className="font-medium text-rewrite-strong">REWRITE</span>{" "}
           corrects an over-reach instead of blocking it, and{" "}
           <span className="font-medium text-defer">DEFER</span> parks an intent

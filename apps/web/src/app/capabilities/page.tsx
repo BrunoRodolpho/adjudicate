@@ -131,7 +131,7 @@ export default function CapabilitiesPage() {
                 </span>
               </>
             }
-            subtitle="Every capability maps to a real package and a real ADR, and every one opens a full deep-dive. The Tier badge marks maturity: Tier 1 runs the real kernel or a live projection; Tier 2 is fixture-illustrative."
+            subtitle="Every capability maps to a real package and a real ADR, and every one opens a full deep-dive. The badge marks how each example is shown: 'Live · real kernel' runs the real kernel in your browser — four capabilities (PII guard, command-risk, token-budget, release-gating); 'Illustrative' renders from committed sample data, each clearly labelled."
           />
         </Reveal>
 

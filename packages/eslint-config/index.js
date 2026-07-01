@@ -67,6 +67,36 @@ export default tseslint.config(
       // deterministic carve-out (confirmation-receipt) is allowlisted at its
       // call site with an eslint-disable-next-line directive.
       "@adjudicate/monotonic-ceiling": "error",
+      // Plan 1 / Theorem E (E-1), enforcement layer (c): ban `x as RenderedReply`
+      // (and `x as any as RenderedReply` — the outermost `as` is still
+      // RenderedReply). A cast is the only compile-time way to forge the opaque
+      // branded carrier; banning it forces every customer-facing string through a
+      // @adjudicate/core minter, and the runtime WeakSet gate in `unwrapRendered`
+      // catches anything that slips past. The minter module itself
+      // (`rendered-reply.ts`) is exempted in a dedicated block below — it is the
+      // sole legitimate constructor.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "TSAsExpression[typeAnnotation.typeName.name='RenderedReply']",
+          message:
+            "Forging a RenderedReply via `as` is banned (Theorem E, sole-emitter). Produce customer-facing text with a @adjudicate/core minter (mintRenderedReply / mint{Cron,Receipt,Otp,Broadcast,Fallback}Reply / wrapLegacyResponderText) and unwrap it at the egress sink with unwrapRendered.",
+        },
+        // Plan 1 / inv.17, enforcement layer (c): ban `x as CanonicalClaim` (and
+        // the nested `x as any as CanonicalClaim` — the outermost `as` is still
+        // CanonicalClaim). A cast is the only compile-time way to forge the opaque
+        // renderer-input carrier; banning it forces every renderable proposition
+        // through the kernel mint (runClaimsKernel), and the runtime WeakSet gate in
+        // `unwrapCanonical` catches anything that slips past. The mint module itself
+        // (`claim-definition`'s sibling `canonical-claim.ts`) is exempted below.
+        {
+          selector:
+            "TSAsExpression[typeAnnotation.typeName.name='CanonicalClaim']",
+          message:
+            "Forging a CanonicalClaim via `as` is banned (inv.17, kernel-minted renderer input). A canonical claim is minted ONLY by runClaimsKernel on the VALIDATED+consistent renderable set, and read at the renderer boundary with unwrapCanonical.",
+        },
+      ],
       "import/order": [
         "warn",
         {
@@ -84,6 +114,38 @@ export default tseslint.config(
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "prefer-const": "error",
       "no-var": "error",
+    },
+  },
+
+  // Plan 1 / Theorem E (E-1): the RenderedReply minter module is the SOLE
+  // legitimate constructor of the opaque carrier — it necessarily uses an
+  // internal `as unknown as RenderedReply` to brand the frozen object. Exempt it
+  // from the `as RenderedReply` ban (enforcement layer (c)); no other module may
+  // cast. This block follows the rules block so it overrides for this file only.
+  //
+  // F5: the exemption is pinned to the CANONICAL path of the genuine minter
+  // (`packages/core/src/rendered-reply.ts`), not the basename `**/rendered-reply.ts`.
+  // This shared config is consumed downstream (@claustrum/*, @ibatexas/*); a
+  // basename glob would silently exempt ANY same-named file in a consumer repo,
+  // re-opening the forge vector the ban exists to close.
+  {
+    files: ["packages/core/src/rendered-reply.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
+    },
+  },
+
+  // Plan 1 / inv.17: the CanonicalClaim mint module is the SOLE legitimate
+  // constructor of the opaque renderer-input carrier — it necessarily uses an
+  // internal `as unknown as CanonicalClaim` to brand the frozen object. Exempt it
+  // from the `as CanonicalClaim` ban (enforcement layer (c)); no other module may
+  // cast. Pinned to the CANONICAL path (not a basename glob) so this shared config,
+  // consumed downstream (@claustrum/*, @ibatexas/*), cannot silently exempt a
+  // same-named file in a consumer repo and re-open the forge vector.
+  {
+    files: ["packages/core/src/claims/canonical-claim.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
     },
   },
 );

@@ -275,3 +275,88 @@ export function parseEvidenceRequirement(value: unknown): EvidenceRequirement {
       "sourceIntegrity/provenancePolicy.",
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Falsifier-completeness declaration (Plan 1 Phase 4 / W6; inv.17; §R)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// THE FALSIFIER GATE (fail-safe, demote-only). A claim TYPE may reach VALIDATED
+// only if it has enumerated HOW it could be FALSIFIED — the evidence whose
+// presence would CONTRADICT the claim (e.g. STORE_OPEN_NOW ← a ScheduleOverride;
+// PAYMENT_STATUS=paid ← a refund/chargeback webhook). Until a type declares its
+// falsifiers it is forced UNKNOWN-only (honest ignorance: "we cannot prove no
+// falsifier exists"). This is the run-time arm's DECLARATION half; the actual
+// contradiction (a present falsifier value disagreeing) is detected by the
+// cross-key conflict table in `evidence-ledger.ts`.
+//
+// DESIGN: `falsifiers[]` is OPTIONAL and each member is itself an
+// `EvidenceRequirement` (parsed by the EXISTING `parseEvidenceRequirement`, so a
+// malformed falsifier hard-errors with the existing legible message). A type is
+// falsifier-COMPLETE — ELIGIBLE to VALIDATE — IFF `falsifierComplete === true`
+// AND `falsifiers` is non-empty. The §R HARD error fires ONLY on the inconsistent
+// LYING case (`falsifierComplete: true` with an empty/missing `falsifiers`) — that
+// is a build failure; the SAFE-DEFAULT case (no declaration) does NOT throw, it
+// silently forces UNKNOWN-only via the eligibility gate in `soundness.ts`. This
+// split keeps existing types compiling while making only the lying case a hard
+// error (exactly the cacheable-requires-ttl shape).
+
+/**
+ * The OPTIONAL falsifier-completeness declaration a claim type carries (W6;
+ * inv.17). Additive + optional so every existing claim type compiles unchanged
+ * and defaults to UNKNOWN-only until it opts in (W5 declares falsifiers per type).
+ *
+ *   - `falsifierComplete` — `true` asserts the type has ENUMERATED every evidence
+ *                           whose presence would falsify it. Absent/`false` ⟹ the
+ *                           type is NOT complete ⟹ UNKNOWN-only (safe default).
+ *   - `falsifiers`        — the enumerated falsifying evidence, each an
+ *                           `EvidenceRequirement` on a (typically DIFFERENT) key.
+ *                           Declaring it does NOT require the falsifier evidence to
+ *                           be present; the cross-key conflict table fires only
+ *                           when a falsifier value is actually present & disagrees.
+ */
+export interface FalsifierDeclaration {
+  readonly falsifierComplete?: boolean;
+  readonly falsifiers?: readonly EvidenceRequirement[];
+}
+
+/**
+ * Is this declaration falsifier-COMPLETE — ELIGIBLE to VALIDATE (W6)? `true` IFF
+ * `falsifierComplete === true` AND it enumerates at least one falsifier. Pure;
+ * the soundness eligibility cap reads exactly this. NOTE this does NOT throw on
+ * the lying case — call {@link assertFalsifierDeclaration} for the §R hard error.
+ */
+export function isFalsifierComplete(decl: FalsifierDeclaration): boolean {
+  return decl.falsifierComplete === true && (decl.falsifiers?.length ?? 0) > 0;
+}
+
+/**
+ * §R HARD registry-load guard for a falsifier declaration (W6) — throws ONLY on
+ * the inconsistent LYING case: `falsifierComplete: true` while `falsifiers` is
+ * missing/empty (a type claims it is complete yet enumerates none). Mirrors
+ * `parseEvidenceRequirement`: fail-closed, legible message, returns the value
+ * narrowed on success. Each declared falsifier is itself validated via
+ * `parseEvidenceRequirement`, so a malformed falsifier hard-errors too.
+ *
+ * The SAFE-DEFAULT case (no `falsifierComplete`, no `falsifiers`) does NOT throw —
+ * it is the legitimate "not yet opted in" state that the eligibility cap forces to
+ * UNKNOWN-only. Pure: deterministic over the value; no clock/RNG/IO.
+ */
+export function assertFalsifierDeclaration<T extends FalsifierDeclaration>(
+  decl: T,
+): T {
+  if (
+    decl.falsifierComplete === true &&
+    (decl.falsifiers == null || decl.falsifiers.length === 0)
+  ) {
+    throw new Error(
+      "assertFalsifierDeclaration: a type with `falsifierComplete: true` MUST " +
+        "enumerate a non-empty `falsifiers[]` (W6 §R) — claiming completeness " +
+        "while enumerating none is the inconsistent lying case (build failure). " +
+        "Either enumerate the falsifying evidence or drop `falsifierComplete`.",
+    );
+  }
+  // Each declared falsifier must be a structurally-valid EvidenceRequirement —
+  // reuse the existing parser so a malformed falsifier hard-errors identically.
+  for (const f of decl.falsifiers ?? []) parseEvidenceRequirement(f);
+  return decl;
+}

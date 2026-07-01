@@ -27,9 +27,15 @@ import type { EvidenceLedger } from "./evidence-ledger.js";
 import type { EvidenceEntry } from "./evidence-ledger.js";
 import type {
   EvidenceRequirement,
+  FalsifierDeclaration,
   SourceIntegrity,
 } from "./evidence-requirement.js";
-import { meetsSourceIntegrityFloor } from "./evidence-requirement.js";
+import {
+  assertFalsifierDeclaration,
+  isFalsifierComplete,
+  meetsSourceIntegrityFloor,
+} from "./evidence-requirement.js";
+import { sameValue } from "./value-equality.js";
 import type { ClaimVerdict } from "./verdict.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -64,6 +70,32 @@ export type ClaimKind = "read_claim" | "action_claim";
 export type ResourceBindings = Readonly<Record<string, unknown>>;
 
 /**
+ * C6 VALUE-BINDING (SDD §5 C6; Theorem S precondition (a-value)) — the optional
+ * declaration that a claim's RENDERED `value` is bound to a specific evidence
+ * entry's value, so the number/string the customer eventually sees cannot be a
+ * model confabulation that merely rode the surplus channel through a claim that
+ * validated on present∧fresh∧owned∧integrity∧provenance.
+ *
+ *   - `key`  — the `EvidenceRequirement.key` whose ledger value licenses this
+ *              claim's `value`. It MUST be one of the claim's `requiredEvidence`
+ *              keys so presence/freshness/provenance/integrity are already gated
+ *              by the §5 ∀ before C6 compares the value (the binding only adds the
+ *              value-equality conjunct on top of an already-validated key).
+ *   - `path` — OPTIONAL projection into BOTH the claim's `value` and the bound
+ *              entry's `value` before comparison (e.g. `["open"]` to bind the
+ *              `open` field of a STORE_OPEN_NOW value object to the schedule
+ *              entry's `open` field). Absent ⟹ compare the whole values.
+ *
+ * Additive + OPTIONAL on `MinimalClaim`: a claim that declares no `valueBinding`
+ * is unaffected by C6 (fail-safe no-op — §5 is value-agnostic for it, exactly as
+ * before W6). W5 declares bindings per registry type.
+ */
+export interface ValueBinding {
+  readonly key: string;
+  readonly path?: readonly (string | number)[];
+}
+
+/**
  * The minimal kernel claim the §5 predicate quantifies over (SDD §E; v1.1 §5).
  * The full registry claim types (registry §6) are deferred (SDD §Q scope guard);
  * this carries EXACTLY the fields §5 reads:
@@ -80,12 +112,24 @@ export type ResourceBindings = Readonly<Record<string, unknown>>;
  *                           for C1 (see `ResourceBindings`). Optional; an absent
  *                           binding for a `required` key is "no owner" → REFUSED.
  */
-export interface MinimalClaim {
+export interface MinimalClaim extends FalsifierDeclaration {
   readonly requiredEvidence: readonly EvidenceRequirement[];
   readonly minSourceIntegrity: SourceIntegrity;
   readonly kind: ClaimKind;
   readonly actor: unknown;
   readonly resources?: ResourceBindings;
+  /**
+   * C6 — the RENDERED value carried by this claim (the proposition the renderer
+   * would fill). OPTIONAL: only inspected when `valueBinding` is declared (the
+   * value-binding conjunct compares this against the bound evidence's value). When
+   * `valueBinding` is absent, §5 stays value-agnostic and never reads this field.
+   */
+  readonly value?: unknown;
+  /**
+   * C6 value-binding (SDD §5 C6) — see {@link ValueBinding}. OPTIONAL; absent ⟹
+   * C6 is a no-op for this claim (fail-safe default; W5 declares bindings).
+   */
+  readonly valueBinding?: ValueBinding;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -127,6 +171,38 @@ export interface SoundnessDeps {
    * cacheable tier compares `now - entry.fetchedAt` against the ttl.
    */
   readonly now: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Attested-clock seam (Plan 1 Phase 4 / W6) — fresh(e) reads an ATTESTED time
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The ATTESTED-CLOCK seam (W6): a `now` epoch-millis paired with an OPTIONAL
+ * `attestation` token identifying the time SOURCE (e.g. a signed NTP/HSM stamp).
+ * `fresh(e)` over a `cacheable` ttl compares `now - fetchedAt`; if `now` is an
+ * un-attested wall clock, staleness can be defeated by clock skew (the negative-age
+ * lower bound already rejects future stamps, but a SOURCE attestation lets a
+ * caller PROVE the clock itself is trustworthy).
+ *
+ * W6 ships the SEAM only: `SoundnessDeps.now` stays a bare `number` (kernel-pure,
+ * deterministic in tests). A caller may source it from {@link readAttestedNow},
+ * which is where W5 wires a real attested source. The kernel does not itself verify
+ * the attestation — it provides the typed slot so the trust upgrade can land later.
+ */
+export interface AttestedClock {
+  readonly now: number;
+  readonly attestation?: string;
+}
+
+/**
+ * Read the `now` value from an {@link AttestedClock} for `SoundnessDeps.now` (W6).
+ * Pure pass-through today; the seam where W5 enforces attestation presence/validity
+ * before trusting the time. Keeping it a function (not a field read) gives W5 one
+ * place to harden without touching `claimAllowed`.
+ */
+export function readAttestedNow(clock: AttestedClock): number {
+  return clock.now;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -376,6 +452,108 @@ function satisfiesNonVacuity(claim: MinimalClaim): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// C6 value-binding (SDD §5 C6; Theorem S precondition (a-value))
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The CLOSED value-grammar C6 will compare over (SDD §5 C6): a JSON SCALAR —
+ * `string | number | boolean | null`. C6 binds a single PROPOSITION field (a
+ * store-open boolean, a status string, a price number), so the comparable
+ * grammar is deliberately the scalars. A value OUTSIDE the grammar (an object,
+ * an array, `undefined`, a `bigint`/`symbol`/function, or a projection that
+ * missed its path) is NOT a single proposition value we can confidently equate →
+ * C6 ABSTAINS on it (→ UNKNOWN, honest ignorance) rather than REFUSING or
+ * silently passing. This keeps C6 demote-only and never over-claims a structural
+ * blob as "the value matched".
+ */
+function withinValueGrammar(v: unknown): boolean {
+  return (
+    v === null ||
+    typeof v === "string" ||
+    typeof v === "number" ||
+    typeof v === "boolean"
+  );
+}
+
+/**
+ * Project a value by an OPTIONAL `path` of own-property segments (SDD §5 C6).
+ * Absent/empty path ⟹ the whole value. Any segment that is not an OWN property
+ * of a non-null object short-circuits to `undefined` (which is outside the closed
+ * grammar → C6 abstains). Pure; read-only own-property access (a non-own /
+ * prototype key never resolves), so it cannot be fooled by `__proto__` etc.
+ */
+function projectValue(
+  value: unknown,
+  path: readonly (string | number)[] | undefined,
+): unknown {
+  if (path === undefined || path.length === 0) return value;
+  let cur: unknown = value;
+  for (const segment of path) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    const obj = cur as Record<PropertyKey, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(obj, segment)) return undefined;
+    cur = obj[segment];
+  }
+  return cur;
+}
+
+/** The per-claim outcome of the C6 value-binding conjunct. */
+type ValueBindingVerdict = "PASS" | "ABSTAIN" | "REFUSED";
+
+/**
+ * C6 — the value-binding conjunct (SDD §5 C6; Theorem S (a-value)). Given a claim
+ * that DECLARES a `valueBinding`, require its rendered `value` to equal the bound
+ * evidence entry's value (both projected by `path`), via the SAME canonical
+ * `sameValue` comparator P2/H3 use (so the over-claim decision can never diverge
+ * from the conflict decision). Three outcomes:
+ *
+ *   - **PASS**    — both projected sides are in the closed scalar grammar AND
+ *                   `sameValue(claimSide, evidenceSide)` (the value is licensed by
+ *                   its evidence).
+ *   - **REFUSED** — both sides in-grammar but they DISAGREE: a value contradicting
+ *                   its licensing evidence is an over-claim/confabulation (the C3
+ *                   contradiction class) → it must DOMINATE like the other REFUSED
+ *                   conjuncts, never UNKNOWN. This is the round-2 (a-value) catch:
+ *                   a model-authored surplus value that does not match the ledger.
+ *   - **ABSTAIN** — the bound key is not present, OR a projected side is OUTSIDE
+ *                   the closed grammar: we cannot prove the binding holds → honest
+ *                   ignorance (→ UNKNOWN), never a free pass.
+ *
+ * C6 is purely DEMOTE-ONLY: it can only turn an otherwise-VALIDATED claim into
+ * UNKNOWN (abstain) or REFUSED (mismatch); it never promotes. A claim with no
+ * `valueBinding` never reaches here (the caller skips C6).
+ */
+function valueBindingVerdict(
+  claim: MinimalClaim,
+  binding: ValueBinding,
+  ledger: EvidenceLedger,
+): ValueBindingVerdict {
+  const resolution = ledger.resolve(binding.key);
+  // The bound key must be PRESENT (it is one of requiredEvidence, so the ∀ has
+  // already gated presence/freshness/provenance; an absent/conflict/error key
+  // already drove the claim to UNKNOWN/REFUSED). If it is not present, we cannot
+  // compare → abstain (honest ignorance), never REFUSE on a missing value.
+  if (resolution.state !== "present" || resolution.entry === undefined) {
+    return "ABSTAIN";
+  }
+
+  const claimSide = projectValue(claim.value, binding.path);
+  const evidenceSide = projectValue(resolution.entry.value, binding.path);
+
+  // Closed value-grammar: only scalar PROPOSITION values are comparable. Outside
+  // the grammar (object/array/undefined/missed-path) → abstain, never REFUSE or
+  // silently pass a structural blob.
+  if (!withinValueGrammar(claimSide) || !withinValueGrammar(evidenceSide)) {
+    return "ABSTAIN";
+  }
+
+  // In-grammar: the rendered value is licensed IFF it equals the evidence value.
+  // A mismatch is an over-claim (the model-authored surplus the binding exists to
+  // catch) → REFUSED (dominates). Reuse the canonical sameValue (do NOT fork).
+  return sameValue(claimSide, evidenceSide) ? "PASS" : "REFUSED";
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // claimAllowed — THE §5 soundness predicate (SDD §E; v1.1 §5; §J.1)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -397,6 +575,18 @@ function satisfiesNonVacuity(claim: MinimalClaim): boolean {
  *     requirement with `freshnessPolicy === "action_outcome"` (a claim whose
  *     evidence IS this turn's Action verdict+dispatch asserts an action outcome
  *     regardless of `kind`).
+ *   - **C6** `valueBinding ⟹ sameValue(value, evidence value)` — when the claim
+ *     declares a value-binding, its RENDERED value must equal the bound evidence
+ *     entry's value (the SAME canonical `sameValue` P2/H3 use). An in-grammar
+ *     mismatch → REFUSED (an over-claim contradicting its licensing evidence —
+ *     the round-2 (a-value) confabulation catch); an unprovable binding (bound key
+ *     absent, or a value outside the closed scalar grammar) → UNKNOWN (abstain).
+ *     OPTIONAL: a claim with no `valueBinding` is unaffected (fail-safe no-op).
+ *   - **Falsifier-completeness** `falsifierComplete ∧ falsifiers ≠ ∅` — else the
+ *     all-pass path is CAPPED to `UNKNOWN` (honest ignorance: we cannot prove no
+ *     falsifier exists). A type defaults to UNKNOWN-only until W5 enumerates its
+ *     falsifiers (fail-safe, demote-only). A `falsifierComplete: true` type with
+ *     an empty `falsifiers[]` is the inconsistent lying case → §R hard THROW.
  *
  * The verdict is the SAFEST (most-restrictive) over all evidences:
  *   - any evidence REFUSED, OR a C0/C4 REFUSED            → `REFUSED`
@@ -413,6 +603,13 @@ export function claimAllowed(
   ledger: EvidenceLedger,
   deps: SoundnessDeps,
 ): ClaimVerdict {
+  // ── §R falsifier-declaration guard (W6). A type with `falsifierComplete: true`
+  // but no enumerated `falsifiers[]` is the inconsistent LYING case — a hard
+  // build/registry-load error (fail-closed, throws). The SAFE-DEFAULT case (no
+  // declaration) does NOT throw; it is forced UNKNOWN-only by the eligibility cap
+  // at the VALIDATED path below. Checked FIRST so a malformed type never validates.
+  assertFalsifierDeclaration(claim);
+
   // ── C0 — no vacuous validation (§E; §R hard error). An empty requirement set
   // has NO backing; it must never auto-VALIDATE the vacuous ∀. → REFUSED
   // (no-backing). This is checked FIRST so the ∀ below can never run over ∅.
@@ -449,9 +646,78 @@ export function claimAllowed(
     return "REFUSED";
   }
 
+  // ── C6 — value-binding (§5 C6; Theorem S (a-value)). When the claim DECLARES a
+  // `valueBinding`, the rendered value must equal its licensing evidence value:
+  //   · mismatch (in-grammar but unequal) → REFUSED (over-claim/confabulation,
+  //     the C3 contradiction class — dominates, like the other REFUSED conjuncts);
+  //   · abstain (bound key not present, or a side outside the closed scalar
+  //     grammar) → UNKNOWN (honest ignorance — remembered, not a free pass).
+  // Demote-only: with no `valueBinding` this is skipped (fail-safe no-op), so the
+  // value-agnostic §5 behavior is byte-identical for every existing claim type.
+  if (claim.valueBinding !== undefined) {
+    // C6 structural guard (F2): binding.key MUST be a member of requiredEvidence so
+    // presence/freshness/provenance/integrity are already §5-gated before C6 compares
+    // the value. A binding.key outside requiredEvidence would let C6 compare an
+    // un-gated ledger entry — fail-closed: throw at validate time (mirror the
+    // assertFalsifierDeclaration hard-error style).
+    const reqKeys = new Set(claim.requiredEvidence.map((e) => e.key));
+    if (!reqKeys.has(claim.valueBinding.key)) {
+      throw new Error(
+        `[adjudicate/soundness] C6 valueBinding.key "${claim.valueBinding.key}" is not a member of requiredEvidence keys — the binding key must be §5-gated (presence/freshness/provenance/integrity) before C6 compares the value.`,
+      );
+    }
+    const c6 = valueBindingVerdict(claim, claim.valueBinding, ledger);
+    if (c6 === "REFUSED") return "REFUSED"; // over-claim — dominates.
+    if (c6 === "ABSTAIN") sawUnknown = true; // cannot prove binding — honest ignorance.
+  }
+
   // ── Any evidence UNKNOWN (and nothing REFUSED) → UNKNOWN (honest ignorance).
   if (sawUnknown) return "UNKNOWN";
 
-  // ── All conjuncts PASS → VALIDATED. This is the ONLY path to VALIDATED.
+  // ── Falsifier-completeness eligibility CAP (W6; inv.17). A claim reaches the
+  // all-pass path here, but it may VALIDATE only if its type has enumerated HOW it
+  // could be falsified (`falsifierComplete: true` ∧ a non-empty `falsifiers[]`).
+  // Otherwise we cannot prove no falsifier exists → honest ignorance → UNKNOWN
+  // (registry §5 missing/stale class). This is a verdict CAP, NOT a new REFUSED:
+  // it only DEMOTES an otherwise-VALIDATED claim to UNKNOWN, never promotes —
+  // preserving the safest-verdict monotonicity. A type defaults to UNKNOWN-only
+  // until W5 declares its falsifiers (fail-safe; existing types keep compiling).
+  if (!isFalsifierComplete(claim)) return "UNKNOWN";
+
+  // ── Falsifier RUNTIME arm (W6 / CE#3 closure). The CAP above is the DECLARATION
+  // half (the type ENUMERATED its falsifiers); THIS is the runtime half — does any
+  // declared falsifier value ACTUALLY FIRE this turn? W6 shipped the ledger
+  // primitive `resolveAgainstFalsifiers` (the cross-key conflict gate) + its tests
+  // but left it UNWIRED; wiring it here closes CE#3 (the cross-source store-hours
+  // falsehood: STORE_OPEN_NOW backed by a fresh schedule key while a present
+  // ScheduleOverride contradicts it; PAYMENT_STATUS=paid while a present
+  // refund/chargeback falsifies it).
+  //
+  // Mechanism: every requiredEvidence key is PRESENT on this all-pass path, so we
+  // resolve one base key AGAINST the declared falsifier keys. If ANY falsifier key
+  // is itself PRESENT (a live, un-conflicted contradicting value), the gate demotes
+  // the base to `conflict` → the claim is falsified → UNKNOWN (honest ignorance;
+  // the contradiction is surfaced, never silently resolved — inv.16). Falsifier
+  // keys that are absent/error/conflict do NOT fire.
+  //
+  // DEMOTE-ONLY & fail-safe: this can ONLY turn an otherwise-VALIDATED claim into
+  // UNKNOWN; it never promotes (the extensibility/inv.17 property). It runs only on
+  // the eligible all-pass path; a non-complete type stays UNKNOWN-capped above.
+  const falsifierKeys = (claim.falsifiers ?? []).map((f) => f.key);
+  if (falsifierKeys.length > 0) {
+    // Any present requiredEvidence key is a valid base (all are present here); the
+    // value-binding key, when declared, is the most semantically pointed one.
+    const baseKey = claim.valueBinding?.key ?? claim.requiredEvidence[0]?.key;
+    if (
+      baseKey !== undefined &&
+      ledger.resolveAgainstFalsifiers(baseKey, falsifierKeys).state ===
+        "conflict"
+    ) {
+      return "UNKNOWN";
+    }
+  }
+
+  // ── All conjuncts PASS ∧ the type is falsifier-complete ∧ no declared falsifier
+  // fired this turn → VALIDATED. This is the ONLY path to VALIDATED.
   return "VALIDATED";
 }

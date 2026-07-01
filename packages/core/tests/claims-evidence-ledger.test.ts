@@ -23,8 +23,17 @@ import {
   EvidenceLedger,
   LEDGER_TAINTS,
   ORIGIN_PROVENANCES,
+  SOURCE_MODES,
+  detectCrossKeyConflicts,
   isLedgerTaint,
   isOriginProvenance,
+  isSnapshotFresh,
+  isSourceMode,
+  normalizeEvidenceEntry,
+  type CrossKeyConflict,
+  type EvidenceEntryInput,
+  type ProvenanceDeriver,
+  type SnapshotToken,
   type EvidenceEntry,
   type EvidenceResolution,
   type LedgerTaint,
@@ -553,6 +562,236 @@ describe("AC6 — sourceMode faithfully recorded: cache distinguishable from liv
     for (const m of modes) {
       expect(led.resolve(m).entry!.sourceMode).toBe(m);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — structural provenance: null-provenance default-deny + deriveProvenance hook
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("W6 — null-provenance default-deny (normalizeEvidenceEntry / record)", () => {
+  it("a valid entry passes through with labels UNCHANGED", () => {
+    const e = entry({ key: "k", originProvenance: "FIRST_PARTY", taint: "TRUSTED" });
+    const n = normalizeEvidenceEntry(e);
+    expect(n.originProvenance).toBe("FIRST_PARTY");
+    expect(n.taint).toBe("TRUSTED");
+    expect(n.sourceMode).toBe("live");
+  });
+
+  it("absent/invalid originProvenance → coerced to UNTRUSTED_DATA (never trusted)", () => {
+    // A structurally-typed-but-mislabeled write (origin omitted) must default-deny.
+    const bad = {
+      key: "k",
+      value: "v",
+      source: "adapter",
+      fetchedAt: 1_000,
+      sourceMode: "live",
+      taint: "TRUSTED",
+      // originProvenance OMITTED — the null-provenance case.
+    } as unknown as EvidenceEntryInput;
+    expect(normalizeEvidenceEntry(bad).originProvenance).toBe("UNTRUSTED_DATA");
+    // A bogus string is likewise coerced down, never up.
+    const bogus = { ...bad, originProvenance: "FIRST_PARTY_LOL" } as unknown as EvidenceEntryInput;
+    expect(normalizeEvidenceEntry(bogus).originProvenance).toBe("UNTRUSTED_DATA");
+  });
+
+  it("absent/invalid taint → UNTRUSTED_DATA; absent/invalid sourceMode → cache", () => {
+    const bad = {
+      key: "k",
+      value: "v",
+      source: "adapter",
+      fetchedAt: 1_000,
+    } as unknown as EvidenceEntryInput;
+    const n = normalizeEvidenceEntry(bad);
+    expect(n.taint).toBe("UNTRUSTED_DATA");
+    expect(n.sourceMode).toBe("cache");
+    expect(n.originProvenance).toBe("UNTRUSTED_DATA");
+  });
+
+  it("record() applies the default-deny: a null-provenance write stores UNTRUSTED_DATA", () => {
+    const led = new EvidenceLedger();
+    led.record({
+      key: "k",
+      value: "v",
+      source: "adapter",
+      fetchedAt: 1_000,
+      sourceMode: "live",
+      taint: "TRUSTED",
+    } as unknown as EvidenceEntryInput);
+    expect(led.resolve("k").entry!.originProvenance).toBe("UNTRUSTED_DATA");
+  });
+
+  it("the write-time-only sourceOfRecord is stripped from the stored entry", () => {
+    const led = new EvidenceLedger();
+    led.record({ ...entry({ key: "k" }), sourceOfRecord: { conn: "pg-5433" } });
+    expect("sourceOfRecord" in led.resolve("k").entry!).toBe(false);
+  });
+
+  it("the SOURCE_MODES tuple + isSourceMode guard are intact", () => {
+    expect(SOURCE_MODES).toEqual(["live", "cache"]);
+    expect(isSourceMode("live")).toBe(true);
+    expect(isSourceMode("nope")).toBe(false);
+  });
+});
+
+describe("W6 — deriveProvenance hook (structural-provenance seam)", () => {
+  // A deriver that maps a source descriptor to FIRST_PARTY for the trusted
+  // connection, UNTRUSTED_DATA otherwise. W5 supplies the real version.
+  const deriver: ProvenanceDeriver = {
+    derive: (src) =>
+      (src as { conn?: string }).conn === "first-party-db"
+        ? { taint: "TRUSTED", originProvenance: "FIRST_PARTY" }
+        : { taint: "UNTRUSTED_DATA", originProvenance: "UNTRUSTED_DATA" },
+  };
+
+  it("with a deriver, sourceOfRecord OVERRIDES the adapter's self-declared labels", () => {
+    const led = new EvidenceLedger("turn", deriver);
+    // Adapter LIES that it is untrusted/third-party; the source IS first-party.
+    led.record({
+      ...entry({ key: "k", taint: "UNTRUSTED_DATA", originProvenance: "TRUSTED_THIRD_PARTY" }),
+      sourceOfRecord: { conn: "first-party-db" },
+    });
+    const e = led.resolve("k").entry!;
+    expect(e.originProvenance).toBe("FIRST_PARTY");
+    expect(e.taint).toBe("TRUSTED");
+  });
+
+  it("a deriver downgrades a self-declared FIRST_PARTY from an untrusted source", () => {
+    const led = new EvidenceLedger("turn", deriver);
+    led.record({
+      ...entry({ key: "k", originProvenance: "FIRST_PARTY", taint: "TRUSTED" }),
+      sourceOfRecord: { conn: "random-3p" },
+    });
+    expect(led.resolve("k").entry!.originProvenance).toBe("UNTRUSTED_DATA");
+  });
+
+  it("with NO sourceOfRecord, the deriver is not consulted (self-declared used)", () => {
+    const led = new EvidenceLedger("turn", deriver);
+    led.record(entry({ key: "k", originProvenance: "TRUSTED_THIRD_PARTY" }));
+    expect(led.resolve("k").entry!.originProvenance).toBe("TRUSTED_THIRD_PARTY");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — CROSS-KEY conflict gate (the falsifier runtime arm; distinct from H3)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("W6 — cross-key conflict (resolveAgainstFalsifiers / detectCrossKeyConflicts)", () => {
+  it("a present base key with NO present falsifier resolves normally (present)", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
+    expect(led.resolveAgainstFalsifiers("open-now", ["override"]).state).toBe(
+      "present",
+    );
+  });
+
+  it("a PRESENT falsifier poisons a present base key → conflict → UNKNOWN", () => {
+    // NON-VACUITY: the SAME base key resolves `present` above; adding a present
+    // falsifier key flips it to conflict. This is DISTINCT from same-key H3 — the
+    // two keys never share a key, so last-write-wins never fired.
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
+    led.record(entry({ key: "override", value: "closed-today" }));
+    const r = led.resolveAgainstFalsifiers("open-now", ["override"]);
+    expect(r.state).toBe("conflict");
+    expect(r.verdict).toBe("UNKNOWN");
+    expect(r.entry).toBeUndefined(); // a poisoned key exposes no concrete value.
+  });
+
+  it("a falsifier can only DEMOTE: an absent base key stays absent (never upgraded)", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "override", value: "x" }));
+    expect(led.resolveAgainstFalsifiers("open-now", ["override"]).state).toBe(
+      "absent",
+    );
+  });
+
+  it("an ABSENT falsifier does NOT fire (provably no falsifier present → base stands)", () => {
+    // F6 — `absent` is the ONLY falsifier state that does not fire. Successfully
+    // determining that no falsifier exists this turn is the normal happy path.
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
+    // "override" is never recorded → absent.
+    expect(led.resolveAgainstFalsifiers("open-now", ["override"]).state).toBe(
+      "present",
+    );
+  });
+
+  it("an ERRORED falsifier DOES fire (fail-closed, symmetric with the base axis) → conflict → UNKNOWN (F6)", () => {
+    // The refund/chargeback falsifier read ERRORED this turn — we cannot prove it did
+    // NOT fire, so the base claim must demote, exactly as the base-key axis demotes to
+    // UNKNOWN on error. (Was the F6 fail-OPEN: an errored falsifier used to leave the
+    // base `present`.)
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "payment-paid", value: true }));
+    led.recordError("refund", "read failed this turn");
+    const r = led.resolveAgainstFalsifiers("payment-paid", ["refund"]);
+    expect(r.state).toBe("conflict");
+    expect(r.verdict).toBe("UNKNOWN");
+    expect(r.entry).toBeUndefined(); // a poisoned key exposes no concrete value.
+  });
+
+  it("a CONFLICTED falsifier DOES fire → conflict → UNKNOWN (F6)", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
+    led.record(entry({ key: "confl", value: "a" }));
+    led.record(entry({ key: "confl", value: "b" })); // same-key conflict on confl.
+    const r = led.resolveAgainstFalsifiers("open-now", ["confl"]);
+    expect(r.state).toBe("conflict");
+    expect(r.verdict).toBe("UNKNOWN");
+  });
+
+  it("detectCrossKeyConflicts returns the falsified base keys for a table", () => {
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto" }));
+    led.record(entry({ key: "override", value: "closed" }));
+    led.record(entry({ key: "payment-paid", value: true }));
+    // refund key NOT recorded → payment-paid is NOT falsified.
+    const table: readonly CrossKeyConflict[] = [
+      { key: "open-now", falsifierKey: "override" },
+      { key: "payment-paid", falsifierKey: "refund" },
+    ];
+    expect(detectCrossKeyConflicts(led, table)).toEqual(["open-now"]);
+  });
+
+  it("inv.16: a cross-key contradiction is ALWAYS UNKNOWN, never integrity-ranked away", () => {
+    // Even if the falsifier value 'looks weaker', the gate never resolves the
+    // contradiction by ranking — it is UNKNOWN. (No resolver arg exists to rank.)
+    const led = new EvidenceLedger();
+    led.record(entry({ key: "open-now", value: "aberto", taint: "TRUSTED" }));
+    led.record(entry({ key: "override", value: "x", taint: "UNTRUSTED_DATA" }));
+    expect(led.resolveAgainstFalsifiers("open-now", ["override"]).verdict).toBe(
+      "UNKNOWN",
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// W6 — render-time freshness re-check (snapshotToken / isSnapshotFresh)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("W6 — render-time freshness re-check (source-version token)", () => {
+  it("a token captured at validate time is FRESH if the ledger has not mutated", () => {
+    const led = new EvidenceLedger("turn-1");
+    led.record(entry({ key: "k" }));
+    const token = led.snapshotToken();
+    // No write between capture and re-check → still fresh.
+    expect(isSnapshotFresh(token, led)).toBe(true);
+  });
+
+  it("NON-VACUITY: a write between validate and render makes the token STALE", () => {
+    const led = new EvidenceLedger("turn-1");
+    led.record(entry({ key: "k" }));
+    const token = led.snapshotToken();
+    led.record(entry({ key: "k2" })); // a TOCTOU mutation after validate.
+    expect(isSnapshotFresh(token, led)).toBe(false);
+  });
+
+  it("a token from a DIFFERENT snapshot is never fresh (fail-closed)", () => {
+    const a = new EvidenceLedger("turn-A");
+    const b = new EvidenceLedger("turn-B");
+    const tokenA: SnapshotToken = a.snapshotToken();
+    expect(isSnapshotFresh(tokenA, b)).toBe(false);
   });
 });
 

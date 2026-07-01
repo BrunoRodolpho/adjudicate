@@ -54,7 +54,9 @@ const GUARDS: ReadonlyArray<Guard> = [
     icon: Fingerprint,
     title: "Intent verification",
     tag: "intentHash",
-    body: "intentHash binds kind + payload + taint — no tampering, no replay.",
+    body: "intentHash content-addresses all eight intent fields — version, kind, payload, nonce, actor, taint, origin, and resourceRefs when present — so a tampered intent is re-derived and refused fail-closed.",
+    caveat:
+      "Replays are suppressed when an Execution Ledger is wired — the hash is the dedup key.",
     accent: "brand",
   },
   {

@@ -73,6 +73,17 @@ const ROOT_FROZEN: ReadonlyArray<string> = [
   "validateOutputShape",
   // (Item 2) side-effect taint-floor vocabulary:
   "DEFAULT_SIDE_EFFECT_FLOOR",
+  // Plan 1 / Theorem E (E-1) — RenderedReply egress carrier: the closed minter
+  // set + the egress unwrap gate. The brand symbol + WeakSet stay module-private
+  // (not exported). Removal is a release-blocker.
+  "mintRenderedReply",
+  "mintCronReply",
+  "mintReceiptReply",
+  "mintOtpReply",
+  "mintBroadcastReply",
+  "mintFallbackReply",
+  "wrapLegacyResponderText",
+  "unwrapRendered",
 ];
 
 const KERNEL_FROZEN: ReadonlyArray<string> = [

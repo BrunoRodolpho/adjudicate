@@ -7,8 +7,8 @@ import { DrawOnScroll } from "@/components/motion/DrawOnScroll";
 /**
  * DecisionFan — the "beyond block-or-allow" centerpiece: one proposed intent
  * fans through the kernel into the six structured outcomes, each in its decision
- * colour. EXECUTE / REFUSE are the allow/deny pair; the other four are what a
- * permission engine can't express. The fan strokes ink in on scroll
+ * colour. EXECUTE / REFUSE are the allow/deny pair; the other four are outcomes
+ * a yes/no permission engine doesn't model. The fan strokes ink in on scroll
  * (`DrawOnScroll`), reduced-motion-safe. Dark "control room" palette.
  */
 

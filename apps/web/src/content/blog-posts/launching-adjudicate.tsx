@@ -35,8 +35,10 @@ export function LaunchingAdjudicate() {
       </p>
       <Code code={SAMPLE} lang="ts" />
       <p>
-        Two of those — DEFER and REWRITE — are the answers OPA and Cedar
-        can&apos;t express. DEFER models async-as-first-class: the kernel parks
+        Two of those — DEFER and REWRITE — are outcomes a yes/no policy engine
+        doesn&apos;t return natively. Cedar returns a binary Allow/Deny; OPA can
+        emit arbitrary JSON but ships no REWRITE re-adjudication or DEFER
+        park-and-resume. DEFER models async-as-first-class: the kernel parks
         an intent on an external signal (a payment webhook, a vendor
         callback, a CI green) and re-adjudicates when the signal arrives.
         REWRITE lets the kernel return a sanitised replacement envelope —

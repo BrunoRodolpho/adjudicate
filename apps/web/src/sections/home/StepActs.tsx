@@ -94,7 +94,8 @@ export function StepActs() {
         </figure>
 
         <p className="max-w-md text-center text-sm text-muted">
-          Nothing has run yet. Every AI action passes through the kernel first.
+          Nothing has run yet. Every state-mutating AI action passes through the
+          kernel first.
         </p>
 
         <ArrowDown

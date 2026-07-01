@@ -233,7 +233,7 @@ const redactTicketPii = createDataClassificationGuard<string, unknown, unknown>(
     title: "Cap LLM token spend per session",
     seoTitle: "How to cap LLM token spend per session | Adjudicate",
     seoDescription:
-      "Enforce a per-session token budget held in state. Once an agent crosses the cap, the next step is REFUSEd — a hard, replay-verifiable cost ceiling, not an unbounded bill.",
+      "Enforce a per-session token budget held in state. Once an agent crosses the cap, the next step is REFUSEd — a bounded, replay-verifiable cost ceiling, not an unbounded bill.",
     problem:
       "A runaway agent loop keeps calling the model. Without a hard ceiling, the only thing that stops it is the bill. You want a per-session budget the kernel enforces, with the counter living in audited state.",
     guardOrPack: {

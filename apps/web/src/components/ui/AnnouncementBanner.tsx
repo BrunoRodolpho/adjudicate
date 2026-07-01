@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { SITE } from "@/content/site";
 
 /** localStorage flag — bump the suffix to re-show the banner on a new wave. */
-const DISMISS_KEY = "adj-banner-v1";
+const DISMISS_KEY = "adj-banner-v2";
 
 /**
  * Slim, dismissible announcement strip mounted above the sticky nav. On the
@@ -59,7 +59,7 @@ export function AnnouncementBanner() {
             {SITE.name} core
           </span>{" "}
           is {SITE.versionLabel}
-          <span className="hidden sm:inline"> — production-ready &amp; API-frozen</span>
+          <span className="hidden sm:inline"> — published to npm &amp; API-stable (additive-only)</span>
         </p>
         <a
           href={SITE.releaseNotesHref}

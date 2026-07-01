@@ -55,7 +55,7 @@ export const POSTS: ReadonlyArray<Post> = [
     date: "2026-05-13",
     author: "the adjudicate team",
     summary:
-      "Adjudicate is a deterministic policy-and-audit kernel for AI agent workflows. The v1 core ships six Decision outcomes, a replay-safe audit ledger, signed receipts, and an operator console.",
+      "Adjudicate is a deterministic policy-and-audit kernel for AI agent workflows. The v1 core ships six Decision outcomes, a replay-safe audit ledger, tamper-evident receipts (optionally signed), and an operator console.",
     tags: ["Announcement", "Architecture"],
     body: LaunchingAdjudicate,
   },

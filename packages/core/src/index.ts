@@ -16,6 +16,22 @@ export * from "./taint.js";
 export type { Origin } from "./taint.js";
 export { DEFAULT_ORIGIN } from "./taint.js";
 export * from "./side-effects.js";
+// Plan 1 / Theorem E (E-1): the runtime-non-forgeable customer-egress carrier.
+// Exports the opaque type + the closed minter set + the egress unwrap gate.
+// The brand `unique symbol` and the provenance WeakSet are module-private and
+// intentionally NOT re-exported (a second exported identity = a second
+// forgeable brand).
+export {
+  type RenderedReply,
+  mintRenderedReply,
+  mintCronReply,
+  mintReceiptReply,
+  mintOtpReply,
+  mintBroadcastReply,
+  mintFallbackReply,
+  wrapLegacyResponderText,
+  unwrapRendered,
+} from "./rendered-reply.js";
 export * from "./pack-output-contract.js";
 export * from "./audit.js";
 // 021 — capability schema + pure-JS canonical pre-image + constant-time

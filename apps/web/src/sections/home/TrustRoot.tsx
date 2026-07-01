@@ -69,7 +69,7 @@ export function TrustRoot() {
               { text: "Capability", tone: "right" },
               { text: "Execution", tone: "right" },
             ]}
-            note="The LLM only proposes. A deterministic kernel decides, mints a single scoped capability, and only then does anything execute."
+            note="The LLM only proposes. A deterministic kernel decides — and only an EXECUTE verdict reaches the tool; nothing else runs. That verdict can be carried as a single-use, intent-bound capability the executor must redeem first — an available hardening, off by default."
           />
         </div>
       </div>

@@ -1,5 +1,12 @@
 # @adjudicate/analyze
 
+## 0.4.5
+
+### Patch Changes
+
+- Updated dependencies [efabb92]
+  - @adjudicate/core@1.8.0
+
 ## 0.4.4
 
 ### Patch Changes

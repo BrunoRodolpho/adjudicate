@@ -27,7 +27,7 @@
 // ─────────────────────────────────────────────────────────
 // The single mint site is `runClaimsKernel` (kernels.ts), called on each member
 // of the `renderable` set — the VALIDATED ∧ P2-consistent survivors. The guarantee
-// the mint carries is precise — and DELIBERATELY NARROW (see the F2 caveat below):
+// the mint carries is precise — and DELIBERATELY NARROW (see the F2 note below):
 //   · `VALIDATED` alone does NOT imply C6 ran: a type WITHOUT a `valueBinding`
 //     skips C6 (soundness.ts) and can still reach VALIDATED.
 //   · The renderer only fills PROPOSITION slots; the ClaimDefinition compiler's
@@ -41,21 +41,18 @@
 //     VALIDATED). So the SLICE of the value the renderer actually reads is provably
 //     LEDGER-derived, not a model confabulation.
 //
-// F2 CAVEAT — the guarantee is scoped to the C6-BOUND PATH ONLY, NOT the whole
-// carried value. The mint flows the renderable claim's ENTIRE `value`, but C6
-// (soundness.ts `valueBindingVerdict`) compares ONLY `projectValue(value,
-// valueBinding.path)` against the ledger. Any SIBLING field of a value OBJECT — e.g.
-// `value = { open: true, message: "<model prose>" }` bound at path `["open"]` — rides
-// through UNVALIDATED: it is model content, NOT ledger-derived. This is currently SAFE
-// end-to-end only because INV-1 means the renderer never reads a non-projected sibling
-// (every render slot reads the bound projection), so an unvalidated sibling cannot
-// reach a customer. But the carried object is WIDER than the proven slice — do NOT
-// treat `CanonicalClaim.value`'s non-bound fields as validated.
-// TODO(F2): narrow the minted value to ONLY ledger-derived/projected content
-// (reconstruct it from the verified projection, or strip fields with no backing
-// projection) so the carrier matches the guarantee. Requires threading the
-// per-candidate `valueBinding` into the mint AND confirming the downstream (ibatexas)
-// renderer reads `value` solely via declared projections before narrowing.
+// F2 (RESOLVED) — the minted value is NARROWED at the mint site to its C6-proven
+// slice, so the carrier is no longer wider than the guarantee. Previously the mint
+// flowed the renderable claim's ENTIRE `value`, so a SIBLING field of a value OBJECT
+// — e.g. `value = { open: true, message: "<model prose>" }` bound at path `["open"]`
+// — rode through UNVALIDATED (model content, NOT ledger-derived), safe only because
+// INV-1 keeps the renderer from reading a non-projected sibling. `runClaimsKernel`
+// now reconstructs a minimal value carrying ONLY `valueBinding.path` (kernels.ts
+// `pickPath`): for any type WITH a `valueBinding`, `projectValue(value,
+// valueBinding.path)` is unchanged (still the C6-verified, ledger-derived scalar)
+// while every unbound sibling is GONE — unreachable via `unwrapCanonical`. A type
+// with NO `valueBinding` never ran C6 and (INV-1) exposes no proposition slot that
+// reads its value, so its value is carried UNCHANGED (that path is not regressed).
 
 /**
  * The module-private brand key. NEVER exported. Because the symbol is not in
@@ -77,12 +74,12 @@ declare const canonicalBrand: unique symbol;
  * Carries exactly the renderer-relevant identity of a renderable claim:
  *   - `subject` — the same-subject partition key (P2);
  *   - `type`    — the registry type name (selects the render template);
- *   - `value`   — the domain proposition the renderer fills from. Provably
- *                 ledger-bound AT THE C6 `valueBinding` PATH for any claim with a
- *                 render proposition; SIBLING fields of a value object are carried
- *                 UNVALIDATED (model content) — see the F2 caveat in the mint-site
- *                 soundness note above. INV-1 keeps the renderer reading only the
- *                 bound projection, so siblings never reach a customer.
+ *   - `value`   — the domain proposition the renderer fills from. For any claim with
+ *                 a render proposition (⟹ a `valueBinding`), the mint NARROWS this to
+ *                 the C6-proven slice: only `valueBinding.path` is carried, so the
+ *                 value is provably ledger-bound and unbound siblings are STRIPPED
+ *                 (F2, RESOLVED — see the mint-site soundness note above). A type
+ *                 with no `valueBinding` carries its value unchanged.
  */
 export interface CanonicalClaim {
   readonly subject: string;

@@ -496,7 +496,13 @@ function hasPropositionSlot(render: RenderSource | undefined): boolean {
 }
 
 /**
- * Compile ONE `ClaimDefinitionSource` into its full runtime IMAGE. PURE + TOTAL; it
+ * Compile ONE `ClaimDefinitionSource` into its full runtime IMAGE. PURE
+ * (deterministic — no IO, clock, or RNG) but NOT total: it THROWS fail-closed on a
+ * structurally-invalid definition — specifically a render block that declares a
+ * PROPOSITION slot with NO `valueBinding` (the F7 guard below) — rather than emit an
+ * artifact that fails its own validator. This mirrors the §R hard registry-load-error
+ * pattern, and is DISTINCT from the sibling `validateClaimDefinition`, which reports
+ * the same structural defect by RETURNING `{ ok: false }` instead of throwing. It
  * NEVER switches on `def.type`; adding a claim type adds a source file and ZERO
  * interpreter code. The returned bundle is what a downstream generator serializes to
  * GENERATED files (registry spec, projector data, template, validator-wiring def,

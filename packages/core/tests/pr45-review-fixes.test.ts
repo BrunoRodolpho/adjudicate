@@ -132,12 +132,12 @@ describe("F1 — renderableCanonical is empty on a non-RENDER (ESCALATE) termina
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// F2 — the C6 / CanonicalClaim guarantee is scoped to the BOUND PATH only.
-// (Documentation-scope fix — this is a CHARACTERIZATION test of the scope.)
+// F2 — the minted CanonicalClaim value is NARROWED to its C6-proven slice.
+// (RESOLVED — a BEHAVIOR fix: the mint now strips unbound model siblings.)
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("F2 — minted CanonicalClaim value: the C6 guarantee is bound-path-scoped", () => {
-  it("the C6-bound projection is ledger-derived; sibling fields ride through UNVALIDATED", () => {
+describe("F2 — minted CanonicalClaim value is narrowed to the C6-bound path", () => {
+  it("carries the ledger-derived bound path and STRIPS the unvalidated sibling", () => {
     const ledger = new EvidenceLedger();
     // The ledger holds ONLY the bound field; the model adds a surplus sibling.
     recordTrusted(ledger, "schedule", { open: true });
@@ -159,14 +159,35 @@ describe("F2 — minted CanonicalClaim value: the C6 guarantee is bound-path-sco
     expect(result.renderableCanonical).toHaveLength(1);
 
     const minted = unwrapCanonical(result.renderableCanonical[0]!);
-    const value = minted.value as { open: boolean; message?: string };
-    // GUARANTEE that DOES hold: the C6-bound path equals the ledger value.
+    const value = minted.value as { open?: boolean; message?: string };
+    // GUARANTEE that holds: the C6-bound path is still present and equals the ledger
+    // value — projectValue(value, ["open"]) yields the same bound scalar as before.
     expect(value.open).toBe(true);
-    // SCOPE (F2 caveat, now documented): the unvalidated sibling is STILL carried by
-    // the mint — the carrier is wider than the proven slice. INV-1 keeps the renderer
-    // from ever reading it, but the kernel does not (yet) strip it. If a future fix
-    // narrows the minted value to ledger-derived content, update this expectation.
-    expect(value.message).toBe("venha nos visitar!");
+    // CORRECTED EXPECTATION — F2 previously asserted the sibling RODE THROUGH
+    // UNVALIDATED (`value.message === "venha nos visitar!"`). The mint now NARROWS the
+    // value to ONLY the bound path (kernels.ts `pickPath`), so the model-authored
+    // sibling is GONE — it can no longer be reached via `unwrapCanonical`.
+    expect("message" in value).toBe(false);
+    expect(value.message).toBeUndefined();
+  });
+
+  it("a no-valueBinding renderable type carries its value UNCHANGED (non-vacuity control)", () => {
+    const ledger = new EvidenceLedger();
+    recordTrusted(ledger, "key-b", "present");
+    // No `valueBinding` declared → C6 never ran, and INV-1 means the render block has
+    // no proposition slot reading this value, so the whole model value must survive
+    // the mint untouched (the narrowing must NOT regress the value-agnostic path).
+    const modelValue = { open: true, message: "venha nos visitar!" };
+    const candidates: readonly CandidateClaim[] = [
+      { soundness: publicClaim(req("key-b")), subject: "store-2", type: "STORE_HOURS", value: modelValue },
+    ];
+
+    const result = runClaimsKernel(ledger, candidates, DEPS);
+    expect(result.terminal).toBe("RENDER");
+    expect(result.renderableCanonical).toHaveLength(1);
+
+    const minted = unwrapCanonical(result.renderableCanonical[0]!);
+    expect(minted.value).toEqual({ open: true, message: "venha nos visitar!" });
   });
 });
 

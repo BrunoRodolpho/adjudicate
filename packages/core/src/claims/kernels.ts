@@ -51,6 +51,7 @@ import { claimAllowed } from "./soundness.js";
 import type {
   MinimalClaim,
   SoundnessDeps,
+  ValueBinding,
 } from "./soundness.js";
 import { checkConsistency } from "./consistency.js";
 import type {
@@ -366,13 +367,18 @@ export interface ClaimsKernelResult {
   readonly terminal: TurnTerminal;
   readonly consistency: ConsistencyResult;
   /**
-   * inv.17 — the `renderable` set, RE-MINTED as kernel-stamped `CanonicalClaim`s
-   * (one per `renderable` member, same order). This is the renderer's REQUIRED
-   * input: it is the ONLY place a CanonicalClaim is minted, and it is reachable
-   * ONLY here, after the claim fully VALIDATED (the §5 predicate, incl. C6
-   * value-binding) and survived P2 consistency. An empty array on every
-   * non-RENDER terminal (incl. STAGE-FAIL-CLOSED). Additive: existing consumers
-   * may keep reading `renderable`; the renderer migrates to this field.
+   * inv.17 — the `renderable` set, RE-MINTED as kernel-stamped `CanonicalClaim`s.
+   * This is the renderer's REQUIRED input: it is the ONLY place a CanonicalClaim
+   * is minted, and it is reachable ONLY here, after the claim fully VALIDATED (the
+   * §5 predicate, incl. C6 value-binding) and survived P2 consistency. It is
+   * populated ONLY when `terminal === 'RENDER'`; it is EMPTY on every non-RENDER
+   * terminal (ESCALATE/UNKNOWN/CLARIFY, incl. STAGE-FAIL-CLOSED) — INCLUDING the
+   * F1 ESCALATE lone-survivor case, where `renderable` is NON-empty while
+   * `renderableCanonical` is []. `renderableCanonical` and `renderable` therefore
+   * DIVERGE on non-RENDER terminals and carry NO length/index parity: consumers
+   * must NOT zip or index-align the two arrays across terminals — read
+   * `renderableCanonical` only under RENDER. Additive: existing consumers may keep
+   * reading `renderable`; the renderer migrates to this field.
    */
   readonly renderableCanonical: readonly CanonicalClaim[];
 }
@@ -513,11 +519,33 @@ export function runClaimsKernel(
   // renderer a canonical claim on an ESCALATE turn. Mint ONLY when the turn actually
   // RENDERs; on every other terminal the renderer-input is empty (the stageFailClosed
   // path already returns []).
+  //
+  // F2 — NARROW the minted value to its C6-proven slice. A renderable claim whose
+  // TYPE declares a `valueBinding` had C6 compare ONLY `projectValue(value, path)`
+  // against the ledger (soundness.ts); any SIBLING field of a value OBJECT rode
+  // through UNVALIDATED (model content). We reconstruct a minimal value carrying ONLY
+  // the bound path, so `projectValue(minted, path)` yields the SAME C6-verified scalar
+  // but siblings (e.g. a model-authored `message`) are GONE — an unbound sibling is
+  // now UNREACHABLE via `unwrapCanonical`. The per-type binding is recovered from the
+  // candidates (`valueBinding` is a per-registry-type property, so all candidates of a
+  // type share it) keyed by the renderable claim's `${subject}|${type}` identity. A
+  // type with NO `valueBinding` never ran C6 and (INV-1) exposes no proposition slot
+  // that reads its value → carry the value UNCHANGED (do not regress that path).
+  const bindingBySubjectType = new Map<string, ValueBinding | undefined>();
+  for (const candidate of candidates) {
+    bindingBySubjectType.set(
+      `${candidate.subject}|${candidate.type}`,
+      candidate.soundness.valueBinding,
+    );
+  }
   const renderableCanonical =
     terminal === "RENDER"
-      ? consistency.renderable.map((c) =>
-          mintCanonicalClaim(c.subject, c.type, c.value),
-        )
+      ? consistency.renderable.map((c) => {
+          const binding = bindingBySubjectType.get(`${c.subject}|${c.type}`);
+          const mintedValue =
+            binding === undefined ? c.value : pickPath(c.value, binding.path);
+          return mintCanonicalClaim(c.subject, c.type, mintedValue);
+        })
       : [];
 
   return {
@@ -551,6 +579,42 @@ function stageFailClosed(
     terminal: STAGE_FAIL_CLOSED_TERMINAL,
     consistency: { renderable: [], terminal: "ESCALATE", suppressions: [] },
   };
+}
+
+/**
+ * F2 — reconstruct a MINIMAL value carrying ONLY the C6-bound `path` of `value`,
+ * dropping every unbound sibling. For a type that declares a `valueBinding`, C6
+ * (soundness.ts) proved ONLY `projectValue(value, path)` against the ledger and the
+ * renderer (INV-1) reads solely that projection; a sibling field of a value OBJECT is
+ * unvalidated model content. This narrows the minted `CanonicalClaim.value` to the
+ * proven slice: `projectValue(pickPath(v, path), path)` equals `projectValue(v, path)`,
+ * but no sibling survives. An absent/empty path binds the WHOLE value (§5 compares it
+ * whole) → return it unchanged. PURE; own-property reads only (a prototype/non-own key
+ * never resolves), mirroring `projectValue` in soundness.ts.
+ */
+function pickPath(
+  value: unknown,
+  path: readonly (string | number)[] | undefined,
+): unknown {
+  if (path === undefined || path.length === 0) return value;
+  // Project to the bound leaf (own-property only). For a renderable claim this
+  // ALWAYS resolves to an in-grammar scalar — C6 PASSED, which requires it — but a
+  // missing segment fails safe to `undefined` rather than reading a prototype key.
+  let leaf: unknown = value;
+  for (const segment of path) {
+    if (leaf === null || typeof leaf !== "object") {
+      leaf = undefined;
+      break;
+    }
+    const obj = leaf as Record<PropertyKey, unknown>;
+    leaf = Object.prototype.hasOwnProperty.call(obj, segment) ? obj[segment] : undefined;
+  }
+  // Rebuild the minimal nested object holding ONLY `path` → leaf; siblings dropped.
+  let rebuilt: unknown = leaf;
+  for (let i = path.length - 1; i >= 0; i--) {
+    rebuilt = { [path[i]!]: rebuilt };
+  }
+  return rebuilt;
 }
 
 /**

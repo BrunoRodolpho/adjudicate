@@ -1,5 +1,14 @@
 # @adjudicate/bench
 
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [efabb92]
+  - @adjudicate/core@1.8.0
+  - @adjudicate/audit@7.0.0
+  - @adjudicate/pack-payments-pix@0.3.3
+
 ## 0.0.8
 
 ### Patch Changes

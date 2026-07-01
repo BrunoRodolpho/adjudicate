@@ -1,5 +1,12 @@
 # @adjudicate/runtime
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [efabb92]
+  - @adjudicate/core@1.8.0
+
 ## 0.3.2
 
 ### Patch Changes

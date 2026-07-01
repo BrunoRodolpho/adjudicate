@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { Command } from "commander";
 import { runAnalyze, type AnalyzeFormat } from "./commands/analyze.js";
 import { runAnalyzeComposition } from "./commands/analyze-composition.js";
@@ -20,6 +21,16 @@ import { runSimulate } from "./commands/simulate.js";
 import { runVisualize } from "./commands/visualize.js";
 import type { SimulationFormat } from "./lib/simulate-renderer.js";
 
+// The CLI advertises its own version. Read it from package.json at RUNTIME rather
+// than a hardcoded string, so it can NEVER drift from the published package version:
+// changesets bumps package.json only, and a stale literal previously broke the release
+// PR's version-consistency gate. `../package.json` resolves identically from the built
+// `dist/bin.js` and from `src/bin.ts` under tsx (both sit one level below the package
+// root). check-versions.ts forbids re-introducing a hardcoded version string literal.
+const { version } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
+
 const program = new Command();
 
 program
@@ -27,7 +38,7 @@ program
   .description(
     "adjudicate framework CLI — Pack lifecycle commands for policy authors",
   )
-  .version("0.4.3");
+  .version(version);
 
 // Commands listed in alphabetical order matching the eventual `--help` layout.
 

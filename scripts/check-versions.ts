@@ -8,8 +8,10 @@
  *      dep ranges against each other (e.g., `@adjudicate/audit`
  *      pinning `@adjudicate/core: ^0.5.0` while `core/package.json`
  *      says `1.0.0`).
- *   3. `@adjudicate/cli` `version()` constant matches the package.json
- *      version (the CLI binary advertises its own version separately).
+ *   3. `@adjudicate/cli` `bin.ts` does NOT hardcode a `.version("…")` string
+ *      literal — it must derive its advertised version from package.json at
+ *      runtime, so the two can never drift (a stale literal previously broke
+ *      the changesets release PR, which bumps package.json but not source).
  *
  * Designed to run pre-publish; exits non-zero on any inconsistency.
  *
@@ -94,21 +96,24 @@ for (const [name, pj] of pkgByName) {
   checkDepConsistency(name, pj.devDependencies, "devDependencies");
 }
 
-// CLI version() constant alignment.
+// CLI version derivation. bin.ts must NOT hardcode a `.version("x.y.z")` string
+// literal — it must read the version from package.json at runtime so the advertised
+// version can never drift from the published one. A hardcoded literal is exactly the
+// drift that broke the changesets release PR (package.json bumped, source not).
 try {
   const cliBin = readFileSync(
     join(PACKAGES_DIR, "cli", "src", "bin.ts"),
     "utf-8",
   );
-  const match = /\.version\("([^"]+)"\)/.exec(cliBin);
-  const cliPkg = pkgByName.get("@adjudicate/cli");
-  if (match && cliPkg) {
-    const declaredInBin = match[1]!;
-    if (declaredInBin !== cliPkg.version) {
-      errors.push(
-        `@adjudicate/cli: bin.ts advertises version "${declaredInBin}" but package.json is "${cliPkg.version}"`,
-      );
-    }
+  const hardcoded = /\.version\(\s*"[^"]+"\s*\)/.exec(cliBin);
+  if (hardcoded) {
+    errors.push(
+      `@adjudicate/cli: bin.ts hardcodes a .version() string literal (${hardcoded[0]}); derive the version from package.json at runtime (e.g. readFileSync(new URL("../package.json", import.meta.url))) so it cannot drift.`,
+    );
+  } else if (!/\.version\(/.test(cliBin)) {
+    errors.push(
+      `@adjudicate/cli: bin.ts no longer calls .version(); the CLI must still advertise its package.json version.`,
+    );
   }
 } catch {
   // If the CLI bin moves, the check becomes advisory rather than load-bearing.

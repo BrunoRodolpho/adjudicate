@@ -1,5 +1,13 @@
 # @adjudicate/approval-engine
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [efabb92]
+  - @adjudicate/core@1.8.0
+  - @adjudicate/adapter-core@0.4.3
+
 ## 0.3.2
 
 ### Patch Changes

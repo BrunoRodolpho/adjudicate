@@ -1,5 +1,15 @@
 # @adjudicate/adapter-core
 
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [efabb92]
+  - @adjudicate/core@1.8.0
+  - @adjudicate/audit@7.0.0
+  - @adjudicate/conformance@6.0.0
+  - @adjudicate/runtime@0.3.3
+
 ## 0.4.2
 
 ### Patch Changes

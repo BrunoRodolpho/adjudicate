@@ -1,5 +1,12 @@
 # @adjudicate/observability
 
+## 6.0.0
+
+### Patch Changes
+
+- Updated dependencies [efabb92]
+  - @adjudicate/core@1.8.0
+
 ## 5.0.0
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/bench",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "private": true,
   "description": "Performance characterization benchmarks for @adjudicate/* hot paths. Outputs p50/p95/p99 captured in docs/perf/.",
   "type": "module",

@@ -1,5 +1,12 @@
 # @adjudicate/primitives
 
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies [e650c37]
+  - @adjudicate/core@1.9.0
+
 ## 0.4.3
 
 ### Patch Changes

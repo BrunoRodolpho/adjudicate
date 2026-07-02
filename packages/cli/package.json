@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/cli",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "adjudicate framework CLI — Pack lifecycle commands (init, lint, doctor) for policy authors.",
   "publishConfig": {
     "access": "public"

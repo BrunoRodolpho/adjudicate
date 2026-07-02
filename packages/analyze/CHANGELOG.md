@@ -1,5 +1,12 @@
 # @adjudicate/analyze
 
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [e650c37]
+  - @adjudicate/core@1.9.0
+
 ## 0.4.5
 
 ### Patch Changes

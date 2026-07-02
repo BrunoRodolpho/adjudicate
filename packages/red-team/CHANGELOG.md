@@ -1,5 +1,12 @@
 # @adjudicate/red-team
 
+## 0.3.4
+
+### Patch Changes
+
+- Updated dependencies [e650c37]
+  - @adjudicate/core@1.9.0
+
 ## 0.3.3
 
 ### Patch Changes

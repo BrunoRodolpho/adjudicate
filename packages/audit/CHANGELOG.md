@@ -1,5 +1,13 @@
 # @adjudicate/audit
 
+## 8.0.0
+
+### Patch Changes
+
+- Updated dependencies [e650c37]
+  - @adjudicate/core@1.9.0
+  - @adjudicate/admin-sdk@8.0.0
+
 ## 7.0.0
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @adjudicate/conformance
 
+## 7.0.0
+
+### Patch Changes
+
+- Updated dependencies [e650c37]
+  - @adjudicate/core@1.9.0
+
 ## 6.0.0
 
 ### Patch Changes

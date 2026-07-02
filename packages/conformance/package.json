@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/conformance",
-  "version": "6.0.0",
+  "version": "7.0.0",
   "description": "Public Pack conformance harness — runs the kernel's invariant suite (taint protection, replay safety, intent-hash determinism, basis-vocabulary purity, guard ordering, default polarity) against any PackV0.",
   "publishConfig": {
     "access": "public"

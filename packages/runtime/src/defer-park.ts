@@ -117,6 +117,16 @@ export interface ParkDeferredIntentArgs {
     readonly nonce?: string
     readonly taint?: Taint
     readonly actorPrincipal?: IntentActor["principal"]
+    /**
+     * WS7 — the OPTIONAL, opaque `actor.role` carrier, part of the
+     * intentHash recipe WHEN the envelope carries it (bound via `actor`).
+     * Canonical-drop-safe: a no-role blob omits it and re-derives
+     * byte-identically, but a role-CARRYING envelope MUST store it so
+     * `verifyParkedEnvelopeHash` re-derives the same hash
+     * `buildEnvelope`/`deriveIntentHash` produced — omitting it would
+     * false-tamper every role-carrying resume. Mirrors `resourceRefs`.
+     */
+    readonly actorRole?: IntentActor["role"]
     /** 041 — provenance source axis; part of the intentHash recipe. */
     readonly origin?: Origin
     /**
@@ -146,7 +156,8 @@ export interface ParkDeferredIntentArgs {
    *
    * The returned value is stored verbatim; it MUST preserve the fields
    * required for `verifyParkedEnvelopeHash` (intentHash, kind, actor,
-   * version, nonce, taint, actorPrincipal if hash verification is wired).
+   * version, nonce, taint, actorPrincipal — plus actorRole when the
+   * envelope carries `actor.role` — if hash verification is wired).
    *
    * When omitted the envelope is stored as-is. Production deployments that
    * park envelopes containing PII MUST supply this hook or use field-level

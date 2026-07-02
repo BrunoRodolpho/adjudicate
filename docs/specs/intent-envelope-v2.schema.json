@@ -53,6 +53,11 @@
         "sessionId": {
           "type": "string",
           "minLength": 1
+        },
+        "role": {
+          "description": "OPTIONAL, OPAQUE adopter role carrier (WS7). Adopter vocabulary (e.g. OWNER / MANAGER / ATTENDANT) — the kernel assigns it NO meaning and no built-in guard consults it; adopter packs may read it via `envelope.actor.role` for role-aware guards. Orthogonal to BOTH the provenance `principal` axis AND the authority graph's identity binding. Canonical-drop-safe: when absent it is dropped from the `intentHash` pre-image (mirroring `resourceRefs`), so a no-role envelope hashes byte-identically to pre-change envelopes; when present it is bound into `intentHash` via `actor` (tamper-evident). Not in `required` precisely because it is optional/drop-safe.",
+          "type": "string",
+          "minLength": 1
         }
       }
     },

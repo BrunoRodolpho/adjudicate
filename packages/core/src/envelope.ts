@@ -228,6 +228,25 @@ export interface IntentActor {
   readonly principal: "llm" | "user" | "system";
   readonly sessionId: string;
   /**
+   * OPTIONAL, OPAQUE adopter role carrier (WS7 seam). The string is
+   * adopter vocabulary (e.g. `"OWNER"` / `"MANAGER"` / `"ATTENDANT"`) — the
+   * kernel assigns it NO meaning, enforces NO enum, and consults it in NO
+   * built-in guard. It is orthogonal to BOTH the provenance `principal`
+   * (who mechanically proposed: llm/user/system) AND the authority graph's
+   * identity binding (which resource an identity owns): `role` is the
+   * adopter's organizational-authorization axis. Adopter packs may write
+   * role-aware guards that read it via `envelope.actor.role` (e.g. an
+   * OWNER/MANAGER/ATTENDANT × intent-kind matrix).
+   *
+   * Canonical-drop-safe: absent (or explicitly `undefined`) it is dropped
+   * by `@adjudicate/canonical` before hashing — mirroring `attestation` and
+   * `resourceRefs` — so an envelope WITHOUT `role` hashes byte-identically
+   * to pre-change envelopes (no golden-vector / replay drift). When PRESENT
+   * it is bound into `intentHash` via `actor`, so a post-decision role swap
+   * is tamper-evident.
+   */
+  readonly role?: string;
+  /**
    * Reserved seam for v0.2 actor attestation. v0.1 envelopes omit this
    * field — absent `attestation` is canonical-JSON-dropped and does NOT
    * alter the intentHash. A future policy slot (`Pack.verifyActorAttestation`)
@@ -499,6 +518,12 @@ export function isIntentEnvelope(value: unknown): value is IntentEnvelope {
       v.actor.principal === "user" ||
       v.actor.principal === "system") &&
     typeof v.actor.sessionId === "string" &&
+    // WS7 — `actor.role` is OPTIONAL (canonical-drop-safe, opaque adopter
+    // vocabulary). Absent stays valid; when PRESENT it must be a non-empty
+    // string (an empty/non-string role would let a malformed carrier slide
+    // into role-aware pack guards).
+    (v.actor.role === undefined ||
+      (typeof v.actor.role === "string" && v.actor.role.length > 0)) &&
     (v.taint === "SYSTEM" || v.taint === "TRUSTED" || v.taint === "UNTRUSTED") &&
     (v.origin === "Human" ||
       v.origin === "Retrieved" ||

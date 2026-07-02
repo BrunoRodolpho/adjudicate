@@ -306,6 +306,13 @@ export async function translateDecision<K extends string, P, S, H>(
           nonce: ctx.envelope.nonce,
           taint: ctx.envelope.taint,
           actorPrincipal: ctx.envelope.actor.principal,
+          // WS7 — `actor.role` is part of the intentHash recipe WHEN the
+          // envelope carries it (bound via `actor`), and canonical-drop-safe
+          // like `resourceRefs`: forwarded UNCONDITIONALLY so a role-carrying
+          // DEFER re-derives its stored hash on resume instead of
+          // false-tampering. A no-role envelope carries it as `undefined`,
+          // which is dropped — no hash drift.
+          actorRole: ctx.envelope.actor.role,
           origin: ctx.envelope.origin,
           // H2 — `resourceRefs` (031) is also part of the intentHash recipe and
           // is canonical-drop-safe: forwarded UNCONDITIONALLY so a resource-bound

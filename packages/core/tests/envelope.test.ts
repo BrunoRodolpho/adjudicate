@@ -38,6 +38,74 @@ describe("IntentActor.attestation — reserved v0.2 seam (AuthReviewer-002)", ()
 });
 
 /**
+ * WS7 — `IntentActor.role` is an OPTIONAL, OPAQUE adopter role carrier.
+ *
+ * Hash-compat contract: like `attestation` (and `resourceRefs`), it is
+ * canonical-drop-safe — `canonicalize()` drops `undefined` fields, so an
+ * envelope whose `actor.role` is explicitly `undefined` MUST hash
+ * byte-identically to the same envelope built before the field existed
+ * (determinism fence: adding the seam changes NO existing intentHash — the
+ * untouched golden/replay vectors are the corpus-level proof). A PRESENT
+ * role IS bound into `intentHash` via `actor`, so a post-decision role swap
+ * is tamper-evident.
+ */
+describe("IntentActor.role — opaque adopter role carrier (WS7)", () => {
+  const base = {
+    kind: "test",
+    payload: {},
+    taint: "UNTRUSTED" as const,
+    nonce: "n-role-1",
+  };
+
+  it("role: undefined is canonical-dropped from intentHash (no hash change vs pre-field envelopes)", () => {
+    const withoutRole = buildEnvelope({
+      ...base,
+      actor: { principal: "user", sessionId: "s1" },
+    });
+    const withUndefinedRole = {
+      ...withoutRole,
+      actor: { ...withoutRole.actor, role: undefined },
+    };
+    // intentHash must be byte-identical: `role: undefined` ≡ absent ≡ pre-change.
+    expect(deriveIntentHash(withUndefinedRole)).toBe(withoutRole.intentHash);
+    // Building with an explicitly-undefined role also mints the same hash.
+    const builtWithUndefinedRole = buildEnvelope({
+      ...base,
+      actor: { principal: "user", sessionId: "s1", role: undefined },
+    });
+    expect(builtWithUndefinedRole.intentHash).toBe(withoutRole.intentHash);
+  });
+
+  it("a PRESENT role binds into intentHash (different hash than without — tamper-evident)", () => {
+    const withoutRole = buildEnvelope({
+      ...base,
+      actor: { principal: "user", sessionId: "s1" },
+    });
+    const withRole = buildEnvelope({
+      ...base,
+      actor: { principal: "user", sessionId: "s1", role: "MANAGER" },
+    });
+    expect(withRole.intentHash).not.toBe(withoutRole.intentHash);
+    // Non-vacuous: the role-carrying envelope re-derives its OWN hash…
+    expect(deriveIntentHash(withRole)).toBe(withRole.intentHash);
+    // …and a post-decision role swap re-derives a DIFFERENT hash (caught by
+    // the kernel's content-addressing / resource-binding fences).
+    const swapped = {
+      ...withRole,
+      actor: { ...withRole.actor, role: "OWNER" },
+    };
+    expect(deriveIntentHash(swapped)).not.toBe(withRole.intentHash);
+  });
+
+  it("buildEnvelope passes the actor through VERBATIM (role intact on the built envelope)", () => {
+    const actor = { principal: "user", sessionId: "s1", role: "ATTENDANT" } as const;
+    const env = buildEnvelope({ ...base, actor });
+    expect(env.actor).toBe(actor); // same reference — no field-by-field rebuild
+    expect(env.actor.role).toBe("ATTENDANT");
+  });
+});
+
+/**
  * Nonce reconciliation (022 T3) — `reconcileNonceHash` re-derives the
  * nonce-bound intentHash via the UNTOUCHED `intentHashInput` recipe and compares
  * it constant-time. The single-use burn store (022) keys redemption on this, so

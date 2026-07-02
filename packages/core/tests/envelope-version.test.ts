@@ -98,6 +98,43 @@ describe("IntentEnvelope — version gating", () => {
     expect(isIntentEnvelope({ ...env, debug: "extra" })).toBe(false);
   });
 
+  // WS7 — actor.role is OPTIONAL (opaque adopter vocabulary): absent stays
+  // valid; when present it must be a NON-EMPTY string.
+  it("isIntentEnvelope accepts an envelope whose actor has NO role (drop-safe)", () => {
+    const env = buildEnvelope(baseline);
+    expect("role" in env.actor).toBe(false);
+    expect(isIntentEnvelope(env)).toBe(true);
+  });
+
+  it("isIntentEnvelope accepts an envelope whose actor carries a role", () => {
+    const env = buildEnvelope({
+      ...baseline,
+      actor: { ...baseline.actor, role: "MANAGER" },
+    });
+    expect(isIntentEnvelope(env)).toBe(true);
+  });
+
+  it("isIntentEnvelope rejects an empty-string role", () => {
+    const env = buildEnvelope({
+      ...baseline,
+      actor: { ...baseline.actor, role: "" },
+    });
+    expect(isIntentEnvelope(env)).toBe(false);
+  });
+
+  it("isIntentEnvelope rejects a non-string role", () => {
+    const env = buildEnvelope(baseline);
+    expect(
+      isIntentEnvelope({ ...env, actor: { ...env.actor, role: 42 } }),
+    ).toBe(false);
+    expect(
+      isIntentEnvelope({ ...env, actor: { ...env.actor, role: null } }),
+    ).toBe(false);
+    expect(
+      isIntentEnvelope({ ...env, actor: { ...env.actor, role: ["MANAGER"] } }),
+    ).toBe(false);
+  });
+
   it("hasUnknownEnvelopeVersion identifies version-shaped objects with wrong version", () => {
     expect(hasUnknownEnvelopeVersion({ version: 999 })).toBe(true);
     expect(hasUnknownEnvelopeVersion({ version: 1 })).toBe(true); // v1 envelopes are now legacy

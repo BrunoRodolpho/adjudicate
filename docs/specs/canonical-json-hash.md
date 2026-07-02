@@ -77,7 +77,7 @@ Given an `IntentEnvelope`, the hash input is the **subset**:
   kind:    <string>,
   payload: <JSON value>,
   nonce:   <string>,
-  actor:   { principal: <string>, sessionId: <string> },
+  actor:   { principal: <string>, role?: <string>, sessionId: <string> },
   taint:   <"SYSTEM" | "TRUSTED" | "UNTRUSTED">
 }
 ```
@@ -108,6 +108,16 @@ the declared owner is tamper-evident (the LLM cannot post-hoc flip it). See the
 [`canonical-hash-vectors.json`](./canonical-hash-vectors.json) and
 `envelope-with-resource-refs` in
 [`packages/canonical/golden-vectors.json`](../../packages/canonical/golden-vectors.json).
+
+**WS7 — `actor.role` (canonical-drop-safe).** The optional staff-role carrier
+`actor.role` (an opaque adopter-vocabulary string, e.g. `"MANAGER"`) is bound
+into the pre-image **only when present**, exactly like 031's `resourceRefs`:
+an envelope without a role (or with the field explicitly `undefined`) omits
+the key inside `actor` and hashes IDENTICALLY to its pre-WS7 value, so no
+historical / cross-version hash drifts. When present, the role IS bound, so a
+post-decision role swap is tamper-evident (a staff-band envelope cannot be
+re-labeled). See the `v12-actor-role-dropped` / `v13-actor-role-bound` golden
+vectors in [`canonical-hash-vectors.json`](./canonical-hash-vectors.json).
 
 ### 2.4 Digest
 

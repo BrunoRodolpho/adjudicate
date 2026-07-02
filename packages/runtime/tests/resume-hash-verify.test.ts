@@ -561,6 +561,30 @@ describe("H2 — resource-bound DEFER resume includes resourceRefs in the verifi
     expect(result.intentHash).toBe(RES_ENVELOPE.intentHash)
   })
 
+  it("no-regression (WS7): a NO-role blob still verifies byte-identically", () => {
+    // ENVELOPE has no actor.role. The verifier reconstructs the actor with
+    // `role: e.actorRole` (undefined here), which canonicalize drops — so the
+    // derived hash is byte-identical to the pre-role verifier and this blob
+    // must STILL verify (no golden-vector regression).
+    const parked: ParkedEnvelope = {
+      envelope: {
+        intentHash: ENVELOPE.intentHash,
+        kind: ENVELOPE.kind,
+        actor: { sessionId: ENVELOPE.actor.sessionId },
+        payload: ENVELOPE.payload,
+        version: ENVELOPE.version,
+        nonce: ENVELOPE.nonce,
+        taint: ENVELOPE.taint,
+        actorPrincipal: ENVELOPE.actor.principal,
+        origin: ENVELOPE.origin,
+        // actorRole intentionally absent
+      },
+      signal: "any",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    expect(verifyParkedEnvelopeHash(parked).verified).toBe(true)
+  })
+
   it("no-regression: a NO-resourceRefs blob still verifies byte-identically", () => {
     // ENVELOPE has no resourceRefs. Passing `resourceRefs: undefined` is
     // canonical-dropped, so the derived hash is byte-identical to the pre-fix
@@ -594,5 +618,163 @@ describe("H2 — resource-bound DEFER resume includes resourceRefs in the verifi
       resourceRefs: undefined,
     })
     expect(derivedNoRefs).toBe(ENVELOPE.intentHash)
+  })
+})
+
+/**
+ * WS7 — a role-CARRYING envelope (`actor.role`, the opaque adopter role
+ * carrier) binds the role into `intentHash` via `actor`, so the parked blob
+ * MUST store it (`actorRole`) and the verifier MUST re-derive with it —
+ * otherwise every role-carrying resume false-tampers (`park_blob_tampered`),
+ * exactly the 031/H2 failure mode replayed on the actor axis.
+ *
+ * Non-vacuity: `ROLE_ENVELOPE` carries a role, so its `intentHash` differs
+ * from the no-role envelope's; a re-derivation that DROPS the role derives
+ * the no-role hash and fails.
+ */
+const ROLE_ENVELOPE = buildEnvelope({
+  kind: "pix.charge.create",
+  payload: { amountCentavos: 1000 },
+  actor: { principal: "user" as const, sessionId: "s-role", role: "MANAGER" },
+  taint: "UNTRUSTED" as const,
+  nonce: "fixed-nonce-role-001",
+})
+
+describe("WS7 — role-carrying DEFER park/resume round-trips with an identical intentHash", () => {
+  it("non-vacuity guard: carrying actor.role changes the intentHash", () => {
+    const noRole = buildEnvelope({
+      kind: "pix.charge.create",
+      payload: { amountCentavos: 1000 },
+      actor: { principal: "user" as const, sessionId: "s-role" },
+      taint: "UNTRUSTED" as const,
+      nonce: "fixed-nonce-role-001",
+    })
+    expect(ROLE_ENVELOPE.intentHash).not.toBe(noRole.intentHash)
+    // The verifier's recipe (role threaded through the actor) reproduces it.
+    const derivedWithRole = sha256Canonical({
+      version: ROLE_ENVELOPE.version,
+      kind: ROLE_ENVELOPE.kind,
+      payload: ROLE_ENVELOPE.payload,
+      nonce: ROLE_ENVELOPE.nonce,
+      actor: ROLE_ENVELOPE.actor,
+      taint: ROLE_ENVELOPE.taint,
+      origin: ROLE_ENVELOPE.origin,
+    })
+    expect(derivedWithRole).toBe(ROLE_ENVELOPE.intentHash)
+    // …and the recipe that DROPS the role (a verifier that failed to thread
+    // `actorRole`) does NOT — it would false-tamper this resume.
+    const derivedWithoutRole = sha256Canonical({
+      version: ROLE_ENVELOPE.version,
+      kind: ROLE_ENVELOPE.kind,
+      payload: ROLE_ENVELOPE.payload,
+      nonce: ROLE_ENVELOPE.nonce,
+      actor: {
+        principal: ROLE_ENVELOPE.actor.principal,
+        sessionId: ROLE_ENVELOPE.actor.sessionId,
+      },
+      taint: ROLE_ENVELOPE.taint,
+      origin: ROLE_ENVELOPE.origin,
+    })
+    expect(derivedWithoutRole).not.toBe(ROLE_ENVELOPE.intentHash)
+  })
+
+  it("verifyParkedEnvelopeHash verifies a role-carrying blob (not tampered)", () => {
+    const parked: ParkedEnvelope = {
+      envelope: {
+        intentHash: ROLE_ENVELOPE.intentHash,
+        kind: ROLE_ENVELOPE.kind,
+        actor: { sessionId: ROLE_ENVELOPE.actor.sessionId },
+        payload: ROLE_ENVELOPE.payload,
+        version: ROLE_ENVELOPE.version,
+        nonce: ROLE_ENVELOPE.nonce,
+        taint: ROLE_ENVELOPE.taint,
+        actorPrincipal: ROLE_ENVELOPE.actor.principal,
+        actorRole: ROLE_ENVELOPE.actor.role,
+        origin: ROLE_ENVELOPE.origin,
+      },
+      signal: "pix.confirmed",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    expect(verifyParkedEnvelopeHash(parked).verified).toBe(true)
+  })
+
+  it("a role-carrying blob that DROPPED actorRole false-tampers (the trap this seam closes)", () => {
+    const parked: ParkedEnvelope = {
+      envelope: {
+        intentHash: ROLE_ENVELOPE.intentHash,
+        kind: ROLE_ENVELOPE.kind,
+        actor: { sessionId: ROLE_ENVELOPE.actor.sessionId },
+        payload: ROLE_ENVELOPE.payload,
+        version: ROLE_ENVELOPE.version,
+        nonce: ROLE_ENVELOPE.nonce,
+        taint: ROLE_ENVELOPE.taint,
+        actorPrincipal: ROLE_ENVELOPE.actor.principal,
+        // actorRole NOT stored — the park side failed to thread it
+        origin: ROLE_ENVELOPE.origin,
+      },
+      signal: "pix.confirmed",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    const v = verifyParkedEnvelopeHash(parked)
+    expect(v.verified).toBe(false)
+    if (v.verified === false) expect(v.reason).toBe("tampered")
+  })
+
+  it("a SWAPPED actorRole in the blob is tamper-evident", () => {
+    const parked: ParkedEnvelope = {
+      envelope: {
+        intentHash: ROLE_ENVELOPE.intentHash,
+        kind: ROLE_ENVELOPE.kind,
+        actor: { sessionId: ROLE_ENVELOPE.actor.sessionId },
+        payload: ROLE_ENVELOPE.payload,
+        version: ROLE_ENVELOPE.version,
+        nonce: ROLE_ENVELOPE.nonce,
+        taint: ROLE_ENVELOPE.taint,
+        actorPrincipal: ROLE_ENVELOPE.actor.principal,
+        actorRole: "OWNER", // parked as MANAGER; swapped in Redis
+        origin: ROLE_ENVELOPE.origin,
+      },
+      signal: "pix.confirmed",
+      parkedAt: "2024-01-01T00:00:00.000Z",
+    }
+    expect(verifyParkedEnvelopeHash(parked).verified).toBe(false)
+  })
+
+  it("strict park → resume round-trip with a role resumes with the IDENTICAL intentHash and the role intact", async () => {
+    const redis = createMemoryRedis()
+    const parkResult = await parkDeferredIntent({
+      envelope: {
+        intentHash: ROLE_ENVELOPE.intentHash,
+        kind: ROLE_ENVELOPE.kind,
+        actor: { sessionId: ROLE_ENVELOPE.actor.sessionId },
+        payload: ROLE_ENVELOPE.payload,
+        version: ROLE_ENVELOPE.version,
+        nonce: ROLE_ENVELOPE.nonce,
+        taint: ROLE_ENVELOPE.taint,
+        actorPrincipal: ROLE_ENVELOPE.actor.principal,
+        actorRole: ROLE_ENVELOPE.actor.role,
+        origin: ROLE_ENVELOPE.origin,
+      },
+      signal: "pix.confirmed",
+      ttlSeconds: 600,
+      redis,
+      rk: RK,
+    })
+    expect(parkResult.parked).toBe(true)
+
+    const result = await resumeDeferredIntent({
+      sessionId: ROLE_ENVELOPE.actor.sessionId,
+      signal: "pix.confirmed",
+      redis,
+      rk: RK,
+      verifyHash: "strict",
+    })
+    // Without the actorRole threading this is { resumed:false,
+    // reason:"park_blob_tampered" } — a legitimate resume false-flagged.
+    expect(result.resumed).toBe(true)
+    expect(result.reason).toBeUndefined()
+    expect(result.intentHash).toBe(ROLE_ENVELOPE.intentHash)
+    // The role rides the parked blob intact for downstream consumers.
+    expect(result.parked?.envelope.actorRole).toBe("MANAGER")
   })
 })

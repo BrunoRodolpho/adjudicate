@@ -178,6 +178,34 @@
       "expectedHash": "4b20fc314bc4856ca615ddd6bb66b3c7da2ca3818d296dcfa82386d9c4eda08c"
     },
     {
+      "label": "v12-actor-role-dropped",
+      "category": "envelope",
+      "notes": "WS7 drop-safety baseline — the SAME envelope WITHOUT actor.role. An envelope built with role absent (or explicitly undefined) MUST canonical-drop the key, so this hash equals what every pre-WS7 implementation already produces for a role-free envelope. The v13 vector below is this object PLUS actor.role; it MUST differ.",
+      "input": {
+        "version": 2,
+        "kind": "pix.charge.refund",
+        "payload": { "chargeId": "chg_1", "amount": 100 },
+        "nonce": "n-golden-12",
+        "actor": { "principal": "user", "sessionId": "s-golden-12" },
+        "taint": "TRUSTED"
+      },
+      "expectedHash": "2651ecc278e8b8f35ff8ef5974f6498f6b479edadae779c803609dc4149e8551"
+    },
+    {
+      "label": "v13-actor-role-bound",
+      "category": "envelope",
+      "notes": "WS7 — actor.role PRESENT is bound into the hash (a post-decision role swap is tamper-evident; a staff-band envelope cannot be re-labeled). Same envelope as v12 plus actor.role \"MANAGER\"; MUST hash differently from v12. role is an opaque adopter-vocabulary string, canonicalized inside actor like any other key. A role-free envelope drops the key entirely (see v12).",
+      "input": {
+        "version": 2,
+        "kind": "pix.charge.refund",
+        "payload": { "chargeId": "chg_1", "amount": 100 },
+        "nonce": "n-golden-12",
+        "actor": { "principal": "user", "role": "MANAGER", "sessionId": "s-golden-12" },
+        "taint": "TRUSTED"
+      },
+      "expectedHash": "d17d5780c5b1ae8c9947a065cbf96af06a607c09779364241708f946c134f266"
+    },
+    {
       "label": "audit-v4-execute",
       "category": "audit-record-subset",
       "notes": "Canonical AuditRecord v4 hash subset for an EXECUTE decision. The subset is the record minus {auditHash, signature}; see packages/core/src/audit.ts. Cross-runtime audit verification MUST hash this subset to the listed digest.",

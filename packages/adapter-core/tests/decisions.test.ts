@@ -14,6 +14,7 @@ import {
   type IntentEnvelope,
   type TaintPolicy,
 } from "@adjudicate/core";
+import { verifyParkedEnvelopeHash } from "@adjudicate/runtime";
 import {
   readAuthorizationPolicy,
   routeReadThroughKernel,
@@ -214,6 +215,40 @@ describe("translateDecision (adapter-core)", () => {
     expect(parked.envelope.intentHash).toBe(envelope.intentHash);
     expect(parked.signal).toBe("payment.confirmed");
     expect(ctx.executor.invokeIntent).not.toHaveBeenCalled();
+  });
+
+  it("DEFER on a role-carrying envelope → parks actorRole so the resume re-derivation matches (WS7)", async () => {
+    // `actor.role` is bound into the intentHash via `actor` when present, so
+    // the park projection MUST store it (`actorRole`) — otherwise the resume
+    // side re-derives the no-role hash and false-tampers a legitimate resume
+    // (the 031/H2 failure mode replayed on the actor axis).
+    const roleEnvelope: IntentEnvelope<"pix.charge.refund", Payload> =
+      buildEnvelope({
+        kind: "pix.charge.refund",
+        payload: { amountCentavos: 5000 },
+        nonce: "n-role-1",
+        actor: { principal: "user", sessionId: "s-1", role: "MANAGER" },
+        taint: "UNTRUSTED",
+        createdAt: "2026-04-29T12:00:00.000Z",
+      });
+    const ctx = buildContext();
+    const t = await translateDecision({
+      ...ctx,
+      envelope: roleEnvelope,
+      decision: decisionDefer("payment.confirmed", 15 * 60 * 1000, []),
+    });
+    expect(t.loopAction).toEqual({
+      kind: "pause_for_defer",
+      signal: "payment.confirmed",
+      intentHash: roleEnvelope.intentHash,
+    });
+    const parkedRaw = await ctx.deferStore.get("defer:pending:s-1");
+    expect(parkedRaw).not.toBeNull();
+    const parked = JSON.parse(parkedRaw as string);
+    // The role rides the blob…
+    expect(parked.envelope.actorRole).toBe("MANAGER");
+    // …and the resume-side verifier re-derives the IDENTICAL intentHash.
+    expect(verifyParkedEnvelopeHash(parked).verified).toBe(true);
   });
 
   it("EXECUTE with throwing executor → isError tool_result, loop continues", async () => {

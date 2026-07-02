@@ -49,6 +49,17 @@ export interface ParkedEnvelope {
     readonly taint?: Taint
     readonly actorPrincipal?: IntentActor["principal"]
     /**
+     * WS7 — the OPTIONAL, opaque `actor.role` carrier. Part of the
+     * intentHash recipe WHEN present (bound via `actor`), BUT
+     * canonical-drop-safe exactly like `resourceRefs`: the re-derivation
+     * below passes it as `role: e.actorRole`, which `canonicalize` omits
+     * when `undefined` — so a no-role blob re-derives BYTE-IDENTICALLY (no
+     * golden-vector drift), while a role-CARRYING blob MUST store it or the
+     * resume re-derivation false-tampers (`park_blob_tampered`) a
+     * legitimate resume.
+     */
+    readonly actorRole?: IntentActor["role"]
+    /**
      * 041 hash-verification field. Part of the intentHash recipe since plan
      * 041, so post-041 parked blobs MUST carry it for verification to
      * re-derive byte-identically. Absence (alongside the other fields) puts
@@ -122,7 +133,15 @@ export function verifyParkedEnvelopeHash(parked: ParkedEnvelope): ParkVerificati
     kind: e.kind,
     payload: e.payload,
     nonce: e.nonce,
-    actor: { principal: e.actorPrincipal, sessionId: e.actor.sessionId },
+    // WS7 — `role` is passed UNCONDITIONALLY, mirroring `resourceRefs`
+    // below: canonical-drop-safe when `undefined` (a no-role blob's actor
+    // canonicalizes byte-identically to pre-role blobs), and REQUIRED for a
+    // role-carrying blob to re-derive the hash `buildEnvelope` bound.
+    actor: {
+      principal: e.actorPrincipal,
+      sessionId: e.actor.sessionId,
+      role: e.actorRole,
+    },
     taint: e.taint,
     origin: e.origin,
     // H2 — `resourceRefs` is part of the intentHash recipe (031) and MUST be

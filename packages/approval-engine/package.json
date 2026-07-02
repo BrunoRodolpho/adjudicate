@@ -1,6 +1,6 @@
 {
   "name": "@adjudicate/approval-engine",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Reference human-approval orchestration for REQUEST_CONFIRMATION flows — pluggable channels (webhook, Slack, Teams, email) + a replay-safe resume via adapter-core confirm().",
   "publishConfig": {
     "access": "public"

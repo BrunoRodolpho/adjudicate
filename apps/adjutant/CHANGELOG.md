@@ -1,5 +1,18 @@
 # @adjudicate/adjutant-console
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [e650c37]
+  - @adjudicate/core@1.9.0
+  - @adjudicate/adapter-core@0.4.4
+  - @adjudicate/adjutant@0.2.4
+  - @adjudicate/admin-sdk@8.0.0
+  - @adjudicate/approval-engine@0.3.4
+  - @adjudicate/audit@8.0.0
+  - @adjudicate/pack-incident-response@0.3.4
+
 ## 0.1.5
 
 ### Patch Changes

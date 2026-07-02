@@ -1,5 +1,14 @@
 # @adjudicate/bench
 
+## 0.0.10
+
+### Patch Changes
+
+- Updated dependencies [e650c37]
+  - @adjudicate/core@1.9.0
+  - @adjudicate/audit@8.0.0
+  - @adjudicate/pack-payments-pix@0.3.4
+
 ## 0.0.9
 
 ### Patch Changes

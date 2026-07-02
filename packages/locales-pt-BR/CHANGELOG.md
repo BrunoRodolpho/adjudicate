@@ -1,5 +1,12 @@
 # @adjudicate/locales-pt-BR
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [e650c37]
+  - @adjudicate/core@1.9.0
+
 ## 0.2.6
 
 ### Patch Changes

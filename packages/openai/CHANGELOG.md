@@ -1,5 +1,15 @@
 # @adjudicate/openai
 
+## 0.3.7
+
+### Patch Changes
+
+- Updated dependencies [e650c37]
+  - @adjudicate/core@1.9.0
+  - @adjudicate/runtime@0.4.0
+  - @adjudicate/adapter-core@0.4.4
+  - @adjudicate/audit@8.0.0
+
 ## 0.3.6
 
 ### Patch Changes
